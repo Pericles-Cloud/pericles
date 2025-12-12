@@ -1,0 +1,381 @@
+---
+description: "Comprehensive minimist standards for command-line argument parsing, validation, help generation, and CLI tool development following modern CLI best practices"
+globs: ["**/*.{js,ts,mjs,cjs}", "**/cli/**/*.{js,ts}", "**/bin/**/*.{js,ts}", "**/*.json"]
+alwaysApply: false
+---
+
+<rule>
+  <meta>
+    <title>Minimist Argument Parsing Standards</title>
+    <description>Comprehensive minimist standards for command-line argument parsing, validation, help generation, and CLI tool development following modern CLI best practices</description>
+    <created-at utc-timestamp="1744400900">January 29, 2025, 3:15 PM</created-at>
+    <last-updated-at utc-timestamp="1744400900">January 29, 2025, 3:15 PM</last-updated-at>
+    <applies-to>
+      <file-matcher glob="**/*.{js,ts,mjs,cjs}">JavaScript and TypeScript files using minimist</file-matcher>
+      <file-matcher glob="**/cli/**/*.{js,ts}">CLI tools and command-line interfaces</file-matcher>
+      <action-matcher action="cli-development">Triggered when developing CLI tools with argument parsing</action-matcher>
+    </applies-to>
+  </meta>
+
+  <requirements>
+    <non-negotiable priority="critical">
+      <description>Use minimist with proper argument validation, type coercion, and comprehensive help documentation while following CLI conventions and best practices.</description>
+      <examples>
+        <example title="Secure Argument Parsing">
+          <correct-example title="Comprehensive minimist with validation" conditions="Building CLI tools with argument parsing" expected-result="Type-safe and validated CLI argument handling" correctness-criteria="Validates arguments, provides help, handles errors, follows CLI conventions"><![CDATA[// cli/parser.ts
+import minimist from 'minimist'
+import { z } from 'zod'
+
+interface CLIOptions {
+  // File operations
+  input?: string
+  output?: string
+  config?: string
+  
+  // Build options
+  mode?: 'development' | 'production' | 'test'
+  target?: 'web' | 'node' | 'both'
+  
+  // Feature flags
+  watch?: boolean
+  verbose?: boolean
+  quiet?: boolean
+  dry?: boolean
+  
+  // Advanced options
+  port?: number
+  host?: string
+  timeout?: number
+  
+  // Help and version
+  help?: boolean
+  version?: boolean
+}
+
+const argumentSchema = z.object({
+  // String arguments
+  input: z.string().optional(),
+  output: z.string().optional(),
+  config: z.string().optional(),
+  mode: z.enum(['development', 'production', 'test']).optional(),
+  target: z.enum(['web', 'node', 'both']).optional(),
+  host: z.string().optional(),
+  
+  // Numeric arguments
+  port: z.number().min(1000).max(65535).optional(),
+  timeout: z.number().min(1000).max(300000).optional(),
+  
+  // Boolean flags
+  watch: z.boolean().optional(),
+  verbose: z.boolean().optional(),
+  quiet: z.boolean().optional(),
+  dry: z.boolean().optional(),
+  help: z.boolean().optional(),
+  version: z.boolean().optional(),
+  
+  // Positional arguments
+  _: z.array(z.string()),
+})
+
+export class ArgumentParser {
+  private options: minimist.ParsedArgs
+  private validatedArgs: z.infer<typeof argumentSchema>
+
+  constructor() {
+    this.options = minimist(process.argv.slice(2), {
+      string: ['input', 'output', 'config', 'mode', 'target', 'host'],
+      boolean: ['watch', 'verbose', 'quiet', 'dry', 'help', 'version'],
+      alias: {
+        i: 'input',
+        o: 'output',
+        c: 'config',
+        m: 'mode',
+        t: 'target',
+        w: 'watch',
+        v: 'verbose',
+        q: 'quiet',
+        d: 'dry',
+        h: 'help',
+        V: 'version',
+        p: 'port',
+        H: 'host'
+      },
+      default: {
+        mode: 'development',
+        target: 'web',
+        port: 3000,
+        host: 'localhost',
+        timeout: 30000
+      }
+    })
+
+    this.validateArguments()
+  }
+
+  private validateArguments(): void {
+    try {
+      this.validatedArgs = argumentSchema.parse(this.options)
+    } catch (error) {
+      if (error instanceof z.ZodError) {
+        console.error('❌ Invalid arguments:')
+        error.errors.forEach(err => {
+          console.error(`  --${err.path.join('.')}: ${err.message}`)
+        })
+        this.showHelp()
+        process.exit(1)
+      }
+      throw error
+    }
+  }
+
+  getOptions(): CLIOptions {
+    return this.validatedArgs
+  }
+
+  getPositionalArgs(): string[] {
+    return this.validatedArgs._
+  }
+
+  shouldShowHelp(): boolean {
+    return Boolean(this.validatedArgs.help)
+  }
+
+  shouldShowVersion(): boolean {
+    return Boolean(this.validatedArgs.version)
+  }
+
+  showHelp(): void {
+    const help = `
+Usage: myapp [options] [files...]
+
+Options:
+  -i, --input <file>     Input file or directory
+  -o, --output <dir>     Output directory (default: ./dist)
+  -c, --config <file>    Configuration file
+  -m, --mode <mode>      Build mode: development, production, test (default: development)
+  -t, --target <target>  Build target: web, node, both (default: web)
+  
+  -p, --port <number>    Server port (default: 3000)
+  -H, --host <string>    Server host (default: localhost)
+      --timeout <ms>     Request timeout in milliseconds (default: 30000)
+
+  -w, --watch           Watch for file changes
+  -v, --verbose         Enable verbose logging
+  -q, --quiet           Suppress output
+  -d, --dry             Dry run without making changes
+
+  -h, --help            Show this help message
+  -V, --version         Show version number
+
+Examples:
+  myapp --input src/ --output dist/
+  myapp --mode production --target both
+  myapp --watch --verbose src/index.js
+  myapp --config custom.config.js --dry
+`
+    console.log(help.trim())
+  }
+
+  showVersion(): void {
+    const packageJson = require('../package.json')
+    console.log(`${packageJson.name} v${packageJson.version}`)
+  }
+}
+
+// Advanced CLI with subcommands
+// cli/advanced-parser.ts
+export class AdvancedCLIParser {
+  private command: string
+  private args: minimist.ParsedArgs
+
+  constructor() {
+    this.args = minimist(process.argv.slice(2))
+    this.command = this.args._[0] || 'help'
+  }
+
+  async execute(): Promise<void> {
+    switch (this.command) {
+      case 'build':
+        await this.handleBuild()
+        break
+      case 'dev':
+      case 'serve':
+        await this.handleDev()
+        break
+      case 'test':
+        await this.handleTest()
+        break
+      case 'deploy':
+        await this.handleDeploy()
+        break
+      case 'init':
+        await this.handleInit()
+        break
+      case 'version':
+        this.showVersion()
+        break
+      case 'help':
+      default:
+        this.showHelp()
+        break
+    }
+  }
+
+  private async handleBuild(): Promise<void> {
+    const buildArgs = minimist(process.argv.slice(3), {
+      string: ['output', 'target'],
+      boolean: ['watch', 'analyze'],
+      alias: { o: 'output', t: 'target', w: 'watch', a: 'analyze' },
+      default: { target: 'production', output: './dist' }
+    })
+
+    console.log('🏗️  Building application...')
+    console.log('Options:', buildArgs)
+  }
+
+  private async handleDev(): Promise<void> {
+    const devArgs = minimist(process.argv.slice(3), {
+      string: ['host', 'port'],
+      boolean: ['open', 'https'],
+      alias: { H: 'host', p: 'port', o: 'open' },
+      default: { host: 'localhost', port: '3000' }
+    })
+
+    console.log('🚀 Starting development server...')
+    console.log('Options:', devArgs)
+  }
+
+  private showHelp(): void {
+    console.log(`
+Usage: myapp <command> [options]
+
+Commands:
+  build     Build the application for production
+  dev       Start development server
+  test      Run tests
+  deploy    Deploy to specified environment
+  init      Initialize new project
+  version   Show version information
+  help      Show this help message
+
+Run 'myapp <command> --help' for more information on a command.
+`)
+  }
+}
+
+// Usage examples
+// bin/myapp.js
+#!/usr/bin/env node
+import { ArgumentParser } from '../cli/parser.js'
+
+async function main() {
+  const parser = new ArgumentParser()
+  
+  if (parser.shouldShowHelp()) {
+    parser.showHelp()
+    process.exit(0)
+  }
+
+  if (parser.shouldShowVersion()) {
+    parser.showVersion()
+    process.exit(0)
+  }
+
+  const options = parser.getOptions()
+  const files = parser.getPositionalArgs()
+
+  try {
+    await processFiles(files, options)
+  } catch (error) {
+    console.error('❌ Error:', error.message)
+    process.exit(1)
+  }
+}
+
+main().catch(console.error)
+
+// Type-safe argument handling
+// utils/cli-helpers.ts
+export function requirePositionalArg(args: string[], index: number, name: string): string {
+  const arg = args[index]
+  if (!arg) {
+    throw new Error(`Missing required argument: ${name}`)
+  }
+  return arg
+}
+
+export function validateEnum<T extends string>(
+  value: string | undefined,
+  validValues: T[],
+  defaultValue: T,
+  argName: string
+): T {
+  if (!value) return defaultValue
+  
+  if (!validValues.includes(value as T)) {
+    throw new Error(
+      `Invalid ${argName}: ${value}. Valid options: ${validValues.join(', ')}`
+    )
+  }
+  
+  return value as T
+}
+
+export function validatePort(port: number | string | undefined, defaultPort: number): number {
+  if (!port) return defaultPort
+  
+  const numPort = typeof port === 'string' ? parseInt(port, 10) : port
+  
+  if (isNaN(numPort) || numPort < 1000 || numPort > 65535) {
+    throw new Error(`Invalid port: ${port}. Must be between 1000 and 65535.`)
+  }
+  
+  return numPort
+}]]></correct-example>
+          <incorrect-example title="Unsafe argument parsing" conditions="Building CLI tools" expected-result="Type-safe CLI argument handling" incorrectness-criteria="No validation, security issues, poor error handling, no help documentation"><![CDATA[// Bad: No validation or error handling
+import minimist from 'minimist'
+
+// Bad: Direct usage without validation
+const args = minimist(process.argv.slice(2))
+
+// Bad: No type checking
+const port = args.port // Could be anything
+const mode = args.mode // No validation
+
+// Bad: No help or error handling
+if (args.input) {
+  processFile(args.input) // Could be malicious path
+}
+
+// Bad: No argument validation
+function deploy(environment) {
+  // No validation of environment value
+  console.log(`Deploying to ${environment}`)
+}
+
+// Bad: Unsafe file operations
+const outputDir = args.output || './'
+fs.writeFileSync(outputDir + '/result.txt', data) // Path traversal risk]]></incorrect-example>
+        </example>
+      </examples>
+    </non-negotiable>
+  </requirements>
+
+  <context description="Command-line argument parsing considerations">
+    Minimist is a lightweight argument parser for Node.js CLI applications. Proper argument parsing requires validation, type safety, security awareness, and good user experience through clear help documentation and error messages.
+
+    Key considerations for minimist usage:
+    - Validate and sanitize all input arguments
+    - Provide comprehensive help and usage information
+    - Handle errors gracefully with meaningful messages
+    - Follow CLI conventions and standards
+    - Implement proper security measures for file operations
+    - Support common argument patterns and aliases
+  </context>
+
+  <references>
+    <reference as="dependency" href=".cursor/rules/000-core/002-cursor-rules-creation.mdc" reason="Follows standard rule format">Base rule format definition</reference>
+    <reference as="context" href="https://www.npmjs.com/package/minimist" reason="Official minimist documentation">Minimist NPM Package</reference>
+    <reference as="context" href="https://clig.dev/" reason="CLI guidelines">Command Line Interface Guidelines</reference>
+  </references>
+</rule>

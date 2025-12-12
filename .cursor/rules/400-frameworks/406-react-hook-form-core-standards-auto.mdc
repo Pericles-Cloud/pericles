@@ -1,0 +1,731 @@
+---
+description: React Hook Form best practices with TypeScript, validation, and performance optimization
+globs: "*.{ts,tsx,js,jsx}"
+alwaysApply: false
+---
+
+<rule>
+  <meta>
+    <title>React Hook Form Core Standards Auto</title>
+    <description>React Hook Form best practices with TypeScript, validation, and performance optimization</description>
+    <created-at utc-timestamp="1744164480">July 16, 2025, 5:34 PM</created-at>
+    <last-updated-at utc-timestamp="1744164480">July 16, 2025, 5:34 PM</last-updated-at>
+    <applies-to>
+      <file-matcher glob="*.{ts,tsx,js,jsx}">React components and forms using React Hook Form</file-matcher>
+      <action-matcher action="form-development">Triggered when developing forms with React Hook Form</action-matcher>
+    </applies-to>
+  </meta>
+  <requirements>
+    <non-negotiable priority="critical">
+      <description>Use TypeScript interfaces for form data and validation schemas. Implement proper type safety with useForm hook and validation resolvers.</description>
+      <examples>
+        <example title="Type-Safe Form Implementation">
+          <correct-example title="Form with TypeScript and validation" conditions="Creating form with React Hook Form" expected-result="Type-safe form with validation" correctness-criteria="Uses TypeScript interfaces, proper validation schema, type-safe form handling"><![CDATA[// types/forms.ts
+export interface UserRegistrationForm {
+  email: string;
+  password: string;
+  confirmPassword: string;
+  firstName: string;
+  lastName: string;
+  age: number;
+  terms: boolean;
+}
+
+// components/UserRegistrationForm.tsx
+import React from 'react';
+import { useForm, SubmitHandler } from 'react-hook-form';
+import { zodResolver } from '@hookform/resolvers/zod';
+import { z } from 'zod';
+
+const userRegistrationSchema = z.object({
+  email: z.string().email('Invalid email address'),
+  password: z
+    .string()
+    .min(8, 'Password must be at least 8 characters')
+    .regex(/^(?=.*[a-z])(?=.*[A-Z])(?=.*\d)/, 'Password must contain lowercase, uppercase, and number'),
+  confirmPassword: z.string(),
+  firstName: z.string().min(2, 'First name must be at least 2 characters'),
+  lastName: z.string().min(2, 'Last name must be at least 2 characters'),
+  age: z.number().min(18, 'Must be at least 18 years old').max(120, 'Invalid age'),
+  terms: z.boolean().refine((val) => val === true, 'You must accept the terms'),
+}).refine((data) => data.password === data.confirmPassword, {
+  message: "Passwords don't match",
+  path: ["confirmPassword"],
+});
+
+type UserRegistrationFormData = z.infer<typeof userRegistrationSchema>;
+
+interface UserRegistrationFormProps {
+  onSubmit: (data: UserRegistrationFormData) => Promise<void>;
+  isLoading?: boolean;
+}
+
+export const UserRegistrationForm: React.FC<UserRegistrationFormProps> = ({
+  onSubmit,
+  isLoading = false,
+}) => {
+  const {
+    register,
+    handleSubmit,
+    formState: { errors, isSubmitting, isValid, touchedFields },
+    watch,
+    reset,
+    setError,
+  } = useForm<UserRegistrationFormData>({
+    resolver: zodResolver(userRegistrationSchema),
+    mode: 'onTouched',
+    defaultValues: {
+      email: '',
+      password: '',
+      confirmPassword: '',
+      firstName: '',
+      lastName: '',
+      age: 18,
+      terms: false,
+    },
+  });
+
+  const handleFormSubmit: SubmitHandler<UserRegistrationFormData> = async (data) => {
+    try {
+      await onSubmit(data);
+      reset();
+    } catch (error) {
+      setError('root', {
+        message: error instanceof Error ? error.message : 'Registration failed',
+      });
+    }
+  };
+
+  const password = watch('password');
+
+  return (
+    <form onSubmit={handleSubmit(handleFormSubmit)} noValidate>
+      <div>
+        <label htmlFor="email">Email</label>
+        <input
+          id="email"
+          type="email"
+          {...register('email')}
+          aria-invalid={errors.email ? 'true' : 'false'}
+          aria-describedby={errors.email ? 'email-error' : undefined}
+        />
+        {errors.email && (
+          <span id="email-error" role="alert">
+            {errors.email.message}
+          </span>
+        )}
+      </div>
+
+      <div>
+        <label htmlFor="firstName">First Name</label>
+        <input
+          id="firstName"
+          type="text"
+          {...register('firstName')}
+          aria-invalid={errors.firstName ? 'true' : 'false'}
+        />
+        {errors.firstName && (
+          <span role="alert">{errors.firstName.message}</span>
+        )}
+      </div>
+
+      <div>
+        <label htmlFor="lastName">Last Name</label>
+        <input
+          id="lastName"
+          type="text"
+          {...register('lastName')}
+          aria-invalid={errors.lastName ? 'true' : 'false'}
+        />
+        {errors.lastName && (
+          <span role="alert">{errors.lastName.message}</span>
+        )}
+      </div>
+
+      <div>
+        <label htmlFor="age">Age</label>
+        <input
+          id="age"
+          type="number"
+          {...register('age', { valueAsNumber: true })}
+          aria-invalid={errors.age ? 'true' : 'false'}
+        />
+        {errors.age && (
+          <span role="alert">{errors.age.message}</span>
+        )}
+      </div>
+
+      <div>
+        <label htmlFor="password">Password</label>
+        <input
+          id="password"
+          type="password"
+          {...register('password')}
+          aria-invalid={errors.password ? 'true' : 'false'}
+        />
+        {errors.password && (
+          <span role="alert">{errors.password.message}</span>
+        )}
+      </div>
+
+      <div>
+        <label htmlFor="confirmPassword">Confirm Password</label>
+        <input
+          id="confirmPassword"
+          type="password"
+          {...register('confirmPassword')}
+          aria-invalid={errors.confirmPassword ? 'true' : 'false'}
+        />
+        {errors.confirmPassword && (
+          <span role="alert">{errors.confirmPassword.message}</span>
+        )}
+      </div>
+
+      <div>
+        <label>
+          <input
+            type="checkbox"
+            {...register('terms')}
+            aria-invalid={errors.terms ? 'true' : 'false'}
+          />
+          I accept the terms and conditions
+        </label>
+        {errors.terms && (
+          <span role="alert">{errors.terms.message}</span>
+        )}
+      </div>
+
+      {errors.root && (
+        <div role="alert" style={{ color: 'red' }}>
+          {errors.root.message}
+        </div>
+      )}
+
+      <button
+        type="submit"
+        disabled={isSubmitting || isLoading || !isValid}
+      >
+        {isSubmitting || isLoading ? 'Registering...' : 'Register'}
+      </button>
+    </form>
+  );
+};]]></correct-example>
+          <incorrect-example title="Poor form implementation" conditions="Creating form with React Hook Form" expected-result="Type-safe form with validation" incorrectness-criteria="Missing TypeScript types, no validation schema, poor error handling"><![CDATA[// Bad: No TypeScript types or proper validation
+import React from 'react';
+import { useForm } from 'react-hook-form';
+
+export const UserForm = ({ onSubmit }) => { // No TypeScript
+  const { register, handleSubmit } = useForm(); // No type parameters
+
+  return (
+    <form onSubmit={handleSubmit(onSubmit)}> {/* No validation */}
+      <input {...register('email')} /> {/* No validation rules */}
+      <input {...register('password')} />
+      <button type="submit">Submit</button>
+      {/* No error handling */}
+      {/* No accessibility attributes */}
+    </form>
+  );
+};]]></incorrect-example>
+        </example>
+      </examples>
+    </non-negotiable>
+    <requirement priority="critical">
+      <description>Use validation resolvers like Zod, Yup, or Joi for complex validation schemas. Implement field-level and form-level validation with proper error handling.</description>
+      <examples>
+        <example title="Advanced Validation Patterns">
+          <correct-example title="Complex validation with conditional logic" conditions="Implementing advanced form validation" expected-result="Robust validation with conditional rules" correctness-criteria="Uses validation resolver, conditional validation, async validation, custom validators"><![CDATA[// schemas/contactSchema.ts
+import { z } from 'zod';
+
+export const contactSchema = z.object({
+  contactType: z.enum(['email', 'phone', 'both']),
+  email: z.string().email().optional(),
+  phone: z.string().optional(),
+  message: z.string().min(10, 'Message must be at least 10 characters'),
+  urgency: z.enum(['low', 'medium', 'high']),
+  attachment: z
+    .instanceof(FileList)
+    .optional()
+    .refine((files) => !files || files.length <= 3, 'Maximum 3 files')
+    .refine(
+      (files) => 
+        !files || 
+        Array.from(files).every(file => file.size <= 5 * 1024 * 1024),
+      'Each file must be less than 5MB'
+    ),
+}).refine((data) => {
+  // Conditional validation based on contact type
+  if (data.contactType === 'email' || data.contactType === 'both') {
+    return data.email && data.email.length > 0;
+  }
+  return true;
+}, {
+  message: 'Email is required when email contact type is selected',
+  path: ['email'],
+}).refine((data) => {
+  if (data.contactType === 'phone' || data.contactType === 'both') {
+    return data.phone && /^\+?[\d\s-()]+$/.test(data.phone);
+  }
+  return true;
+}, {
+  message: 'Valid phone number is required when phone contact type is selected',
+  path: ['phone'],
+});
+
+// Custom async validation
+const validateEmailUnique = async (email: string): Promise<boolean> => {
+  const response = await fetch(`/api/validate-email?email=${email}`);
+  const { isUnique } = await response.json();
+  return isUnique;
+};
+
+export type ContactFormData = z.infer<typeof contactSchema>;
+
+// components/ContactForm.tsx
+import React from 'react';
+import { useForm, Controller } from 'react-hook-form';
+import { zodResolver } from '@hookform/resolvers/zod';
+
+export const ContactForm: React.FC = () => {
+  const {
+    register,
+    handleSubmit,
+    control,
+    watch,
+    formState: { errors, isSubmitting },
+    trigger,
+    setError,
+    clearErrors,
+  } = useForm<ContactFormData>({
+    resolver: zodResolver(contactSchema),
+    mode: 'onBlur',
+    defaultValues: {
+      contactType: 'email',
+      urgency: 'medium',
+    },
+  });
+
+  const contactType = watch('contactType');
+
+  // Async email validation
+  const handleEmailBlur = async (email: string) => {
+    if (email && !errors.email) {
+      try {
+        const isUnique = await validateEmailUnique(email);
+        if (!isUnique) {
+          setError('email', {
+            type: 'manual',
+            message: 'This email is already registered',
+          });
+        } else {
+          clearErrors('email');
+        }
+      } catch (error) {
+        console.error('Email validation failed:', error);
+      }
+    }
+  };
+
+  const onSubmit = async (data: ContactFormData) => {
+    console.log('Form submitted:', data);
+  };
+
+  return (
+    <form onSubmit={handleSubmit(onSubmit)}>
+      <div>
+        <label htmlFor="contactType">Preferred Contact Method</label>
+        <select id="contactType" {...register('contactType')}>
+          <option value="email">Email</option>
+          <option value="phone">Phone</option>
+          <option value="both">Both</option>
+        </select>
+      </div>
+
+      {(contactType === 'email' || contactType === 'both') && (
+        <div>
+          <label htmlFor="email">Email</label>
+          <input
+            id="email"
+            type="email"
+            {...register('email', {
+              onBlur: (e) => handleEmailBlur(e.target.value),
+            })}
+            aria-invalid={errors.email ? 'true' : 'false'}
+          />
+          {errors.email && (
+            <span role="alert">{errors.email.message}</span>
+          )}
+        </div>
+      )}
+
+      {(contactType === 'phone' || contactType === 'both') && (
+        <div>
+          <label htmlFor="phone">Phone</label>
+          <input
+            id="phone"
+            type="tel"
+            {...register('phone')}
+            placeholder="+1 (555) 123-4567"
+            aria-invalid={errors.phone ? 'true' : 'false'}
+          />
+          {errors.phone && (
+            <span role="alert">{errors.phone.message}</span>
+          )}
+        </div>
+      )}
+
+      <div>
+        <label htmlFor="message">Message</label>
+        <textarea
+          id="message"
+          rows={4}
+          {...register('message')}
+          aria-invalid={errors.message ? 'true' : 'false'}
+        />
+        {errors.message && (
+          <span role="alert">{errors.message.message}</span>
+        )}
+      </div>
+
+      <div>
+        <label htmlFor="urgency">Urgency</label>
+        <Controller
+          name="urgency"
+          control={control}
+          render={({ field }) => (
+            <select {...field} id="urgency">
+              <option value="low">Low</option>
+              <option value="medium">Medium</option>
+              <option value="high">High</option>
+            </select>
+          )}
+        />
+      </div>
+
+      <div>
+        <label htmlFor="attachment">Attachments (optional)</label>
+        <input
+          id="attachment"
+          type="file"
+          multiple
+          accept=".pdf,.doc,.docx,.txt,.jpg,.png"
+          {...register('attachment')}
+        />
+        {errors.attachment && (
+          <span role="alert">{errors.attachment.message}</span>
+        )}
+      </div>
+
+      <button type="submit" disabled={isSubmitting}>
+        {isSubmitting ? 'Sending...' : 'Send Message'}
+      </button>
+    </form>
+  );
+};]]></correct-example>
+          <incorrect-example title="Basic validation without resolver" conditions="Implementing advanced form validation" expected-result="Robust validation with conditional rules" incorrectness-criteria="No validation resolver, basic validation rules, no conditional logic"><![CDATA[// Bad: Basic validation without resolver
+import React from 'react';
+import { useForm } from 'react-hook-form';
+
+export const ContactForm = () => {
+  const { register, handleSubmit, errors } = useForm(); // Old API
+
+  return (
+    <form onSubmit={handleSubmit((data) => console.log(data))}>
+      <input
+        {...register('email', { required: 'Email required' })} // Basic validation
+      />
+      <input
+        {...register('phone')} // No validation
+      />
+      <textarea
+        {...register('message', { minLength: 10 })} // No error message
+      />
+      {/* No conditional validation */}
+      {/* No async validation */}
+      {/* No TypeScript types */}
+    </form>
+  );
+};]]></incorrect-example>
+        </example>
+      </examples>
+    </requirement>
+    <requirement priority="high">
+      <description>Implement proper field arrays and dynamic forms using useFieldArray for repeatable form sections with add/remove functionality.</description>
+      <examples>
+        <example title="Dynamic Field Arrays">
+          <correct-example title="Dynamic form with field arrays" conditions="Creating forms with repeatable sections" expected-result="Dynamic form with proper field management" correctness-criteria="Uses useFieldArray, proper TypeScript typing, validation for arrays, efficient updates"><![CDATA[// components/SkillsForm.tsx
+import React from 'react';
+import { useForm, useFieldArray, Controller } from 'react-hook-form';
+import { zodResolver } from '@hookform/resolvers/zod';
+import { z } from 'zod';
+
+const skillSchema = z.object({
+  name: z.string().min(1, 'Skill name is required'),
+  level: z.enum(['beginner', 'intermediate', 'advanced', 'expert']),
+  yearsOfExperience: z.number().min(0).max(50),
+  certified: z.boolean(),
+});
+
+const skillsFormSchema = z.object({
+  skills: z.array(skillSchema).min(1, 'At least one skill is required'),
+  primarySkill: z.string().min(1, 'Primary skill is required'),
+});
+
+type SkillsFormData = z.infer<typeof skillsFormSchema>;
+
+export const SkillsForm: React.FC = () => {
+  const {
+    control,
+    register,
+    handleSubmit,
+    watch,
+    formState: { errors },
+    trigger,
+  } = useForm<SkillsFormData>({
+    resolver: zodResolver(skillsFormSchema),
+    defaultValues: {
+      skills: [
+        {
+          name: '',
+          level: 'beginner',
+          yearsOfExperience: 0,
+          certified: false,
+        },
+      ],
+      primarySkill: '',
+    },
+  });
+
+  const { fields, append, remove, move } = useFieldArray({
+    control,
+    name: 'skills',
+  });
+
+  const skills = watch('skills');
+
+  const addSkill = () => {
+    append({
+      name: '',
+      level: 'beginner',
+      yearsOfExperience: 0,
+      certified: false,
+    });
+  };
+
+  const removeSkill = (index: number) => {
+    if (fields.length > 1) {
+      remove(index);
+      // Re-validate form after removal
+      trigger();
+    }
+  };
+
+  const moveSkillUp = (index: number) => {
+    if (index > 0) {
+      move(index, index - 1);
+    }
+  };
+
+  const moveSkillDown = (index: number) => {
+    if (index < fields.length - 1) {
+      move(index, index + 1);
+    }
+  };
+
+  const onSubmit = (data: SkillsFormData) => {
+    console.log('Skills data:', data);
+  };
+
+  return (
+    <form onSubmit={handleSubmit(onSubmit)}>
+      <h3>Skills</h3>
+      
+      {fields.map((field, index) => (
+        <div key={field.id} style={{ border: '1px solid #ccc', padding: '16px', margin: '8px 0' }}>
+          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+            <h4>Skill {index + 1}</h4>
+            <div>
+              <button
+                type="button"
+                onClick={() => moveSkillUp(index)}
+                disabled={index === 0}
+                aria-label={`Move skill ${index + 1} up`}
+              >
+                ↑
+              </button>
+              <button
+                type="button"
+                onClick={() => moveSkillDown(index)}
+                disabled={index === fields.length - 1}
+                aria-label={`Move skill ${index + 1} down`}
+              >
+                ↓
+              </button>
+              <button
+                type="button"
+                onClick={() => removeSkill(index)}
+                disabled={fields.length === 1}
+                aria-label={`Remove skill ${index + 1}`}
+                style={{ color: 'red' }}
+              >
+                Remove
+              </button>
+            </div>
+          </div>
+
+          <div>
+            <label htmlFor={`skills.${index}.name`}>Skill Name</label>
+            <input
+              id={`skills.${index}.name`}
+              {...register(`skills.${index}.name` as const)}
+              placeholder="e.g., JavaScript, React, Node.js"
+              aria-invalid={errors.skills?.[index]?.name ? 'true' : 'false'}
+            />
+            {errors.skills?.[index]?.name && (
+              <span role="alert">{errors.skills[index]!.name!.message}</span>
+            )}
+          </div>
+
+          <div>
+            <label htmlFor={`skills.${index}.level`}>Proficiency Level</label>
+            <Controller
+              name={`skills.${index}.level` as const}
+              control={control}
+              render={({ field }) => (
+                <select {...field} id={`skills.${index}.level`}>
+                  <option value="beginner">Beginner</option>
+                  <option value="intermediate">Intermediate</option>
+                  <option value="advanced">Advanced</option>
+                  <option value="expert">Expert</option>
+                </select>
+              )}
+            />
+          </div>
+
+          <div>
+            <label htmlFor={`skills.${index}.yearsOfExperience`}>Years of Experience</label>
+            <input
+              id={`skills.${index}.yearsOfExperience`}
+              type="number"
+              min="0"
+              max="50"
+              {...register(`skills.${index}.yearsOfExperience` as const, {
+                valueAsNumber: true,
+              })}
+            />
+            {errors.skills?.[index]?.yearsOfExperience && (
+              <span role="alert">{errors.skills[index]!.yearsOfExperience!.message}</span>
+            )}
+          </div>
+
+          <div>
+            <label>
+              <input
+                type="checkbox"
+                {...register(`skills.${index}.certified` as const)}
+              />
+              Certified
+            </label>
+          </div>
+        </div>
+      ))}
+
+      {errors.skills && typeof errors.skills.message === 'string' && (
+        <span role="alert" style={{ color: 'red' }}>
+          {errors.skills.message}
+        </span>
+      )}
+
+      <button type="button" onClick={addSkill}>
+        Add Another Skill
+      </button>
+
+      <div style={{ marginTop: '16px' }}>
+        <label htmlFor="primarySkill">Primary Skill</label>
+        <select id="primarySkill" {...register('primarySkill')}>
+          <option value="">Select your primary skill</option>
+          {skills.map((skill, index) => (
+            skill.name && (
+              <option key={index} value={skill.name}>
+                {skill.name}
+              </option>
+            )
+          ))}
+        </select>
+        {errors.primarySkill && (
+          <span role="alert">{errors.primarySkill.message}</span>
+        )}
+      </div>
+
+      <button type="submit" style={{ marginTop: '16px' }}>
+        Save Skills
+      </button>
+    </form>
+  );
+};]]></correct-example>
+          <incorrect-example title="Poor dynamic form implementation" conditions="Creating forms with repeatable sections" expected-result="Dynamic form with proper field management" incorrectness-criteria="Manual array management, no validation, poor accessibility, inefficient updates"><![CDATA[// Bad: Manual array management without useFieldArray
+import React, { useState } from 'react';
+import { useForm } from 'react-hook-form';
+
+export const SkillsForm = () => {
+  const [skills, setSkills] = useState([{ name: '', level: 'beginner' }]); // Manual state
+  const { register, handleSubmit } = useForm();
+
+  const addSkill = () => {
+    setSkills([...skills, { name: '', level: 'beginner' }]); // Inefficient
+  };
+
+  const removeSkill = (index) => {
+    const newSkills = skills.filter((_, i) => i !== index); // Manual removal
+    setSkills(newSkills);
+  };
+
+  return (
+    <form onSubmit={handleSubmit((data) => console.log(data))}>
+      {skills.map((skill, index) => (
+        <div key={index}> {/* Using index as key - problematic */}
+          <input
+            {...register(`skill_${index}_name`)} // Non-standard naming
+            placeholder="Skill name"
+          />
+          <select {...register(`skill_${index}_level`)}>
+            <option value="beginner">Beginner</option>
+            <option value="intermediate">Intermediate</option>
+          </select>
+          <button type="button" onClick={() => removeSkill(index)}>
+            Remove
+          </button>
+          {/* No validation */}
+          {/* No accessibility labels */}
+        </div>
+      ))}
+      <button type="button" onClick={addSkill}>Add Skill</button>
+      <button type="submit">Submit</button>
+    </form>
+  );
+};]]></incorrect-example>
+        </example>
+      </examples>
+    </requirement>
+  </requirements>
+  <context description="React Hook Form development considerations">
+    React Hook Form is a performant forms library with minimal re-renders and easy validation. It provides excellent TypeScript support and integrates well with popular validation libraries like Zod, Yup, and Joi.
+
+    Key advantages of React Hook Form:
+    - Minimal re-renders for better performance
+    - Built-in validation with custom rules
+    - Easy integration with UI libraries
+    - Excellent TypeScript support
+    - Small bundle size
+
+    Best practices include using validation resolvers for complex schemas, implementing proper error handling and accessibility, using useFieldArray for dynamic forms, and leveraging the library's performance optimizations through proper form state management.
+
+    The library supports both controlled and uncontrolled components, with uncontrolled being the default for performance reasons. Use Controller component for third-party controlled components or when you need to transform values.
+  </context>
+  <references>
+    <reference as="dependency" href=".cursor/rules/000-core/002-cursor-rules-creation.mdc" reason="Follows standard rule format">Base rule format definition</reference>
+    <reference as="context" href=".cursor/rules/400-frameworks/402-react-core-standards-auto.mdc" reason="React development patterns">React component best practices</reference>
+    <reference as="context" href="https://react-hook-form.com/" reason="Official documentation">React Hook Form official documentation</reference>
+    <reference as="context" href="https://github.com/react-hook-form/resolvers" reason="Validation resolvers">React Hook Form validation resolvers</reference>
+  </references>
+</rule>

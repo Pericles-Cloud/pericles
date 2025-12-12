@@ -1,0 +1,1155 @@
+---
+description: "Comprehensive Neon serverless PostgreSQL standards with branching, autoscaling, security best practices, and modern development workflows following expert community standards"
+globs: "**/*.{ts,js,tsx,jsx,py,sql,prisma,yml,yaml,json,md}"
+alwaysApply: false
+---
+
+<rule>
+  <meta>
+    <title>Neon Serverless PostgreSQL Core Standards</title>
+    <description>Comprehensive Neon serverless PostgreSQL best practices with database branching, autoscaling, security optimization, RLS policies, and modern development workflows following expert community standards</description>
+    <created-at utc-timestamp="1737923400">January 26, 2025, 3:30 PM UTC</created-at>
+    <last-updated-at utc-timestamp="1737923400">January 26, 2025, 3:30 PM UTC</last-updated-at>
+    <applies-to>
+      <file-matcher glob="**/*.{ts,js,tsx,jsx}">TypeScript and JavaScript files using Neon database connections</file-matcher>
+      <file-matcher glob="**/*.{py}">Python files with Neon PostgreSQL integration</file-matcher>
+      <file-matcher glob="**/*.{sql,prisma}">Database schema and migration files</file-matcher>
+      <file-matcher glob="**/*.{yml,yaml,json}">Configuration files for Neon deployment and CI/CD</file-matcher>
+      <action-matcher action="database-development">All database development activities using Neon</action-matcher>
+    </applies-to>
+  </meta>
+  <requirements>
+    <!-- Connection Management and Performance -->
+    <non-negotiable priority="critical">
+      <description>Use Neon connection pooling and autoscaling features properly. Configure connection strings with pooling enabled and implement proper connection lifecycle management. Never use direct connections in serverless environments without pooling.</description>
+      <examples>
+        <example title="Neon Connection Configuration">
+          <correct-example title="Proper pooled connection setup" conditions="Connecting to Neon from serverless function" expected-result="Efficient connection pooling with autoscaling" correctness-criteria="Uses pooled connection string with proper SSL and connection limits"><![CDATA[// Correct: Using Neon pooled connection
+const connectionString = process.env.DATABASE_URL; // postgresql://user:pass@ep-xxx.pooler.us-east-1.neon.tech/dbname?sslmode=require
+
+const pool = new Pool({
+  connectionString,
+  ssl: { rejectUnauthorized: false },
+  max: 20, // Connection pool limit
+  idleTimeoutMillis: 30000,
+  connectionTimeoutMillis: 2000,
+});
+
+// Use pool for queries
+const client = await pool.connect();
+try {
+  const result = await client.query('SELECT * FROM users WHERE id = $1', [userId]);
+  return result.rows;
+} finally {
+  client.release();
+}]]></correct-example>
+          <incorrect-example title="Direct connection without pooling" conditions="Connecting to Neon from serverless function" expected-result="Efficient connection management" incorrectness-criteria="Uses direct connection without pooling, causing connection exhaustion"><![CDATA[// Incorrect: Direct connection without pooling
+const client = new Client({
+  host: 'ep-xxx.us-east-1.neon.tech', // Direct endpoint without pooler
+  port: 5432,
+  database: 'dbname',
+  user: 'user',
+  password: 'password',
+  ssl: true
+});
+
+await client.connect();
+const result = await client.query('SELECT * FROM users');
+await client.end(); // Creates new connection for each request]]></incorrect-example>
+        </example>
+      </examples>
+    </non-negotiable>
+
+    <!-- Database Branching and Development Workflow -->
+    <requirement priority="critical">
+      <description>Implement Neon database branching for development workflows. Create branches for feature development, testing, and staging environments. Use branch-specific connection strings and automate branch management in CI/CD pipelines.</description>
+      <examples>
+        <example title="Database Branching Strategy">
+          <correct-example title="Proper branching workflow with automation" conditions="Setting up feature branch development" expected-result="Isolated database environments for each branch" correctness-criteria="Uses Neon CLI for branch management with proper naming and cleanup"><![CDATA[// GitHub Actions workflow for branch management
+name: Database Branch Management
+on:
+  pull_request:
+    types: [opened, synchronize]
+  
+jobs:
+  setup-db-branch:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Create Neon Branch
+        run: |
+          # Create branch with descriptive name
+          BRANCH_NAME="feature-$(echo ${{ github.head_ref }} | sed 's/[^a-zA-Z0-9-]/-/g')"
+          
+          neon branches create \
+            --name "$BRANCH_NAME" \
+            --parent main \
+            --database ${{ vars.NEON_DATABASE_NAME }}
+          
+          # Get branch connection string
+          BRANCH_URL=$(neon connection-string --branch "$BRANCH_NAME")
+          echo "DATABASE_URL=$BRANCH_URL" >> $GITHUB_ENV
+          
+      - name: Run Migrations on Branch
+        run: |
+          npx prisma migrate deploy
+          npx prisma db seed]]></correct-example>
+          <incorrect-example title="No branching strategy" conditions="Setting up feature branch development" expected-result="Isolated database environments" incorrectness-criteria="Uses single production database for all development, causing conflicts"><![CDATA[// Incorrect: All development against single database
+const DATABASE_URL = process.env.PRODUCTION_DATABASE_URL; // Same for all environments
+
+// All developers and CI/CD use the same database
+// No isolation between features
+// Risk of data corruption and conflicts
+const client = new Client({ connectionString: DATABASE_URL });]]></incorrect-example>
+        </example>
+      </examples>
+    </requirement>
+
+    <!-- Row-Level Security (RLS) Implementation -->
+    <non-negotiable priority="critical">
+      <description>Implement proper Row-Level Security (RLS) policies for multi-tenant applications. Use Neon's RLS features with JWT/JWKS integration for secure data isolation. Enable RLS on all sensitive tables and create performance-optimized policies.</description>
+      <examples>
+        <example title="RLS Policy Implementation">
+          <correct-example title="Comprehensive RLS setup with JWT" conditions="Implementing multi-tenant security" expected-result="Secure data isolation with proper performance" correctness-criteria="Uses RLS policies with JWT claims, proper indexing, and performance optimization"><![CDATA[-- Enable RLS on sensitive tables
+ALTER TABLE users ENABLE ROW LEVEL SECURITY;
+ALTER TABLE projects ENABLE ROW LEVEL SECURITY;
+
+-- Create policies using JWT claims
+CREATE POLICY users_own_data ON users
+  FOR ALL
+  USING (auth.uid() = id);
+
+CREATE POLICY tenant_isolation ON projects
+  FOR ALL
+  USING (tenant_id = auth.jwt() ->> 'tenant_id');
+
+-- Create performance indexes for RLS
+CREATE INDEX idx_projects_tenant_id ON projects(tenant_id);
+CREATE INDEX idx_users_auth_uid ON users(id) WHERE id = auth.uid();
+
+-- TypeScript implementation with proper JWT handling
+import { createClient } from '@neondatabase/serverless';
+
+export async function getUserProjects(userId: string, tenantId: string) {
+  const sql = createClient(process.env.DATABASE_URL);
+  
+  // Set JWT context for RLS
+  await sql`SET request.jwt.claims = ${JSON.stringify({ 
+    sub: userId, 
+    tenant_id: tenantId 
+  })}`;
+  
+  // Query automatically filtered by RLS
+  const projects = await sql`
+    SELECT * FROM projects 
+    WHERE user_id = ${userId}
+  `;
+  
+  return projects;
+}]]></correct-example>
+          <incorrect-example title="No RLS implementation" conditions="Implementing multi-tenant security" expected-result="Secure data isolation" incorrectness-criteria="Relies only on application-level security without database-level protection"><![CDATA[-- Incorrect: No RLS enabled
+CREATE TABLE users (
+  id UUID PRIMARY KEY,
+  tenant_id UUID NOT NULL,
+  email TEXT NOT NULL
+);
+
+-- No RLS policies - relies only on application logic
+-- Application code manually filters by tenant
+export async function getUserProjects(userId: string, tenantId: string) {
+  const sql = createClient(process.env.DATABASE_URL);
+  
+  // Manual filtering - can be bypassed or forgotten
+  const projects = await sql`
+    SELECT * FROM projects 
+    WHERE user_id = ${userId} 
+    AND tenant_id = ${tenantId}
+  `;
+  
+  return projects;
+}]]></incorrect-example>
+        </example>
+      </examples>
+    </non-negotiable>
+
+    <!-- Neon Autoscaling and Resource Management -->
+    <requirement priority="high">
+      <description>Configure Neon autoscaling settings appropriately for workload patterns. Set minimum and maximum compute units, configure auto-suspend timeouts, and implement proper connection management for variable loads.</description>
+      <examples>
+        <example title="Autoscaling Configuration">
+          <correct-example title="Optimized autoscaling setup" conditions="Configuring production workload" expected-result="Efficient resource utilization with cost optimization" correctness-criteria="Proper min/max compute units, appropriate timeouts, and load-aware connection pooling"><![CDATA[// Neon project configuration via API or CLI
+const projectConfig = {
+  compute: {
+    autoscaling: {
+      min_cu: 0.25,      // Low minimum for cost efficiency
+      max_cu: 4,         // Sufficient for peak loads
+      auto_suspend_delay: 300, // 5-minute timeout
+    }
+  },
+  connection_pooling: {
+    mode: 'transaction',
+    max_client_conn: 100,
+    default_pool_size: 25
+  }
+};
+
+// Application-level connection management
+class NeonConnectionManager {
+  private pool: Pool;
+  
+  constructor() {
+    this.pool = new Pool({
+      connectionString: process.env.DATABASE_URL,
+      max: 20, // Match expected concurrent load
+      min: 5,  // Keep minimum connections warm
+      acquireTimeoutMillis: 60000,
+      createTimeoutMillis: 30000,
+      idleTimeoutMillis: 600000
+    });
+  }
+  
+  async query(text: string, params?: any[]) {
+    const start = Date.now();
+    try {
+      const res = await this.pool.query(text, params);
+      return res;
+    } finally {
+      console.log('Query executed in', Date.now() - start, 'ms');
+    }
+  }
+}]]></correct-example>
+          <incorrect-example title="No autoscaling optimization" conditions="Configuring production workload" expected-result="Efficient resource utilization" incorrectness-criteria="Fixed high compute allocation or no connection management causing waste"><![CDATA[// Incorrect: Fixed high compute allocation
+const projectConfig = {
+  compute: {
+    autoscaling: {
+      min_cu: 4,         // Wastefully high minimum
+      max_cu: 4,         // No scaling flexibility
+      auto_suspend_delay: 0, // Never suspends
+    }
+  }
+};
+
+// No connection management
+const client = new Client({
+  connectionString: process.env.DATABASE_URL,
+  // No pool configuration
+  // Creates new connection for each request
+  // No timeout management
+});]]></incorrect-example>
+        </example>
+      </examples>
+    </requirement>
+
+    <!-- Neon Data API Integration -->
+    <requirement priority="high">
+      <description>Utilize Neon Data API for serverless and edge computing scenarios. Implement proper API key management, request batching, and error handling for HTTP-based database access.</description>
+      <examples>
+        <example title="Data API Implementation">
+          <correct-example title="Secure Data API usage with batching" conditions="Building edge-deployed application" expected-result="Efficient HTTP-based database access" correctness-criteria="Proper API key security, request batching, comprehensive error handling"><![CDATA[import { neon } from '@neondatabase/serverless';
+
+class NeonDataAPI {
+  private sql: ReturnType<typeof neon>;
+  
+  constructor() {
+    if (!process.env.DATABASE_URL) {
+      throw new Error('DATABASE_URL environment variable is required');
+    }
+    
+    this.sql = neon(process.env.DATABASE_URL, {
+      arrayMode: false,
+      fullResults: true
+    });
+  }
+  
+  async batchOperations(operations: Array<{query: string, params?: any[]}>) {
+    try {
+      // Batch multiple operations efficiently
+      const results = await Promise.all(
+        operations.map(op => this.sql(op.query, op.params))
+      );
+      
+      return results;
+    } catch (error) {
+      console.error('Batch operation failed:', error);
+      throw new Error('Database batch operation failed');
+    }
+  }
+  
+  async safeQuery<T>(query: string, params?: any[]): Promise<T[]> {
+    try {
+      const result = await this.sql(query, params);
+      return result as T[];
+    } catch (error) {
+      if (error.code === 'CONNECTION_TIMEOUT') {
+        // Retry once on timeout
+        return await this.sql(query, params) as T[];
+      }
+      throw error;
+    }
+  }
+}
+
+// Usage in Edge Runtime
+export default async function handler(request: Request) {
+  const db = new NeonDataAPI();
+  
+  const users = await db.safeQuery<User>(
+    'SELECT * FROM users WHERE status = $1',
+    ['active']
+  );
+  
+  return Response.json(users);
+}]]></correct-example>
+          <incorrect-example title="Unsafe Data API usage" conditions="Building edge-deployed application" expected-result="Secure and efficient HTTP database access" incorrectness-criteria="No error handling, unsafe query construction, no batching optimization"><![CDATA[// Incorrect: Unsafe and inefficient Data API usage
+import { neon } from '@neondatabase/serverless';
+
+const sql = neon(process.env.DATABASE_URL); // No validation
+
+export default async function handler(request: Request) {
+  const { userId } = await request.json();
+  
+  // No error handling
+  // No input validation
+  // SQL injection risk with string interpolation
+  const users = await sql`SELECT * FROM users WHERE id = ${userId}`;
+  
+  // No batching - multiple individual requests
+  const profile = await sql`SELECT * FROM profiles WHERE user_id = ${userId}`;
+  const settings = await sql`SELECT * FROM settings WHERE user_id = ${userId}`;
+  
+  return Response.json({ users, profile, settings });
+}]]></incorrect-example>
+        </example>
+      </examples>
+    </requirement>
+
+    <!-- Neon Authentication Integration -->
+    <requirement priority="high">
+      <description>Integrate Neon Auth for user authentication and session management. Implement proper JWT handling, refresh token rotation, and secure authentication flows with Neon's built-in auth features.</description>
+      <examples>
+        <example title="Neon Auth Integration">
+          <correct-example title="Complete Neon Auth implementation" conditions="Implementing user authentication" expected-result="Secure authentication with proper session management" correctness-criteria="Uses Neon Auth, proper JWT handling, refresh token rotation, secure session storage"><![CDATA[import { createNeonAuth } from '@neondatabase/auth';
+
+const auth = createNeonAuth({
+  databaseUrl: process.env.DATABASE_URL,
+  jwtSecret: process.env.JWT_SECRET,
+  cookieOptions: {
+    secure: process.env.NODE_ENV === 'production',
+    sameSite: 'strict',
+    httpOnly: true,
+    maxAge: 7 * 24 * 60 * 60 * 1000, // 7 days
+  },
+  refreshTokenRotation: true,
+  sessionTimeout: 30 * 60 * 1000, // 30 minutes
+});
+
+// Secure login implementation
+export async function loginUser(email: string, password: string) {
+  try {
+    const { user, session } = await auth.signInWithPassword({
+      email,
+      password,
+    });
+    
+    // Set secure session cookie
+    await auth.setSession(session);
+    
+    return { user, success: true };
+  } catch (error) {
+    console.error('Login failed:', error);
+    throw new Error('Authentication failed');
+  }
+}
+
+// Middleware for protected routes
+export async function requireAuth(request: Request) {
+  const session = await auth.getSession(request);
+  
+  if (!session || !session.user) {
+    throw new Error('Authentication required');
+  }
+  
+  // Refresh token if needed
+  if (session.expires_at < Date.now() + 5 * 60 * 1000) {
+    const refreshed = await auth.refreshSession(session.refresh_token);
+    await auth.setSession(refreshed);
+  }
+  
+  return session.user;
+}
+
+// RLS context setting
+export async function setRLSContext(user: any) {
+  const sql = neon(process.env.DATABASE_URL);
+  await sql`SET request.jwt.claims = ${JSON.stringify({
+    sub: user.id,
+    email: user.email,
+    role: user.role,
+    tenant_id: user.tenant_id
+  })}`;
+}]]></correct-example>
+          <incorrect-example title="Manual auth without Neon Auth" conditions="Implementing user authentication" expected-result="Secure authentication system" incorrectness-criteria="Manual JWT handling, no refresh token rotation, insecure session management"><![CDATA[// Incorrect: Manual authentication without Neon Auth benefits
+import jwt from 'jsonwebtoken';
+import bcrypt from 'bcrypt';
+
+export async function loginUser(email: string, password: string) {
+  const sql = neon(process.env.DATABASE_URL);
+  
+  // Manual user lookup and password verification
+  const users = await sql`SELECT * FROM users WHERE email = ${email}`;
+  const user = users[0];
+  
+  if (!user || !bcrypt.compareSync(password, user.password_hash)) {
+    throw new Error('Invalid credentials');
+  }
+  
+  // Manual JWT creation - no refresh token
+  const token = jwt.sign(
+    { userId: user.id, email: user.email },
+    process.env.JWT_SECRET,
+    { expiresIn: '1h' } // Fixed expiry, no refresh
+  );
+  
+  // No secure session management
+  // No token rotation
+  return { user, token };
+}
+
+// No proper middleware or session handling
+export function verifyToken(token: string) {
+  try {
+    return jwt.verify(token, process.env.JWT_SECRET);
+  } catch {
+    throw new Error('Invalid token');
+  }
+}]]></incorrect-example>
+        </example>
+      </examples>
+    </requirement>
+
+    <!-- Performance Optimization and Monitoring -->
+    <requirement priority="high">
+      <description>Implement comprehensive performance monitoring and optimization for Neon databases. Use connection pooling metrics, query performance tracking, and Neon's built-in monitoring features for proactive optimization.</description>
+      <examples>
+        <example title="Performance Monitoring">
+          <correct-example title="Comprehensive performance monitoring setup" conditions="Monitoring production Neon database" expected-result="Proactive performance optimization with detailed metrics" correctness-criteria="Connection pool monitoring, query performance tracking, Neon metrics integration, alerting setup"><![CDATA[import { Pool } from 'pg';
+import { neon } from '@neondatabase/serverless';
+
+class NeonPerformanceMonitor {
+  private pool: Pool;
+  private metrics: Map<string, any> = new Map();
+  
+  constructor() {
+    this.pool = new Pool({
+      connectionString: process.env.DATABASE_URL,
+      max: 20,
+      min: 5,
+      idleTimeoutMillis: 30000,
+      // Enable detailed logging
+      log: (level: string, msg: string) => {
+        console.log(`[DB-${level.toUpperCase()}]`, msg);
+      }
+    });
+    
+    // Monitor pool events
+    this.pool.on('connect', () => {
+      console.log('New database connection established');
+      this.updateMetric('connections_created', 1);
+    });
+    
+    this.pool.on('remove', () => {
+      console.log('Database connection removed');
+      this.updateMetric('connections_removed', 1);
+    });
+    
+    this.pool.on('error', (err) => {
+      console.error('Database pool error:', err);
+      this.updateMetric('connection_errors', 1);
+    });
+  }
+  
+  async executeQuery(query: string, params?: any[]) {
+    const startTime = Date.now();
+    const client = await this.pool.connect();
+    
+    try {
+      const result = await client.query(query, params);
+      const duration = Date.now() - startTime;
+      
+      // Track query performance
+      this.trackQueryPerformance(query, duration, true);
+      
+      return result;
+    } catch (error) {
+      const duration = Date.now() - startTime;
+      this.trackQueryPerformance(query, duration, false);
+      throw error;
+    } finally {
+      client.release();
+    }
+  }
+  
+  private trackQueryPerformance(query: string, duration: number, success: boolean) {
+    const queryType = query.trim().split(' ')[0].toLowerCase();
+    const metricKey = `query_${queryType}_duration`;
+    
+    if (!this.metrics.has(metricKey)) {
+      this.metrics.set(metricKey, { total: 0, count: 0, avg: 0, max: 0 });
+    }
+    
+    const metric = this.metrics.get(metricKey);
+    metric.total += duration;
+    metric.count += 1;
+    metric.avg = metric.total / metric.count;
+    metric.max = Math.max(metric.max, duration);
+    
+    // Alert on slow queries
+    if (duration > 5000) { // 5 seconds
+      console.warn(`Slow query detected: ${query.substring(0, 100)}... (${duration}ms)`);
+    }
+    
+    // Track success rate
+    this.updateMetric(`query_${queryType}_${success ? 'success' : 'error'}`, 1);
+  }
+  
+  private updateMetric(key: string, value: number) {
+    const current = this.metrics.get(key) || 0;
+    this.metrics.set(key, current + value);
+  }
+  
+  getMetrics() {
+    return {
+      pool_stats: {
+        total_connections: this.pool.totalCount,
+        idle_connections: this.pool.idleCount,
+        waiting_count: this.pool.waitingCount,
+      },
+      performance_metrics: Object.fromEntries(this.metrics),
+      timestamp: new Date().toISOString(),
+    };
+  }
+  
+  // Integration with monitoring services
+  async sendMetricsToMonitoring() {
+    const metrics = this.getMetrics();
+    
+    // Send to your monitoring service (DataDog, New Relic, etc.)
+    // Example with custom endpoint
+    try {
+      await fetch(process.env.METRICS_ENDPOINT, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(metrics)
+      });
+    } catch (error) {
+      console.error('Failed to send metrics:', error);
+    }
+  }
+}
+
+// Usage in application
+const dbMonitor = new NeonPerformanceMonitor();
+
+// Periodic metrics reporting
+setInterval(() => {
+  dbMonitor.sendMetricsToMonitoring();
+}, 60000); // Every minute]]></correct-example>
+          <incorrect-example title="No performance monitoring" conditions="Running production database" expected-result="Monitored database performance" incorrectness-criteria="No connection monitoring, query tracking, or performance optimization"><![CDATA[// Incorrect: No performance monitoring or optimization
+import { Pool } from 'pg';
+
+const pool = new Pool({
+  connectionString: process.env.DATABASE_URL,
+  // No configuration optimization
+  // No monitoring setup
+  // No error handling
+});
+
+// No performance tracking
+export async function executeQuery(query: string, params?: any[]) {
+  const client = await pool.connect();
+  const result = await client.query(query, params);
+  client.release();
+  return result;
+}
+
+// No metrics collection
+// No slow query detection
+// No connection pool monitoring
+// No alerting on issues]]></incorrect-example>
+        </example>
+      </examples>
+    </requirement>
+
+    <!-- Neon Integration with Modern Frameworks -->
+    <requirement priority="medium">
+      <description>Properly integrate Neon with modern frameworks like Next.js, Vercel, and Prisma. Use framework-specific optimizations, proper environment variable management, and leverage Neon's native integrations.</description>
+      <examples>
+        <example title="Framework Integration">
+          <correct-example title="Next.js and Vercel integration with Neon" conditions="Deploying Next.js app with Neon database" expected-result="Optimized framework integration with proper configuration" correctness-criteria="Uses Vercel integration, proper environment variables, framework-specific optimizations"><![CDATA[// next.config.js - Optimized for Neon
+/** @type {import('next').NextConfig} */
+const nextConfig = {
+  experimental: {
+    runtime: 'edge', // Leverage edge runtime with Neon Data API
+  },
+  env: {
+    // Ensure DATABASE_URL is available in edge runtime
+    DATABASE_URL: process.env.DATABASE_URL,
+  },
+};
+
+module.exports = nextConfig;
+
+// lib/neon.ts - Optimized Neon setup for Next.js
+import { neon } from '@neondatabase/serverless';
+import { Pool } from '@neondatabase/serverless';
+
+// Edge Runtime compatible
+export const sql = neon(process.env.DATABASE_URL!);
+
+// Node.js Runtime with connection pooling
+let pool: Pool | null = null;
+
+export function getPool(): Pool {
+  if (!pool) {
+    pool = new Pool({
+      connectionString: process.env.DATABASE_URL,
+      // Optimized for Vercel Functions
+      max: 1, // Single connection per serverless function
+      idleTimeoutMillis: 0, // No idle timeout for short-lived functions
+      connectionTimeoutMillis: 10000,
+    });
+  }
+  return pool;
+}
+
+// API Route using Edge Runtime
+// app/api/users/route.ts
+import { sql } from '@/lib/neon';
+
+export const runtime = 'edge';
+
+export async function GET() {
+  try {
+    const users = await sql`SELECT id, email, created_at FROM users`;
+    return Response.json(users);
+  } catch (error) {
+    console.error('Database error:', error);
+    return Response.json(
+      { error: 'Failed to fetch users' },
+      { status: 500 }
+    );
+  }
+}
+
+// Prisma integration with Neon
+// prisma/schema.prisma
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider  = "postgresql"
+  url       = env("DATABASE_URL")
+  directUrl = env("DIRECT_DATABASE_URL") // For migrations
+}
+
+// lib/prisma.ts
+import { PrismaClient } from '@prisma/client';
+
+const globalForPrisma = globalThis as unknown as {
+  prisma: PrismaClient | undefined;
+};
+
+export const prisma = globalForPrisma.prisma ?? new PrismaClient({
+  datasources: {
+    db: {
+      url: process.env.DATABASE_URL,
+    },
+  },
+});
+
+if (process.env.NODE_ENV !== 'production') globalForPrisma.prisma = prisma;
+
+// Vercel deployment configuration
+// vercel.json
+{
+  "functions": {
+    "app/api/**/*.ts": {
+      "maxDuration": 10
+    }
+  },
+  "env": {
+    "DATABASE_URL": "@database-url",
+    "DIRECT_DATABASE_URL": "@direct-database-url"
+  }
+}]]></correct-example>
+          <incorrect-example title="Poor framework integration" conditions="Deploying Next.js app with database" expected-result="Optimized framework integration" incorrectness-criteria="No edge runtime optimization, poor connection management, missing framework-specific configurations"><![CDATA[// Incorrect: Poor Next.js integration
+// No next.config.js optimizations
+// No edge runtime consideration
+
+// lib/database.ts - Inefficient setup
+import { Client } from 'pg';
+
+// Creates new connection for every request
+export async function query(sql: string, params: any[]) {
+  const client = new Client({
+    connectionString: process.env.DATABASE_URL,
+    // No connection pooling
+    // No timeouts configured
+  });
+  
+  await client.connect();
+  const result = await client.query(sql, params);
+  await client.end(); // Expensive connection teardown
+  
+  return result;
+}
+
+// API route with poor error handling
+// app/api/users/route.ts
+import { query } from '@/lib/database';
+
+export async function GET() {
+  // No error handling
+  // No runtime optimization
+  const users = await query('SELECT * FROM users', []);
+  return Response.json(users);
+}
+
+// No Vercel optimization
+// No environment variable management
+// No framework-specific configurations]]></incorrect-example>
+        </example>
+      </examples>
+    </requirement>
+
+    <!-- Security and Compliance -->
+    <non-negotiable priority="critical">
+      <description>Implement comprehensive security practices for Neon databases including encryption, access controls, audit logging, and compliance with security standards. Use Neon's security features and follow best practices for sensitive data protection.</description>
+      <examples>
+        <example title="Security Implementation">
+          <correct-example title="Comprehensive security setup" conditions="Implementing production security" expected-result="Secure database access with comprehensive protection" correctness-criteria="Encryption at rest and in transit, proper access controls, audit logging, compliance measures"><![CDATA[// Security configuration for Neon
+import { neon } from '@neondatabase/serverless';
+import crypto from 'crypto';
+
+class SecureNeonClient {
+  private sql: ReturnType<typeof neon>;
+  private encryptionKey: Buffer;
+  
+  constructor() {
+    // Validate security requirements
+    if (!process.env.DATABASE_URL?.includes('sslmode=require')) {
+      throw new Error('SSL must be required for database connections');
+    }
+    
+    if (!process.env.ENCRYPTION_KEY || process.env.ENCRYPTION_KEY.length < 32) {
+      throw new Error('Strong encryption key required');
+    }
+    
+    this.sql = neon(process.env.DATABASE_URL, {
+      // Force SSL
+      ssl: 'require',
+    });
+    
+    this.encryptionKey = Buffer.from(process.env.ENCRYPTION_KEY, 'hex');
+  }
+  
+  // Encrypt sensitive data before storage
+  encryptData(data: string): string {
+    const iv = crypto.randomBytes(16);
+    const cipher = crypto.createCipher('aes-256-gcm', this.encryptionKey);
+    cipher.setAAD(Buffer.from('neon-app'));
+    
+    let encrypted = cipher.update(data, 'utf8', 'hex');
+    encrypted += cipher.final('hex');
+    
+    const authTag = cipher.getAuthTag();
+    return iv.toString('hex') + ':' + authTag.toString('hex') + ':' + encrypted;
+  }
+  
+  // Decrypt sensitive data after retrieval
+  decryptData(encryptedData: string): string {
+    const parts = encryptedData.split(':');
+    const iv = Buffer.from(parts[0], 'hex');
+    const authTag = Buffer.from(parts[1], 'hex');
+    const encrypted = parts[2];
+    
+    const decipher = crypto.createDecipher('aes-256-gcm', this.encryptionKey);
+    decipher.setAAD(Buffer.from('neon-app'));
+    decipher.setAuthTag(authTag);
+    
+    let decrypted = decipher.update(encrypted, 'hex', 'utf8');
+    decrypted += decipher.final('utf8');
+    
+    return decrypted;
+  }
+  
+  // Audit logging for sensitive operations
+  async auditLog(operation: string, userId: string, details: any) {
+    await this.sql`
+      INSERT INTO audit_logs (
+        operation, user_id, details, ip_address, user_agent, timestamp
+      ) VALUES (
+        ${operation},
+        ${userId},
+        ${JSON.stringify(details)},
+        ${details.ipAddress},
+        ${details.userAgent},
+        NOW()
+      )
+    `;
+  }
+  
+  // Secure query execution with validation
+  async secureQuery(query: string, params: any[], userId?: string) {
+    // Input validation
+    if (this.containsSqlInjection(query)) {
+      throw new Error('Potential SQL injection detected');
+    }
+    
+    try {
+      const result = await this.sql(query, params);
+      
+      // Log successful access
+      if (userId) {
+        await this.auditLog('query_executed', userId, {
+          query: query.substring(0, 100), // Truncated for privacy
+          paramCount: params.length,
+          resultCount: result.length
+        });
+      }
+      
+      return result;
+    } catch (error) {
+      // Log failed access attempts
+      if (userId) {
+        await this.auditLog('query_failed', userId, {
+          query: query.substring(0, 100),
+          error: error.message
+        });
+      }
+      throw error;
+    }
+  }
+  
+  private containsSqlInjection(query: string): boolean {
+    const dangerousPatterns = [
+      /;\s*(drop|delete|truncate|alter)\s/i,
+      /union\s+select/i,
+      /or\s+1\s*=\s*1/i,
+      /'\s*or\s*'/i
+    ];
+    
+    return dangerousPatterns.some(pattern => pattern.test(query));
+  }
+}
+
+// Database schema for security
+-- Enable necessary extensions
+CREATE EXTENSION IF NOT EXISTS "uuid-ossp";
+CREATE EXTENSION IF NOT EXISTS "pgcrypto";
+
+-- Audit log table
+CREATE TABLE audit_logs (
+  id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
+  operation VARCHAR(100) NOT NULL,
+  user_id UUID,
+  details JSONB,
+  ip_address INET,
+  user_agent TEXT,
+  timestamp TIMESTAMP WITH TIME ZONE DEFAULT NOW()
+);
+
+-- Enable RLS on audit logs
+ALTER TABLE audit_logs ENABLE ROW LEVEL SECURITY;
+
+-- Policy: Users can only see their own audit logs
+CREATE POLICY audit_logs_user_access ON audit_logs
+  FOR SELECT
+  USING (user_id = auth.uid());
+
+-- Policy: Only system can insert audit logs
+CREATE POLICY audit_logs_system_insert ON audit_logs
+  FOR INSERT
+  WITH CHECK (auth.role() = 'service_role');
+
+-- Indexes for performance
+CREATE INDEX idx_audit_logs_user_id ON audit_logs(user_id);
+CREATE INDEX idx_audit_logs_timestamp ON audit_logs(timestamp);
+
+// Usage with proper security
+const secureClient = new SecureNeonClient();
+
+export async function handleSensitiveOperation(userId: string, data: any) {
+  // Encrypt sensitive data
+  const encryptedData = secureClient.encryptData(JSON.stringify(data.sensitive));
+  
+  // Execute with audit logging
+  const result = await secureClient.secureQuery(
+    'INSERT INTO sensitive_table (user_id, encrypted_data) VALUES ($1, $2) RETURNING id',
+    [userId, encryptedData],
+    userId
+  );
+  
+  return result;
+}]]></correct-example>
+          <incorrect-example title="Poor security implementation" conditions="Implementing production security" expected-result="Secure database access" incorrectness-criteria="No encryption, poor access controls, no audit logging, security vulnerabilities"><![CDATA[// Incorrect: Poor security practices
+import { neon } from '@neondatabase/serverless';
+
+// No security validation
+const sql = neon(process.env.DATABASE_URL); // No SSL enforcement
+
+export async function getUserData(userId: string, query?: string) {
+  // SQL injection vulnerability
+  const userQuery = query || 'SELECT * FROM users';
+  const fullQuery = `${userQuery} WHERE id = '${userId}'`; // String concatenation!
+  
+  // No encryption for sensitive data
+  // No audit logging
+  // No access control validation
+  const result = await sql(fullQuery);
+  
+  return result;
+}
+
+// No audit logging
+// No encryption of sensitive data
+// No input validation
+// No error handling for security events]]></incorrect-example>
+        </example>
+      </examples>
+    </non-negotiable>
+
+    <!-- Migration and Schema Management -->
+    <requirement priority="high">
+      <description>Implement proper database migration strategies using Neon branching. Create migration scripts that work with Neon's branching model, test migrations on branches before applying to main, and maintain schema version control.</description>
+      <examples>
+        <example title="Migration Management">
+          <correct-example title="Neon-optimized migration workflow" conditions="Managing database schema changes" expected-result="Safe and tested migrations with proper branching" correctness-criteria="Uses Neon branches for testing, proper rollback procedures, schema versioning"><![CDATA[// Migration management with Neon branches
+import { execSync } from 'child_process';
+
+class NeonMigrationManager {
+  constructor(private neonApiKey: string, private projectId: string) {}
+  
+  async createMigrationBranch(migrationName: string): Promise<string> {
+    const branchName = `migration-${migrationName}-${Date.now()}`;
+    
+    // Create branch using Neon CLI
+    const command = `neon branches create --name "${branchName}" --project-id ${this.projectId}`;
+    execSync(command, { env: { ...process.env, NEON_API_KEY: this.neonApiKey } });
+    
+    return branchName;
+  }
+  
+  async testMigration(branchName: string, migrationSQL: string): Promise<boolean> {
+    try {
+      // Get branch connection string
+      const branchUrl = this.getBranchConnectionString(branchName);
+      const sql = neon(branchUrl);
+      
+      // Apply migration to branch
+      await sql(migrationSQL);
+      
+      // Run validation tests
+      await this.validateMigration(sql);
+      
+      return true;
+    } catch (error) {
+      console.error('Migration test failed:', error);
+      return false;
+    }
+  }
+  
+  async validateMigration(sql: any) {
+    // Test that all required tables exist
+    const tables = await sql`
+      SELECT table_name 
+      FROM information_schema.tables 
+      WHERE table_schema = 'public'
+    `;
+    
+    // Validate indexes
+    const indexes = await sql`
+      SELECT indexname, tablename 
+      FROM pg_indexes 
+      WHERE schemaname = 'public'
+    `;
+    
+    // Test sample queries
+    await sql`SELECT 1`; // Basic connectivity
+    
+    console.log(`Migration validation passed: ${tables.length} tables, ${indexes.length} indexes`);
+  }
+  
+  async applyMigration(migrationName: string, migrationSQL: string) {
+    // Create and test on branch first
+    const branchName = await this.createMigrationBranch(migrationName);
+    
+    try {
+      const testPassed = await this.testMigration(branchName, migrationSQL);
+      
+      if (!testPassed) {
+        throw new Error('Migration failed validation on test branch');
+      }
+      
+      // Apply to main branch
+      const mainUrl = process.env.DATABASE_URL;
+      const sql = neon(mainUrl);
+      
+      // Begin transaction for atomic migration
+      await sql`BEGIN`;
+      
+      try {
+        // Record migration start
+        await sql`
+          INSERT INTO migration_history (name, applied_at, status)
+          VALUES (${migrationName}, NOW(), 'applying')
+        `;
+        
+        // Apply migration
+        await sql(migrationSQL);
+        
+        // Update migration status
+        await sql`
+          UPDATE migration_history 
+          SET status = 'completed', completed_at = NOW()
+          WHERE name = ${migrationName}
+        `;
+        
+        await sql`COMMIT`;
+        
+        console.log(`Migration ${migrationName} applied successfully`);
+        
+      } catch (error) {
+        await sql`ROLLBACK`;
+        
+        // Record failure
+        await sql`
+          UPDATE migration_history 
+          SET status = 'failed', error_message = ${error.message}
+          WHERE name = ${migrationName}
+        `;
+        
+        throw error;
+      }
+      
+    } finally {
+      // Clean up test branch
+      await this.deleteBranch(branchName);
+    }
+  }
+  
+  private getBranchConnectionString(branchName: string): string {
+    // Implementation to get branch connection string via Neon API
+    // This would use the Neon API to get the connection string for the branch
+    return `postgresql://user:pass@${branchName}.neon.tech/db`;
+  }
+  
+  private async deleteBranch(branchName: string) {
+    const command = `neon branches delete "${branchName}" --project-id ${this.projectId}`;
+    execSync(command, { env: { ...process.env, NEON_API_KEY: this.neonApiKey } });
+  }
+}
+
+// Migration history table
+-- Create migration tracking table
+CREATE TABLE IF NOT EXISTS migration_history (
+  id SERIAL PRIMARY KEY,
+  name VARCHAR(255) NOT NULL UNIQUE,
+  applied_at TIMESTAMP WITH TIME ZONE DEFAULT NOW(),
+  completed_at TIMESTAMP WITH TIME ZONE,
+  status VARCHAR(50) DEFAULT 'pending',
+  error_message TEXT,
+  rollback_sql TEXT
+);
+
+// GitHub Actions integration
+name: Database Migration
+on:
+  push:
+    paths:
+      - 'migrations/**'
+    branches:
+      - main
+
+jobs:
+  migrate:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      
+      - name: Test Migration on Neon Branch
+        env:
+          NEON_API_KEY: ${{ secrets.NEON_API_KEY }}
+          PROJECT_ID: ${{ vars.NEON_PROJECT_ID }}
+        run: |
+          # Create test branch and validate migration
+          node scripts/test-migration.js
+          
+      - name: Apply Migration to Production
+        if: success()
+        env:
+          DATABASE_URL: ${{ secrets.DATABASE_URL }}
+          NEON_API_KEY: ${{ secrets.NEON_API_KEY }}
+        run: |
+          node scripts/apply-migration.js]]></correct-example>
+          <incorrect-example title="Unsafe migration practices" conditions="Managing database schema changes" expected-result="Safe migration process" incorrectness-criteria="No testing, direct production changes, no rollback plan, no version control"><![CDATA[// Incorrect: Unsafe migration practices
+import { neon } from '@neondatabase/serverless';
+
+const sql = neon(process.env.DATABASE_URL);
+
+// Direct application to production without testing
+export async function applyMigration(migrationSQL: string) {
+  // No branch testing
+  // No validation
+  // No transaction safety
+  // No rollback plan
+  await sql(migrationSQL);
+  
+  console.log('Migration applied'); // No error handling
+}
+
+// No migration history tracking
+// No atomic transactions
+// No validation testing
+// No branch-based testing workflow]]></incorrect-example>
+        </example>
+      </examples>
+    </requirement>
+  </requirements>
+  <context description="Neon-specific development context">
+    Neon is a serverless PostgreSQL platform that separates compute and storage, offering modern developer features like autoscaling, database branching, instant restore, and more. Key differentiators include:
+
+    **Core Features:**
+    - Serverless architecture with automatic scaling
+    - Database branching for development workflows
+    - Instant point-in-time restore
+    - Connection pooling and edge compatibility
+    - Built-in authentication and Row-Level Security
+    - Data API for serverless and edge environments
+
+    **Development Benefits:**
+    - Branch-based development like Git for databases
+    - Autoscaling to zero for cost efficiency
+    - Edge runtime compatibility
+    - Modern framework integrations (Next.js, Vercel)
+    - Built-in security and compliance features
+
+    **Best Practices:**
+    - Use database branches for feature development and testing
+    - Implement proper connection pooling for serverless environments
+    - Leverage RLS for multi-tenant applications
+    - Utilize Data API for edge computing scenarios
+    - Monitor performance and optimize autoscaling settings
+    - Follow security best practices for sensitive data
+
+    Development should prioritize leveraging Neon's unique features while maintaining PostgreSQL compatibility and following modern cloud-native practices.
+  </context>
+  <references>
+    <reference as="dependency" href=".cursor/rules/000-core/002-cursor-rules-creation.mdc" reason="Follows standard rule format">Base rule format definition</reference>
+    <reference as="context" href="https://neon.com/docs/" reason="Official Neon documentation">Comprehensive Neon platform documentation and best practices</reference>
+    <reference as="dependency" href=".cursor/rules/500-architecture/506-postgresql-core-standards-auto.mdc" reason="PostgreSQL compatibility">Core PostgreSQL standards for compatibility</reference>
+    <reference as="context" href=".cursor/rules/500-architecture/501-supabase-core-rules-auto.mdc" reason="Serverless PostgreSQL patterns">Related serverless PostgreSQL practices</reference>
+    <reference as="context" href=".cursor/rules/400-frameworks/401-next.js-core-standards-auto.mdc" reason="Framework integration">Next.js integration patterns</reference>
+  </references>
+</rule>

@@ -1,0 +1,858 @@
+---
+description: "Comprehensive Kafka UI management standards with cluster monitoring, topic administration, consumer group management, security configuration, and operational dashboards following Kafka management and observability best practices"
+globs: ["**/kafka-ui/**/*", "**/kafdrop/**/*", "**/kafka-manager/**/*", "**/kafka-dashboard/**/*", "**/*kafka*ui*"]
+alwaysApply: false
+---
+
+<rule>
+  <meta>
+    <title>Kafka UI Core Standards</title>
+    <description>Comprehensive Kafka UI management standards covering cluster monitoring, topic administration, consumer group management, message browsing, security configuration, performance monitoring, and operational dashboards following Kafka management and observability best practices</description>
+    <created-at utc-timestamp="1744157700">January 25, 2025, 10:15 AM</created-at>
+    <last-updated-at utc-timestamp="1744157700">January 25, 2025, 10:15 AM</last-updated-at>
+    <applies-to>
+      <file-matcher glob="**/kafka-ui/**/*">Kafka UI configuration and implementation files</file-matcher>
+      <file-matcher glob="**/kafdrop/**/*">Kafdrop Kafka web UI files</file-matcher>
+      <file-matcher glob="**/kafka-manager/**/*">Kafka Manager configuration files</file-matcher>
+      <file-matcher glob="**/kafka-dashboard/**/*">Kafka dashboard implementation files</file-matcher>
+      <file-matcher glob="**/*kafka*ui*">Kafka UI-related files throughout the application</file-matcher>
+      <action-matcher action="kafka-management">Triggered when working with Kafka UI and management tools</action-matcher>
+    </applies-to>
+  </meta>
+  <requirements>
+    <non-negotiable priority="critical">
+      <description>Use Kafka UI tools with proper security configuration, comprehensive cluster monitoring, intuitive user interfaces, role-based access control, and production-ready deployment patterns. Implement authentication, authorization, audit logging, and performance optimization with comprehensive operational features and monitoring integration.</description>
+      <examples>
+        <example title="Production Kafka UI Deployment">
+          <correct-example title="Secure Kafka UI with comprehensive management features" conditions="Deploying production Kafka UI management tools" expected-result="Secure, feature-rich Kafka management interface" correctness-criteria="Security configuration, RBAC, monitoring integration, operational features, user experience optimization"><![CDATA[#!/bin/bash
+# kafka-ui-deployment.sh - Production Kafka UI deployment
+
+set -euo pipefail
+
+echo "🚀 Setting up production Kafka UI management tools"
+
+# Docker Compose for comprehensive Kafka UI stack
+cat > docker-compose.kafka-ui.yml <<EOF
+version: '3.8'
+
+services:
+  # Kafka UI - Modern web interface
+  kafka-ui:
+    image: provectuslabs/kafka-ui:latest
+    container_name: kafka-ui
+    environment:
+      KAFKA_CLUSTERS_0_NAME: production-cluster
+      KAFKA_CLUSTERS_0_BOOTSTRAPSERVERS: kafka-1:9092,kafka-2:9092,kafka-3:9092
+      KAFKA_CLUSTERS_0_ZOOKEEPER: zookeeper-1:2181,zookeeper-2:2181,zookeeper-3:2181
+      KAFKA_CLUSTERS_0_READONLY: false
+      KAFKA_CLUSTERS_0_KAFKACONNECT_0_NAME: connect-cluster
+      KAFKA_CLUSTERS_0_KAFKACONNECT_0_ADDRESS: http://kafka-connect:8083
+      KAFKA_CLUSTERS_0_SCHEMAREGISTRY: http://schema-registry:8081
+      KAFKA_CLUSTERS_0_AUDIT_TOPICAUDITENABLED: true
+      KAFKA_CLUSTERS_0_AUDIT_CONSOLEAUDITENABLED: true
+      
+      # Security configuration
+      AUTH_TYPE: OAUTH2
+      SPRING_SECURITY_OAUTH2_CLIENT_PROVIDER_KEYCLOAK_ISSUER_URI: https://auth.example.com/realms/kafka
+      SPRING_SECURITY_OAUTH2_CLIENT_REGISTRATION_KEYCLOAK_CLIENT_ID: kafka-ui
+      SPRING_SECURITY_OAUTH2_CLIENT_REGISTRATION_KEYCLOAK_CLIENT_SECRET: \${OAUTH_CLIENT_SECRET}
+      SPRING_SECURITY_OAUTH2_CLIENT_REGISTRATION_KEYCLOAK_SCOPE: openid,profile,email
+      SPRING_SECURITY_OAUTH2_CLIENT_REGISTRATION_KEYCLOAK_REDIRECT_URI: https://kafka-ui.example.com/login/oauth2/code/keycloak
+      
+      # RBAC configuration
+      AUTH_ROLES_ADMIN_OAUTH2_CUSTOM_CLAIM_PRINCIPAL_FIELD: sub
+      AUTH_ROLES_ADMIN_OAUTH2_CUSTOM_CLAIM_NAME: kafka_roles
+      AUTH_ROLES_ADMIN_OAUTH2_CUSTOM_CLAIM_VALUES: kafka-admin
+      AUTH_ROLES_READONLY_OAUTH2_CUSTOM_CLAIM_PRINCIPAL_FIELD: sub
+      AUTH_ROLES_READONLY_OAUTH2_CUSTOM_CLAIM_NAME: kafka_roles
+      AUTH_ROLES_READONLY_OAUTH2_CUSTOM_CLAIM_VALUES: kafka-viewer
+      
+      # Monitoring and observability
+      MANAGEMENT_ENDPOINTS_WEB_EXPOSURE_INCLUDE: health,info,prometheus
+      MANAGEMENT_METRICS_EXPORT_PROMETHEUS_ENABLED: true
+      MANAGEMENT_ENDPOINT_HEALTH_SHOW_DETAILS: always
+      
+      # UI customization
+      UI_CLUSTERS_DEFAULT_PAGINATION: 25
+      UI_LIVE_POLL_ENABLED: true
+      UI_LIVE_POLL_INTERVAL: 30
+      
+      # Performance optimization
+      TOPIC_RECREATE_DELAY_SECONDS: 1
+      TOPIC_RECREATE_MAX_RETRIES: 15
+      
+      # Logging
+      LOGGING_LEVEL_COM_PROVECTUS_KAFKA: DEBUG
+      LOGGING_LEVEL_ORG_APACHE_KAFKA: INFO
+      
+    ports:
+      - "8080:8080"
+    volumes:
+      - kafka-ui-data:/data
+    networks:
+      - kafka-network
+    depends_on:
+      - kafka-1
+      - kafka-2
+      - kafka-3
+    healthcheck:
+      test: ["CMD", "wget", "--no-verbose", "--tries=1", "--spider", "http://localhost:8080/actuator/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+    deploy:
+      resources:
+        limits:
+          memory: 2G
+          cpus: '1.0'
+        reservations:
+          memory: 1G
+          cpus: '0.5'
+
+  # Kafdrop - Alternative Kafka web UI
+  kafdrop:
+    image: obsidiandynamics/kafdrop:latest
+    container_name: kafdrop
+    environment:
+      KAFKA_BROKERCONNECT: kafka-1:9092,kafka-2:9092,kafka-3:9092
+      SCHEMAREGISTRY_CONNECT: http://schema-registry:8081
+      JVM_OPTS: "-Xms512m -Xmx1g"
+      SERVER_SERVLET_CONTEXT_PATH: /kafdrop
+      
+      # Security
+      SECURITY_PROTOCOL: SASL_SSL
+      SASL_MECHANISM: PLAIN
+      SASL_JAAS_CONFIG: 'org.apache.kafka.common.security.plain.PlainLoginModule required username="kafka-ui" password="\${KAFKA_PASSWORD}";'
+      
+      # UI configuration
+      MESSAGE_FORMAT: AVRO
+      MESSAGE_KEYFORMAT: DEFAULT
+      PROTOBUFDESC_DIRECTORY: /protobuf
+      
+    ports:
+      - "9000:9000"
+    volumes:
+      - ./protobuf:/protobuf:ro
+    networks:
+      - kafka-network
+    depends_on:
+      - kafka-1
+      - kafka-2
+      - kafka-3
+    healthcheck:
+      test: ["CMD", "wget", "--no-verbose", "--tries=1", "--spider", "http://localhost:9000/kafdrop/actuator/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+
+  # Kafka Connect UI
+  kafka-connect-ui:
+    image: landoop/kafka-connect-ui:latest
+    container_name: kafka-connect-ui
+    environment:
+      CONNECT_URL: http://kafka-connect:8083
+      PROXY: "true"
+    ports:
+      - "8003:8000"
+    networks:
+      - kafka-network
+    depends_on:
+      - kafka-connect
+
+  # Schema Registry UI
+  schema-registry-ui:
+    image: landoop/schema-registry-ui:latest
+    container_name: schema-registry-ui
+    environment:
+      SCHEMAREGISTRY_URL: http://schema-registry:8081
+      PROXY: "true"
+      ALLOW_GLOBAL_CONFIG_CHANGES: "true"
+      ALLOW_TRANSITIVE_COMPATIBILITIES: "true"
+    ports:
+      - "8001:8000"
+    networks:
+      - kafka-network
+    depends_on:
+      - schema-registry
+
+  # Kafka Topics UI
+  kafka-topics-ui:
+    image: landoop/kafka-topics-ui:latest
+    container_name: kafka-topics-ui
+    environment:
+      KAFKA_REST_PROXY_URL: http://kafka-rest:8082
+      PROXY: "true"
+      MAX_BYTES: 50000
+      RECORD_POLL_TIMEOUT: 5000
+      TOPIC_DISPLAY_DELETION: "true"
+    ports:
+      - "8002:8000"
+    networks:
+      - kafka-network
+    depends_on:
+      - kafka-rest
+
+  # Kafka REST Proxy
+  kafka-rest:
+    image: confluentinc/cp-kafka-rest:latest
+    container_name: kafka-rest
+    environment:
+      KAFKA_REST_HOST_NAME: kafka-rest
+      KAFKA_REST_BOOTSTRAP_SERVERS: kafka-1:9092,kafka-2:9092,kafka-3:9092
+      KAFKA_REST_LISTENERS: http://0.0.0.0:8082
+      KAFKA_REST_SCHEMA_REGISTRY_URL: http://schema-registry:8081
+      KAFKA_REST_CLIENT_BASIC_AUTH_CREDENTIALS_SOURCE: USER_INFO
+      KAFKA_REST_CLIENT_SCHEMA_REGISTRY_BASIC_AUTH_USER_INFO: kafka-rest:\${SCHEMA_REGISTRY_PASSWORD}
+      
+      # Security
+      KAFKA_REST_SECURITY_PROTOCOL: SASL_SSL
+      KAFKA_REST_SASL_MECHANISM: PLAIN
+      KAFKA_REST_SASL_JAAS_CONFIG: 'org.apache.kafka.common.security.plain.PlainLoginModule required username="kafka-rest" password="\${KAFKA_PASSWORD}";'
+      
+      # CORS
+      KAFKA_REST_ACCESS_CONTROL_ALLOW_ORIGIN: '*'
+      KAFKA_REST_ACCESS_CONTROL_ALLOW_METHODS: 'GET,POST,PUT,DELETE'
+      KAFKA_REST_ACCESS_CONTROL_ALLOW_HEADERS: 'origin,content-type,accept,authorization'
+      
+    ports:
+      - "8082:8082"
+    networks:
+      - kafka-network
+    depends_on:
+      - kafka-1
+      - kafka-2
+      - kafka-3
+      - schema-registry
+
+  # AKHQ - Kafka GUI
+  akhq:
+    image: tchiotludo/akhq:latest
+    container_name: akhq
+    environment:
+      AKHQ_CONFIGURATION: |
+        akhq:
+          connections:
+            production:
+              properties:
+                bootstrap.servers: kafka-1:9092,kafka-2:9092,kafka-3:9092
+                security.protocol: SASL_SSL
+                sasl.mechanism: PLAIN
+                sasl.jaas.config: org.apache.kafka.common.security.plain.PlainLoginModule required username="akhq" password="\${KAFKA_PASSWORD}";
+              schema-registry:
+                url: http://schema-registry:8081
+                type: "confluent"
+                basic-auth-username: akhq
+                basic-auth-password: \${SCHEMA_REGISTRY_PASSWORD}
+              connect:
+                - name: "connect-cluster"
+                  url: http://kafka-connect:8083
+                  basic-auth-username: akhq
+                  basic-auth-password: \${CONNECT_PASSWORD}
+          
+          # Security configuration
+          security:
+            default-group: no-roles
+            groups:
+              admin:
+                roles:
+                  - topic/read
+                  - topic/insert
+                  - topic/delete
+                  - topic/config/update
+                  - node/read
+                  - registry/read
+                  - registry/insert
+                  - registry/update
+                  - registry/delete
+                  - registry/version/delete
+                  - connect/read
+                  - connect/insert
+                  - connect/update
+                  - connect/delete
+                  - connect/state/update
+                attributes:
+                  - kafka_roles: "kafka-admin"
+              
+              readonly:
+                roles:
+                  - topic/read
+                  - node/read
+                  - registry/read
+                  - connect/read
+                attributes:
+                  - kafka_roles: "kafka-viewer"
+          
+          # OAuth2 integration
+          oauth2:
+            enabled: true
+            providers:
+              oidc:
+                issuer: https://auth.example.com/realms/kafka
+                client-id: akhq
+                client-secret: \${OAUTH_CLIENT_SECRET}
+                scope: openid profile email
+                authorization-uri: https://auth.example.com/realms/kafka/protocol/openid-connect/auth
+                token-uri: https://auth.example.com/realms/kafka/protocol/openid-connect/token
+                user-info-uri: https://auth.example.com/realms/kafka/protocol/openid-connect/userinfo
+                jwk-set-uri: https://auth.example.com/realms/kafka/protocol/openid-connect/certs
+                user-name-attribute: preferred_username
+                groups-attribute: kafka_roles
+          
+          # UI configuration
+          ui-options:
+            topic:
+              default-view: HIDE_INTERNAL
+              internal-regexps:
+                - "^_.*"
+                - "^__.*"
+              stream-regexps:
+                - "^.*-changelog$"
+                - "^.*-repartition$"
+                - "^.*-store$"
+            topic-data:
+              sort: OLDEST
+              date-time-format: ISO
+              max-poll-records: 500
+              poll-timeout: 5000
+            
+    ports:
+      - "8004:8080"
+    networks:
+      - kafka-network
+    depends_on:
+      - kafka-1
+      - kafka-2
+      - kafka-3
+
+  # Nginx reverse proxy with SSL termination
+  nginx:
+    image: nginx:alpine
+    container_name: kafka-ui-nginx
+    volumes:
+      - ./nginx/nginx.conf:/etc/nginx/nginx.conf:ro
+      - ./nginx/ssl:/etc/nginx/ssl:ro
+    ports:
+      - "80:80"
+      - "443:443"
+    networks:
+      - kafka-network
+    depends_on:
+      - kafka-ui
+      - kafdrop
+      - akhq
+
+  # Prometheus for metrics collection
+  prometheus:
+    image: prom/prometheus:latest
+    container_name: kafka-ui-prometheus
+    volumes:
+      - ./prometheus/prometheus.yml:/etc/prometheus/prometheus.yml
+      - prometheus_data:/prometheus
+    ports:
+      - "9090:9090"
+    networks:
+      - kafka-network
+    command:
+      - '--config.file=/etc/prometheus/prometheus.yml'
+      - '--storage.tsdb.path=/prometheus'
+      - '--storage.tsdb.retention.time=30d'
+      - '--web.enable-lifecycle'
+
+  # Grafana for monitoring dashboards
+  grafana:
+    image: grafana/grafana:latest
+    container_name: kafka-ui-grafana
+    environment:
+      GF_SECURITY_ADMIN_PASSWORD: \${GRAFANA_PASSWORD}
+      GF_AUTH_OAUTH_AUTO_LOGIN: true
+      GF_AUTH_GENERIC_OAUTH_ENABLED: true
+      GF_AUTH_GENERIC_OAUTH_NAME: Keycloak
+      GF_AUTH_GENERIC_OAUTH_CLIENT_ID: grafana
+      GF_AUTH_GENERIC_OAUTH_CLIENT_SECRET: \${OAUTH_CLIENT_SECRET}
+      GF_AUTH_GENERIC_OAUTH_SCOPES: openid profile email
+      GF_AUTH_GENERIC_OAUTH_AUTH_URL: https://auth.example.com/realms/kafka/protocol/openid-connect/auth
+      GF_AUTH_GENERIC_OAUTH_TOKEN_URL: https://auth.example.com/realms/kafka/protocol/openid-connect/token
+      GF_AUTH_GENERIC_OAUTH_API_URL: https://auth.example.com/realms/kafka/protocol/openid-connect/userinfo
+    volumes:
+      - grafana_data:/var/lib/grafana
+      - ./grafana/dashboards:/etc/grafana/provisioning/dashboards
+      - ./grafana/datasources:/etc/grafana/provisioning/datasources
+    ports:
+      - "3000:3000"
+    networks:
+      - kafka-network
+
+volumes:
+  kafka-ui-data:
+  prometheus_data:
+  grafana_data:
+
+networks:
+  kafka-network:
+    external: true
+
+EOF
+
+# Nginx configuration for SSL termination and routing
+mkdir -p nginx
+cat > nginx/nginx.conf <<EOF
+events {
+    worker_connections 1024;
+}
+
+http {
+    upstream kafka-ui {
+        server kafka-ui:8080;
+    }
+
+    upstream kafdrop {
+        server kafdrop:9000;
+    }
+
+    upstream akhq {
+        server akhq:8080;
+    }
+
+    upstream schema-registry-ui {
+        server schema-registry-ui:8000;
+    }
+
+    upstream kafka-connect-ui {
+        server kafka-connect-ui:8000;
+    }
+
+    upstream kafka-topics-ui {
+        server kafka-topics-ui:8000;
+    }
+
+    # SSL configuration
+    ssl_protocols TLSv1.2 TLSv1.3;
+    ssl_ciphers ECDHE+AESGCM:ECDHE+CHACHA20:DHE+AESGCM:DHE+CHACHA20:!aNULL:!MD5:!DSS;
+    ssl_prefer_server_ciphers off;
+
+    # Security headers
+    add_header X-Frame-Options DENY;
+    add_header X-Content-Type-Options nosniff;
+    add_header X-XSS-Protection "1; mode=block";
+    add_header Strict-Transport-Security "max-age=31536000; includeSubDomains";
+
+    # Main Kafka UI
+    server {
+        listen 80;
+        listen 443 ssl;
+        server_name kafka-ui.example.com;
+
+        ssl_certificate /etc/nginx/ssl/kafka-ui.crt;
+        ssl_certificate_key /etc/nginx/ssl/kafka-ui.key;
+
+        location / {
+            proxy_pass http://kafka-ui;
+            proxy_set_header Host \$host;
+            proxy_set_header X-Real-IP \$remote_addr;
+            proxy_set_header X-Forwarded-For \$proxy_add_x_forwarded_for;
+            proxy_set_header X-Forwarded-Proto \$scheme;
+            
+            # WebSocket support
+            proxy_http_version 1.1;
+            proxy_set_header Upgrade \$http_upgrade;
+            proxy_set_header Connection "upgrade";
+        }
+    }
+
+    # Kafdrop
+    server {
+        listen 80;
+        listen 443 ssl;
+        server_name kafdrop.example.com;
+
+        ssl_certificate /etc/nginx/ssl/kafdrop.crt;
+        ssl_certificate_key /etc/nginx/ssl/kafdrop.key;
+
+        location / {
+            proxy_pass http://kafdrop;
+            proxy_set_header Host \$host;
+            proxy_set_header X-Real-IP \$remote_addr;
+            proxy_set_header X-Forwarded-For \$proxy_add_x_forwarded_for;
+            proxy_set_header X-Forwarded-Proto \$scheme;
+        }
+    }
+
+    # AKHQ
+    server {
+        listen 80;
+        listen 443 ssl;
+        server_name akhq.example.com;
+
+        ssl_certificate /etc/nginx/ssl/akhq.crt;
+        ssl_certificate_key /etc/nginx/ssl/akhq.key;
+
+        location / {
+            proxy_pass http://akhq;
+            proxy_set_header Host \$host;
+            proxy_set_header X-Real-IP \$remote_addr;
+            proxy_set_header X-Forwarded-For \$proxy_add_x_forwarded_for;
+            proxy_set_header X-Forwarded-Proto \$scheme;
+        }
+    }
+
+    # Schema Registry UI
+    server {
+        listen 80;
+        listen 443 ssl;
+        server_name schema-registry-ui.example.com;
+
+        ssl_certificate /etc/nginx/ssl/schema-registry-ui.crt;
+        ssl_certificate_key /etc/nginx/ssl/schema-registry-ui.key;
+
+        location / {
+            proxy_pass http://schema-registry-ui;
+            proxy_set_header Host \$host;
+            proxy_set_header X-Real-IP \$remote_addr;
+            proxy_set_header X-Forwarded-For \$proxy_add_x_forwarded_for;
+            proxy_set_header X-Forwarded-Proto \$scheme;
+        }
+    }
+}
+EOF
+
+# Prometheus configuration for Kafka UI monitoring
+mkdir -p prometheus
+cat > prometheus/prometheus.yml <<EOF
+global:
+  scrape_interval: 15s
+  evaluation_interval: 15s
+
+scrape_configs:
+  - job_name: 'kafka-ui'
+    static_configs:
+      - targets: ['kafka-ui:8080']
+    metrics_path: '/actuator/prometheus'
+    scrape_interval: 30s
+
+  - job_name: 'kafdrop'
+    static_configs:
+      - targets: ['kafdrop:9000']
+    metrics_path: '/actuator/prometheus'
+    scrape_interval: 30s
+
+  - job_name: 'akhq'
+    static_configs:
+      - targets: ['akhq:8080']
+    metrics_path: '/metrics'
+    scrape_interval: 30s
+
+  - job_name: 'kafka-rest'
+    static_configs:
+      - targets: ['kafka-rest:8082']
+    metrics_path: '/metrics'
+    scrape_interval: 30s
+
+  - job_name: 'kafka-connect'
+    static_configs:
+      - targets: ['kafka-connect:8083']
+    metrics_path: '/metrics'
+    scrape_interval: 30s
+
+EOF
+
+# Grafana dashboard provisioning
+mkdir -p grafana/dashboards grafana/datasources
+
+cat > grafana/datasources/prometheus.yml <<EOF
+apiVersion: 1
+
+datasources:
+  - name: Prometheus
+    type: prometheus
+    access: proxy
+    url: http://prometheus:9090
+    isDefault: true
+    editable: true
+
+EOF
+
+cat > grafana/dashboards/dashboard.yml <<EOF
+apiVersion: 1
+
+providers:
+  - name: 'kafka-ui'
+    orgId: 1
+    folder: 'Kafka UI'
+    type: file
+    disableDeletion: false
+    updateIntervalSeconds: 10
+    allowUiUpdates: true
+    options:
+      path: /etc/grafana/provisioning/dashboards
+
+EOF
+
+# RBAC configuration script
+cat > setup-rbac.sh <<'EOF'
+#!/bin/bash
+
+echo "Setting up RBAC for Kafka UI tools..."
+
+# Create Keycloak roles and users
+curl -X POST \
+  http://keycloak:8080/admin/realms/kafka/roles \
+  -H 'Content-Type: application/json' \
+  -H 'Authorization: Bearer ${KEYCLOAK_TOKEN}' \
+  -d '{
+    "name": "kafka-admin",
+    "description": "Kafka administrator role"
+  }'
+
+curl -X POST \
+  http://keycloak:8080/admin/realms/kafka/roles \
+  -H 'Content-Type: application/json' \
+  -H 'Authorization: Bearer ${KEYCLOAK_TOKEN}' \
+  -d '{
+    "name": "kafka-viewer",
+    "description": "Kafka read-only viewer role"
+  }'
+
+curl -X POST \
+  http://keycloak:8080/admin/realms/kafka/roles \
+  -H 'Content-Type: application/json' \
+  -H 'Authorization: Bearer ${KEYCLOAK_TOKEN}' \
+  -d '{
+    "name": "kafka-operator",
+    "description": "Kafka operator role"
+  }'
+
+echo "RBAC setup completed!"
+
+EOF
+
+chmod +x setup-rbac.sh
+
+# Custom Kafka UI application configuration
+cat > kafka-ui-custom.yml <<EOF
+kafka:
+  clusters:
+    - name: production
+      bootstrapServers: kafka-1:9092,kafka-2:9092,kafka-3:9092
+      properties:
+        security.protocol: SASL_SSL
+        sasl.mechanism: PLAIN
+        sasl.jaas.config: org.apache.kafka.common.security.plain.PlainLoginModule required username="kafka-ui" password="${KAFKA_PASSWORD}";
+      
+      metrics:
+        port: 9308
+        type: JMX
+      
+      audit:
+        topicAuditEnabled: true
+        consoleAuditEnabled: true
+        auditTopicsPartitions: 3
+        auditTopicsReplicationFactor: 3
+      
+      masking:
+        - type: "REMOVE"
+          fields:
+            - "password"
+            - "secret"
+            - "key"
+        - type: "MASK"
+          fields:
+            - "email"
+            - "phone"
+          replacement: "***"
+      
+      readonly: false
+      
+      # Topic management
+      topicCreation:
+        enabled: true
+        defaultPartitions: 12
+        defaultReplicationFactor: 3
+        defaultConfigs:
+          cleanup.policy: delete
+          retention.ms: 604800000
+          segment.ms: 3600000
+      
+      # Consumer group management
+      consumerGroups:
+        showOffsets: true
+        showMetrics: true
+        resetEnabled: true
+      
+      # Schema Registry integration
+      schemaRegistry: http://schema-registry:8081
+      schemaRegistryAuth:
+        username: kafka-ui
+        password: ${SCHEMA_REGISTRY_PASSWORD}
+      
+      # Kafka Connect integration
+      kafkaConnect:
+        - name: connect-cluster
+          address: http://kafka-connect:8083
+          auth:
+            username: kafka-ui
+            password: ${CONNECT_PASSWORD}
+
+# Security configuration
+auth:
+  type: OAUTH2
+  oauth2:
+    client:
+      keycloak:
+        clientId: kafka-ui
+        clientSecret: ${OAUTH_CLIENT_SECRET}
+        scope: openid,profile,email
+        issuer-uri: https://auth.example.com/realms/kafka
+        redirect-uri: https://kafka-ui.example.com/login/oauth2/code/keycloak
+        authorization-grant-type: authorization_code
+        user-name-attribute: preferred_username
+        custom-params:
+          type: keycloak
+
+# Role-based access control
+authorization:
+  enabled: true
+  roles:
+    - name: admin
+      clusters:
+        - production
+      permissions:
+        - resource: APPLICATIONCONFIG
+          actions: [VIEW, EDIT]
+        - resource: CLUSTERCONFIG
+          actions: [VIEW, EDIT]
+        - resource: TOPIC
+          value: ".*"
+          actions: [VIEW, CREATE, EDIT, DELETE, MESSAGES_READ, MESSAGES_PRODUCE, MESSAGES_DELETE]
+        - resource: CONSUMER
+          value: ".*"
+          actions: [VIEW, DELETE, RESET_OFFSETS]
+        - resource: SCHEMA
+          value: ".*"
+          actions: [VIEW, CREATE, EDIT, DELETE]
+        - resource: CONNECT
+          value: ".*"
+          actions: [VIEW, CREATE, EDIT, DELETE]
+        - resource: KSQL
+          actions: [VIEW, EXECUTE]
+      subjects:
+        - provider: oauth
+          type: role
+          value: kafka-admin
+    
+    - name: readonly
+      clusters:
+        - production
+      permissions:
+        - resource: APPLICATIONCONFIG
+          actions: [VIEW]
+        - resource: CLUSTERCONFIG
+          actions: [VIEW]
+        - resource: TOPIC
+          value: ".*"
+          actions: [VIEW, MESSAGES_READ]
+        - resource: CONSUMER
+          value: ".*"
+          actions: [VIEW]
+        - resource: SCHEMA
+          value: ".*"
+          actions: [VIEW]
+        - resource: CONNECT
+          value: ".*"
+          actions: [VIEW]
+        - resource: KSQL
+          actions: [VIEW]
+      subjects:
+        - provider: oauth
+          type: role
+          value: kafka-viewer
+
+# UI customization
+ui:
+  livePolling:
+    enabled: true
+    interval: 30
+  pagination:
+    defaultPageSize: 25
+    pageSizeOptions: [10, 25, 50, 100]
+  theme:
+    name: dark
+  clusters:
+    defaultView: HIDE_INTERNAL
+  messages:
+    maxDisplaySize: 50000
+    defaultDeserialization: JSON
+
+# Monitoring and observability
+management:
+  endpoints:
+    web:
+      exposure:
+        include: health,info,prometheus,metrics
+  endpoint:
+    health:
+      show-details: always
+  metrics:
+    export:
+      prometheus:
+        enabled: true
+
+# Logging configuration
+logging:
+  level:
+    com.provectus.kafka.ui: DEBUG
+    org.apache.kafka: INFO
+    org.springframework.security: DEBUG
+  pattern:
+    console: "%d{yyyy-MM-dd HH:mm:ss} [%thread] %-5level %logger{36} - %msg%n"
+
+EOF
+
+echo "✅ Kafka UI deployment configuration completed"
+echo "🔐 Configure OAuth2 and RBAC: ./setup-rbac.sh"
+echo "🚀 Start UI stack: docker-compose -f docker-compose.kafka-ui.yml up -d"]]></correct-example>
+          <incorrect-example title="Basic Kafka UI without security or management features" conditions="Setting up Kafka UI" expected-result="Secure, feature-rich Kafka management interface" incorrectness-criteria="No security, basic UI only, no RBAC, no monitoring, poor user experience"><![CDATA[version: '3.8'
+
+services:
+  kafka-ui:
+    image: provectuslabs/kafka-ui:latest
+    ports:
+      - "8080:8080"
+    environment:
+      KAFKA_CLUSTERS_0_NAME: local
+      KAFKA_CLUSTERS_0_BOOTSTRAPSERVERS: localhost:9092
+
+# Bad: No security configuration
+# Bad: No authentication
+# Bad: No RBAC
+# Bad: No SSL termination
+# Bad: No monitoring integration
+# Bad: No operational features
+# Bad: Basic setup only]]></incorrect-example>
+        </example>
+      </examples>
+    </non-negotiable>
+  </requirements>
+  <context description="Kafka UI management tools best practices">
+    Kafka UI management tools provide essential interfaces for monitoring, administering, and operating Apache Kafka clusters. Modern Kafka UI development emphasizes security-first approaches, comprehensive cluster visibility, intuitive user experiences, and operational efficiency for production environments.
+
+    Key principles for Kafka UI implementation include:
+    - Security with authentication, authorization, and role-based access control
+    - Comprehensive cluster monitoring with real-time metrics and performance dashboards
+    - Intuitive user interfaces with efficient workflows and operational features
+    - Multi-cluster management with environment separation and configuration management
+    - Integration with Kafka ecosystem tools like Schema Registry, Kafka Connect, and KSQL
+    - Operational features including topic management, consumer group administration, and message browsing
+
+    Kafka UI security emphasizes proper authentication integration with enterprise identity providers, fine-grained authorization with RBAC, SSL/TLS encryption, and audit logging for compliance and security monitoring.
+
+    Production deployments require load balancing, SSL termination, monitoring integration, backup procedures, and proper resource allocation for handling large clusters and high-throughput operations.
+
+    Modern Kafka UI tools enable efficient cluster operations, troubleshooting, performance monitoring, and administrative tasks while maintaining security and providing excellent user experiences for development, staging, and production environments.
+  </context>
+  <references>
+    <reference as="dependency" href=".cursor/rules/000-core/002-cursor-rules-creation.mdc" reason="Follows standard rule format">Base rule format definition</reference>
+    <reference as="context" href="https://github.com/provectus/kafka-ui" reason="Kafka UI documentation">Kafka UI Documentation</reference>
+    <reference as="context" href="https://github.com/obsidiandynamics/kafdrop" reason="Kafdrop documentation">Kafdrop Documentation</reference>
+    <reference as="context" href="https://akhq.io/" reason="AKHQ documentation">AKHQ Documentation</reference>
+  </references>
+</rule>

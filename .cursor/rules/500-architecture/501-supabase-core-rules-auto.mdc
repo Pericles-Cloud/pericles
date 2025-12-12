@@ -1,0 +1,1141 @@
+---
+description: "Comprehensive Supabase best practices with security, performance optimization, TypeScript integration, RLS, Edge Functions, and database state management following expert community standards"
+globs: ["**/*.{ts,tsx,js,jsx,sql}", "**/supabase/**/*", "**/*supabase*", "**/database/**/*", "**/migrations/**/*"]
+alwaysApply: false
+---
+
+<rule>
+  <meta>
+    <title>Supabase Core Standards</title>
+    <description>Comprehensive Supabase best practices covering security, performance optimization, TypeScript integration, Row Level Security, Edge Functions, real-time subscriptions, and database state management following expert community standards</description>
+    <created-at utc-timestamp="1744157700">January 25, 2025, 10:15 AM</created-at>
+    <last-updated-at utc-timestamp="1744157700">January 25, 2025, 10:15 AM</last-updated-at>
+    <applies-to>
+      <file-matcher glob="**/*.{ts,tsx,js,jsx,sql}">TypeScript, JavaScript, and SQL files in Supabase projects</file-matcher>
+      <file-matcher glob="**/supabase/**/*">Supabase configuration and migration files</file-matcher>
+      <file-matcher glob="**/*supabase*">Supabase-related files and configurations</file-matcher>
+      <file-matcher glob="**/database/**/*">Database schema and migration files</file-matcher>
+      <action-matcher action="supabase-development">Triggered when working with Supabase backend services</action-matcher>
+    </applies-to>
+  </meta>
+  <requirements>
+    <non-negotiable priority="critical">
+      <description>NEVER expose service role keys on the frontend. Always use environment variables for service role keys and keep them secure on the server side only.</description>
+      <examples>
+        <example title="API Key Security">
+          <correct-example title="Secure service role key usage" conditions="Using service role key for admin operations" expected-result="Service role key only used server-side" correctness-criteria="Service role key properly secured in environment variables and never exposed to client"><![CDATA[// Server-side only (API routes, Edge Functions)
+const supabaseAdmin = createClient(
+  process.env.NEXT_PUBLIC_SUPABASE_URL!,
+  process.env.SUPABASE_SERVICE_ROLE_KEY!, // Server-side only
+  {
+    auth: {
+      autoRefreshToken: false,
+      persistSession: false
+    }
+  }
+)
+
+// Client-side
+const supabase = createClient(
+  process.env.NEXT_PUBLIC_SUPABASE_URL!,
+  process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY! // Public anon key only
+)]]></correct-example>
+          <incorrect-example title="Exposing service role key" conditions="Using service role key incorrectly" expected-result="Secure key management" incorrectness-criteria="Service role key exposed to client-side code creating security vulnerability"><![CDATA[// NEVER DO THIS - Security vulnerability
+const supabase = createClient(
+  process.env.NEXT_PUBLIC_SUPABASE_URL!,
+  process.env.SUPABASE_SERVICE_ROLE_KEY! // Service role key exposed to client
+)]]></incorrect-example>
+        </example>
+      </examples>
+    </non-negotiable>
+    <non-negotiable priority="critical">
+      <description>Enable Row Level Security (RLS) for all tables containing sensitive data and define precise policies for fine-grained access control.</description>
+      <examples>
+        <example title="Row Level Security Implementation">
+          <correct-example title="Proper RLS setup with performance optimization" conditions="Securing user data with RLS" expected-result="Secure and performant RLS policies" correctness-criteria="RLS enabled with optimized policies and proper indexing"><![CDATA[-- Enable RLS on table
+ALTER TABLE profiles ENABLE ROW LEVEL SECURITY;
+
+-- Create index for RLS performance (CRITICAL for performance)
+CREATE INDEX idx_profiles_user_id ON profiles(user_id);
+
+-- Secure policy with performance optimization
+CREATE POLICY "Users can view own profile" ON profiles
+  FOR SELECT 
+  TO authenticated
+  USING ((SELECT auth.uid()) = user_id);
+
+-- Insert policy
+CREATE POLICY "Users can insert own profile" ON profiles
+  FOR INSERT 
+  TO authenticated
+  WITH CHECK ((SELECT auth.uid()) = user_id);
+
+-- Update policy
+CREATE POLICY "Users can update own profile" ON profiles
+  FOR UPDATE 
+  TO authenticated
+  USING ((SELECT auth.uid()) = user_id)
+  WITH CHECK ((SELECT auth.uid()) = user_id);]]></correct-example>
+          <incorrect-example title="Missing RLS or poor performance" conditions="Securing user data" expected-result="Secure and performant RLS" incorrectness-criteria="No RLS enabled or unoptimized policies causing performance issues"><![CDATA[-- MISSING: No RLS enabled - security vulnerability
+CREATE TABLE profiles (
+  id UUID PRIMARY KEY,
+  user_id UUID REFERENCES auth.users(id),
+  name TEXT
+);
+
+-- SLOW: No index on RLS column causes performance issues
+CREATE POLICY "Users can view own profile" ON profiles
+  FOR SELECT USING (auth.uid() = user_id); -- No index, very slow]]></incorrect-example>
+        </example>
+      </examples>
+    </non-negotiable>
+    <requirement priority="critical">
+      <description>Use TypeScript interfaces for type safety with Supabase generated types and implement proper error handling with detailed logging.</description>
+      <examples>
+        <example title="TypeScript Integration">
+          <correct-example title="Proper TypeScript setup with generated types" conditions="Setting up TypeScript with Supabase" expected-result="Type-safe Supabase client with proper error handling" correctness-criteria="Uses generated types, proper error handling, and type safety"><![CDATA[// Generate types: npx supabase gen types typescript --project-id YOUR_PROJECT_ID --schema public > types/supabase.ts
+import { createClient } from '@supabase/supabase-js'
+import { Database } from '@/types/supabase'
+
+// Type-safe client
+const supabase = createClient<Database>(
+  process.env.NEXT_PUBLIC_SUPABASE_URL!,
+  process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!
+)
+
+// Type-safe operations with proper error handling
+interface UserProfile {
+  id: string
+  name: string
+  email: string
+}
+
+async function getUserProfile(userId: string): Promise<UserProfile | null> {
+  try {
+    const { data, error } = await supabase
+      .from('profiles')
+      .select('id, name, email')
+      .eq('user_id', userId)
+      .single()
+
+    if (error) {
+      console.error('Database error:', {
+        message: error.message,
+        details: error.details,
+        hint: error.hint,
+        code: error.code
+      })
+      return null
+    }
+
+    return data
+  } catch (err) {
+    console.error('Unexpected error:', err)
+    return null
+  }
+}]]></correct-example>
+          <incorrect-example title="No TypeScript types or error handling" conditions="Setting up Supabase client" expected-result="Type-safe implementation" incorrectness-criteria="Missing types, poor error handling, and no type safety"><![CDATA[// No types, poor error handling
+const supabase = createClient(url, key) // No types
+
+async function getUserProfile(userId) {
+  const { data } = await supabase
+    .from('profiles')
+    .select('*') // No specific columns, no error handling
+    .eq('user_id', userId)
+    .single()
+  
+  return data // Could be null/undefined, no error checking
+}]]></incorrect-example>
+        </example>
+      </examples>
+    </requirement>
+    <requirement priority="critical">
+      <description>Optimize query performance by adding indexes on RLS columns, wrapping auth functions in SELECT statements, and implementing proper filtering patterns.</description>
+      <examples>
+        <example title="RLS Performance Optimization">
+          <correct-example title="Optimized RLS with indexing and caching" conditions="Implementing performant RLS policies" expected-result="Fast RLS queries with minimal overhead" correctness-criteria="Indexed columns, cached auth functions, and proper filtering"><![CDATA[-- Add indexes for RLS performance (100x+ improvement)
+CREATE INDEX idx_posts_user_id ON posts(user_id);
+CREATE INDEX idx_posts_team_id ON posts(team_id);
+
+-- Optimized RLS policy with SELECT wrapping for function caching
+CREATE POLICY "Team members can view posts" ON posts
+  FOR SELECT 
+  TO authenticated
+  USING (
+    team_id IN (
+      SELECT team_id 
+      FROM team_members 
+      WHERE user_id = (SELECT auth.uid())
+    )
+  );
+
+-- Client-side: Always add explicit filtering (don't rely only on RLS)
+const { data, error } = await supabase
+  .from('posts')
+  .select('id, title, content, created_at')
+  .eq('user_id', user.id) // Explicit filter for performance
+  .order('created_at', { ascending: false })
+  .limit(20)
+
+-- Security definer function for complex RLS
+CREATE OR REPLACE FUNCTION user_teams()
+RETURNS int[] AS $$
+BEGIN
+  RETURN ARRAY(
+    SELECT team_id 
+    FROM team_members 
+    WHERE user_id = auth.uid()
+  );
+END;
+$$ LANGUAGE plpgsql SECURITY DEFINER;
+
+-- Use the function in RLS
+CREATE POLICY "User team access" ON posts
+  FOR SELECT 
+  TO authenticated
+  USING (team_id = ANY((SELECT user_teams())));]]></correct-example>
+          <incorrect-example title="Unoptimized RLS causing performance issues" conditions="Implementing RLS policies" expected-result="Fast RLS queries" incorrectness-criteria="No indexes, unoptimized functions, and poor query patterns"><![CDATA[-- SLOW: No index on RLS column
+CREATE POLICY "Team members can view posts" ON posts
+  FOR SELECT USING (
+    auth.uid() IN (
+      SELECT user_id FROM team_members 
+      WHERE team_members.team_id = posts.team_id -- Slow join on each row
+    )
+  );
+
+-- SLOW: Function called on every row without caching
+CREATE POLICY "Admin access" ON posts
+  FOR SELECT USING (is_admin()); -- Function called per row
+
+-- Client: Relying only on RLS without explicit filtering
+const { data } = await supabase
+  .from('posts')
+  .select('*') -- No filtering, RLS does all the work (slow)]]></incorrect-example>
+        </example>
+      </examples>
+    </requirement>
+    <requirement priority="high">
+      <description>Implement secure file storage with appropriate bucket policies, signed URLs, and file type/size restrictions.</description>
+      <examples>
+        <example title="Secure File Storage">
+          <correct-example title="Secure storage with proper policies" conditions="Implementing file upload functionality" expected-result="Secure file storage with access controls" correctness-criteria="Private buckets, signed URLs, and file restrictions"><![CDATA[-- Storage bucket policy (run in Supabase SQL editor)
+INSERT INTO storage.buckets (id, name, public) 
+VALUES ('user-uploads', 'user-uploads', false); -- Private bucket
+
+-- RLS policy for storage
+CREATE POLICY "Users can upload their own files" ON storage.objects
+  FOR INSERT 
+  TO authenticated
+  WITH CHECK (
+    bucket_id = 'user-uploads' AND 
+    (storage.foldername(name))[1] = (SELECT auth.uid()::text)
+  );
+
+CREATE POLICY "Users can view their own files" ON storage.objects
+  FOR SELECT 
+  TO authenticated
+  USING (
+    bucket_id = 'user-uploads' AND 
+    (storage.foldername(name))[1] = (SELECT auth.uid()::text)
+  );
+
+-- Client-side secure upload with restrictions
+async function uploadFile(file: File): Promise<string | null> {
+  // Validate file type and size
+  const allowedTypes = ['image/jpeg', 'image/png', 'image/webp']
+  const maxSize = 5 * 1024 * 1024 // 5MB
+  
+  if (!allowedTypes.includes(file.type)) {
+    throw new Error('Invalid file type')
+  }
+  
+  if (file.size > maxSize) {
+    throw new Error('File too large')
+  }
+  
+  const user = await supabase.auth.getUser()
+  if (!user.data.user) throw new Error('Not authenticated')
+  
+  const fileName = `${user.data.user.id}/${Date.now()}-${file.name}`
+  
+  const { data, error } = await supabase.storage
+    .from('user-uploads')
+    .upload(fileName, file, {
+      cacheControl: '3600',
+      upsert: false
+    })
+  
+  if (error) throw error
+  
+  // Generate signed URL for secure access
+  const { data: signedUrl } = await supabase.storage
+    .from('user-uploads')
+    .createSignedUrl(data.path, 3600) // 1 hour expiry
+  
+  return signedUrl?.signedUrl || null
+}]]></correct-example>
+          <incorrect-example title="Insecure file storage" conditions="Implementing file uploads" expected-result="Secure file storage" incorrectness-criteria="Public bucket without restrictions or proper access controls"><![CDATA[-- INSECURE: Public bucket without restrictions
+INSERT INTO storage.buckets (id, name, public) 
+VALUES ('uploads', 'uploads', true); -- Public bucket
+
+-- No RLS policies on storage
+
+-- Client: No file validation or security
+async function uploadFile(file: File) {
+  // No file type or size validation
+  const { data } = await supabase.storage
+    .from('uploads')
+    .upload(file.name, file) // No path organization
+  
+  // Direct public URL (no expiry control)
+  const publicUrl = supabase.storage
+    .from('uploads')
+    .getPublicUrl(data?.path || '')
+  
+  return publicUrl.data.publicUrl
+}]]></incorrect-example>
+        </example>
+      </examples>
+    </requirement>
+    <requirement priority="high">
+      <description>Use Edge Functions for secure server-side business logic with proper authentication middleware and input validation.</description>
+      <examples>
+        <example title="Secure Edge Functions">
+          <correct-example title="Edge Function with authentication and validation" conditions="Creating server-side business logic" expected-result="Secure Edge Function with proper validation" correctness-criteria="Authentication middleware, input validation, and error handling"><![CDATA[// supabase/functions/process-payment/index.ts
+import { serve } from "https://deno.land/std@0.168.0/http/server.ts"
+import { createClient } from 'https://esm.sh/@supabase/supabase-js@2'
+import { corsHeaders } from '../_shared/cors.ts'
+
+interface PaymentRequest {
+  amount: number
+  currency: string
+  description: string
+}
+
+serve(async (req) => {
+  // Handle CORS
+  if (req.method === 'OPTIONS') {
+    return new Response('ok', { headers: corsHeaders })
+  }
+
+  try {
+    // Authentication middleware
+    const authHeader = req.headers.get('Authorization')
+    if (!authHeader) {
+      return new Response(
+        JSON.stringify({ error: 'Missing authorization header' }),
+        { status: 401, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
+      )
+    }
+
+    const supabase = createClient(
+      Deno.env.get('SUPABASE_URL') ?? '',
+      Deno.env.get('SUPABASE_ANON_KEY') ?? '',
+      {
+        global: {
+          headers: { Authorization: authHeader },
+        },
+      }
+    )
+
+    // Verify user authentication
+    const { data: { user }, error: authError } = await supabase.auth.getUser()
+    if (authError || !user) {
+      return new Response(
+        JSON.stringify({ error: 'Invalid authentication' }),
+        { status: 401, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
+      )
+    }
+
+    // Input validation
+    const body: PaymentRequest = await req.json()
+    
+    if (!body.amount || body.amount <= 0) {
+      return new Response(
+        JSON.stringify({ error: 'Invalid amount' }),
+        { status: 400, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
+      )
+    }
+
+    if (!body.currency || !['USD', 'EUR'].includes(body.currency)) {
+      return new Response(
+        JSON.stringify({ error: 'Invalid currency' }),
+        { status: 400, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
+      )
+    }
+
+    // Secure business logic
+    const { data, error } = await supabase
+      .from('payments')
+      .insert({
+        user_id: user.id,
+        amount: body.amount,
+        currency: body.currency,
+        description: body.description,
+        status: 'pending'
+      })
+      .select()
+      .single()
+
+    if (error) {
+      console.error('Database error:', error)
+      return new Response(
+        JSON.stringify({ error: 'Failed to create payment' }),
+        { status: 500, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
+      )
+    }
+
+    return new Response(
+      JSON.stringify({ success: true, payment: data }),
+      { headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
+    )
+
+  } catch (error) {
+    console.error('Function error:', error)
+    return new Response(
+      JSON.stringify({ error: 'Internal server error' }),
+      { status: 500, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
+    )
+  }
+})]]></correct-example>
+          <incorrect-example title="Insecure Edge Function" conditions="Creating server-side logic" expected-result="Secure Edge Function" incorrectness-criteria="No authentication, missing validation, and poor error handling"><![CDATA[// Insecure Edge Function
+import { serve } from "https://deno.land/std@0.168.0/http/server.ts"
+
+serve(async (req) => {
+  // No authentication check
+  const body = await req.json()
+  
+  // No input validation
+  // Direct database operations without security
+  const supabase = createClient(url, serviceKey) // Using service key unsafely
+  
+  // No error handling
+  const { data } = await supabase
+    .from('payments')
+    .insert(body) // Unvalidated input
+  
+  return new Response(JSON.stringify(data))
+})]]></incorrect-example>
+        </example>
+      </examples>
+    </requirement>
+    <requirement priority="high">
+      <description>Implement real-time subscriptions with proper authentication, connection management, and error handling.</description>
+      <examples>
+        <example title="Real-time Subscriptions">
+          <correct-example title="Secure real-time implementation" conditions="Setting up real-time subscriptions" expected-result="Secure and reliable real-time updates" correctness-criteria="Authenticated subscriptions, proper cleanup, and error handling"><![CDATA[import { useEffect, useState } from 'react'
+import { RealtimeChannel } from '@supabase/supabase-js'
+
+interface Message {
+  id: string
+  content: string
+  user_id: string
+  channel_id: string
+  created_at: string
+}
+
+function useRealtimeMessages(channelId: string) {
+  const [messages, setMessages] = useState<Message[]>([])
+  const [loading, setLoading] = useState(true)
+  const [error, setError] = useState<string | null>(null)
+
+  useEffect(() => {
+    let channel: RealtimeChannel | null = null
+
+    async function setupSubscription() {
+      try {
+        // Verify authentication
+        const { data: { user }, error: authError } = await supabase.auth.getUser()
+        if (authError || !user) {
+          setError('Authentication required')
+          setLoading(false)
+          return
+        }
+
+        // Verify user has access to channel
+        const { data: access, error: accessError } = await supabase
+          .from('channel_members')
+          .select('id')
+          .eq('channel_id', channelId)
+          .eq('user_id', user.id)
+          .single()
+
+        if (accessError || !access) {
+          setError('Access denied to channel')
+          setLoading(false)
+          return
+        }
+
+        // Load initial messages
+        const { data: initialMessages, error: messagesError } = await supabase
+          .from('messages')
+          .select('*')
+          .eq('channel_id', channelId)
+          .order('created_at', { ascending: true })
+
+        if (messagesError) {
+          setError('Failed to load messages')
+          setLoading(false)
+          return
+        }
+
+        setMessages(initialMessages || [])
+        setLoading(false)
+
+        // Set up real-time subscription with RLS (user must have access)
+        channel = supabase
+          .channel(`messages:${channelId}`)
+          .on(
+            'postgres_changes',
+            {
+              event: 'INSERT',
+              schema: 'public',
+              table: 'messages',
+              filter: `channel_id=eq.${channelId}`
+            },
+            (payload) => {
+              setMessages(prev => [...prev, payload.new as Message])
+            }
+          )
+          .on(
+            'postgres_changes',
+            {
+              event: 'UPDATE',
+              schema: 'public',
+              table: 'messages',
+              filter: `channel_id=eq.${channelId}`
+            },
+            (payload) => {
+              setMessages(prev => 
+                prev.map(msg => 
+                  msg.id === payload.new.id ? payload.new as Message : msg
+                )
+              )
+            }
+          )
+          .on(
+            'postgres_changes',
+            {
+              event: 'DELETE',
+              schema: 'public',
+              table: 'messages',
+              filter: `channel_id=eq.${channelId}`
+            },
+            (payload) => {
+              setMessages(prev => 
+                prev.filter(msg => msg.id !== payload.old.id)
+              )
+            }
+          )
+          .subscribe((status) => {
+            if (status === 'SUBSCRIBED') {
+              console.log('Connected to real-time')
+            } else if (status === 'CHANNEL_ERROR') {
+              setError('Real-time connection error')
+            } else if (status === 'TIMED_OUT') {
+              setError('Real-time connection timed out')
+            }
+          })
+
+      } catch (err) {
+        console.error('Subscription setup error:', err)
+        setError('Failed to setup real-time connection')
+        setLoading(false)
+      }
+    }
+
+    setupSubscription()
+
+    // Cleanup subscription
+    return () => {
+      if (channel) {
+        supabase.removeChannel(channel)
+      }
+    }
+  }, [channelId])
+
+  return { messages, loading, error }
+}]]></correct-example>
+          <incorrect-example title="Insecure real-time implementation" conditions="Setting up real-time subscriptions" expected-result="Secure real-time connection" incorrectness-criteria="No authentication checks, missing error handling, and no cleanup"><![CDATA[// Insecure real-time implementation
+function useRealtimeMessages(channelId: string) {
+  const [messages, setMessages] = useState([])
+
+  useEffect(() => {
+    // No authentication check
+    // No access control verification
+    
+    const channel = supabase
+      .channel('messages')
+      .on('postgres_changes', 
+        { event: '*', schema: 'public', table: 'messages' }, // No filtering
+        (payload) => {
+          setMessages(prev => [...prev, payload.new]) // No type safety
+        }
+      )
+      .subscribe() // No status handling
+
+    // No cleanup - memory leak
+  }, [channelId])
+
+  return { messages }
+}]]></incorrect-example>
+        </example>
+      </examples>
+    </requirement>
+    <requirement priority="high">
+      <description>Manage database state as code with versioned migrations, RLS policies, functions, and triggers for consistent environments.</description>
+      <examples>
+        <example title="Database State Management">
+          <correct-example title="Complete database state as code" conditions="Setting up database versioning and consistency" expected-result="Reproducible database state across environments" correctness-criteria="Versioned migrations, RLS policies, and proper state management"><![CDATA[-- Migration structure
+supabase/
+├── migrations/
+│   ├── 20240125000001_initial_schema.sql
+│   ├── 20240125000002_add_profiles_table.sql
+│   └── 20240125000003_add_rls_policies.sql
+├── functions/
+│   ├── get_user_teams.sql
+│   └── update_user_activity.sql
+├── policies/
+│   └── policies.sql
+└── triggers/
+    └── triggers.sql
+
+-- 20240125000001_initial_schema.sql
+CREATE EXTENSION IF NOT EXISTS "uuid-ossp";
+
+CREATE TABLE users (
+  id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
+  email TEXT UNIQUE NOT NULL,
+  created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW(),
+  updated_at TIMESTAMP WITH TIME ZONE DEFAULT NOW()
+);
+
+CREATE TABLE profiles (
+  id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
+  user_id UUID REFERENCES users(id) ON DELETE CASCADE,
+  display_name TEXT,
+  avatar_url TEXT,
+  created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW(),
+  updated_at TIMESTAMP WITH TIME ZONE DEFAULT NOW()
+);
+
+-- Indexes for performance
+CREATE INDEX idx_profiles_user_id ON profiles(user_id);
+
+-- 20240125000002_add_rls_policies.sql
+-- Enable RLS
+ALTER TABLE profiles ENABLE ROW LEVEL SECURITY;
+
+-- Policies
+CREATE POLICY "Users can view own profile" ON profiles
+  FOR SELECT 
+  TO authenticated
+  USING ((SELECT auth.uid()) = user_id);
+
+CREATE POLICY "Users can update own profile" ON profiles
+  FOR UPDATE 
+  TO authenticated
+  USING ((SELECT auth.uid()) = user_id)
+  WITH CHECK ((SELECT auth.uid()) = user_id);
+
+-- functions/get_user_teams.sql
+CREATE OR REPLACE FUNCTION get_user_teams(user_uuid UUID)
+RETURNS TABLE (team_id UUID, team_name TEXT) AS $$
+BEGIN
+  RETURN QUERY 
+  SELECT t.id, t.name
+  FROM teams t
+  JOIN team_members tm ON t.id = tm.team_id
+  WHERE tm.user_id = user_uuid;
+END;
+$$ LANGUAGE plpgsql SECURITY DEFINER;
+
+-- triggers/triggers.sql
+CREATE OR REPLACE FUNCTION update_updated_at_column()
+RETURNS TRIGGER AS $$
+BEGIN
+  NEW.updated_at = NOW();
+  RETURN NEW;
+END;
+$$ LANGUAGE plpgsql;
+
+CREATE TRIGGER update_profiles_updated_at
+  BEFORE UPDATE ON profiles
+  FOR EACH ROW
+  EXECUTE FUNCTION update_updated_at_column();
+
+-- Package.json scripts for state management
+{
+  "scripts": {
+    "db:reset": "supabase db reset",
+    "db:migrate": "supabase migration up",
+    "db:generate-types": "supabase gen types typescript --local > types/supabase.ts",
+    "db:diff": "supabase db diff --file migration_name",
+    "db:status": "supabase migration list"
+  }
+}]]></correct-example>
+          <incorrect-example title="Ad-hoc database changes" conditions="Managing database schema" expected-result="Consistent database state" incorrectness-criteria="Manual changes, no versioning, and inconsistent environments"><![CDATA[-- Manual changes in Supabase dashboard
+-- No migration files
+-- No version control
+
+-- Creating tables manually without migrations
+-- No RLS policies defined in code
+-- Functions created ad-hoc in dashboard
+-- No triggers or proper indexing
+
+-- No state management scripts
+-- Different schemas in dev/staging/prod
+-- Manual policy creation leading to drift]]></incorrect-example>
+        </example>
+      </examples>
+    </requirement>
+    <requirement priority="medium">
+      <description>Implement proper authentication patterns with session management, refresh token handling, and secure logout procedures.</description>
+      <examples>
+        <example title="Authentication Management">
+          <correct-example title="Comprehensive auth implementation" conditions="Setting up user authentication" expected-result="Secure authentication with proper session management" correctness-criteria="Session handling, token refresh, and secure logout"><![CDATA[// lib/auth.ts
+import { createContext, useContext, useEffect, useState } from 'react'
+import { Session, User } from '@supabase/supabase-js'
+import { supabase } from './supabase'
+
+interface AuthContextType {
+  user: User | null
+  session: Session | null
+  loading: boolean
+  signIn: (email: string, password: string) => Promise<void>
+  signUp: (email: string, password: string) => Promise<void>
+  signOut: () => Promise<void>
+}
+
+const AuthContext = createContext<AuthContextType | undefined>(undefined)
+
+export function AuthProvider({ children }: { children: React.ReactNode }) {
+  const [user, setUser] = useState<User | null>(null)
+  const [session, setSession] = useState<Session | null>(null)
+  const [loading, setLoading] = useState(true)
+
+  useEffect(() => {
+    // Get initial session
+    supabase.auth.getSession().then(({ data: { session }, error }) => {
+      if (error) {
+        console.error('Error getting session:', error)
+      }
+      setSession(session)
+      setUser(session?.user ?? null)
+      setLoading(false)
+    })
+
+    // Listen for auth changes
+    const { data: { subscription } } = supabase.auth.onAuthStateChange(
+      async (event, session) => {
+        console.log('Auth event:', event)
+        setSession(session)
+        setUser(session?.user ?? null)
+        setLoading(false)
+
+        // Handle specific auth events
+        if (event === 'SIGNED_IN') {
+          console.log('User signed in')
+        } else if (event === 'SIGNED_OUT') {
+          console.log('User signed out')
+          // Clear any app state
+        } else if (event === 'TOKEN_REFRESHED') {
+          console.log('Token refreshed')
+        } else if (event === 'USER_UPDATED') {
+          console.log('User updated')
+        }
+      }
+    )
+
+    return () => subscription.unsubscribe()
+  }, [])
+
+  const signIn = async (email: string, password: string) => {
+    setLoading(true)
+    const { error } = await supabase.auth.signInWithPassword({
+      email,
+      password,
+    })
+    if (error) throw error
+  }
+
+  const signUp = async (email: string, password: string) => {
+    setLoading(true)
+    const { error } = await supabase.auth.signUp({
+      email,
+      password,
+      options: {
+        emailRedirectTo: `${window.location.origin}/auth/callback`
+      }
+    })
+    if (error) throw error
+  }
+
+  const signOut = async () => {
+    setLoading(true)
+    const { error } = await supabase.auth.signOut()
+    if (error) throw error
+    
+    // Clear local storage, cookies, etc.
+    localStorage.clear()
+    
+    // Redirect to login page
+    window.location.href = '/login'
+  }
+
+  return (
+    <AuthContext.Provider value={{
+      user,
+      session,
+      loading,
+      signIn,
+      signUp,
+      signOut,
+    }}>
+      {children}
+    </AuthContext.Provider>
+  )
+}
+
+export const useAuth = () => {
+  const context = useContext(AuthContext)
+  if (!context) {
+    throw new Error('useAuth must be used within an AuthProvider')
+  }
+  return context
+}
+
+// Protected route component
+export function ProtectedRoute({ children }: { children: React.ReactNode }) {
+  const { user, loading } = useAuth()
+
+  if (loading) {
+    return <div>Loading...</div>
+  }
+
+  if (!user) {
+    return <Navigate to="/login" replace />
+  }
+
+  return <>{children}</>
+}]]></correct-example>
+          <incorrect-example title="Poor authentication management" conditions="Setting up authentication" expected-result="Secure auth implementation" incorrectness-criteria="No session management, missing error handling, and insecure patterns"><![CDATA[// Poor auth implementation
+function App() {
+  const [user, setUser] = useState(null)
+
+  // No session management
+  // No auth state listener
+  // No error handling
+
+  const login = async (email, password) => {
+    const { data } = await supabase.auth.signInWithPassword({
+      email,
+      password
+    })
+    setUser(data.user) // No error checking
+  }
+
+  const logout = () => {
+    supabase.auth.signOut()
+    setUser(null) // No cleanup
+  }
+
+  // No protected routes
+  // No loading states
+}]]></incorrect-example>
+        </example>
+      </examples>
+    </requirement>
+    <requirement priority="medium">
+      <description>Use pagination and data fetching best practices with proper loading states, error handling, and infinite scroll patterns where appropriate.</description>
+      <examples>
+        <example title="Data Fetching Patterns">
+          <correct-example title="Optimized data fetching with pagination" conditions="Loading large datasets" expected-result="Performant data loading with good UX" correctness-criteria="Pagination, loading states, error handling, and caching"><![CDATA[import { useState, useEffect, useCallback } from 'react'
+import { Database } from '@/types/supabase'
+
+type Post = Database['public']['Tables']['posts']['Row']
+
+interface UsePaginatedPostsResult {
+  posts: Post[]
+  loading: boolean
+  error: string | null
+  hasMore: boolean
+  loadMore: () => Promise<void>
+  refresh: () => Promise<void>
+}
+
+const POSTS_PER_PAGE = 20
+
+function usePaginatedPosts(userId?: string): UsePaginatedPostsResult {
+  const [posts, setPosts] = useState<Post[]>([])
+  const [loading, setLoading] = useState(true)
+  const [loadingMore, setLoadingMore] = useState(false)
+  const [error, setError] = useState<string | null>(null)
+  const [hasMore, setHasMore] = useState(true)
+  const [offset, setOffset] = useState(0)
+
+  const loadPosts = useCallback(async (reset = false) => {
+    try {
+      if (reset) {
+        setLoading(true)
+        setOffset(0)
+        setError(null)
+      } else {
+        setLoadingMore(true)
+      }
+
+      let query = supabase
+        .from('posts')
+        .select(`
+          id,
+          title,
+          content,
+          created_at,
+          user_id,
+          profiles:user_id (
+            id,
+            display_name,
+            avatar_url
+          )
+        `)
+        .order('created_at', { ascending: false })
+        .range(reset ? 0 : offset, reset ? POSTS_PER_PAGE - 1 : offset + POSTS_PER_PAGE - 1)
+
+      // Add user filter if provided
+      if (userId) {
+        query = query.eq('user_id', userId)
+      }
+
+      const { data, error: fetchError } = await query
+
+      if (fetchError) {
+        setError(fetchError.message)
+        return
+      }
+
+      const newPosts = data || []
+      
+      if (reset) {
+        setPosts(newPosts)
+        setOffset(newPosts.length)
+      } else {
+        setPosts(prev => [...prev, ...newPosts])
+        setOffset(prev => prev + newPosts.length)
+      }
+
+      // Check if there are more posts
+      setHasMore(newPosts.length === POSTS_PER_PAGE)
+      
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Unknown error')
+    } finally {
+      setLoading(false)
+      setLoadingMore(false)
+    }
+  }, [offset, userId])
+
+  // Initial load
+  useEffect(() => {
+    loadPosts(true)
+  }, [userId]) // Only depend on userId, not loadPosts
+
+  const loadMore = useCallback(() => {
+    if (!loadingMore && hasMore) {
+      return loadPosts(false)
+    }
+    return Promise.resolve()
+  }, [loadPosts, loadingMore, hasMore])
+
+  const refresh = useCallback(() => {
+    return loadPosts(true)
+  }, [])
+
+  return {
+    posts,
+    loading,
+    error,
+    hasMore,
+    loadMore,
+    refresh
+  }
+}
+
+// Component using the hook
+function PostsList({ userId }: { userId?: string }) {
+  const { posts, loading, error, hasMore, loadMore, refresh } = usePaginatedPosts(userId)
+
+  if (loading) {
+    return <PostsListSkeleton />
+  }
+
+  if (error) {
+    return (
+      <div className="text-center py-8">
+        <p className="text-red-600 mb-4">Error: {error}</p>
+        <button 
+          onClick={refresh}
+          className="bg-blue-500 text-white px-4 py-2 rounded hover:bg-blue-600"
+        >
+          Retry
+        </button>
+      </div>
+    )
+  }
+
+  return (
+    <div>
+      <div className="space-y-4">
+        {posts.map(post => (
+          <PostCard key={post.id} post={post} />
+        ))}
+      </div>
+      
+      {hasMore && (
+        <div className="text-center mt-8">
+          <button
+            onClick={loadMore}
+            disabled={loading}
+            className="bg-blue-500 text-white px-6 py-2 rounded hover:bg-blue-600 disabled:opacity-50"
+          >
+            {loading ? 'Loading...' : 'Load More'}
+          </button>
+        </div>
+      )}
+      
+      {!hasMore && posts.length > 0 && (
+        <p className="text-center text-gray-500 mt-8">No more posts to load</p>
+      )}
+    </div>
+  )
+}]]></correct-example>
+          <incorrect-example title="Poor data fetching implementation" conditions="Loading large datasets" expected-result="Performant data loading" incorrectness-criteria="No pagination, poor loading states, and no error handling"><![CDATA[// Poor data fetching
+function PostsList() {
+  const [posts, setPosts] = useState([])
+
+  useEffect(() => {
+    // Load ALL posts at once - performance issue
+    supabase
+      .from('posts')
+      .select('*') // Select all columns
+      .then(({ data }) => {
+        setPosts(data) // No error handling
+      })
+  }, [])
+
+  // No loading state
+  // No error state
+  // No pagination
+  // No optimization
+
+  return (
+    <div>
+      {posts.map(post => (
+        <div key={post.id}>{post.title}</div>
+      ))}
+    </div>
+  )
+}]]></incorrect-example>
+        </example>
+      </examples>
+    </requirement>
+  </requirements>
+  <grammar>
+    <grammar-entry title="Supabase Client Configuration">
+      <pattern description="Type-safe Supabase client initialization">createClient&lt;Database&gt;\(\s*url,\s*key\s*\)</pattern>
+      <example description="Proper client setup">const supabase = createClient&lt;Database&gt;(url, key)</example>
+    </grammar-entry>
+    <grammar-entry title="RLS Policy Structure">
+      <pattern description="Standard RLS policy format">CREATE POLICY "policy_name" ON table_name\s+FOR (SELECT|INSERT|UPDATE|DELETE)\s+TO (authenticated|anon|public)\s+(USING|WITH CHECK)</pattern>
+      <example description="RLS policy example">CREATE POLICY "Users can view own data" ON profiles FOR SELECT TO authenticated USING (auth.uid() = user_id)</example>
+    </grammar-entry>
+    <grammar-entry title="Performance Index Pattern">
+      <pattern description="Index for RLS performance">CREATE INDEX idx_\w+_\w+ ON \w+\(\w+\)</pattern>
+      <example description="RLS performance index">CREATE INDEX idx_profiles_user_id ON profiles(user_id)</example>
+    </grammar-entry>
+    <schema title="Supabase TypeScript Integration" description="Complete type-safe Supabase implementation patterns">
+<![CDATA[// Type generation
+npx supabase gen types typescript --project-id PROJECT_ID > types/supabase.ts
+
+// Client setup
+import { createClient } from '@supabase/supabase-js'
+import { Database } from '@/types/supabase'
+
+const supabase = createClient<Database>(
+  process.env.NEXT_PUBLIC_SUPABASE_URL!,
+  process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!
+)
+
+// Type-safe queries
+const { data, error } = await supabase
+  .from('table_name')
+  .select('column1, column2')
+  .eq('filter_column', value)
+  .single()
+
+// RLS with performance optimization
+-- Enable RLS
+ALTER TABLE table_name ENABLE ROW LEVEL SECURITY;
+
+-- Create index for performance
+CREATE INDEX idx_table_user_id ON table_name(user_id);
+
+-- Optimized policy
+CREATE POLICY "policy_name" ON table_name
+  FOR SELECT TO authenticated
+  USING ((SELECT auth.uid()) = user_id);
+
+// Real-time subscriptions
+const channel = supabase
+  .channel('channel_name')
+  .on('postgres_changes', {
+    event: 'INSERT',
+    schema: 'public',
+    table: 'table_name',
+    filter: 'column=eq.value'
+  }, (payload) => {
+    // Handle changes
+  })
+  .subscribe()
+
+// Edge Function structure
+serve(async (req) => {
+  // CORS handling
+  if (req.method === 'OPTIONS') {
+    return new Response('ok', { headers: corsHeaders })
+  }
+
+  // Authentication
+  const authHeader = req.headers.get('Authorization')
+  const supabase = createClient(url, anonKey, {
+    global: { headers: { Authorization: authHeader } }
+  })
+
+  const { data: { user } } = await supabase.auth.getUser()
+  if (!user) {
+    return new Response(JSON.stringify({ error: 'Unauthorized' }), {
+      status: 401,
+      headers: { ...corsHeaders, 'Content-Type': 'application/json' }
+    })
+  }
+
+  // Input validation and business logic
+})]]>
+    </schema>
+  </grammar>
+  <context description="Supabase development best practices and patterns">
+    Supabase is a powerful backend-as-a-service built on PostgreSQL that provides authentication, real-time subscriptions, and storage. Security should be the top priority, with Row Level Security (RLS) enabled on all sensitive tables and proper API key management.
+
+    Performance is critical - always add indexes on columns used in RLS policies, and wrap auth functions in SELECT statements for caching. Use TypeScript for type safety with generated types from your schema.
+
+    Database state should be managed as code with versioned migrations, and all business logic should be secured in Edge Functions with proper authentication middleware.
+
+    Real-time subscriptions should include proper authentication checks and connection management, while file storage requires secure bucket policies and signed URLs for access control.
+  </context>
+  <references>
+    <reference as="dependency" href=".cursor/rules/000-core/002-cursor-rules-creation-auto.mdc" reason="Follows standard rule format">Base rule format definition</reference>
+    <reference as="context" href="https://supabase.com/docs" reason="Official Supabase documentation">Supabase Documentation</reference>
+    <reference as="context" href="https://supabase.com/docs/guides/database/postgres/row-level-security" reason="RLS best practices">Row Level Security Guide</reference>
+    <reference as="context" href="https://supabase.com/docs/guides/troubleshooting/rls-performance-and-best-practices-Z5Jjwv" reason="Performance optimization">RLS Performance Best Practices</reference>
+  </references>
+</rule>
+ 

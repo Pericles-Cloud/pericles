@@ -1,0 +1,1379 @@
+---
+description: "Comprehensive Alembic best practices for database migrations following community standards and PEP guidelines"
+globs: ["*.py"]
+alwaysApply: false
+---
+
+<rule>
+  <meta>
+    <title>Alembic Database Migration Best Practices</title>
+    <description>Comprehensive rules for Alembic database migrations following community standards, security practices, and maintainability principles</description>
+    <created-at utc-timestamp="1736694900">January 12, 2025, 10:55 AM</created-at>
+    <last-updated-at utc-timestamp="1736694900">January 12, 2025, 10:55 AM</last-updated-at>
+    <applies-to>
+      <file-matcher glob="*.py">Python files in Alembic migrations and configuration</file-matcher>
+      <action-matcher action="database-migration">Triggered when working with Alembic migrations</action-matcher>
+    </applies-to>
+  </meta>
+  <requirements>
+    <non-negotiable priority="critical">
+      <description>Use proper naming conventions for migration files with descriptive messages and date-based ordering</description>
+      <examples>
+        <example title="Migration Naming Conventions">
+          <correct-example title="Descriptive migration names with timestamps" conditions="Creating new migrations" expected-result="Clear, trackable migration history" correctness-criteria="Uses descriptive names and proper file templates"><![CDATA[# alembic.ini configuration
+file_template = %%(epoch)d_%%(rev)s_%%(slug)s
+
+# Command usage
+alembic revision --autogenerate -m "add user profile table"
+alembic revision --autogenerate -m "add email unique constraint to users"
+alembic revision --autogenerate -m "migrate legacy user data to new schema"
+
+# Results in files like:
+# 1705934567_a1b2c3d4e5f6_add_user_profile_table.py
+# 1705934890_f6e5d4c3b2a1_add_email_unique_constraint_to_users.py
+# 1705935123_9876543210ab_migrate_legacy_user_data_to_new_schema.py
+
+"""Add user profile table
+
+Revision ID: a1b2c3d4e5f6
+Revises: f6e5d4c3b2a1
+Create Date: 2025-01-12 10:55:00.123456
+
+"""
+from alembic import op
+import sqlalchemy as sa
+from sqlalchemy.dialects import postgresql
+
+# revision identifiers
+revision = 'a1b2c3d4e5f6'
+down_revision = 'f6e5d4c3b2a1'
+branch_labels = None
+depends_on = None
+
+def upgrade() -> None:
+    """Add user profile table with proper constraints."""
+    op.create_table(
+        'user_profiles',
+        sa.Column('id', sa.Integer(), primary_key=True),
+        sa.Column('user_id', sa.Integer(), sa.ForeignKey('users.id', ondelete='CASCADE'), nullable=False),
+        sa.Column('bio', sa.Text(), nullable=True, comment='User biography'),
+        sa.Column('avatar_url', sa.String(500), nullable=True, comment='Profile picture URL'),
+        sa.Column('created_at', sa.DateTime(), server_default=sa.func.now(), nullable=False),
+        sa.Column('updated_at', sa.DateTime(), server_default=sa.func.now(), onupdate=sa.func.now()),
+        comment='User profile information'
+    )
+    
+    # Add index for foreign key
+    op.create_index('idx_user_profiles_user_id', 'user_profiles', ['user_id'])
+
+def downgrade() -> None:
+    """Remove user profile table and its indexes."""
+    op.drop_index('idx_user_profiles_user_id', table_name='user_profiles')
+    op.drop_table('user_profiles')]]></correct-example>
+          <incorrect-example title="Poor naming and structure" conditions="Creating new migrations" expected-result="Clear migration naming" incorrectness-criteria="Uses vague names and poor structure"><![CDATA[# Bad migration naming
+alembic revision -m "update"
+alembic revision -m "fix"
+alembic revision -m "changes"
+
+# Results in unclear files:
+# abc123_update.py
+# def456_fix.py
+# ghi789_changes.py
+
+"""update
+
+Revision ID: abc123
+Revises: def456
+Create Date: 2025-01-12 10:55:00.123456
+
+"""
+from alembic import op
+import sqlalchemy as sa
+
+# No proper revision identifiers
+revision = 'abc123'
+down_revision = 'def456'
+
+def upgrade():  # Missing type hints
+    # No comments explaining what this does
+    op.create_table(
+        'profiles',
+        sa.Column('id', sa.Integer(), primary_key=True),
+        sa.Column('user_id', sa.Integer()),
+        sa.Column('bio', sa.Text()),
+    )
+
+def downgrade():  # Missing implementation
+    pass]]></incorrect-example>
+        </example>
+      </examples>
+    </non-negotiable>
+    <non-negotiable priority="critical">
+      <description>Never use ORM models directly in migrations. Use raw SQL or define table structures inline to prevent dependencies on future model changes</description>
+      <examples>
+        <example title="Migration Independence">
+          <correct-example title="Model-independent migrations" conditions="Writing data migrations" expected-result="Future-proof migrations" correctness-criteria="Uses inline table definitions or raw SQL"><![CDATA[from alembic import op
+import sqlalchemy as sa
+from sqlalchemy import table, column, String, Integer, Boolean
+
+def upgrade() -> None:
+    """Migrate user data from old format to new format."""
+    
+    # Method 1: Define table structure inline
+    users_table = table(
+        'users',
+        column('id', Integer),
+        column('username', String),
+        column('email', String),
+        column('is_active', Boolean)
+    )
+    
+    # Safe data manipulation using inline table definition
+    connection = op.get_bind()
+    
+    # Update email format for users without emails
+    connection.execute(
+        users_table.update()
+        .where(users_table.c.email == None)
+        .values(email=users_table.c.username + '@example.com')
+    )
+    
+    # Method 2: Use raw SQL for complex operations
+    op.execute("""
+        UPDATE users 
+        SET normalized_username = LOWER(TRIM(username))
+        WHERE normalized_username IS NULL
+    """)
+    
+    # Method 3: Batch operations for large datasets
+    connection = op.get_bind()
+    result = connection.execute(
+        sa.text("SELECT id, old_field FROM users WHERE needs_migration = true")
+    )
+    
+    for row in result:
+        connection.execute(
+            sa.text("UPDATE users SET new_field = :new_value WHERE id = :user_id"),
+            {"new_value": transform_data(row.old_field), "user_id": row.id}
+        )
+
+def downgrade() -> None:
+    """Revert the data migration."""
+    op.execute("""
+        UPDATE users 
+        SET email = NULL 
+        WHERE email LIKE '%@example.com'
+    """)
+    
+    op.execute("""
+        UPDATE users 
+        SET normalized_username = NULL
+    """)
+
+def transform_data(old_value):
+    """Helper function for data transformation."""
+    return old_value.strip().lower() if old_value else None]]></correct-example>
+          <incorrect-example title="Using ORM models in migrations" conditions="Writing data migrations" expected-result="Model-independent migrations" incorrectness-criteria="Imports and uses current ORM models"><![CDATA[# BAD - Importing ORM models
+from alembic import op
+import sqlalchemy as sa
+from myapp.models import User, Profile  # DANGEROUS!
+
+def upgrade() -> None:
+    """BAD: Using current ORM models in migration."""
+    
+    # This will break if User model changes in the future
+    session = Session(bind=op.get_bind())
+    
+    # If User model changes (fields renamed/removed), this migration fails
+    users = session.query(User).all()
+    
+    for user in users:
+        # Dangerous - depends on current model structure
+        user.email = user.username + '@example.com'
+        user.is_active = True
+    
+    session.commit()
+    session.close()
+
+def downgrade() -> None:
+    """BAD: No proper downgrade implementation."""
+    # Using ORM models makes downgrade complex
+    session = Session(bind=op.get_bind())
+    users = session.query(User).filter(User.email.like('%@example.com')).all()
+    
+    for user in users:
+        user.email = None
+    
+    session.commit()]]></incorrect-example>
+        </example>
+      </examples>
+    </non-negotiable>
+    <requirement priority="critical">
+      <description>Implement comprehensive upgrade and downgrade functions with proper error handling and transaction management</description>
+      <examples>
+        <example title="Transaction Management">
+          <correct-example title="Robust migration with error handling" conditions="Writing complex migrations" expected-result="Safe, rollback-able migrations" correctness-criteria="Uses proper transaction management and error handling"><![CDATA[from alembic import op
+import sqlalchemy as sa
+from sqlalchemy.exc import SQLAlchemyError
+import logging
+
+logger = logging.getLogger(__name__)
+
+def upgrade() -> None:
+    """Add user authentication tables with proper error handling."""
+    
+    # Use explicit transaction for complex operations
+    connection = op.get_bind()
+    
+    try:
+        with connection.begin():
+            # Create tables in dependency order
+            op.create_table(
+                'auth_providers',
+                sa.Column('id', sa.Integer(), primary_key=True),
+                sa.Column('name', sa.String(50), nullable=False, unique=True),
+                sa.Column('is_active', sa.Boolean(), default=True, nullable=False),
+                sa.Column('created_at', sa.DateTime(), server_default=sa.func.now()),
+                comment='Authentication provider configurations'
+            )
+            
+            op.create_table(
+                'user_auth',
+                sa.Column('id', sa.Integer(), primary_key=True),
+                sa.Column('user_id', sa.Integer(), sa.ForeignKey('users.id', ondelete='CASCADE'), nullable=False),
+                sa.Column('provider_id', sa.Integer(), sa.ForeignKey('auth_providers.id'), nullable=False),
+                sa.Column('external_id', sa.String(255), nullable=False),
+                sa.Column('access_token_hash', sa.String(255), nullable=True),
+                sa.Column('refresh_token_hash', sa.String(255), nullable=True),
+                sa.Column('expires_at', sa.DateTime(), nullable=True),
+                sa.Column('created_at', sa.DateTime(), server_default=sa.func.now()),
+                sa.Column('updated_at', sa.DateTime(), server_default=sa.func.now(), onupdate=sa.func.now()),
+                comment='User authentication tokens and external IDs'
+            )
+            
+            # Add indexes for performance
+            op.create_index('idx_user_auth_user_id', 'user_auth', ['user_id'])
+            op.create_index('idx_user_auth_provider_external', 'user_auth', ['provider_id', 'external_id'], unique=True)
+            
+            # Add unique constraint
+            op.create_unique_constraint('uq_user_provider', 'user_auth', ['user_id', 'provider_id'])
+            
+            # Insert default providers
+            auth_providers = table(
+                'auth_providers',
+                column('name', String),
+                column('is_active', Boolean)
+            )
+            
+            connection.execute(
+                auth_providers.insert().values([
+                    {'name': 'local', 'is_active': True},
+                    {'name': 'google', 'is_active': True},
+                    {'name': 'github', 'is_active': True}
+                ])
+            )
+            
+            logger.info("Successfully created authentication tables")
+            
+    except SQLAlchemyError as e:
+        logger.error(f"Failed to create authentication tables: {e}")
+        raise
+
+def downgrade() -> None:
+    """Remove user authentication tables in reverse order."""
+    
+    connection = op.get_bind()
+    
+    try:
+        with connection.begin():
+            # Drop in reverse order of creation
+            op.drop_constraint('uq_user_provider', 'user_auth', type_='unique')
+            op.drop_index('idx_user_auth_provider_external', table_name='user_auth')
+            op.drop_index('idx_user_auth_user_id', table_name='user_auth')
+            op.drop_table('user_auth')
+            op.drop_table('auth_providers')
+            
+            logger.info("Successfully removed authentication tables")
+            
+    except SQLAlchemyError as e:
+        logger.error(f"Failed to remove authentication tables: {e}")
+        raise]]></correct-example>
+          <incorrect-example title="Poor transaction handling" conditions="Writing complex migrations" expected-result="Safe migrations" incorrectness-criteria="No error handling or transaction management"><![CDATA[def upgrade():  # Missing type hints
+    # No transaction management
+    op.create_table(
+        'auth_providers',
+        sa.Column('id', sa.Integer(), primary_key=True),
+        sa.Column('name', sa.String(50)),
+    )
+    
+    # If this fails, first table is left in inconsistent state
+    op.create_table(
+        'user_auth',
+        sa.Column('id', sa.Integer(), primary_key=True),
+        sa.Column('user_id', sa.Integer()),
+    )
+    
+    # No error handling
+    # No logging
+    # No comments explaining the changes
+
+def downgrade():
+    # Wrong order - should drop user_auth first due to foreign key
+    op.drop_table('auth_providers')
+    op.drop_table('user_auth')  # This will fail due to FK constraint]]></incorrect-example>
+        </example>
+      </examples>
+    </requirement>
+    <requirement priority="critical">
+      <description>Use proper SQLAlchemy naming conventions for constraints and indexes to ensure consistent database structure</description>
+      <examples>
+        <example title="Naming Conventions">
+          <correct-example title="Consistent constraint naming" conditions="Setting up Alembic configuration" expected-result="Predictable constraint names" correctness-criteria="Uses proper naming convention configuration"><![CDATA["""
+Configure proper naming conventions in your Alembic env.py
+"""
+from alembic import context
+from sqlalchemy import engine_from_config, pool, MetaData
+from logging.config import fileConfig
+
+# Define naming convention
+naming_convention = {
+    "ix": "ix_%(column_0_label)s",
+    "uq": "uq_%(table_name)s_%(column_0_name)s",
+    "ck": "ck_%(table_name)s_%(constraint_name)s",
+    "fk": "fk_%(table_name)s_%(column_0_name)s_%(referred_table_name)s",
+    "pk": "pk_%(table_name)s"
+}
+
+# Apply to target metadata
+target_metadata = MetaData(naming_convention=naming_convention)
+
+def upgrade() -> None:
+    """Create table with consistent constraint naming."""
+    op.create_table(
+        'orders',
+        sa.Column('id', sa.Integer(), primary_key=True),
+        sa.Column('user_id', sa.Integer(), sa.ForeignKey('users.id'), nullable=False),
+        sa.Column('product_id', sa.Integer(), sa.ForeignKey('products.id'), nullable=False),
+        sa.Column('order_number', sa.String(50), nullable=False),
+        sa.Column('total_amount', sa.Numeric(10, 2), nullable=False),
+        sa.Column('status', sa.String(20), nullable=False),
+        sa.Column('created_at', sa.DateTime(), server_default=sa.func.now()),
+        
+        # These will use the naming convention automatically
+        sa.UniqueConstraint('order_number'),  # -> uq_orders_order_number
+        sa.CheckConstraint('total_amount > 0', name='positive_total'),  # -> ck_orders_positive_total
+        sa.Index('idx_orders_user_status', 'user_id', 'status'),  # -> ix_orders_user_status
+        
+        comment='Customer orders with proper naming conventions'
+    )
+
+def downgrade() -> None:
+    """Drop table with consistent naming."""
+    op.drop_table('orders')
+
+# Example migration adding constraints to existing table
+def add_constraints_upgrade() -> None:
+    """Add constraints with explicit naming."""
+    # Explicit naming when autogenerate doesn't work
+    op.create_unique_constraint(
+        'uq_users_email',  # Follows convention
+        'users',
+        ['email']
+    )
+    
+    op.create_check_constraint(
+        'ck_users_valid_email',  # Follows convention
+        'users',
+        "email LIKE '%@%'"
+    )
+    
+    op.create_index(
+        'ix_users_last_login',  # Follows convention
+        'users',
+        ['last_login_at']
+    )]]></correct-example>
+          <incorrect-example title="Inconsistent naming" conditions="Setting up Alembic configuration" expected-result="Consistent constraint names" incorrectness-criteria="No naming convention or inconsistent names"><![CDATA[# No naming convention in env.py
+target_metadata = MetaData()  # No naming convention
+
+def upgrade():  # Missing type hints
+    op.create_table(
+        'orders',
+        sa.Column('id', sa.Integer(), primary_key=True),
+        sa.Column('user_id', sa.Integer(), sa.ForeignKey('users.id')),
+        sa.Column('order_number', sa.String(50)),
+        
+        # Inconsistent constraint naming
+        sa.UniqueConstraint('order_number', name='unique_order_num'),  # Inconsistent
+        sa.CheckConstraint('total_amount > 0', name='chk_positive'),  # Inconsistent
+        sa.Index('order_user_idx', 'user_id'),  # Inconsistent
+    )
+
+# Later migration with different naming style
+def add_more_constraints():
+    op.create_unique_constraint(
+        'users_email_unique',  # Different style
+        'users',
+        ['email']
+    )
+    
+    op.create_index(
+        'idx_user_login',  # Yet another style
+        'users',
+        ['last_login_at']
+    )]]></incorrect-example>
+        </example>
+      </examples>
+    </requirement>
+    <requirement priority="high">
+      <description>Implement proper migration testing strategies including stairway tests and validation checks</description>
+      <examples>
+        <example title="Migration Testing">
+          <correct-example title="Comprehensive migration testing" conditions="Testing migration safety" expected-result="Reliable migration process" correctness-criteria="Includes upgrade/downgrade testing and data validation"><![CDATA["""
+test_migrations.py - Comprehensive migration testing
+"""
+import pytest
+import tempfile
+from pathlib import Path
+from alembic.config import Config
+from alembic import command
+from alembic.script import ScriptDirectory
+from sqlalchemy import create_engine, MetaData, inspect
+from sqlalchemy.orm import sessionmaker
+
+class TestMigrations:
+    """Test suite for Alembic migrations."""
+    
+    @pytest.fixture
+    def temp_db_url(self):
+        """Create temporary database for testing."""
+        temp_db = tempfile.NamedTemporaryFile(suffix='.sqlite', delete=False)
+        temp_db.close()
+        yield f"sqlite:///{temp_db.name}"
+        Path(temp_db.name).unlink(missing_ok=True)
+    
+    @pytest.fixture
+    def alembic_config(self, temp_db_url):
+        """Configure Alembic for testing."""
+        config = Config()
+        config.set_main_option("script_location", "alembic")
+        config.set_main_option("sqlalchemy.url", temp_db_url)
+        return config
+    
+    def test_stairway_upgrade_downgrade(self, alembic_config):
+        """Test that all migrations can upgrade and downgrade successfully."""
+        script_dir = ScriptDirectory.from_config(alembic_config)
+        revisions = list(script_dir.walk_revisions())
+        
+        # Start from base
+        command.downgrade(alembic_config, "base")
+        
+        # Test each migration step by step
+        for revision in reversed(revisions):
+            # Upgrade to this revision
+            command.upgrade(alembic_config, revision.revision)
+            
+            # Verify database state
+            self._verify_database_state(alembic_config, revision.revision)
+            
+            # Test downgrade
+            if revision.down_revision:
+                command.downgrade(alembic_config, revision.down_revision)
+                command.upgrade(alembic_config, revision.revision)
+        
+        # Test full downgrade
+        command.downgrade(alembic_config, "base")
+        
+        # Test full upgrade
+        command.upgrade(alembic_config, "head")
+    
+    def test_migration_from_scratch(self, alembic_config):
+        """Test creating database from scratch."""
+        # Apply all migrations
+        command.upgrade(alembic_config, "head")
+        
+        # Verify final state
+        self._verify_database_state(alembic_config, "head")
+    
+    def test_data_migration_integrity(self, alembic_config):
+        """Test that data migrations preserve data integrity."""
+        engine = create_engine(alembic_config.get_main_option("sqlalchemy.url"))
+        
+        # Setup test data before migration
+        command.upgrade(alembic_config, "pre_data_migration_revision")
+        
+        with engine.connect() as conn:
+            # Insert test data
+            conn.execute("""
+                INSERT INTO users (username, email) 
+                VALUES ('test_user', 'test@example.com')
+            """)
+            conn.commit()
+        
+        # Apply data migration
+        command.upgrade(alembic_config, "data_migration_revision")
+        
+        # Verify data integrity
+        with engine.connect() as conn:
+            result = conn.execute("SELECT * FROM users WHERE username = 'test_user'")
+            user = result.fetchone()
+            assert user is not None
+            assert user.email == 'test@example.com'
+    
+    def test_schema_consistency(self, alembic_config):
+        """Test that migrated schema matches expected structure."""
+        command.upgrade(alembic_config, "head")
+        
+        engine = create_engine(alembic_config.get_main_option("sqlalchemy.url"))
+        inspector = inspect(engine)
+        
+        # Verify expected tables exist
+        tables = inspector.get_table_names()
+        expected_tables = ['users', 'orders', 'auth_providers', 'user_auth']
+        
+        for table in expected_tables:
+            assert table in tables, f"Expected table {table} not found"
+        
+        # Verify constraints
+        user_constraints = inspector.get_unique_constraints('users')
+        email_constraint_exists = any(
+            'email' in constraint['column_names'] 
+            for constraint in user_constraints
+        )
+        assert email_constraint_exists, "Email unique constraint not found"
+    
+    def test_migration_performance(self, alembic_config):
+        """Test migration performance with large datasets."""
+        import time
+        
+        # Setup large dataset
+        command.upgrade(alembic_config, "pre_performance_test")
+        
+        engine = create_engine(alembic_config.get_main_option("sqlalchemy.url"))
+        with engine.connect() as conn:
+            # Insert test data
+            for i in range(10000):
+                conn.execute(
+                    "INSERT INTO test_table (data) VALUES (?)",
+                    (f"test_data_{i}",)
+                )
+            conn.commit()
+        
+        # Time the migration
+        start_time = time.time()
+        command.upgrade(alembic_config, "performance_test_migration")
+        end_time = time.time()
+        
+        migration_time = end_time - start_time
+        assert migration_time < 30, f"Migration took too long: {migration_time}s"
+    
+    def _verify_database_state(self, config, revision):
+        """Verify database state for a given revision."""
+        engine = create_engine(config.get_main_option("sqlalchemy.url"))
+        inspector = inspect(engine)
+        
+        # Basic checks that database is accessible and has expected structure
+        tables = inspector.get_table_names()
+        assert len(tables) >= 0  # At minimum, alembic_version table
+        
+        # Verify alembic version
+        with engine.connect() as conn:
+            result = conn.execute("SELECT version_num FROM alembic_version")
+            current_revision = result.scalar()
+            if revision != "base":
+                assert current_revision is not None
+
+# pytest configuration for migration tests
+pytest_plugins = ["pytest_alembic"]
+
+def test_migrations_with_pytest_alembic(alembic_runner):
+    """Alternative testing using pytest-alembic plugin."""
+    # Test upgrade
+    alembic_runner.migrate_up_to("head")
+    
+    # Test downgrade
+    alembic_runner.migrate_down_to("base")
+    
+    # Test specific revision
+    alembic_runner.migrate_up_to("revision_id")]]></correct-example>
+          <incorrect-example title="No migration testing" conditions="Testing migration safety" expected-result="Comprehensive testing" incorrectness-criteria="No tests or minimal validation"><![CDATA[# No migration testing
+def test_basic_upgrade():
+    # Very basic test with no validation
+    config = Config()
+    command.upgrade(config, "head")
+    # No assertions, no validation
+
+# Manual testing only
+"""
+Manual testing steps:
+1. Run migration
+2. Check if it works
+3. Hope for the best
+"""
+
+# No downgrade testing
+# No data integrity checks
+# No performance validation
+# No schema consistency verification]]></incorrect-example>
+        </example>
+      </examples>
+    </requirement>
+    <requirement priority="high">
+      <description>Use proper environment configuration and manage database URLs securely with environment-specific settings</description>
+      <examples>
+        <example title="Environment Configuration">
+          <correct-example title="Secure configuration management" conditions="Setting up Alembic environments" expected-result="Secure, environment-aware configuration" correctness-criteria="Uses environment variables and proper configuration patterns"><![CDATA["""
+alembic/env.py - Production-ready configuration
+"""
+import os
+import logging
+from logging.config import fileConfig
+from sqlalchemy import engine_from_config, pool
+from alembic import context
+from typing import Optional
+
+# Import your models metadata
+from myapp.models import Base
+
+# Alembic Config object
+config = context.config
+
+# Setup logging
+if config.config_file_name is not None:
+    fileConfig(config.config_file_name)
+
+logger = logging.getLogger('alembic.env')
+
+# Set target metadata
+target_metadata = Base.metadata
+
+def get_database_url() -> str:
+    """Get database URL from environment variables."""
+    
+    # Try environment variable first
+    database_url = os.getenv('DATABASE_URL')
+    
+    if database_url:
+        # Handle Heroku postgres URLs
+        if database_url.startswith('postgres://'):
+            database_url = database_url.replace('postgres://', 'postgresql://', 1)
+        return database_url
+    
+    # Fallback to individual components
+    user = os.getenv('DB_USER', 'postgres')
+    password = os.getenv('DB_PASSWORD', '')
+    host = os.getenv('DB_HOST', 'localhost')
+    port = os.getenv('DB_PORT', '5432')
+    database = os.getenv('DB_NAME', 'myapp')
+    
+    return f"postgresql://{user}:{password}@{host}:{port}/{database}"
+
+def run_migrations_offline() -> None:
+    """Run migrations in 'offline' mode."""
+    url = get_database_url()
+    
+    context.configure(
+        url=url,
+        target_metadata=target_metadata,
+        literal_binds=True,
+        dialect_opts={"paramstyle": "named"},
+        compare_type=True,
+        compare_server_default=True,
+        include_schemas=True
+    )
+
+    with context.begin_transaction():
+        context.run_migrations()
+
+def run_migrations_online() -> None:
+    """Run migrations in 'online' mode."""
+    
+    # Get database URL
+    database_url = get_database_url()
+    
+    # Update configuration
+    configuration = config.get_section(config.config_ini_section)
+    configuration['sqlalchemy.url'] = database_url
+    
+    # Create engine with proper configuration
+    connectable = engine_from_config(
+        configuration,
+        prefix="sqlalchemy.",
+        poolclass=pool.NullPool,
+        echo=os.getenv('ALEMBIC_ECHO', 'false').lower() == 'true'
+    )
+
+    with connectable.connect() as connection:
+        context.configure(
+            connection=connection,
+            target_metadata=target_metadata,
+            compare_type=True,
+            compare_server_default=True,
+            include_schemas=True,
+            render_as_batch=True,  # For SQLite compatibility
+            transaction_per_migration=True  # Safer for large migrations
+        )
+
+        with context.begin_transaction():
+            context.run_migrations()
+
+# Run migrations based on context
+if context.is_offline_mode():
+    run_migrations_offline()
+else:
+    run_migrations_online()
+
+"""
+alembic.ini - Environment-aware configuration
+"""
+[alembic]
+# Path to migration scripts
+script_location = alembic
+
+# Template for generating migration file names
+file_template = %%(epoch)d_%%(rev)s_%%(slug)s
+
+# sys.path path for modules
+prepend_sys_path = .
+
+# Timezone for migration timestamps
+timezone = UTC
+
+# Truncate slug length
+truncate_slug_length = 40
+
+# Environment-specific settings
+[dev]
+sqlalchemy.url = postgresql://dev_user:dev_pass@localhost/myapp_dev
+
+[test]
+sqlalchemy.url = sqlite:///./test.db
+
+[staging]
+sqlalchemy.url = postgresql://staging_user:staging_pass@staging-db/myapp
+
+# Production URL comes from environment variables
+
+"""
+docker-compose.yml - Environment configuration
+"""
+version: '3.8'
+services:
+  app:
+    build: .
+    environment:
+      - DATABASE_URL=postgresql://user:password@db:5432/myapp
+      - ALEMBIC_ECHO=false
+    depends_on:
+      db:
+        condition: service_healthy
+        
+  db:
+    image: postgres:14
+    environment:
+      - POSTGRES_USER=user
+      - POSTGRES_PASSWORD=password
+      - POSTGRES_DB=myapp
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U user -d myapp"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  migration:
+    build: .
+    command: ["alembic", "upgrade", "head"]
+    environment:
+      - DATABASE_URL=postgresql://user:password@db:5432/myapp
+    depends_on:
+      db:
+        condition: service_healthy]]></correct-example>
+          <incorrect-example title="Insecure configuration" conditions="Setting up Alembic environments" expected-result="Secure configuration" incorrectness-criteria="Hardcoded credentials and poor configuration"><![CDATA["""
+alembic/env.py - Poor configuration
+"""
+from alembic import context
+
+# Hardcoded database URL - SECURITY RISK
+DATABASE_URL = "postgresql://admin:password123@prod-db/myapp"
+
+def run_migrations_online():
+    # No environment variable support
+    # Hardcoded configuration
+    config.set_main_option("sqlalchemy.url", DATABASE_URL)
+    
+    connectable = engine_from_config(
+        config.get_section(config.config_ini_section),
+        prefix="sqlalchemy.",
+    )
+
+    with connectable.connect() as connection:
+        context.configure(connection=connection, target_metadata=target_metadata)
+        context.run_migrations()
+
+"""
+alembic.ini - Insecure configuration
+"""
+[alembic]
+script_location = alembic
+
+# Hardcoded production credentials - NEVER DO THIS
+sqlalchemy.url = postgresql://admin:password123@prod-server:5432/production_db
+
+# No environment-specific sections
+# No security considerations
+# Credentials in version control]]></incorrect-example>
+        </example>
+      </examples>
+    </requirement>
+    <requirement priority="high">
+      <description>Implement proper data migration patterns with batch processing for large datasets and performance optimization</description>
+      <examples>
+        <example title="Data Migration Optimization">
+          <correct-example title="Efficient data migration" conditions="Migrating large datasets" expected-result="Fast, memory-efficient migration" correctness-criteria="Uses batch processing and proper indexing"><![CDATA[from alembic import op
+import sqlalchemy as sa
+from sqlalchemy import table, column, String, Integer, DateTime, text
+import logging
+
+logger = logging.getLogger(__name__)
+
+def upgrade() -> None:
+    """Migrate user data with batch processing for large datasets."""
+    
+    connection = op.get_bind()
+    
+    # First, add new column
+    op.add_column('users', sa.Column('normalized_email', sa.String(255), nullable=True))
+    
+    # Add index on new column for performance
+    op.create_index('idx_users_normalized_email', 'users', ['normalized_email'])
+    
+    # Define table structure for data manipulation
+    users_table = table(
+        'users',
+        column('id', Integer),
+        column('email', String),
+        column('normalized_email', String)
+    )
+    
+    # Process data in batches to avoid memory issues
+    batch_size = 1000
+    offset = 0
+    total_processed = 0
+    
+    logger.info("Starting batch processing of user emails")
+    
+    while True:
+        # Fetch batch of users
+        result = connection.execute(
+            users_table.select()
+            .where(users_table.c.normalized_email.is_(None))
+            .limit(batch_size)
+            .offset(offset)
+        )
+        
+        batch = result.fetchall()
+        if not batch:
+            break
+        
+        # Process batch
+        updates = []
+        for user in batch:
+            normalized = normalize_email(user.email) if user.email else None
+            if normalized:
+                updates.append({
+                    'user_id': user.id,
+                    'normalized_email': normalized
+                })
+        
+        # Bulk update for performance
+        if updates:
+            connection.execute(
+                text("""
+                    UPDATE users 
+                    SET normalized_email = :normalized_email 
+                    WHERE id = :user_id
+                """),
+                updates
+            )
+        
+        total_processed += len(batch)
+        offset += batch_size
+        
+        # Log progress
+        if total_processed % 10000 == 0:
+            logger.info(f"Processed {total_processed} users")
+    
+    logger.info(f"Completed processing {total_processed} users")
+    
+    # Add not null constraint after migration
+    op.alter_column('users', 'normalized_email', nullable=False)
+
+def downgrade() -> None:
+    """Remove normalized email column."""
+    op.drop_index('idx_users_normalized_email', table_name='users')
+    op.drop_column('users', 'normalized_email')
+
+def normalize_email(email: str) -> str:
+    """Normalize email address."""
+    if not email:
+        return None
+    
+    return email.strip().lower()
+
+# Alternative approach for very large datasets
+def upgrade_with_async_processing() -> None:
+    """Alternative approach using background job for very large datasets."""
+    
+    # Add column without constraint first
+    op.add_column('users', sa.Column('normalized_email', sa.String(255), nullable=True))
+    op.create_index('idx_users_normalized_email', 'users', ['normalized_email'])
+    
+    # Create a flag to track migration progress
+    op.add_column('users', sa.Column('email_normalized', sa.Boolean(), default=False))
+    
+    # Process a small initial batch
+    connection = op.get_bind()
+    connection.execute(text("""
+        UPDATE users 
+        SET normalized_email = LOWER(TRIM(email)), 
+            email_normalized = true 
+        WHERE id IN (
+            SELECT id FROM users 
+            WHERE email_normalized = false 
+            LIMIT 1000
+        )
+    """))
+    
+    logger.info("Initial batch processed. Background job should handle remaining records.")
+    
+    # Note: Full migration would be completed by a background job
+    # This is useful for zero-downtime deployments
+
+def performance_optimized_migration() -> None:
+    """Migration optimized for performance."""
+    
+    connection = op.get_bind()
+    
+    # Disable foreign key checks temporarily (if supported)
+    if connection.dialect.name == 'mysql':
+        connection.execute(text("SET FOREIGN_KEY_CHECKS = 0"))
+    
+    try:
+        # Drop indexes temporarily for faster updates
+        op.drop_index('idx_users_email', table_name='users')
+        
+        # Perform bulk operation
+        connection.execute(text("""
+            UPDATE users 
+            SET normalized_email = LOWER(TRIM(email))
+            WHERE email IS NOT NULL
+        """))
+        
+        # Recreate indexes
+        op.create_index('idx_users_email', 'users', ['email'])
+        op.create_index('idx_users_normalized_email', 'users', ['normalized_email'])
+        
+    finally:
+        # Re-enable foreign key checks
+        if connection.dialect.name == 'mysql':
+            connection.execute(text("SET FOREIGN_KEY_CHECKS = 1"))]]></correct-example>
+          <incorrect-example title="Inefficient data migration" conditions="Migrating large datasets" expected-result="Efficient data migration" incorrectness-criteria="Processes all data at once without optimization"><![CDATA[def upgrade():
+    # Bad - loads all data into memory at once
+    connection = op.get_bind()
+    
+    op.add_column('users', sa.Column('normalized_email', sa.String(255)))
+    
+    # Inefficient - processes all users at once
+    users = connection.execute("SELECT * FROM users").fetchall()
+    
+    # Memory issues with large datasets
+    for user in users:
+        normalized = user.email.lower() if user.email else None
+        connection.execute(
+            f"UPDATE users SET normalized_email = '{normalized}' WHERE id = {user.id}"
+        )
+    
+    # No progress tracking
+    # No error handling
+    # No performance considerations
+    # SQL injection risk with string formatting
+
+def downgrade():
+    # No proper cleanup
+    op.drop_column('users', 'normalized_email')]]></incorrect-example>
+        </example>
+      </examples>
+    </requirement>
+    <requirement priority="medium">
+      <description>Add comprehensive comments and documentation to migration files explaining the purpose, impact, and rollback strategy</description>
+      <examples>
+        <example title="Migration Documentation">
+          <correct-example title="Well-documented migration" conditions="Writing migration files" expected-result="Clear, maintainable migrations" correctness-criteria="Includes comprehensive documentation and comments"><![CDATA["""Add user subscription management system
+
+This migration adds tables and constraints to support user subscriptions
+and billing management. It includes:
+
+1. subscription_plans table - stores available subscription plans
+2. user_subscriptions table - tracks user subscription status
+3. billing_history table - records billing transactions
+4. Indexes for performance optimization
+5. Foreign key constraints for data integrity
+
+Impact:
+- New tables: 3
+- New indexes: 5
+- New constraints: 3
+- Estimated downtime: < 30 seconds
+- Data loss on rollback: billing_history and subscription data
+
+Rollback strategy:
+- Tables are dropped in reverse dependency order
+- No data migration, safe to rollback immediately after deployment
+- Dependent services: billing-service, subscription-api
+
+Dependencies:
+- Requires users table (existing)
+- Should be deployed before billing-service v2.1.0
+
+Testing:
+- Tested with 1M+ user records
+- Performance impact: minimal
+- Migration time: ~10 seconds on production-size database
+
+Revision ID: a1b2c3d4e5f6
+Revises: f6e5d4c3b2a1
+Create Date: 2025-01-12 10:55:00.123456
+
+"""
+from alembic import op
+import sqlalchemy as sa
+from sqlalchemy.dialects import postgresql
+import logging
+
+logger = logging.getLogger(__name__)
+
+# Revision identifiers
+revision = 'a1b2c3d4e5f6'
+down_revision = 'f6e5d4c3b2a1'
+branch_labels = None
+depends_on = None
+
+def upgrade() -> None:
+    """
+    Add subscription management tables and constraints.
+    
+    This upgrade creates the complete subscription infrastructure
+    needed for the billing system v2.0.
+    """
+    
+    logger.info("Starting subscription system migration")
+    
+    # Step 1: Create subscription plans table
+    # This table stores the available subscription tiers (free, premium, enterprise)
+    op.create_table(
+        'subscription_plans',
+        sa.Column(
+            'id', 
+            sa.Integer(), 
+            primary_key=True,
+            comment='Unique identifier for subscription plan'
+        ),
+        sa.Column(
+            'name', 
+            sa.String(50), 
+            nullable=False, 
+            unique=True,
+            comment='Plan name (e.g., "premium", "enterprise")'
+        ),
+        sa.Column(
+            'description', 
+            sa.Text(), 
+            nullable=True,
+            comment='Human-readable plan description'
+        ),
+        sa.Column(
+            'price_monthly', 
+            sa.Numeric(10, 2), 
+            nullable=False,
+            comment='Monthly price in USD'
+        ),
+        sa.Column(
+            'price_yearly', 
+            sa.Numeric(10, 2), 
+            nullable=True,
+            comment='Yearly price in USD (null if not available)'
+        ),
+        sa.Column(
+            'features', 
+            postgresql.JSONB(), 
+            nullable=True,
+            comment='Plan features as JSON object'
+        ),
+        sa.Column(
+            'is_active', 
+            sa.Boolean(), 
+            default=True, 
+            nullable=False,
+            comment='Whether plan is available for new subscriptions'
+        ),
+        sa.Column(
+            'created_at', 
+            sa.DateTime(), 
+            server_default=sa.func.now(), 
+            nullable=False
+        ),
+        sa.Column(
+            'updated_at', 
+            sa.DateTime(), 
+            server_default=sa.func.now(), 
+            onupdate=sa.func.now()
+        ),
+        
+        # Constraints
+        sa.CheckConstraint('price_monthly >= 0', name='ck_subscription_plans_price_monthly_positive'),
+        sa.CheckConstraint('price_yearly IS NULL OR price_yearly >= 0', name='ck_subscription_plans_price_yearly_positive'),
+        
+        comment='Available subscription plans with pricing and features'
+    )
+    
+    # Step 2: Create user subscriptions table
+    # Links users to their current subscription plan and status
+    op.create_table(
+        'user_subscriptions',
+        sa.Column('id', sa.Integer(), primary_key=True),
+        sa.Column(
+            'user_id', 
+            sa.Integer(), 
+            sa.ForeignKey('users.id', ondelete='CASCADE'), 
+            nullable=False,
+            comment='Reference to users table'
+        ),
+        sa.Column(
+            'plan_id', 
+            sa.Integer(), 
+            sa.ForeignKey('subscription_plans.id'), 
+            nullable=False,
+            comment='Reference to subscription_plans table'
+        ),
+        sa.Column(
+            'status', 
+            sa.String(20), 
+            nullable=False, 
+            default='active',
+            comment='Subscription status: active, cancelled, expired, suspended'
+        ),
+        sa.Column(
+            'billing_cycle', 
+            sa.String(10), 
+            nullable=False, 
+            default='monthly',
+            comment='Billing frequency: monthly, yearly'
+        ),
+        sa.Column(
+            'current_period_start', 
+            sa.DateTime(), 
+            nullable=False,
+            comment='Start of current billing period'
+        ),
+        sa.Column(
+            'current_period_end', 
+            sa.DateTime(), 
+            nullable=False,
+            comment='End of current billing period'
+        ),
+        sa.Column(
+            'cancelled_at', 
+            sa.DateTime(), 
+            nullable=True,
+            comment='When subscription was cancelled (if applicable)'
+        ),
+        sa.Column('created_at', sa.DateTime(), server_default=sa.func.now()),
+        sa.Column('updated_at', sa.DateTime(), server_default=sa.func.now(), onupdate=sa.func.now()),
+        
+        # Constraints
+        sa.CheckConstraint(
+            "status IN ('active', 'cancelled', 'expired', 'suspended')", 
+            name='ck_user_subscriptions_valid_status'
+        ),
+        sa.CheckConstraint(
+            "billing_cycle IN ('monthly', 'yearly')", 
+            name='ck_user_subscriptions_valid_billing_cycle'
+        ),
+        sa.CheckConstraint(
+            'current_period_end > current_period_start', 
+            name='ck_user_subscriptions_valid_period'
+        ),
+        
+        # Business rule: one active subscription per user
+        sa.UniqueConstraint('user_id', name='uq_user_subscriptions_one_per_user'),
+        
+        comment='User subscription status and billing information'
+    )
+    
+    # Step 3: Create billing history table
+    # Records all billing transactions for audit and reconciliation
+    op.create_table(
+        'billing_history',
+        sa.Column('id', sa.Integer(), primary_key=True),
+        sa.Column(
+            'subscription_id', 
+            sa.Integer(), 
+            sa.ForeignKey('user_subscriptions.id', ondelete='CASCADE'), 
+            nullable=False
+        ),
+        sa.Column(
+            'amount', 
+            sa.Numeric(10, 2), 
+            nullable=False,
+            comment='Transaction amount in USD'
+        ),
+        sa.Column(
+            'transaction_type', 
+            sa.String(20), 
+            nullable=False,
+            comment='Type: charge, refund, adjustment'
+        ),
+        sa.Column(
+            'status', 
+            sa.String(20), 
+            nullable=False,
+            comment='Status: pending, completed, failed'
+        ),
+        sa.Column(
+            'external_transaction_id', 
+            sa.String(255), 
+            nullable=True,
+            comment='ID from payment processor (Stripe, PayPal, etc.)'
+        ),
+        sa.Column(
+            'description', 
+            sa.Text(), 
+            nullable=True,
+            comment='Human-readable transaction description'
+        ),
+        sa.Column(
+            'metadata', 
+            postgresql.JSONB(), 
+            nullable=True,
+            comment='Additional transaction data as JSON'
+        ),
+        sa.Column('created_at', sa.DateTime(), server_default=sa.func.now()),
+        
+        # Constraints
+        sa.CheckConstraint(
+            "transaction_type IN ('charge', 'refund', 'adjustment')", 
+            name='ck_billing_history_valid_transaction_type'
+        ),
+        sa.CheckConstraint(
+            "status IN ('pending', 'completed', 'failed')", 
+            name='ck_billing_history_valid_status'
+        ),
+        
+        comment='Complete billing transaction history for audit purposes'
+    )
+    
+    # Step 4: Create performance indexes
+    logger.info("Creating performance indexes")
+    
+    # Index for subscription lookups by user
+    op.create_index('idx_user_subscriptions_user_id', 'user_subscriptions', ['user_id'])
+    
+    # Index for active subscriptions query
+    op.create_index('idx_user_subscriptions_status', 'user_subscriptions', ['status'])
+    
+    # Index for billing history by subscription
+    op.create_index('idx_billing_history_subscription_id', 'billing_history', ['subscription_id'])
+    
+    # Index for billing history by date (for reporting)
+    op.create_index('idx_billing_history_created_at', 'billing_history', ['created_at'])
+    
+    # Composite index for external transaction lookup
+    op.create_index(
+        'idx_billing_history_external_id', 
+        'billing_history', 
+        ['external_transaction_id'], 
+        unique=True,
+        postgresql_where=sa.text('external_transaction_id IS NOT NULL')
+    )
+    
+    logger.info("Subscription system migration completed successfully")
+
+def downgrade() -> None:
+    """
+    Remove subscription management system.
+    
+    WARNING: This will permanently delete all subscription and billing data.
+    Ensure you have backups before proceeding.
+    
+    Rollback steps:
+    1. Drop indexes
+    2. Drop tables in reverse dependency order
+    3. Verify foreign key constraints are properly handled
+    """
+    
+    logger.warning("Starting subscription system rollback - this will delete data!")
+    
+    # Step 1: Drop indexes first (for cleaner table drops)
+    op.drop_index('idx_billing_history_external_id', table_name='billing_history')
+    op.drop_index('idx_billing_history_created_at', table_name='billing_history')
+    op.drop_index('idx_billing_history_subscription_id', table_name='billing_history')
+    op.drop_index('idx_user_subscriptions_status', table_name='user_subscriptions')
+    op.drop_index('idx_user_subscriptions_user_id', table_name='user_subscriptions')
+    
+    # Step 2: Drop tables in reverse dependency order
+    # billing_history depends on user_subscriptions
+    op.drop_table('billing_history')
+    
+    # user_subscriptions depends on subscription_plans and users
+    op.drop_table('user_subscriptions')
+    
+    # subscription_plans has no dependencies
+    op.drop_table('subscription_plans')
+    
+    logger.warning("Subscription system rollback completed - all data has been deleted")]]></correct-example>
+          <incorrect-example title="Poorly documented migration" conditions="Writing migration files" expected-result="Well-documented migration" incorrectness-criteria="Minimal or unclear documentation"><![CDATA["""add tables
+
+Revision ID: abc123
+Revises: def456
+Create Date: 2025-01-12 10:55:00.123456
+
+"""
+from alembic import op
+import sqlalchemy as sa
+
+revision = 'abc123'
+down_revision = 'def456'
+
+def upgrade():
+    # Create some tables
+    op.create_table(
+        'subscription_plans',
+        sa.Column('id', sa.Integer(), primary_key=True),
+        sa.Column('name', sa.String(50)),
+        sa.Column('price', sa.Numeric(10, 2)),
+    )
+    
+    op.create_table(
+        'user_subscriptions',
+        sa.Column('id', sa.Integer(), primary_key=True),
+        sa.Column('user_id', sa.Integer()),
+        sa.Column('plan_id', sa.Integer()),
+    )
+
+def downgrade():
+    # Remove tables
+    op.drop_table('user_subscriptions')
+    op.drop_table('subscription_plans')]]></incorrect-example>
+        </example>
+      </examples>
+    </requirement>
+  </requirements>
+  <context description="Alembic migration development considerations">
+    Alembic is a powerful database migration tool that requires careful consideration of data integrity, performance, and maintainability. When working with Alembic, focus on creating migrations that are safe, reversible, and independent of current code state. Always test migrations thoroughly, especially in production-like environments. Use proper naming conventions to ensure database consistency across environments. Consider the impact of migrations on large datasets and implement appropriate batch processing and performance optimizations. Remember that migrations are permanent records of database evolution and should be treated as critical infrastructure code.
+  </context>
+  <references>
+    <reference as="dependency" href=".cursor/rules/rules.mdc" reason="Follows standard rule format">Base rule format definition</reference>
+    <reference as="context" href=".cursor/rules/database/migration-tools/python/sqlalchemy-rules-auto.mdc" reason="Database ORM patterns">SQLAlchemy Best Practices</reference>
+    <reference as="context" href=".cursor/rules/languages/python/python-rules-auto.mdc" reason="Python development standards">Python Best Practices</reference>
+  </references>
+</rule>
+ 

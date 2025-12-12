@@ -1,0 +1,406 @@
+---
+description: "Comprehensive TypeScript testing conventions with modern frameworks, advanced patterns, MSW, coverage strategies, and monorepo testing following expert best practices and TypeScript community standards"
+globs: ["**/*.test.ts", "**/*.test.tsx", "**/*.spec.ts", "**/*.spec.tsx", "**/jest.config.*", "**/vitest.config.*", "**/playwright.config.*", "**/test-setup.*", "**/__tests__/**/*.ts", "**/__tests__/**/*.tsx", "**/tests/**/*.ts", "**/tests/**/*.tsx", "**/e2e/**/*.ts", "**/msw/**/*.ts"]
+alwaysApply: false
+---
+
+<rule>
+  <meta>
+    <title>TypeScript Testing Conventions</title>
+    <description>Comprehensive TypeScript testing conventions with modern frameworks, advanced patterns, MSW, coverage strategies, and monorepo testing following expert best practices and TypeScript community standards</description>
+    <created-at utc-timestamp="1744245220">January 27, 2025, 11:40 AM</created-at>
+    <last-updated-at utc-timestamp="1744245220">January 27, 2025, 11:40 AM</last-updated-at>
+    <applies-to>
+      <file-matcher glob="**/*.test.ts">TypeScript test files</file-matcher>
+      <file-matcher glob="**/*.test.tsx">TypeScript React test files</file-matcher>
+      <file-matcher glob="**/*.spec.ts">TypeScript spec files</file-matcher>
+      <file-matcher glob="**/*.spec.tsx">TypeScript React spec files</file-matcher>
+      <file-matcher glob="**/jest.config.*">Jest configuration files</file-matcher>
+      <file-matcher glob="**/vitest.config.*">Vitest configuration files</file-matcher>
+      <file-matcher glob="**/playwright.config.*">Playwright configuration files</file-matcher>
+      <file-matcher glob="**/test-setup.*">Test setup files</file-matcher>
+      <file-matcher glob="**/__tests__/**/*.ts">Test modules in __tests__ directory</file-matcher>
+      <file-matcher glob="**/__tests__/**/*.tsx">React test modules in __tests__ directory</file-matcher>
+      <file-matcher glob="**/tests/**/*.ts">Test modules in tests directory</file-matcher>
+      <file-matcher glob="**/tests/**/*.tsx">React test modules in tests directory</file-matcher>
+      <file-matcher glob="**/e2e/**/*.ts">End-to-end test files</file-matcher>
+      <file-matcher glob="**/msw/**/*.ts">Mock Service Worker files</file-matcher>
+      <action-matcher action="typescript-testing">Triggered when writing or configuring TypeScript tests</action-matcher>
+    </applies-to>
+  </meta>
+
+  <requirements>
+    <non-negotiable priority="critical">
+      <description>Use modern testing frameworks (Vitest/Jest) with TypeScript configuration following the monorepo structure defined in typescript-monorepo-core-project-rules-auto.mdc, implementing comprehensive test organization with proper type safety and advanced testing patterns.</description>
+      <examples>
+        <example title="Comprehensive Test Organization and Framework Setup">
+          <correct-example title="Professional TypeScript test organization with modern frameworks" conditions="Organizing TypeScript tests in monorepo" expected-result="Well-structured, maintainable test suite with proper organization and type safety" correctness-criteria="Follows typescript-monorepo-core-project-rules-auto.mdc structure, uses modern testing frameworks, proper test organization, comprehensive type safety">
+Test Organization Structure (following typescript-monorepo-core-project-rules-auto.mdc):
+
+my-monorepo/
+├── packages/
+│   ├── shared/
+│   │   ├── ui/
+│   │   │   ├── src/
+│   │   │   │   ├── components/
+│   │   │   │   │   ├── Button/
+│   │   │   │   │   │   ├── Button.tsx
+│   │   │   │   │   │   ├── Button.test.tsx
+│   │   │   │   │   │   ├── Button.stories.tsx
+│   │   │   │   │   │   └── index.ts
+│   │   │   │   │   └── index.ts
+│   │   │   │   └── hooks/
+│   │   │   │       ├── useCounter/
+│   │   │   │       │   ├── useCounter.ts
+│   │   │   │       │   ├── useCounter.test.ts
+│   │   │   │       │   └── index.ts
+│   │   │   ├── tests/
+│   │   │   │   ├── setup/
+│   │   │   │   │   ├── test-setup.ts
+│   │   │   │   │   ├── msw-setup.ts
+│   │   │   │   │   └── custom-matchers.ts
+│   │   │   │   ├── utils/
+│   │   │   │   │   ├── render-utils.tsx
+│   │   │   │   │   ├── mock-factories.ts
+│   │   │   │   │   └── test-helpers.ts
+│   │   │   │   ├── mocks/
+│   │   │   │   │   ├── handlers/
+│   │   │   │   │   │   ├── user.handlers.ts
+│   │   │   │   │   │   └── api.handlers.ts
+│   │   │   │   │   ├── data/
+│   │   │   │   │   │   ├── users.mock.ts
+│   │   │   │   │   │   └── products.mock.ts
+│   │   │   │   │   └── server.ts
+│   │   │   │   └── fixtures/
+│   │   │   │       ├── component-fixtures.ts
+│   │   │   │       └── data-fixtures.ts
+│   │   │   ├── vitest.config.ts
+│   │   │   └── package.json
+│   │   └── utils/
+│   │       ├── src/
+│   │       │   ├── validation/
+│   │       │   │   ├── schemas.ts
+│   │       │   │   └── schemas.test.ts
+│   │       │   └── helpers/
+│   │       │       ├── date-utils.ts
+│   │       │       └── date-utils.test.ts
+│   │       ├── vitest.config.ts
+│   │       └── package.json
+│   └── services/
+│       └── api/
+│           ├── src/
+│           │   ├── routes/
+│           │   │   ├── users/
+│           │   │   │   ├── users.controller.ts
+│           │   │   │   ├── users.controller.test.ts
+│           │   │   │   ├── users.service.ts
+│           │   │   │   └── users.service.test.ts
+│           │   └── middleware/
+│           ├── tests/
+│           │   ├── integration/
+│           │   │   ├── api.integration.test.ts
+│           │   │   └── auth.integration.test.ts
+│           │   └── e2e/
+│           │       ├── user-workflows.e2e.test.ts
+│           │       └── api-endpoints.e2e.test.ts
+│           ├── vitest.config.ts
+│           └── package.json
+├── apps/
+│   └── web/
+│       ├── src/
+│       │   ├── pages/
+│       │   │   ├── HomePage/
+│       │   │   │   ├── HomePage.tsx
+│       │   │   │   ├── HomePage.test.tsx
+│       │   │   │   └── HomePage.integration.test.tsx
+│       │   └── components/
+│       ├── tests/
+│       │   ├── e2e/
+│       │   │   ├── user-journey.spec.ts
+│       │   │   └── checkout-flow.spec.ts
+│       │   ├── setup/
+│       │   │   ├── test-setup.ts
+│       │   │   └── playwright-setup.ts
+│       │   └── fixtures/
+│       │       ├── auth-fixtures.ts
+│       │       └── user-fixtures.ts
+│       ├── playwright.config.ts
+│       ├── vitest.config.ts
+│       └── package.json
+├── tools/
+│   └── testing/
+│       ├── jest-preset.js
+│       ├── vitest-preset.ts
+│       ├── shared-matchers.ts
+│       └── test-utils.ts
+└── jest.config.js                     # Root Jest configuration for workspace
+
+// vitest.config.ts (shared UI package)
+/// <reference types="vitest" />
+import { defineConfig } from 'vite'
+import react from '@vitejs/plugin-react'
+import { resolve } from 'path'
+
+export default defineConfig({
+  plugins: [react()],
+  test: {
+    globals: true,
+    environment: 'jsdom',
+    setupFiles: ['./tests/setup/test-setup.ts'],
+    include: ['src/**/*.{test,spec}.{ts,tsx}'],
+    exclude: ['node_modules', 'dist', 'build'],
+    coverage: {
+      reporter: ['text', 'json', 'html'],
+      exclude: [
+        'node_modules/',
+        'tests/',
+        '**/*.d.ts',
+        '**/*.config.*',
+        '**/index.ts'
+      ],
+      thresholds: {
+        global: {
+          branches: 80,
+          functions: 80,
+          lines: 80,
+          statements: 80
+        }
+      }
+    },
+    typecheck: {
+      checker: 'tsc',
+      include: ['src/**/*.{test,spec}.{ts,tsx}']
+    }
+  },
+  resolve: {
+    alias: {
+      '@': resolve(__dirname, 'src'),
+      '@tests': resolve(__dirname, 'tests'),
+      '@my-monorepo/shared-types': resolve(__dirname, '../types/src'),
+      '@my-monorepo/shared-utils': resolve(__dirname, '../utils/src')
+    }
+  }
+})
+
+// jest.config.ts (alternative setup for React components)
+import type { Config } from 'jest'
+
+const config: Config = {
+  displayName: 'Shared UI Components',
+  preset: 'ts-jest',
+  testEnvironment: 'jsdom',
+  setupFilesAfterEnv: ['<rootDir>/tests/setup/test-setup.ts'],
+  moduleNameMapping: {
+    '^@/(.*)$': '<rootDir>/src/$1',
+    '^@tests/(.*)$': '<rootDir>/tests/$1',
+    '^@my-monorepo/shared-types/(.*)$': '<rootDir>/../types/src/$1',
+    '^@my-monorepo/shared-utils/(.*)$': '<rootDir>/../utils/src/$1',
+    '\\.(css|less|scss|sass)$': 'identity-obj-proxy',
+    '\\.(jpg|jpeg|png|gif|webp|svg)$': '<rootDir>/tests/mocks/file-mock.ts'
+  },
+  transform: {
+    '^.+\\.(ts|tsx)$': ['ts-jest', {
+      tsconfig: './tsconfig.json'
+    }]
+  },
+  collectCoverageFrom: [
+    'src/**/*.{ts,tsx}',
+    '!src/**/*.d.ts',
+    '!src/**/*.stories.{ts,tsx}',
+    '!src/**/*.test.{ts,tsx}',
+    '!src/**/*.spec.{ts,tsx}',
+    '!src/index.ts'
+  ],
+  coverageDirectory: 'coverage',
+  coverageReporters: ['text', 'lcov', 'html'],
+  coverageThreshold: {
+    global: {
+      branches: 80,
+      functions: 80,
+      lines: 80,
+      statements: 80
+    }
+  },
+  testMatch: [
+    '<rootDir>/src/**/*.test.{ts,tsx}',
+    '<rootDir>/tests/**/*.test.{ts,tsx}'
+  ],
+  testTimeout: 10000,
+  maxWorkers: '50%'
+}
+
+export default config
+
+// tests/setup/test-setup.ts - Comprehensive test setup
+import '@testing-library/jest-dom'
+import { vi } from 'vitest'
+import { configure } from '@testing-library/react'
+import { server } from '../mocks/server'
+
+// Configure Testing Library
+configure({
+  testIdAttribute: 'data-testid'
+})
+
+// MSW setup
+beforeAll(() => server.listen({ onUnhandledRequest: 'error' }))
+afterEach(() => server.resetHandlers())
+afterAll(() => server.close())
+
+// Mock environment variables
+process.env.NODE_ENV = 'test'
+process.env.VITE_API_BASE_URL = 'http://localhost:3000'
+
+// Global mocks
+Object.defineProperty(window, 'matchMedia', {
+  writable: true,
+  value: vi.fn().mockImplementation(query => ({
+    matches: false,
+    media: query,
+    onchange: null,
+    addListener: vi.fn(), // deprecated
+    removeListener: vi.fn(), // deprecated
+    addEventListener: vi.fn(),
+    removeEventListener: vi.fn(),
+    dispatchEvent: vi.fn(),
+  })),
+})
+
+// Mock IntersectionObserver
+global.IntersectionObserver = vi.fn().mockImplementation(() => ({
+  observe: vi.fn(),
+  unobserve: vi.fn(),
+  disconnect: vi.fn(),
+}))
+
+// Mock ResizeObserver
+global.ResizeObserver = vi.fn().mockImplementation(() => ({
+  observe: vi.fn(),
+  unobserve: vi.fn(),
+  disconnect: vi.fn(),
+}))
+
+// Custom matchers
+expect.extend({
+  toBeAccessible: (received) => {
+    // Custom accessibility matcher
+    return {
+      message: () => `expected element to be accessible`,
+      pass: true
+    }
+  }
+})
+
+// tests/utils/render-utils.tsx - Enhanced render utilities
+import React, { ReactElement } from 'react'
+import { render, RenderOptions } from '@testing-library/react'
+import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
+import { MemoryRouter } from 'react-router-dom'
+import { ThemeProvider } from '@my-monorepo/shared-ui'
+
+interface CustomRenderOptions extends Omit<RenderOptions, 'wrapper'> {
+  initialEntries?: string[]
+  queryClient?: QueryClient
+  theme?: 'light' | 'dark'
+}
+
+export const createTestQueryClient = () => {
+  return new QueryClient({
+    defaultOptions: {
+      queries: {
+        retry: false,
+        staleTime: Infinity,
+      },
+      mutations: {
+        retry: false,
+      },
+    },
+  })
+}
+
+export const renderWithProviders = (
+  ui: ReactElement,
+  {
+    initialEntries = ['/'],
+    queryClient = createTestQueryClient(),
+    theme = 'light',
+    ...renderOptions
+  }: CustomRenderOptions = {}
+) => {
+  const Wrapper = ({ children }: { children: React.ReactNode }) => (
+    <QueryClientProvider client={queryClient}>
+      <MemoryRouter initialEntries={initialEntries}>
+        <ThemeProvider theme={theme}>
+          {children}
+        </ThemeProvider>
+      </MemoryRouter>
+    </QueryClientProvider>
+  )
+
+  return {
+    ...render(ui, { wrapper: Wrapper, ...renderOptions }),
+    queryClient,
+  }
+}
+
+// tests/mocks/server.ts - MSW server setup
+import { setupServer } from 'msw/node'
+import { userHandlers } from './handlers/user.handlers'
+import { apiHandlers } from './handlers/api.handlers'
+
+export const server = setupServer(
+  ...userHandlers,
+  ...apiHandlers
+)
+
+// tests/mocks/handlers/user.handlers.ts - User API handlers
+import { http, HttpResponse } from 'msw'
+import { UserResponse, CreateUserRequest } from '@my-monorepo/shared-types'
+import { userFixtures } from '../data/users.mock'
+
+export const userHandlers = [
+  http.get('/api/users/:id', ({ params }) => {
+    const { id } = params
+    const user = userFixtures.find(u => u.id === id)
+    
+    if (!user) {
+      return new HttpResponse(null, { status: 404 })
+    }
+    
+    return HttpResponse.json({ user } satisfies UserResponse)
+  }),
+
+  http.post('/api/users', async ({ request }) => {
+    const body = await request.json() as CreateUserRequest
+    
+    const newUser = {
+      id: crypto.randomUUID(),
+      ...body.user,
+      createdAt: new Date().toISOString(),
+      updatedAt: new Date().toISOString()
+    }
+    
+    return HttpResponse.json(
+      { user: newUser } satisfies UserResponse,
+      { status: 201 }
+    )
+  }),
+
+  http.put('/api/users/:id', async ({ params, request }) => {
+    const { id } = params
+    const body = await request.json() as Partial<CreateUserRequest>
+    
+    const existingUser = userFixtures.find(u => u.id === id)
+    if (!existingUser) {
+      return new HttpResponse(null, { status: 404 })
+    }
+    
+    const updatedUser = {
+      ...existingUser,
+      ...body.user,
+      updatedAt: new Date().toISOString()
+    }
+    
+    return HttpResponse.json({ user: updatedUser } satisfies UserResponse)
+  })
+]

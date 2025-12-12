@@ -1,0 +1,931 @@
+---
+description: "Comprehensive Lerna monorepo management standards with modern Nx integration, package orchestration, and automated publishing workflows following expert best practices"
+globs: ["**/lerna.json", "**/nx.json", "**/{packages,apps}/**/*.{js,ts,json}", "**/package.json", "**/.github/workflows/*.{yml,yaml}"]
+alwaysApply: false
+---
+
+<rule>
+  <meta>
+    <title>Lerna Monorepo Core Standards</title>
+    <description>Comprehensive Lerna monorepo management standards with modern Nx integration, package orchestration, and automated publishing workflows following expert best practices</description>
+    <created-at utc-timestamp="1744245220">January 27, 2025, 11:40 AM</created-at>
+    <last-updated-at utc-timestamp="1744245220">January 27, 2025, 11:40 AM</last-updated-at>
+    <applies-to>
+      <file-matcher glob="**/lerna.json">Lerna configuration files</file-matcher>
+      <file-matcher glob="**/nx.json">Nx configuration for Lerna projects</file-matcher>
+      <file-matcher glob="**/{packages,apps}/**/*.{js,ts,json}">Package source files and configurations</file-matcher>
+      <file-matcher glob="**/package.json">Package.json files in monorepo</file-matcher>
+      <file-matcher glob="**/.github/workflows/*.{yml,yaml}">CI/CD workflows for Lerna projects</file-matcher>
+      <action-matcher action="monorepo-management">Triggered when managing Lerna monorepos</action-matcher>
+    </applies-to>
+  </meta>
+
+  <requirements>
+    <non-negotiable priority="critical">
+      <description>Use modern Lerna with Nx integration for efficient monorepo management, including proper package orchestration, automated versioning, publishing workflows, and optimized build caching.</description>
+      <examples>
+        <example title="Modern Lerna Monorepo Setup">
+          <correct-example title="Professional Lerna configuration with Nx integration" conditions="Setting up Lerna monorepo" expected-result="Optimized monorepo with efficient build orchestration and automated workflows" correctness-criteria="Uses modern Lerna features, Nx integration, proper configuration, automated workflows">// lerna.json - Modern Lerna configuration
+{
+  "$schema": "node_modules/lerna/schemas/lerna-schema.json",
+  "version": "independent",
+  "npmClient": "npm",
+  "command": {
+    "publish": {
+      "conventionalCommits": true,
+      "message": "chore(release): publish packages",
+      "registry": "https://registry.npmjs.org/",
+      "distTag": "latest",
+      "yes": false,
+      "allowBranch": ["main", "release/*"],
+      "ignoreChanges": [
+        "**/*.md",
+        "**/*.test.{js,ts}",
+        "**/*.spec.{js,ts}",
+        "**/test/**",
+        "**/tests/**",
+        "**/__tests__/**",
+        "**/stories/**",
+        "**/*.stories.{js,ts}",
+        "**/docs/**"
+      ],
+      "includeMergedTags": true,
+      "createRelease": "github"
+    },
+    "version": {
+      "conventionalCommits": true,
+      "changelogPreset": "angular",
+      "allowBranch": ["main", "release/*"],
+      "createRelease": "github",
+      "message": "chore(release): version packages",
+      "push": true,
+      "exact": true,
+      "ignoreChanges": [
+        "**/*.md",
+        "**/*.test.{js,ts}",
+        "**/*.spec.{js,ts}",
+        "**/test/**",
+        "**/tests/**",
+        "**/__tests__/**"
+      ]
+    },
+    "bootstrap": {
+      "npmClientArgs": ["--no-package-lock"],
+      "forceLocal": true
+    },
+    "run": {
+      "npmClient": "npm",
+      "stream": true,
+      "parallel": true
+    }
+  },
+  "packages": [
+    "packages/*",
+    "apps/*"
+  ],
+  "ignoreChanges": [
+    "**/*.md",
+    "**/*.test.{js,ts}",
+    "**/*.spec.{js,ts}",
+    "**/test/**",
+    "**/tests/**",
+    "**/__tests__/**"
+  ],
+  "useWorkspaces": true,
+  "useNx": true
+}
+
+// nx.json - Nx configuration for Lerna
+{
+  "$schema": "./node_modules/nx/schemas/nx-schema.json",
+  "npmScope": "my-org",
+  "affected": {
+    "defaultBase": "origin/main"
+  },
+  "tasksRunnerOptions": {
+    "default": {
+      "runner": "nx/tasks-runners/default",
+      "options": {
+        "cacheableOperations": ["build", "lint", "test", "e2e"],
+        "parallel": 3,
+        "useDaemonProcess": true
+      }
+    }
+  },
+  "targetDefaults": {
+    "build": {
+      "dependsOn": ["^build"],
+      "inputs": ["production", "^production"],
+      "cache": true
+    },
+    "test": {
+      "inputs": ["default", "^production", "{workspaceRoot}/jest.preset.js"],
+      "cache": true
+    },
+    "lint": {
+      "inputs": ["default", "{workspaceRoot}/.eslintrc.json"],
+      "cache": true
+    },
+    "e2e": {
+      "inputs": ["default", "^production"],
+      "cache": true
+    }
+  },
+  "namedInputs": {
+    "default": ["{projectRoot}/**/*", "sharedGlobals"],
+    "production": [
+      "default",
+      "!{projectRoot}/**/?(*.)+(spec|test).[jt]s?(x)?(.snap)",
+      "!{projectRoot}/tsconfig.spec.json",
+      "!{projectRoot}/jest.config.[jt]s",
+      "!{projectRoot}/.eslintrc.json"
+    ],
+    "sharedGlobals": [
+      "{workspaceRoot}/babel.config.json",
+      "{workspaceRoot}/.gitignore"
+    ]
+  },
+  "generators": {
+    "@nrwl/react": {
+      "application": {
+        "babel": true
+      },
+      "component": {
+        "style": "css"
+      },
+      "library": {
+        "style": "css"
+      }
+    }
+  },
+  "cli": {
+    "defaultCollection": "@nrwl/react",
+    "packageManager": "npm"
+  }
+}
+
+// package.json - Root workspace configuration
+{
+  "name": "my-monorepo",
+  "version": "1.0.0",
+  "private": true,
+  "workspaces": [
+    "packages/*",
+    "apps/*"
+  ],
+  "scripts": {
+    "bootstrap": "lerna bootstrap",
+    "build": "lerna run build",
+    "build:affected": "nx affected:build",
+    "test": "lerna run test",
+    "test:affected": "nx affected:test",
+    "lint": "lerna run lint",
+    "lint:affected": "nx affected:lint",
+    "clean": "lerna clean -y && rm -rf node_modules",
+    "reset": "npm run clean && npm install && npm run bootstrap",
+    "version": "lerna version --conventional-commits",
+    "version:prerelease": "lerna version prerelease --conventional-commits --preid=beta",
+    "publish": "lerna publish from-git --yes",
+    "publish:canary": "lerna publish --canary --yes --dist-tag=canary",
+    "changed": "lerna changed",
+    "diff": "lerna diff",
+    "graph": "nx graph",
+    "affected:graph": "nx affected:graph",
+    "format": "prettier --write \"**/*.{js,ts,json,md}\"",
+    "format:check": "prettier --check \"**/*.{js,ts,json,md}\"",
+    "commit": "git-cz",
+    "prepare": "husky install",
+    "release": "npm run build && npm run test && npm run version && npm run publish"
+  },
+  "devDependencies": {
+    "lerna": "^6.6.2",
+    "nx": "^15.9.4",
+    "@nrwl/workspace": "^15.9.4",
+    "@commitlint/cli": "^17.6.5",
+    "@commitlint/config-conventional": "^17.6.5",
+    "commitizen": "^4.3.0",
+    "cz-conventional-changelog": "^3.3.0",
+    "husky": "^8.0.3",
+    "lint-staged": "^13.2.2",
+    "prettier": "^2.8.8",
+    "rimraf": "^5.0.1"
+  },
+  "engines": {
+    "node": ">=16.0.0",
+    "npm": ">=8.0.0"
+  },
+  "config": {
+    "commitizen": {
+      "path": "./node_modules/cz-conventional-changelog"
+    }
+  }
+}
+
+// TypeScript - Professional Lerna monorepo management utilities
+import { execSync, spawn } from 'child_process';
+import { promises as fs } from 'fs';
+import path from 'path';
+import chalk from 'chalk';
+import ora from 'ora';
+import { glob } from 'glob';
+
+interface MonorepoConfig {
+  name: string;
+  packages: string[];
+  workspaces: string[];
+  packageManager: 'npm' | 'yarn' | 'pnpm';
+  useNx: boolean;
+  publishing: {
+    registry: string;
+    access: 'public' | 'restricted';
+    createRelease: boolean;
+    conventionalCommits: boolean;
+  };
+  buildOptions: {
+    parallel: boolean;
+    cache: boolean;
+    dependencyOrder: boolean;
+  };
+}
+
+interface PackageInfo {
+  name: string;
+  version: string;
+  location: string;
+  private: boolean;
+  dependencies: Record<string, string>;
+  devDependencies: Record<string, string>;
+  scripts: Record<string, string>;
+}
+
+class LernaMonorepoManager {
+  private config: MonorepoConfig;
+  private rootPath: string;
+  private packages: Map<string, PackageInfo> = new Map();
+
+  constructor(rootPath: string, config: MonorepoConfig) {
+    this.rootPath = rootPath;
+    this.config = config;
+  }
+
+  async initialize(): Promise<void> {
+    console.log(chalk.blue.bold('🏗️  Initializing Lerna monorepo...'));
+
+    try {
+      await this.createDirectoryStructure();
+      await this.generateConfiguration();
+      await this.setupGitHooks();
+      await this.generateGitHubWorkflows();
+      await this.scanPackages();
+
+      console.log(chalk.green.bold('✅ Lerna monorepo initialized successfully!'));
+    } catch (error) {
+      console.error(chalk.red('❌ Failed to initialize monorepo:'), error);
+      throw error;
+    }
+  }
+
+  private async createDirectoryStructure(): Promise<void> {
+    const spinner = ora('Creating directory structure...').start();
+
+    const directories = [
+      'packages',
+      'apps',
+      'tools',
+      'docs',
+      '.github/workflows',
+      '.github/ISSUE_TEMPLATE',
+      '.github/PULL_REQUEST_TEMPLATE'
+    ];
+
+    try {
+      for (const dir of directories) {
+        await fs.mkdir(path.join(this.rootPath, dir), { recursive: true });
+      }
+      spinner.succeed('Directory structure created');
+    } catch (error) {
+      spinner.fail('Failed to create directory structure');
+      throw error;
+    }
+  }
+
+  private async generateConfiguration(): Promise<void> {
+    const spinner = ora('Generating configuration files...').start();
+
+    try {
+      // Generate lerna.json
+      const lernaConfig = this.generateLernaConfig();
+      await fs.writeFile(
+        path.join(this.rootPath, 'lerna.json'),
+        JSON.stringify(lernaConfig, null, 2)
+      );
+
+      // Generate nx.json if using Nx
+      if (this.config.useNx) {
+        const nxConfig = this.generateNxConfig();
+        await fs.writeFile(
+          path.join(this.rootPath, 'nx.json'),
+          JSON.stringify(nxConfig, null, 2)
+        );
+      }
+
+      // Generate root package.json
+      const packageJson = this.generateRootPackageJson();
+      await fs.writeFile(
+        path.join(this.rootPath, 'package.json'),
+        JSON.stringify(packageJson, null, 2)
+      );
+
+      // Generate additional config files
+      await this.generateAdditionalConfigs();
+
+      spinner.succeed('Configuration files generated');
+    } catch (error) {
+      spinner.fail('Failed to generate configuration');
+      throw error;
+    }
+  }
+
+  private generateLernaConfig(): any {
+    return {
+      "$schema": "node_modules/lerna/schemas/lerna-schema.json",
+      version: "independent",
+      npmClient: this.config.packageManager,
+      command: {
+        publish: {
+          conventionalCommits: this.config.publishing.conventionalCommits,
+          message: "chore(release): publish packages",
+          registry: this.config.publishing.registry,
+          access: this.config.publishing.access,
+          allowBranch: ["main", "release/*"],
+          ignoreChanges: [
+            "**/*.md",
+            "**/*.test.{js,ts}",
+            "**/*.spec.{js,ts}",
+            "**/test/**",
+            "**/tests/**",
+            "**/__tests__/**"
+          ],
+          createRelease: this.config.publishing.createRelease ? "github" : false
+        },
+        version: {
+          conventionalCommits: this.config.publishing.conventionalCommits,
+          allowBranch: ["main", "release/*"],
+          createRelease: this.config.publishing.createRelease ? "github" : false,
+          message: "chore(release): version packages",
+          push: true,
+          exact: true
+        },
+        run: {
+          npmClient: this.config.packageManager,
+          stream: true,
+          parallel: this.config.buildOptions.parallel
+        }
+      },
+      packages: this.config.packages,
+      useWorkspaces: true,
+      useNx: this.config.useNx
+    };
+  }
+
+  private generateNxConfig(): any {
+    return {
+      "$schema": "./node_modules/nx/schemas/nx-schema.json",
+      npmScope: this.config.name,
+      affected: {
+        defaultBase: "origin/main"
+      },
+      tasksRunnerOptions: {
+        default: {
+          runner: "nx/tasks-runners/default",
+          options: {
+            cacheableOperations: ["build", "lint", "test", "e2e"],
+            parallel: 3,
+            useDaemonProcess: true
+          }
+        }
+      },
+      targetDefaults: {
+        build: {
+          dependsOn: ["^build"],
+          inputs: ["production", "^production"],
+          cache: this.config.buildOptions.cache
+        },
+        test: {
+          inputs: ["default", "^production"],
+          cache: this.config.buildOptions.cache
+        },
+        lint: {
+          inputs: ["default"],
+          cache: this.config.buildOptions.cache
+        }
+      }
+    };
+  }
+
+  private generateRootPackageJson(): any {
+    return {
+      name: this.config.name,
+      version: "1.0.0",
+      private: true,
+      workspaces: this.config.workspaces,
+      scripts: {
+        bootstrap: "lerna bootstrap",
+        build: "lerna run build",
+        "build:affected": this.config.useNx ? "nx affected:build" : "lerna run build --since origin/main",
+        test: "lerna run test",
+        "test:affected": this.config.useNx ? "nx affected:test" : "lerna run test --since origin/main",
+        lint: "lerna run lint",
+        "lint:affected": this.config.useNx ? "nx affected:lint" : "lerna run lint --since origin/main",
+        clean: "lerna clean -y && rm -rf node_modules",
+        reset: "npm run clean && npm install && npm run bootstrap",
+        version: "lerna version --conventional-commits",
+        "version:prerelease": "lerna version prerelease --conventional-commits --preid=beta",
+        publish: "lerna publish from-git --yes",
+        "publish:canary": "lerna publish --canary --yes --dist-tag=canary",
+        changed: "lerna changed",
+        diff: "lerna diff",
+        graph: this.config.useNx ? "nx graph" : "echo 'Graph requires Nx integration'",
+        format: "prettier --write \"**/*.{js,ts,json,md}\"",
+        "format:check": "prettier --check \"**/*.{js,ts,json,md}\"",
+        commit: "git-cz",
+        prepare: "husky install",
+        release: "npm run build && npm run test && npm run version && npm run publish"
+      },
+      engines: {
+        node: ">=16.0.0",
+        npm: ">=8.0.0"
+      }
+    };
+  }
+
+  private async generateAdditionalConfigs(): Promise<void> {
+    // Generate .gitignore
+    const gitignore = `
+# Dependencies
+node_modules/
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+
+# Build outputs
+dist/
+build/
+lib/
+*.tsbuildinfo
+
+# Environment variables
+.env
+.env.local
+.env.development.local
+.env.test.local
+.env.production.local
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Logs
+logs
+*.log
+
+# Coverage
+coverage/
+.nyc_output/
+
+# Temporary
+tmp/
+temp/
+
+# Cache
+.cache/
+.nx/
+`.trim();
+
+    await fs.writeFile(path.join(this.rootPath, '.gitignore'), gitignore);
+
+    // Generate commitlint.config.js
+    const commitlintConfig = `
+module.exports = {
+  extends: ['@commitlint/config-conventional'],
+  rules: {
+    'type-enum': [
+      2,
+      'always',
+      [
+        'feat',
+        'fix',
+        'docs',
+        'style',
+        'refactor',
+        'perf',
+        'test',
+        'build',
+        'ci',
+        'chore',
+        'revert'
+      ]
+    ],
+    'scope-case': [2, 'always', 'lower-case'],
+    'subject-case': [2, 'never', ['sentence-case', 'start-case', 'pascal-case', 'upper-case']],
+    'subject-empty': [2, 'never'],
+    'subject-full-stop': [2, 'never', '.'],
+    'header-max-length': [2, 'always', 100]
+  }
+};
+`.trim();
+
+    await fs.writeFile(path.join(this.rootPath, 'commitlint.config.js'), commitlintConfig);
+
+    // Generate prettier config
+    const prettierConfig = {
+      semi: true,
+      trailingComma: 'es5',
+      singleQuote: true,
+      printWidth: 100,
+      tabWidth: 2,
+      useTabs: false
+    };
+
+    await fs.writeFile(
+      path.join(this.rootPath, '.prettierrc'),
+      JSON.stringify(prettierConfig, null, 2)
+    );
+  }
+
+  private async setupGitHooks(): Promise<void> {
+    const spinner = ora('Setting up Git hooks...').start();
+
+    try {
+      // Install husky
+      execSync('npx husky install', { cwd: this.rootPath });
+
+      // Create pre-commit hook
+      const preCommitHook = `#!/bin/sh
+. "$(dirname "$0")/_/husky.sh"
+
+npx lint-staged
+`;
+
+      await fs.writeFile(path.join(this.rootPath, '.husky/pre-commit'), preCommitHook);
+
+      // Create commit-msg hook
+      const commitMsgHook = `#!/bin/sh
+. "$(dirname "$0")/_/husky.sh"
+
+npx --no -- commitlint --edit $1
+`;
+
+      await fs.writeFile(path.join(this.rootPath, '.husky/commit-msg'), commitMsgHook);
+
+      // Create lint-staged config
+      const lintStagedConfig = {
+        "*.{js,ts,tsx}": ["eslint --fix", "prettier --write"],
+        "*.{json,md,yml,yaml}": ["prettier --write"],
+        "package.json": ["prettier --write"]
+      };
+
+      await fs.writeFile(
+        path.join(this.rootPath, '.lintstagedrc'),
+        JSON.stringify(lintStagedConfig, null, 2)
+      );
+
+      spinner.succeed('Git hooks configured');
+    } catch (error) {
+      spinner.fail('Failed to setup Git hooks');
+      throw error;
+    }
+  }
+
+  private async generateGitHubWorkflows(): Promise<void> {
+    const spinner = ora('Generating GitHub workflows...').start();
+
+    try {
+      const ciWorkflow = this.generateCIWorkflow();
+      await fs.writeFile(
+        path.join(this.rootPath, '.github/workflows/ci.yml'),
+        ciWorkflow
+      );
+
+      const releaseWorkflow = this.generateReleaseWorkflow();
+      await fs.writeFile(
+        path.join(this.rootPath, '.github/workflows/release.yml'),
+        releaseWorkflow
+      );
+
+      spinner.succeed('GitHub workflows generated');
+    } catch (error) {
+      spinner.fail('Failed to generate workflows');
+      throw error;
+    }
+  }
+
+  private generateCIWorkflow(): string {
+    return `
+name: CI
+
+on:
+  push:
+    branches: [main, develop]
+  pull_request:
+    branches: [main]
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    
+    strategy:
+      matrix:
+        node-version: [16.x, 18.x, 20.x]
+    
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      
+      - name: Use Node.js \${{ matrix.node-version }}
+        uses: actions/setup-node@v3
+        with:
+          node-version: \${{ matrix.node-version }}
+          cache: '${this.config.packageManager}'
+      
+      - name: Install dependencies
+        run: ${this.config.packageManager} ci
+      
+      - name: Lint
+        run: ${this.config.packageManager} run lint${this.config.useNx ? ':affected' : ''}
+      
+      - name: Test
+        run: ${this.config.packageManager} run test${this.config.useNx ? ':affected' : ''}
+      
+      - name: Build
+        run: ${this.config.packageManager} run build${this.config.useNx ? ':affected' : ''}
+      
+      - name: Upload coverage to Codecov
+        if: matrix.node-version == '18.x'
+        uses: codecov/codecov-action@v3
+        with:
+          file: ./coverage/lcov.info
+`.trim();
+  }
+
+  private generateReleaseWorkflow(): string {
+    return `
+name: Release
+
+on:
+  push:
+    branches: [main]
+
+jobs:
+  release:
+    runs-on: ubuntu-latest
+    if: github.event.head_commit.message != 'chore(release): version packages'
+    
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          token: \${{ secrets.GH_TOKEN }}
+      
+      - name: Use Node.js
+        uses: actions/setup-node@v3
+        with:
+          node-version: '18'
+          cache: '${this.config.packageManager}'
+          registry-url: '${this.config.publishing.registry}'
+      
+      - name: Install dependencies
+        run: ${this.config.packageManager} ci
+      
+      - name: Build packages
+        run: ${this.config.packageManager} run build
+      
+      - name: Test packages
+        run: ${this.config.packageManager} run test
+      
+      - name: Configure Git
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+      
+      - name: Version packages
+        run: npx lerna version --conventional-commits --yes
+        env:
+          GH_TOKEN: \${{ secrets.GH_TOKEN }}
+      
+      - name: Publish packages
+        run: npx lerna publish from-git --yes
+        env:
+          NODE_AUTH_TOKEN: \${{ secrets.NPM_TOKEN }}
+`.trim();
+  }
+
+  async scanPackages(): Promise<void> {
+    const spinner = ora('Scanning packages...').start();
+
+    try {
+      const packagePaths = await glob('packages/*/package.json', { cwd: this.rootPath });
+      
+      for (const packagePath of packagePaths) {
+        const fullPath = path.join(this.rootPath, packagePath);
+        const packageJson = JSON.parse(await fs.readFile(fullPath, 'utf-8'));
+        
+        const packageInfo: PackageInfo = {
+          name: packageJson.name,
+          version: packageJson.version,
+          location: path.dirname(fullPath),
+          private: packageJson.private || false,
+          dependencies: packageJson.dependencies || {},
+          devDependencies: packageJson.devDependencies || {},
+          scripts: packageJson.scripts || {}
+        };
+
+        this.packages.set(packageInfo.name, packageInfo);
+      }
+
+      spinner.succeed(`Found ${this.packages.size} packages`);
+    } catch (error) {
+      spinner.fail('Failed to scan packages');
+      throw error;
+    }
+  }
+
+  async createPackage(packageName: string, template: 'library' | 'application' = 'library'): Promise<void> {
+    const spinner = ora(`Creating package: ${packageName}...`).start();
+
+    try {
+      const packageDir = path.join(this.rootPath, 'packages', packageName);
+      await fs.mkdir(packageDir, { recursive: true });
+
+      const packageJson = this.generatePackageJson(packageName, template);
+      await fs.writeFile(
+        path.join(packageDir, 'package.json'),
+        JSON.stringify(packageJson, null, 2)
+      );
+
+      await this.generatePackageStructure(packageDir, template);
+      
+      spinner.succeed(`Package ${packageName} created`);
+    } catch (error) {
+      spinner.fail(`Failed to create package ${packageName}`);
+      throw error;
+    }
+  }
+
+  private generatePackageJson(packageName: string, template: string): any {
+    const basePackage = {
+      name: `@${this.config.name}/${packageName}`,
+      version: "0.0.0",
+      description: "",
+      main: "dist/index.js",
+      module: "dist/index.esm.js",
+      types: "dist/index.d.ts",
+      files: ["dist"],
+      scripts: {
+        build: "rollup -c",
+        dev: "rollup -c -w",
+        test: "jest",
+        "test:watch": "jest --watch",
+        lint: "eslint src --ext .ts,.tsx",
+        "lint:fix": "eslint src --ext .ts,.tsx --fix",
+        clean: "rimraf dist"
+      },
+      keywords: [],
+      license: "MIT",
+      publishConfig: {
+        access: this.config.publishing.access,
+        registry: this.config.publishing.registry
+      }
+    };
+
+    if (template === 'library') {
+      basePackage.files.push('src');
+    }
+
+    return basePackage;
+  }
+
+  private async generatePackageStructure(packageDir: string, template: string): Promise<void> {
+    // Create src directory
+    await fs.mkdir(path.join(packageDir, 'src'), { recursive: true });
+
+    // Create index file
+    const indexContent = template === 'library' 
+      ? 'export * from \'./lib\';\n'
+      : 'import { main } from \'./main\';\n\nmain();\n';
+
+    await fs.writeFile(path.join(packageDir, 'src/index.ts'), indexContent);
+
+    // Create main implementation file
+    const mainContent = template === 'library'
+      ? `export function hello(name: string): string {
+  return \`Hello, \${name}!\`;
+}
+`
+      : `export function main(): void {
+  console.log('Hello from main!');
+}
+`;
+
+    const mainFile = template === 'library' ? 'lib.ts' : 'main.ts';
+    await fs.writeFile(path.join(packageDir, 'src', mainFile), mainContent);
+
+    // Create test file
+    const testContent = template === 'library'
+      ? `import { hello } from '../src/lib';
+
+describe('hello', () => {
+  it('should return greeting', () => {
+    expect(hello('World')).toBe('Hello, World!');
+  });
+});
+`
+      : `import { main } from '../src/main';
+
+describe('main', () => {
+  it('should run without error', () => {
+    expect(() => main()).not.toThrow();
+  });
+});
+`;
+
+    await fs.mkdir(path.join(packageDir, '__tests__'), { recursive: true });
+    await fs.writeFile(path.join(packageDir, '__tests__/index.test.ts'), testContent);
+  }
+
+  async runCommand(command: string, options: { scope?: string; parallel?: boolean } = {}): Promise<void> {
+    const args = ['run', command];
+    
+    if (options.scope) {
+      args.push('--scope', options.scope);
+    }
+    
+    if (options.parallel) {
+      args.push('--parallel');
+    }
+
+    const spinner = ora(`Running ${command}...`).start();
+
+    try {
+      execSync(`npx lerna ${args.join(' ')}`, {
+        cwd: this.rootPath,
+        stdio: 'inherit'
+      });
+      
+      spinner.succeed(`Command ${command} completed`);
+    } catch (error) {
+      spinner.fail(`Command ${command} failed`);
+      throw error;
+    }
+  }
+
+  async publishPackages(tag: string = 'latest'): Promise<void> {
+    const spinner = ora('Publishing packages...').start();
+
+    try {
+      // Run pre-publish checks
+      await this.runCommand('build');
+      await this.runCommand('test');
+      await this.runCommand('lint');
+
+      // Publish
+      execSync(`npx lerna publish --dist-tag ${tag} --yes`, {
+        cwd: this.rootPath,
+        stdio: 'inherit'
+      });
+
+      spinner.succeed('Packages published successfully');
+    } catch (error) {
+      spinner.fail('Failed to publish packages');
+      throw error;
+    }
+  }
+
+  getPackages(): Map<string, PackageInfo> {
+    return this.packages;
+  }
+
+  async getChangedPackages(): Promise<string[]> {
+    try {
+      const output = execSync('npx lerna changed --json', {
+        cwd: this.rootPath,
+        encoding: 'utf-8'
+      });
+      
+      const changed = JSON.parse(output);
+      return changed.map((pkg: any) => pkg.name);
+    } catch (error) {
+      return [];
+    }
+  }
+}
+
+ // Export utilities
+ export { LernaMonorepoManager, type MonorepoConfig, type PackageInfo };

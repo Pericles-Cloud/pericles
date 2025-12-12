@@ -1,0 +1,2127 @@
+---
+description: Comprehensive Playwright testing standards with modern e2e patterns, cross-browser testing, and performance monitoring following expert best practices
+globs: ["**/*.{e2e,spec,test}.{js,ts,jsx,tsx}"]
+alwaysApply: false
+---
+
+<rule>
+  <meta>
+    <title>Playwright E2E Testing Standards</title>
+    <description>Comprehensive Playwright end-to-end testing framework standards with cross-browser testing, modern automation patterns, visual testing, and CI/CD integration following expert recommendations</description>
+    <created-at utc-timestamp="1744398300">January 29, 2025, 2:25 PM</created-at>
+    <last-updated-at utc-timestamp="1744398300">January 29, 2025, 2:25 PM</last-updated-at>
+    <applies-to>
+      <file-matcher glob="**/*.{e2e,spec,test}.{js,ts,jsx,tsx}">Playwright test files</file-matcher>
+      <file-matcher glob="**/playwright.config.{js,ts}">Playwright configuration files</file-matcher>
+      <file-matcher glob="**/tests/**/*.{js,ts}">End-to-end test files</file-matcher>
+      <action-matcher action="e2e-testing">Triggered when writing or configuring end-to-end tests with Playwright</action-matcher>
+    </applies-to>
+  </meta>
+
+  <requirements>
+    <non-negotiable priority="critical">
+      <description>Use Playwright's modern configuration with cross-browser testing, parallel execution, and comprehensive project setup including mobile viewports and accessibility testing.</description>
+      <examples>
+        <example title="Modern Playwright Configuration">
+          <correct-example title="Comprehensive playwright.config.ts with multi-browser support" conditions="Setting up Playwright configuration" expected-result="Optimized Playwright setup with cross-browser testing and CI/CD integration" correctness-criteria="Uses defineConfig, includes multiple browsers, mobile testing, accessibility features, and performance optimization"><![CDATA[// playwright.config.ts
+import { defineConfig, devices } from '@playwright/test'
+import path from 'path'
+
+// Define base URL from environment or default
+const baseURL = process.env.PLAYWRIGHT_TEST_BASE_URL || 'http://localhost:3000'
+
+export default defineConfig({
+  // Global test directory
+  testDir: './tests/e2e',
+  
+  // Test file patterns
+  testMatch: ['**/*.{e2e,spec,test}.{js,ts,jsx,tsx}'],
+  
+  // Timeout configuration
+  timeout: 30000,
+  expect: {
+    timeout: 10000,
+  },
+  
+  // Global setup and teardown
+  globalSetup: require.resolve('./tests/e2e/global-setup.ts'),
+  globalTeardown: require.resolve('./tests/e2e/global-teardown.ts'),
+  
+  // Test configuration
+  fullyParallel: true,
+  forbidOnly: !!process.env.CI,
+  retries: process.env.CI ? 3 : 1,
+  workers: process.env.CI ? 4 : '50%',
+  
+  // Reporting configuration
+  reporter: [
+    ['html', { outputFolder: 'playwright-report', open: 'never' }],
+    ['json', { outputFile: 'test-results/results.json' }],
+    ['junit', { outputFile: 'test-results/junit.xml' }],
+    ['github'],
+    process.env.CI ? ['blob'] : ['list'],
+  ],
+  
+  // Output directory for test artifacts
+  outputDir: 'test-results/',
+  
+  // Global test configuration
+  use: {
+    // Base URL for all tests
+    baseURL,
+    
+    // Collect trace on failure
+    trace: 'on-first-retry',
+    
+    // Capture screenshot on failure
+    screenshot: 'only-on-failure',
+    
+    // Record video on failure
+    video: 'retain-on-failure',
+    
+    // Accept downloads
+    acceptDownloads: true,
+    
+    // Ignore HTTPS errors
+    ignoreHTTPSErrors: true,
+    
+    // Navigation timeout
+    navigationTimeout: 30000,
+    
+    // Action timeout
+    actionTimeout: 10000,
+    
+    // Locale and timezone
+    locale: 'en-US',
+    timezoneId: 'America/New_York',
+    
+    // Geolocation
+    geolocation: { longitude: -74.006, latitude: 40.7128 },
+    permissions: ['geolocation'],
+    
+    // Color scheme
+    colorScheme: 'light',
+    
+    // Extra HTTP headers
+    extraHTTPHeaders: {
+      'Accept-Language': 'en-US,en;q=0.9',
+    },
+  },
+
+  // Project configuration for different browsers and scenarios
+  projects: [
+    // Setup project for authentication
+    {
+      name: 'setup',
+      testMatch: /.*\.setup\.ts/,
+      teardown: 'cleanup',
+    },
+    
+    // Cleanup project
+    {
+      name: 'cleanup',
+      testMatch: /.*\.teardown\.ts/,
+    },
+
+    // Desktop browsers
+    {
+      name: 'chromium',
+      use: { 
+        ...devices['Desktop Chrome'],
+        viewport: { width: 1280, height: 720 },
+        launchOptions: {
+          args: ['--disable-web-security', '--disable-dev-shm-usage'],
+        },
+      },
+      dependencies: ['setup'],
+    },
+
+    {
+      name: 'firefox',
+      use: { 
+        ...devices['Desktop Firefox'],
+        viewport: { width: 1280, height: 720 },
+      },
+      dependencies: ['setup'],
+    },
+
+    {
+      name: 'webkit',
+      use: { 
+        ...devices['Desktop Safari'],
+        viewport: { width: 1280, height: 720 },
+      },
+      dependencies: ['setup'],
+    },
+
+    // Mobile browsers
+    {
+      name: 'mobile-chrome',
+      use: { 
+        ...devices['Pixel 5'],
+        isMobile: true,
+        hasTouch: true,
+      },
+      dependencies: ['setup'],
+    },
+
+    {
+      name: 'mobile-safari',
+      use: { 
+        ...devices['iPhone 12'],
+        isMobile: true,
+        hasTouch: true,
+      },
+      dependencies: ['setup'],
+    },
+
+    // Tablet testing
+    {
+      name: 'tablet',
+      use: { 
+        ...devices['iPad Pro'],
+        viewport: { width: 1024, height: 768 },
+      },
+      dependencies: ['setup'],
+    },
+
+    // Accessibility testing
+    {
+      name: 'accessibility',
+      use: { 
+        ...devices['Desktop Chrome'],
+        // Simulate motor impairment
+        reducedMotion: 'reduce',
+        // Simulate vision impairment
+        forcedColors: 'active',
+      },
+      testMatch: ['**/accessibility/*.spec.ts'],
+      dependencies: ['setup'],
+    },
+
+    // Performance testing
+    {
+      name: 'performance',
+      use: { 
+        ...devices['Desktop Chrome'],
+        // CPU throttling for performance testing
+        launchOptions: {
+          args: ['--cpu-throttling-rate=4'],
+        },
+      },
+      testMatch: ['**/performance/*.spec.ts'],
+      dependencies: ['setup'],
+    },
+
+    // API testing
+    {
+      name: 'api',
+      use: {
+        baseURL: process.env.API_BASE_URL || 'http://localhost:3001/api',
+      },
+      testMatch: ['**/api/*.spec.ts'],
+    },
+  ],
+
+  // Web server configuration for local development
+  webServer: process.env.CI ? undefined : {
+    command: 'npm run dev',
+    port: 3000,
+    timeout: 120000,
+    reuseExistingServer: !process.env.CI,
+    env: {
+      NODE_ENV: 'test',
+    },
+  },
+})
+
+// tests/e2e/global-setup.ts
+import { chromium, FullConfig } from '@playwright/test'
+import { authenticateUser } from './utils/auth'
+
+async function globalSetup(config: FullConfig) {
+  const browser = await chromium.launch()
+  const page = await browser.newPage()
+  
+  // Perform authentication and save state
+  await authenticateUser(page, {
+    username: process.env.TEST_USER_EMAIL || 'test@example.com',
+    password: process.env.TEST_USER_PASSWORD || 'testpassword',
+  })
+  
+  // Save authenticated state
+  await page.context().storageState({ path: 'auth-state.json' })
+  
+  await browser.close()
+}
+
+export default globalSetup
+
+// tests/e2e/global-teardown.ts
+import fs from 'fs'
+
+async function globalTeardown() {
+  // Clean up authentication state
+  if (fs.existsSync('auth-state.json')) {
+    fs.unlinkSync('auth-state.json')
+  }
+  
+  // Clean up test data
+  console.log('Cleaning up test data...')
+}
+
+export default globalTeardown]]></correct-example>
+          <incorrect-example title="Basic configuration without optimization" conditions="Setting up Playwright configuration" expected-result="Optimized Playwright setup" incorrectness-criteria="Missing cross-browser testing, no mobile support, minimal configuration, no CI/CD optimization"><![CDATA[// playwright.config.ts - Basic configuration
+import { defineConfig } from '@playwright/test'
+
+export default defineConfig({
+  testDir: './tests',
+  use: {
+    baseURL: 'http://localhost:3000',
+  },
+})]]></incorrect-example>
+        </example>
+      </examples>
+    </non-negotiable>
+
+    <non-negotiable priority="critical">
+      <description>Implement comprehensive page object models with proper abstraction, type safety, and reusable components for maintainable and scalable test automation.</description>
+      <examples>
+        <example title="Page Object Model Implementation">
+          <correct-example title="Modern page object models with TypeScript" conditions="Creating page object models for test automation" expected-result="Maintainable and type-safe page objects" correctness-criteria="Uses TypeScript, proper abstraction, reusable components, and modern Playwright patterns"><![CDATA[// tests/e2e/pages/BasePage.ts
+import { Page, Locator, expect } from '@playwright/test'
+
+export abstract class BasePage {
+  protected page: Page
+  protected baseURL: string
+
+  constructor(page: Page) {
+    this.page = page
+    this.baseURL = page.context().baseURL || ''
+  }
+
+  // Common navigation methods
+  async navigateTo(path: string): Promise<void> {
+    await this.page.goto(path)
+    await this.waitForPageLoad()
+  }
+
+  async waitForPageLoad(): Promise<void> {
+    await this.page.waitForLoadState('networkidle')
+  }
+
+  // Common interaction methods
+  async clickElement(locator: Locator): Promise<void> {
+    await locator.waitFor({ state: 'visible' })
+    await locator.click()
+  }
+
+  async fillInput(locator: Locator, text: string): Promise<void> {
+    await locator.waitFor({ state: 'visible' })
+    await locator.fill(text)
+  }
+
+  async selectOption(locator: Locator, value: string): Promise<void> {
+    await locator.waitFor({ state: 'visible' })
+    await locator.selectOption(value)
+  }
+
+  // Common assertions
+  async expectElementVisible(locator: Locator): Promise<void> {
+    await expect(locator).toBeVisible()
+  }
+
+  async expectElementHidden(locator: Locator): Promise<void> {
+    await expect(locator).toBeHidden()
+  }
+
+  async expectPageTitle(title: string): Promise<void> {
+    await expect(this.page).toHaveTitle(title)
+  }
+
+  async expectURL(url: string | RegExp): Promise<void> {
+    await expect(this.page).toHaveURL(url)
+  }
+
+  // Screenshot utilities
+  async takeScreenshot(name: string): Promise<void> {
+    await this.page.screenshot({ 
+      path: `screenshots/${name}-${Date.now()}.png`,
+      fullPage: true 
+    })
+  }
+
+  // Accessibility utilities
+  async checkAccessibility(): Promise<void> {
+    const accessibilityScanResults = await this.page.locator('body').evaluate(() => {
+      // Run accessibility checks (could integrate with axe-core)
+      return {
+        violations: [],
+        passes: [],
+      }
+    })
+    
+    expect(accessibilityScanResults.violations).toHaveLength(0)
+  }
+}
+
+// tests/e2e/pages/LoginPage.ts
+import { Page, Locator } from '@playwright/test'
+import { BasePage } from './BasePage'
+
+export class LoginPage extends BasePage {
+  private readonly usernameInput: Locator
+  private readonly passwordInput: Locator
+  private readonly loginButton: Locator
+  private readonly errorMessage: Locator
+  private readonly rememberMeCheckbox: Locator
+  private readonly forgotPasswordLink: Locator
+
+  constructor(page: Page) {
+    super(page)
+    this.usernameInput = page.locator('[data-testid="username-input"]')
+    this.passwordInput = page.locator('[data-testid="password-input"]')
+    this.loginButton = page.locator('[data-testid="login-button"]')
+    this.errorMessage = page.locator('[data-testid="error-message"]')
+    this.rememberMeCheckbox = page.locator('[data-testid="remember-me-checkbox"]')
+    this.forgotPasswordLink = page.locator('[data-testid="forgot-password-link"]')
+  }
+
+  async navigateToLogin(): Promise<void> {
+    await this.navigateTo('/login')
+    await this.expectPageTitle('Login - MyApp')
+  }
+
+  async login(username: string, password: string, rememberMe = false): Promise<void> {
+    await this.fillInput(this.usernameInput, username)
+    await this.fillInput(this.passwordInput, password)
+    
+    if (rememberMe) {
+      await this.clickElement(this.rememberMeCheckbox)
+    }
+    
+    await this.clickElement(this.loginButton)
+  }
+
+  async loginAndWaitForRedirect(username: string, password: string): Promise<void> {
+    await this.login(username, password)
+    await this.page.waitForURL('**/dashboard')
+  }
+
+  async expectLoginError(message: string): Promise<void> {
+    await this.expectElementVisible(this.errorMessage)
+    await expect(this.errorMessage).toContainText(message)
+  }
+
+  async expectLoginFormVisible(): Promise<void> {
+    await this.expectElementVisible(this.usernameInput)
+    await this.expectElementVisible(this.passwordInput)
+    await this.expectElementVisible(this.loginButton)
+  }
+
+  async clickForgotPassword(): Promise<void> {
+    await this.clickElement(this.forgotPasswordLink)
+  }
+
+  async isRememberMeChecked(): Promise<boolean> {
+    return await this.rememberMeCheckbox.isChecked()
+  }
+
+  async getLoginButtonText(): Promise<string> {
+    return await this.loginButton.textContent() || ''
+  }
+}
+
+// tests/e2e/pages/DashboardPage.ts
+import { Page, Locator } from '@playwright/test'
+import { BasePage } from './BasePage'
+
+export class DashboardPage extends BasePage {
+  private readonly userMenu: Locator
+  private readonly logoutButton: Locator
+  private readonly notificationBell: Locator
+  private readonly searchInput: Locator
+  private readonly sidebarMenu: Locator
+  private readonly mainContent: Locator
+
+  constructor(page: Page) {
+    super(page)
+    this.userMenu = page.locator('[data-testid="user-menu"]')
+    this.logoutButton = page.locator('[data-testid="logout-button"]')
+    this.notificationBell = page.locator('[data-testid="notification-bell"]')
+    this.searchInput = page.locator('[data-testid="search-input"]')
+    this.sidebarMenu = page.locator('[data-testid="sidebar-menu"]')
+    this.mainContent = page.locator('[data-testid="main-content"]')
+  }
+
+  async navigateToDashboard(): Promise<void> {
+    await this.navigateTo('/dashboard')
+    await this.expectPageTitle('Dashboard - MyApp')
+    await this.waitForDashboardLoad()
+  }
+
+  async waitForDashboardLoad(): Promise<void> {
+    await this.expectElementVisible(this.mainContent)
+    await this.page.waitForLoadState('networkidle')
+  }
+
+  async logout(): Promise<void> {
+    await this.clickElement(this.userMenu)
+    await this.clickElement(this.logoutButton)
+    await this.page.waitForURL('**/login')
+  }
+
+  async search(query: string): Promise<void> {
+    await this.fillInput(this.searchInput, query)
+    await this.page.keyboard.press('Enter')
+    await this.page.waitForLoadState('networkidle')
+  }
+
+  async navigateToSection(sectionName: string): Promise<void> {
+    const sectionLink = this.sidebarMenu.locator(`[data-section="${sectionName}"]`)
+    await this.clickElement(sectionLink)
+    await this.page.waitForLoadState('networkidle')
+  }
+
+  async getNotificationCount(): Promise<number> {
+    const badge = this.notificationBell.locator('.notification-badge')
+    const count = await badge.textContent()
+    return count ? parseInt(count, 10) : 0
+  }
+
+  async expectWelcomeMessage(username: string): Promise<void> {
+    const welcomeMessage = this.page.locator('[data-testid="welcome-message"]')
+    await expect(welcomeMessage).toContainText(`Welcome, ${username}`)
+  }
+
+  async expectSidebarVisible(): Promise<void> {
+    await this.expectElementVisible(this.sidebarMenu)
+  }
+}
+
+// tests/e2e/pages/UserManagementPage.ts
+import { Page, Locator } from '@playwright/test'
+import { BasePage } from './BasePage'
+
+export interface User {
+  id?: string
+  name: string
+  email: string
+  role: string
+}
+
+export class UserManagementPage extends BasePage {
+  private readonly addUserButton: Locator
+  private readonly userTable: Locator
+  private readonly searchInput: Locator
+  private readonly filterDropdown: Locator
+  private readonly paginationControls: Locator
+
+  constructor(page: Page) {
+    super(page)
+    this.addUserButton = page.locator('[data-testid="add-user-button"]')
+    this.userTable = page.locator('[data-testid="user-table"]')
+    this.searchInput = page.locator('[data-testid="user-search"]')
+    this.filterDropdown = page.locator('[data-testid="role-filter"]')
+    this.paginationControls = page.locator('[data-testid="pagination"]')
+  }
+
+  async navigateToUserManagement(): Promise<void> {
+    await this.navigateTo('/admin/users')
+    await this.expectPageTitle('User Management - MyApp')
+    await this.waitForTableLoad()
+  }
+
+  async waitForTableLoad(): Promise<void> {
+    await this.expectElementVisible(this.userTable)
+    await this.page.waitForLoadState('networkidle')
+  }
+
+  async addUser(user: User): Promise<void> {
+    await this.clickElement(this.addUserButton)
+    
+    const modal = this.page.locator('[data-testid="add-user-modal"]')
+    await this.expectElementVisible(modal)
+    
+    await this.fillInput(modal.locator('[data-testid="name-input"]'), user.name)
+    await this.fillInput(modal.locator('[data-testid="email-input"]'), user.email)
+    await this.selectOption(modal.locator('[data-testid="role-select"]'), user.role)
+    
+    await this.clickElement(modal.locator('[data-testid="save-button"]'))
+    await this.expectElementHidden(modal)
+  }
+
+  async editUser(userId: string, updates: Partial<User>): Promise<void> {
+    const editButton = this.getUserRow(userId).locator('[data-testid="edit-button"]')
+    await this.clickElement(editButton)
+    
+    const modal = this.page.locator('[data-testid="edit-user-modal"]')
+    await this.expectElementVisible(modal)
+    
+    if (updates.name) {
+      await this.fillInput(modal.locator('[data-testid="name-input"]'), updates.name)
+    }
+    
+    if (updates.email) {
+      await this.fillInput(modal.locator('[data-testid="email-input"]'), updates.email)
+    }
+    
+    if (updates.role) {
+      await this.selectOption(modal.locator('[data-testid="role-select"]'), updates.role)
+    }
+    
+    await this.clickElement(modal.locator('[data-testid="save-button"]'))
+    await this.expectElementHidden(modal)
+  }
+
+  async deleteUser(userId: string): Promise<void> {
+    const deleteButton = this.getUserRow(userId).locator('[data-testid="delete-button"]')
+    await this.clickElement(deleteButton)
+    
+    const confirmDialog = this.page.locator('[data-testid="confirm-dialog"]')
+    await this.expectElementVisible(confirmDialog)
+    
+    await this.clickElement(confirmDialog.locator('[data-testid="confirm-button"]'))
+    await this.expectElementHidden(confirmDialog)
+  }
+
+  async searchUsers(query: string): Promise<void> {
+    await this.fillInput(this.searchInput, query)
+    await this.page.keyboard.press('Enter')
+    await this.waitForTableLoad()
+  }
+
+  async filterByRole(role: string): Promise<void> {
+    await this.selectOption(this.filterDropdown, role)
+    await this.waitForTableLoad()
+  }
+
+  async getUserRow(userId: string): Promise<Locator> {
+    return this.userTable.locator(`[data-user-id="${userId}"]`)
+  }
+
+  async expectUserInTable(user: User): Promise<void> {
+    const userRow = user.id ? this.getUserRow(user.id) : 
+                   this.userTable.locator(`text=${user.email}`).locator('..')
+    
+    await this.expectElementVisible(userRow)
+    await expect(userRow).toContainText(user.name)
+    await expect(userRow).toContainText(user.email)
+    await expect(userRow).toContainText(user.role)
+  }
+
+  async expectUserNotInTable(userId: string): Promise<void> {
+    const userRow = this.getUserRow(userId)
+    await this.expectElementHidden(userRow)
+  }
+
+  async getTotalUserCount(): Promise<number> {
+    const countElement = this.page.locator('[data-testid="total-count"]')
+    const countText = await countElement.textContent()
+    return countText ? parseInt(countText.match(/\d+/)?.[0] || '0', 10) : 0
+  }
+
+  async goToPage(pageNumber: number): Promise<void> {
+    const pageButton = this.paginationControls.locator(`[data-page="${pageNumber}"]`)
+    await this.clickElement(pageButton)
+    await this.waitForTableLoad()
+  }
+}
+
+// tests/e2e/components/Header.ts
+import { Page, Locator } from '@playwright/test'
+
+export class HeaderComponent {
+  private readonly page: Page
+  private readonly header: Locator
+  private readonly logo: Locator
+  private readonly navigationMenu: Locator
+  private readonly userMenu: Locator
+
+  constructor(page: Page) {
+    this.page = page
+    this.header = page.locator('[data-testid="app-header"]')
+    this.logo = page.locator('[data-testid="app-logo"]')
+    this.navigationMenu = page.locator('[data-testid="nav-menu"]')
+    this.userMenu = page.locator('[data-testid="user-menu"]')
+  }
+
+  async clickLogo(): Promise<void> {
+    await this.logo.click()
+  }
+
+  async navigateToPage(pageName: string): Promise<void> {
+    const navLink = this.navigationMenu.locator(`[data-nav="${pageName}"]`)
+    await navLink.click()
+  }
+
+  async openUserMenu(): Promise<void> {
+    await this.userMenu.click()
+  }
+
+  async isVisible(): Promise<boolean> {
+    return await this.header.isVisible()
+  }
+
+  async expectNavigationVisible(): Promise<void> {
+    await expect(this.navigationMenu).toBeVisible()
+  }
+}]]></correct-example>
+          <incorrect-example title="Basic page objects without proper abstraction" conditions="Creating page object models" expected-result="Maintainable page objects" incorrectness-criteria="No TypeScript, poor abstraction, no reusable components, direct page manipulation"><![CDATA[// LoginPage.js - Basic page object
+export class LoginPage {
+  constructor(page) {
+    this.page = page
+  }
+
+  async login(username, password) {
+    await this.page.fill('#username', username)
+    await this.page.fill('#password', password)
+    await this.page.click('#login')
+  }
+}
+
+// Missing:
+// - TypeScript support
+// - Proper abstraction
+// - Error handling
+// - Reusable components
+// - Comprehensive locators]]></incorrect-example>
+        </example>
+      </examples>
+    </non-negotiable>
+
+    <non-negotiable priority="critical">
+      <description>Implement comprehensive test scenarios covering user workflows, error conditions, accessibility, performance, and visual regression testing with proper test isolation and data management.</description>
+      <examples>
+        <example title="Comprehensive E2E Test Scenarios">
+          <correct-example title="Complete test suite with multiple testing types" conditions="Writing comprehensive e2e tests" expected-result="Thorough test coverage of all scenarios" correctness-criteria="Covers user workflows, error handling, accessibility, performance, visual testing, and proper test isolation"><![CDATA[// tests/e2e/auth/login.spec.ts
+import { test, expect } from '@playwright/test'
+import { LoginPage } from '../pages/LoginPage'
+import { DashboardPage } from '../pages/DashboardPage'
+
+test.describe('Authentication Flow', () => {
+  let loginPage: LoginPage
+  let dashboardPage: DashboardPage
+
+  test.beforeEach(async ({ page }) => {
+    loginPage = new LoginPage(page)
+    dashboardPage = new DashboardPage(page)
+  })
+
+  test('should login successfully with valid credentials', async () => {
+    await loginPage.navigateToLogin()
+    await loginPage.expectLoginFormVisible()
+    
+    await loginPage.loginAndWaitForRedirect('admin@example.com', 'password123')
+    
+    await dashboardPage.expectWelcomeMessage('Admin User')
+    await dashboardPage.expectSidebarVisible()
+  })
+
+  test('should display error for invalid credentials', async () => {
+    await loginPage.navigateToLogin()
+    
+    await loginPage.login('invalid@example.com', 'wrongpassword')
+    
+    await loginPage.expectLoginError('Invalid email or password')
+    await loginPage.expectURL(/\/login/)
+  })
+
+  test('should remember user session when remember me is checked', async () => {
+    await loginPage.navigateToLogin()
+    
+    await loginPage.login('admin@example.com', 'password123', true)
+    await dashboardPage.waitForDashboardLoad()
+    
+    // Restart browser to test persistence
+    await test.step('Restart browser session', async () => {
+      await page.context().close()
+      const newContext = await browser.newContext()
+      const newPage = await newContext.newPage()
+      
+      dashboardPage = new DashboardPage(newPage)
+      await dashboardPage.navigateToDashboard()
+      await dashboardPage.expectWelcomeMessage('Admin User')
+    })
+  })
+
+  test('should redirect to intended page after login', async () => {
+    // Try to access protected page
+    await page.goto('/admin/users')
+    await expect(page).toHaveURL(/\/login\?redirect=/)
+    
+    await loginPage.login('admin@example.com', 'password123')
+    
+    // Should redirect to originally requested page
+    await expect(page).toHaveURL(/\/admin\/users/)
+  })
+
+  test('should handle network errors gracefully', async () => {
+    await loginPage.navigateToLogin()
+    
+    // Simulate network failure
+    await page.route('**/api/auth/login', route => route.abort())
+    
+    await loginPage.login('admin@example.com', 'password123')
+    
+    await loginPage.expectLoginError('Network error. Please try again.')
+  })
+})
+
+// tests/e2e/user-management/crud-operations.spec.ts
+import { test, expect } from '@playwright/test'
+import { UserManagementPage, User } from '../pages/UserManagementPage'
+import { DashboardPage } from '../pages/DashboardPage'
+
+test.describe('User Management CRUD Operations', () => {
+  let userManagementPage: UserManagementPage
+  let dashboardPage: DashboardPage
+
+  const testUser: User = {
+    name: 'Test User',
+    email: 'testuser@example.com',
+    role: 'user'
+  }
+
+  test.use({ storageState: 'auth-state.json' }) // Use authenticated state
+
+  test.beforeEach(async ({ page }) => {
+    userManagementPage = new UserManagementPage(page)
+    dashboardPage = new DashboardPage(page)
+    
+    await userManagementPage.navigateToUserManagement()
+  })
+
+  test('should create a new user successfully', async () => {
+    const initialCount = await userManagementPage.getTotalUserCount()
+    
+    await userManagementPage.addUser(testUser)
+    
+    await userManagementPage.expectUserInTable(testUser)
+    
+    const finalCount = await userManagementPage.getTotalUserCount()
+    expect(finalCount).toBe(initialCount + 1)
+  })
+
+  test('should edit an existing user', async () => {
+    // First create a user
+    await userManagementPage.addUser(testUser)
+    
+    const updatedUser = { name: 'Updated User', role: 'admin' }
+    
+    // Get the user ID from the table
+    const userRow = await userManagementPage.getUserRow('1') // Assuming ID is 1
+    await userManagementPage.editUser('1', updatedUser)
+    
+    await userManagementPage.expectUserInTable({
+      ...testUser,
+      ...updatedUser
+    })
+  })
+
+  test('should delete a user with confirmation', async () => {
+    // First create a user
+    await userManagementPage.addUser(testUser)
+    await userManagementPage.expectUserInTable(testUser)
+    
+    await userManagementPage.deleteUser('1')
+    
+    await userManagementPage.expectUserNotInTable('1')
+  })
+
+  test('should search and filter users', async () => {
+    // Create multiple test users
+    const users = [
+      { name: 'John Admin', email: 'john@example.com', role: 'admin' },
+      { name: 'Jane User', email: 'jane@example.com', role: 'user' },
+      { name: 'Bob Moderator', email: 'bob@example.com', role: 'moderator' }
+    ]
+
+    for (const user of users) {
+      await userManagementPage.addUser(user)
+    }
+
+    // Test search functionality
+    await userManagementPage.searchUsers('John')
+    await userManagementPage.expectUserInTable(users[0])
+    
+    // Test filter functionality
+    await userManagementPage.searchUsers('') // Clear search
+    await userManagementPage.filterByRole('admin')
+    await userManagementPage.expectUserInTable(users[0])
+  })
+
+  test('should handle validation errors', async () => {
+    const invalidUser = { name: '', email: 'invalid-email', role: 'user' }
+    
+    await test.step('Try to create user with invalid data', async () => {
+      await userManagementPage.addUser(invalidUser)
+      
+      // Should show validation errors
+      const modal = page.locator('[data-testid="add-user-modal"]')
+      await expect(modal.locator('[data-testid="name-error"]')).toContainText('Name is required')
+      await expect(modal.locator('[data-testid="email-error"]')).toContainText('Invalid email format')
+    })
+  })
+
+  test('should handle pagination correctly', async () => {
+    // Create enough users to trigger pagination (assuming 10 users per page)
+    const users = Array.from({ length: 25 }, (_, i) => ({
+      name: `User ${i + 1}`,
+      email: `user${i + 1}@example.com`,
+      role: 'user'
+    }))
+
+    for (const user of users) {
+      await userManagementPage.addUser(user)
+    }
+
+    // Test pagination
+    await userManagementPage.goToPage(2)
+    await expect(page).toHaveURL(/.*page=2/)
+    
+    await userManagementPage.goToPage(3)
+    await expect(page).toHaveURL(/.*page=3/)
+  })
+})
+
+// tests/e2e/accessibility/accessibility.spec.ts
+import { test, expect } from '@playwright/test'
+import AxeBuilder from '@axe-core/playwright'
+
+test.describe('Accessibility Tests', () => {
+  test('should not have any automatically detectable accessibility issues', async ({ page }) => {
+    await page.goto('/')
+    
+    const accessibilityScanResults = await new AxeBuilder({ page }).analyze()
+    
+    expect(accessibilityScanResults.violations).toEqual([])
+  })
+
+  test('should be navigable with keyboard only', async ({ page }) => {
+    await page.goto('/login')
+    
+    // Tab through the form
+    await page.keyboard.press('Tab')
+    await expect(page.locator('[data-testid="username-input"]')).toBeFocused()
+    
+    await page.keyboard.press('Tab')
+    await expect(page.locator('[data-testid="password-input"]')).toBeFocused()
+    
+    await page.keyboard.press('Tab')
+    await expect(page.locator('[data-testid="login-button"]')).toBeFocused()
+    
+    // Test form submission with Enter
+    await page.fill('[data-testid="username-input"]', 'admin@example.com')
+    await page.fill('[data-testid="password-input"]', 'password123')
+    await page.keyboard.press('Enter')
+    
+    await expect(page).toHaveURL(/\/dashboard/)
+  })
+
+  test('should have proper ARIA labels and roles', async ({ page }) => {
+    await page.goto('/dashboard')
+    
+    // Check for proper ARIA labels
+    const navigation = page.locator('[role="navigation"]')
+    await expect(navigation).toBeVisible()
+    
+    const main = page.locator('[role="main"]')
+    await expect(main).toBeVisible()
+    
+    // Check for screen reader announcements
+    const announcements = page.locator('[aria-live="polite"]')
+    await expect(announcements).toBeAttached()
+  })
+
+  test('should work with reduced motion preferences', async ({ page }) => {
+    // Simulate user preference for reduced motion
+    await page.emulateMedia({ reducedMotion: 'reduce' })
+    
+    await page.goto('/dashboard')
+    
+    // Verify animations are disabled or reduced
+    const animatedElement = page.locator('[data-testid="animated-sidebar"]')
+    const transitionDuration = await animatedElement.evaluate(el => 
+      getComputedStyle(el).transitionDuration
+    )
+    
+    expect(transitionDuration).toBe('0s')
+  })
+})
+
+// tests/e2e/performance/performance.spec.ts
+import { test, expect } from '@playwright/test'
+
+test.describe('Performance Tests', () => {
+  test('should load homepage within performance budget', async ({ page }) => {
+    // Start tracing
+    await page.tracing.start({ screenshots: true, snapshots: true })
+    
+    const startTime = Date.now()
+    await page.goto('/')
+    await page.waitForLoadState('networkidle')
+    const loadTime = Date.now() - startTime
+    
+    // Stop tracing
+    await page.tracing.stop({ path: 'trace.zip' })
+    
+    // Performance assertions
+    expect(loadTime).toBeLessThan(3000) // Page should load in under 3 seconds
+    
+    // Check Web Vitals
+    const webVitals = await page.evaluate(() => {
+      return new Promise((resolve) => {
+        new PerformanceObserver((list) => {
+          const entries = list.getEntries()
+          const vitals = {}
+          
+          entries.forEach(entry => {
+            if (entry.name === 'first-contentful-paint') {
+              vitals.fcp = entry.startTime
+            }
+            if (entry.name === 'largest-contentful-paint') {
+              vitals.lcp = entry.startTime
+            }
+          })
+          
+          resolve(vitals)
+        }).observe({ entryTypes: ['paint', 'largest-contentful-paint'] })
+      })
+    })
+    
+    expect(webVitals.fcp).toBeLessThan(1800) // FCP should be under 1.8s
+    expect(webVitals.lcp).toBeLessThan(2500) // LCP should be under 2.5s
+  })
+
+  test('should handle large data sets efficiently', async ({ page }) => {
+    await page.goto('/admin/users')
+    
+    // Simulate loading 1000 users
+    await page.route('**/api/users*', route => {
+      const users = Array.from({ length: 1000 }, (_, i) => ({
+        id: i + 1,
+        name: `User ${i + 1}`,
+        email: `user${i + 1}@example.com`,
+        role: 'user'
+      }))
+      
+      route.fulfill({
+        status: 200,
+        contentType: 'application/json',
+        body: JSON.stringify({ data: users, total: 1000 })
+      })
+    })
+    
+    const startTime = Date.now()
+    await page.reload()
+    await page.waitForLoadState('networkidle')
+    const renderTime = Date.now() - startTime
+    
+    expect(renderTime).toBeLessThan(2000) // Should render large data set in under 2s
+    
+    // Check that virtualization is working (not all items rendered)
+    const renderedRows = await page.locator('[data-testid="user-row"]').count()
+    expect(renderedRows).toBeLessThan(100) // Should virtualize and only render visible items
+  })
+})
+
+// tests/e2e/visual/visual-regression.spec.ts
+import { test, expect } from '@playwright/test'
+
+test.describe('Visual Regression Tests', () => {
+  test('should match login page visual snapshot', async ({ page }) => {
+    await page.goto('/login')
+    await page.waitForLoadState('networkidle')
+    
+    // Hide dynamic elements
+    await page.addStyleTag({
+      content: `
+        [data-testid="timestamp"],
+        [data-testid="version"] {
+          visibility: hidden !important;
+        }
+      `
+    })
+    
+    await expect(page).toHaveScreenshot('login-page.png')
+  })
+
+  test('should match dashboard layout across different screen sizes', async ({ page }) => {
+    await page.goto('/dashboard')
+    await page.waitForLoadState('networkidle')
+    
+    // Desktop view
+    await page.setViewportSize({ width: 1280, height: 720 })
+    await expect(page).toHaveScreenshot('dashboard-desktop.png')
+    
+    // Tablet view
+    await page.setViewportSize({ width: 768, height: 1024 })
+    await expect(page).toHaveScreenshot('dashboard-tablet.png')
+    
+    // Mobile view
+    await page.setViewportSize({ width: 375, height: 667 })
+    await expect(page).toHaveScreenshot('dashboard-mobile.png')
+  })
+
+  test('should match component states', async ({ page }) => {
+    await page.goto('/components/button')
+    
+    // Test different button states
+    const button = page.locator('[data-testid="test-button"]')
+    
+    // Default state
+    await expect(button).toHaveScreenshot('button-default.png')
+    
+    // Hover state
+    await button.hover()
+    await expect(button).toHaveScreenshot('button-hover.png')
+    
+    // Focus state
+    await button.focus()
+    await expect(button).toHaveScreenshot('button-focus.png')
+    
+    // Disabled state
+    await page.click('[data-testid="disable-button"]')
+    await expect(button).toHaveScreenshot('button-disabled.png')
+  })
+})
+
+// tests/e2e/api/api-integration.spec.ts
+import { test, expect } from '@playwright/test'
+
+test.describe('API Integration Tests', () => {
+  test('should handle API responses correctly', async ({ request }) => {
+    // Test user creation via API
+    const newUser = {
+      name: 'API Test User',
+      email: 'apitest@example.com',
+      role: 'user'
+    }
+    
+    const createResponse = await request.post('/api/users', {
+      data: newUser
+    })
+    
+    expect(createResponse.ok()).toBeTruthy()
+    const createdUser = await createResponse.json()
+    expect(createdUser).toMatchObject(newUser)
+    expect(createdUser.id).toBeDefined()
+    
+    // Test user retrieval
+    const getResponse = await request.get(`/api/users/${createdUser.id}`)
+    expect(getResponse.ok()).toBeTruthy()
+    
+    const retrievedUser = await getResponse.json()
+    expect(retrievedUser).toMatchObject(createdUser)
+    
+    // Test user deletion
+    const deleteResponse = await request.delete(`/api/users/${createdUser.id}`)
+    expect(deleteResponse.ok()).toBeTruthy()
+    
+    // Verify deletion
+    const notFoundResponse = await request.get(`/api/users/${createdUser.id}`)
+    expect(notFoundResponse.status()).toBe(404)
+  })
+
+  test('should handle API error responses', async ({ request }) => {
+    // Test invalid data
+    const invalidUser = {
+      name: '',
+      email: 'invalid-email',
+      role: 'invalid-role'
+    }
+    
+    const response = await request.post('/api/users', {
+      data: invalidUser
+    })
+    
+    expect(response.status()).toBe(400)
+    const errorResponse = await response.json()
+    expect(errorResponse.errors).toBeDefined()
+    expect(errorResponse.errors.name).toContain('Name is required')
+    expect(errorResponse.errors.email).toContain('Invalid email format')
+  })
+})]]></correct-example>
+          <incorrect-example title="Basic tests without comprehensive coverage" conditions="Writing e2e tests" expected-result="Thorough test coverage" incorrectness-criteria="Missing error scenarios, no accessibility testing, no performance testing, poor test isolation"><![CDATA[// login.spec.ts - Basic test
+import { test, expect } from '@playwright/test'
+
+test('login test', async ({ page }) => {
+  await page.goto('/login')
+  await page.fill('#username', 'admin@example.com')
+  await page.fill('#password', 'password')
+  await page.click('#login')
+  await expect(page).toHaveURL('/dashboard')
+})
+
+// Missing:
+// - Error scenarios
+// - Accessibility testing
+// - Performance testing
+// - Visual regression
+// - API integration
+// - Proper page objects]]></incorrect-example>
+        </example>
+      </examples>
+    </non-negotiable>
+
+    <requirement priority="high">
+      <description>Implement advanced testing utilities including custom fixtures, API mocking, data generation, and test helpers for maintainable and efficient test automation.</description>
+      <examples>
+        <example title="Advanced Testing Utilities">
+          <correct-example title="Comprehensive testing utilities and fixtures" conditions="Setting up advanced testing utilities" expected-result="Reusable and maintainable test utilities" correctness-criteria="Includes custom fixtures, API mocking, data factories, and test helpers"><![CDATA[// tests/e2e/fixtures/auth.fixture.ts
+import { test as base, expect } from '@playwright/test'
+import { LoginPage } from '../pages/LoginPage'
+import { DashboardPage } from '../pages/DashboardPage'
+
+export interface AuthFixtures {
+  authenticatedPage: {
+    loginPage: LoginPage
+    dashboardPage: DashboardPage
+    userInfo: {
+      email: string
+      name: string
+      role: string
+    }
+  }
+}
+
+export const test = base.extend<AuthFixtures>({
+  authenticatedPage: async ({ page }, use) => {
+    const loginPage = new LoginPage(page)
+    const dashboardPage = new DashboardPage(page)
+    
+    // Perform login
+    await loginPage.navigateToLogin()
+    await loginPage.loginAndWaitForRedirect('admin@example.com', 'password123')
+    
+    const userInfo = {
+      email: 'admin@example.com',
+      name: 'Admin User',
+      role: 'admin'
+    }
+    
+    await use({
+      loginPage,
+      dashboardPage,
+      userInfo
+    })
+    
+    // Cleanup: logout
+    await dashboardPage.logout()
+  }
+})
+
+// tests/e2e/fixtures/database.fixture.ts
+import { test as base } from '@playwright/test'
+import { DatabaseManager } from '../utils/DatabaseManager'
+
+export interface DatabaseFixtures {
+  db: DatabaseManager
+}
+
+export const test = base.extend<DatabaseFixtures>({
+  db: async ({}, use) => {
+    const db = new DatabaseManager()
+    await db.connect()
+    await db.seedTestData()
+    
+    await use(db)
+    
+    await db.cleanup()
+    await db.disconnect()
+  }
+})
+
+// tests/e2e/utils/DatabaseManager.ts
+import { Client } from 'pg'
+
+export class DatabaseManager {
+  private client: Client
+  private testDataIds: string[] = []
+
+  constructor() {
+    this.client = new Client({
+      host: process.env.DB_HOST || 'localhost',
+      port: parseInt(process.env.DB_PORT || '5432'),
+      database: process.env.DB_NAME || 'testdb',
+      user: process.env.DB_USER || 'testuser',
+      password: process.env.DB_PASSWORD || 'testpass',
+    })
+  }
+
+  async connect(): Promise<void> {
+    await this.client.connect()
+  }
+
+  async disconnect(): Promise<void> {
+    await this.client.end()
+  }
+
+  async seedTestData(): Promise<void> {
+    // Create test users
+    const users = [
+      { email: 'admin@example.com', name: 'Admin User', role: 'admin' },
+      { email: 'user@example.com', name: 'Regular User', role: 'user' },
+      { email: 'moderator@example.com', name: 'Moderator User', role: 'moderator' }
+    ]
+
+    for (const user of users) {
+      const result = await this.client.query(
+        'INSERT INTO users (email, name, role, password_hash) VALUES ($1, $2, $3, $4) RETURNING id',
+        [user.email, user.name, user.role, 'hashed_password']
+      )
+      this.testDataIds.push(result.rows[0].id)
+    }
+  }
+
+  async cleanup(): Promise<void> {
+    // Clean up test data
+    for (const id of this.testDataIds) {
+      await this.client.query('DELETE FROM users WHERE id = $1', [id])
+    }
+    this.testDataIds = []
+  }
+
+  async createUser(userData: any): Promise<string> {
+    const result = await this.client.query(
+      'INSERT INTO users (email, name, role, password_hash) VALUES ($1, $2, $3, $4) RETURNING id',
+      [userData.email, userData.name, userData.role, 'hashed_password']
+    )
+    const userId = result.rows[0].id
+    this.testDataIds.push(userId)
+    return userId
+  }
+
+  async getUser(userId: string): Promise<any> {
+    const result = await this.client.query('SELECT * FROM users WHERE id = $1', [userId])
+    return result.rows[0]
+  }
+
+  async updateUser(userId: string, updates: any): Promise<void> {
+    const setClause = Object.keys(updates).map((key, index) => `${key} = $${index + 2}`).join(', ')
+    const values = [userId, ...Object.values(updates)]
+    await this.client.query(`UPDATE users SET ${setClause} WHERE id = $1`, values)
+  }
+
+  async deleteUser(userId: string): Promise<void> {
+    await this.client.query('DELETE FROM users WHERE id = $1', [userId])
+    this.testDataIds = this.testDataIds.filter(id => id !== userId)
+  }
+}
+
+// tests/e2e/utils/ApiMockManager.ts
+import { Page, Route } from '@playwright/test'
+
+export interface MockResponse {
+  status?: number
+  contentType?: string
+  body?: any
+  delay?: number
+}
+
+export class ApiMockManager {
+  private page: Page
+  private activeMocks: Map<string, Route> = new Map()
+
+  constructor(page: Page) {
+    this.page = page
+  }
+
+  async mockEndpoint(pattern: string, response: MockResponse): Promise<void> {
+    await this.page.route(pattern, async (route) => {
+      const { status = 200, contentType = 'application/json', body, delay = 0 } = response
+      
+      if (delay > 0) {
+        await new Promise(resolve => setTimeout(resolve, delay))
+      }
+
+      await route.fulfill({
+        status,
+        contentType,
+        body: typeof body === 'string' ? body : JSON.stringify(body)
+      })
+    })
+  }
+
+  async mockError(pattern: string, status: number, message: string): Promise<void> {
+    await this.mockEndpoint(pattern, {
+      status,
+      body: { error: { message, code: `HTTP_${status}` } }
+    })
+  }
+
+  async mockNetworkFailure(pattern: string): Promise<void> {
+    await this.page.route(pattern, route => route.abort('failed'))
+  }
+
+  async mockSlowResponse(pattern: string, delay: number, response: any): Promise<void> {
+    await this.mockEndpoint(pattern, { body: response, delay })
+  }
+
+  async unmockEndpoint(pattern: string): Promise<void> {
+    await this.page.unroute(pattern)
+  }
+
+  async unmockAll(): Promise<void> {
+    await this.page.unrouteAll()
+    this.activeMocks.clear()
+  }
+
+  // Predefined common mocks
+  async mockUserList(users: any[]): Promise<void> {
+    await this.mockEndpoint('**/api/users**', {
+      body: { data: users, total: users.length }
+    })
+  }
+
+  async mockUserCrud(): Promise<void> {
+    let userIdCounter = 1000
+    const users: any[] = []
+
+    // GET /api/users
+    await this.page.route('**/api/users', async (route) => {
+      if (route.request().method() === 'GET') {
+        await route.fulfill({
+          status: 200,
+          contentType: 'application/json',
+          body: JSON.stringify({ data: users, total: users.length })
+        })
+      } else if (route.request().method() === 'POST') {
+        const requestBody = route.request().postDataJSON()
+        const newUser = { ...requestBody, id: String(userIdCounter++) }
+        users.push(newUser)
+        
+        await route.fulfill({
+          status: 201,
+          contentType: 'application/json',
+          body: JSON.stringify(newUser)
+        })
+      }
+    })
+
+    // GET /api/users/:id
+    await this.page.route('**/api/users/*', async (route) => {
+      const url = route.request().url()
+      const userId = url.split('/').pop()
+      
+      if (route.request().method() === 'GET') {
+        const user = users.find(u => u.id === userId)
+        if (user) {
+          await route.fulfill({
+            status: 200,
+            contentType: 'application/json',
+            body: JSON.stringify(user)
+          })
+        } else {
+          await route.fulfill({
+            status: 404,
+            contentType: 'application/json',
+            body: JSON.stringify({ error: { message: 'User not found' } })
+          })
+        }
+      } else if (route.request().method() === 'PATCH') {
+        const userIndex = users.findIndex(u => u.id === userId)
+        if (userIndex !== -1) {
+          const updates = route.request().postDataJSON()
+          users[userIndex] = { ...users[userIndex], ...updates }
+          
+          await route.fulfill({
+            status: 200,
+            contentType: 'application/json',
+            body: JSON.stringify(users[userIndex])
+          })
+        } else {
+          await route.fulfill({ status: 404 })
+        }
+      } else if (route.request().method() === 'DELETE') {
+        const userIndex = users.findIndex(u => u.id === userId)
+        if (userIndex !== -1) {
+          users.splice(userIndex, 1)
+          await route.fulfill({ status: 204 })
+        } else {
+          await route.fulfill({ status: 404 })
+        }
+      }
+    })
+  }
+}
+
+// tests/e2e/utils/DataFactory.ts
+export class DataFactory {
+  private static userIdCounter = 1
+  private static postIdCounter = 1
+  
+  static createUser(overrides: Partial<any> = {}): any {
+    const id = this.userIdCounter++
+    return {
+      id: `user-${id}`,
+      name: `User ${id}`,
+      email: `user${id}@example.com`,
+      role: 'user',
+      isActive: true,
+      createdAt: new Date().toISOString(),
+      updatedAt: new Date().toISOString(),
+      ...overrides
+    }
+  }
+
+  static createUsers(count: number, overrides: Partial<any> = {}): any[] {
+    return Array.from({ length: count }, () => this.createUser(overrides))
+  }
+
+  static createAdmin(overrides: Partial<any> = {}): any {
+    return this.createUser({ role: 'admin', ...overrides })
+  }
+
+  static createModerator(overrides: Partial<any> = {}): any {
+    return this.createUser({ role: 'moderator', ...overrides })
+  }
+
+  static createPost(overrides: Partial<any> = {}): any {
+    const id = this.postIdCounter++
+    return {
+      id: `post-${id}`,
+      title: `Post ${id}`,
+      content: `This is the content for post ${id}`,
+      authorId: 'user-1',
+      status: 'published',
+      tags: ['test', 'example'],
+      createdAt: new Date().toISOString(),
+      updatedAt: new Date().toISOString(),
+      ...overrides
+    }
+  }
+
+  static createPosts(count: number, overrides: Partial<any> = {}): any[] {
+    return Array.from({ length: count }, () => this.createPost(overrides))
+  }
+
+  static reset(): void {
+    this.userIdCounter = 1
+    this.postIdCounter = 1
+  }
+}
+
+// tests/e2e/utils/TestHelpers.ts
+import { Page, Locator, expect } from '@playwright/test'
+
+export class TestHelpers {
+  static async waitForElement(locator: Locator, timeout = 10000): Promise<void> {
+    await locator.waitFor({ state: 'visible', timeout })
+  }
+
+  static async waitForElementToDisappear(locator: Locator, timeout = 10000): Promise<void> {
+    await locator.waitFor({ state: 'hidden', timeout })
+  }
+
+  static async scrollToElement(page: Page, locator: Locator): Promise<void> {
+    await locator.scrollIntoViewIfNeeded()
+  }
+
+  static async fillFormFields(page: Page, fields: Record<string, string>): Promise<void> {
+    for (const [fieldName, value] of Object.entries(fields)) {
+      const field = page.locator(`[data-testid="${fieldName}"], #${fieldName}, [name="${fieldName}"]`)
+      await field.fill(value)
+    }
+  }
+
+  static async selectFromDropdown(page: Page, dropdownSelector: string, optionText: string): Promise<void> {
+    const dropdown = page.locator(dropdownSelector)
+    await dropdown.click()
+    
+    const option = page.locator(`text=${optionText}`)
+    await option.click()
+  }
+
+  static async uploadFile(page: Page, inputSelector: string, filePath: string): Promise<void> {
+    const fileInput = page.locator(inputSelector)
+    await fileInput.setInputFiles(filePath)
+  }
+
+  static async waitForNetworkIdle(page: Page, timeout = 5000): Promise<void> {
+    await page.waitForLoadState('networkidle', { timeout })
+  }
+
+  static async takeFullPageScreenshot(page: Page, name: string): Promise<void> {
+    await page.screenshot({
+      path: `screenshots/${name}-${Date.now()}.png`,
+      fullPage: true
+    })
+  }
+
+  static async expectToastMessage(page: Page, message: string): Promise<void> {
+    const toast = page.locator('[data-testid="toast"], .toast, .notification')
+    await expect(toast).toContainText(message)
+  }
+
+  static async expectLoadingIndicator(page: Page, shouldBeVisible: boolean): Promise<void> {
+    const loading = page.locator('[data-testid="loading"], .loading, .spinner')
+    if (shouldBeVisible) {
+      await expect(loading).toBeVisible()
+    } else {
+      await expect(loading).toBeHidden()
+    }
+  }
+
+  static async expectModalOpen(page: Page, modalTestId: string): Promise<void> {
+    const modal = page.locator(`[data-testid="${modalTestId}"]`)
+    await expect(modal).toBeVisible()
+    
+    // Check for modal backdrop
+    const backdrop = page.locator('.modal-backdrop, [data-testid="modal-backdrop"]')
+    await expect(backdrop).toBeVisible()
+  }
+
+  static async expectModalClosed(page: Page, modalTestId: string): Promise<void> {
+    const modal = page.locator(`[data-testid="${modalTestId}"]`)
+    await expect(modal).toBeHidden()
+  }
+
+  static async expectTableRowCount(page: Page, tableSelector: string, expectedCount: number): Promise<void> {
+    const rows = page.locator(`${tableSelector} tbody tr`)
+    await expect(rows).toHaveCount(expectedCount)
+  }
+
+  static async expectFormValidationError(page: Page, fieldName: string, errorMessage: string): Promise<void> {
+    const errorElement = page.locator(`[data-testid="${fieldName}-error"], #${fieldName}-error`)
+    await expect(errorElement).toContainText(errorMessage)
+  }
+
+  static async clearSessionStorage(page: Page): Promise<void> {
+    await page.evaluate(() => sessionStorage.clear())
+  }
+
+  static async clearLocalStorage(page: Page): Promise<void> {
+    await page.evaluate(() => localStorage.clear())
+  }
+
+  static async setLocalStorageItem(page: Page, key: string, value: string): Promise<void> {
+    await page.evaluate(([k, v]) => localStorage.setItem(k, v), [key, value])
+  }
+
+  static async getLocalStorageItem(page: Page, key: string): Promise<string | null> {
+    return await page.evaluate(k => localStorage.getItem(k), key)
+  }
+
+  static async simulateSlowNetwork(page: Page): Promise<void> {
+    await page.context().setExtraHTTPHeaders({
+      'Connection': 'keep-alive'
+    })
+    // Simulate slow 3G
+    await page.context().route('**/*', async route => {
+      await new Promise(resolve => setTimeout(resolve, 100))
+      await route.continue()
+    })
+  }
+
+  static async simulateOfflineMode(page: Page): Promise<void> {
+    await page.context().setOffline(true)
+  }
+
+  static async restoreOnlineMode(page: Page): Promise<void> {
+    await page.context().setOffline(false)
+  }
+}]]></correct-example>
+          <incorrect-example title="Basic utilities without advanced features" conditions="Setting up testing utilities" expected-result="Comprehensive testing utilities" incorrectness-criteria="Missing fixtures, no API mocking, no data factories, limited helper functions"><![CDATA[// Basic utilities - inadequate
+export class SimpleHelpers {
+  static async clickButton(page, selector) {
+    await page.click(selector)
+  }
+  
+  static async fillField(page, selector, value) {
+    await page.fill(selector, value)
+  }
+}
+
+// Missing:
+// - Custom fixtures
+// - API mocking utilities
+// - Data factories
+// - Database management
+// - Advanced helpers]]></incorrect-example>
+        </example>
+      </examples>
+    </requirement>
+
+    <requirement priority="medium">
+      <description>Implement comprehensive CI/CD integration with parallel test execution across multiple browsers, comprehensive reporting, and artifact management for continuous quality assurance.</description>
+      <examples>
+        <example title="CI/CD Integration for Playwright">
+          <correct-example title="Comprehensive CI/CD setup with Playwright" conditions="Setting up CI/CD pipeline with Playwright" expected-result="Optimized CI/CD with cross-browser testing" correctness-criteria="Includes parallel execution, multiple browsers, comprehensive reporting, and artifact management"><![CDATA[# .github/workflows/e2e.yml
+name: E2E Tests
+
+on:
+  push:
+    branches: [main, develop]
+  pull_request:
+    branches: [main]
+  schedule:
+    - cron: '0 2 * * *' # Daily at 2 AM
+
+jobs:
+  test:
+    name: E2E Tests
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        project: [chromium, firefox, webkit, mobile-chrome, mobile-safari]
+        
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: 'npm'
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Install Playwright Browsers
+        run: npx playwright install --with-deps ${{ matrix.project }}
+
+      - name: Build application
+        run: npm run build
+
+      - name: Start application
+        run: |
+          npm run start &
+          npx wait-on http://localhost:3000 --timeout 60000
+        env:
+          NODE_ENV: production
+
+      - name: Run E2E tests
+        run: npx playwright test --project=${{ matrix.project }} --reporter=blob
+        env:
+          CI: true
+          PLAYWRIGHT_TEST_BASE_URL: http://localhost:3000
+
+      - name: Upload blob report
+        uses: actions/upload-artifact@v3
+        if: always()
+        with:
+          name: blob-report-${{ matrix.project }}
+          path: blob-report
+          retention-days: 30
+
+  merge-reports:
+    name: Merge Reports
+    if: always()
+    needs: [test]
+    runs-on: ubuntu-latest
+    
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: 'npm'
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Download blob reports
+        uses: actions/download-artifact@v3
+        with:
+          path: all-blob-reports
+          pattern: blob-report-*
+          merge-multiple: true
+
+      - name: Merge into HTML Report
+        run: npx playwright merge-reports --reporter html ./all-blob-reports
+
+      - name: Upload HTML report
+        uses: actions/upload-artifact@v3
+        with:
+          name: playwright-report
+          path: playwright-report/
+          retention-days: 30
+
+      - name: Deploy to GitHub Pages
+        if: github.ref == 'refs/heads/main'
+        uses: peaceiris/actions-gh-pages@v3
+        with:
+          github_token: ${{ secrets.GITHUB_TOKEN }}
+          publish_dir: ./playwright-report
+
+  accessibility:
+    name: Accessibility Tests
+    runs-on: ubuntu-latest
+    
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: 'npm'
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Install Playwright
+        run: npx playwright install chromium
+
+      - name: Build application
+        run: npm run build
+
+      - name: Start application
+        run: |
+          npm run start &
+          npx wait-on http://localhost:3000 --timeout 60000
+
+      - name: Run accessibility tests
+        run: npx playwright test --project=accessibility
+
+      - name: Upload accessibility report
+        uses: actions/upload-artifact@v3
+        if: always()
+        with:
+          name: accessibility-report
+          path: accessibility-report/
+
+  performance:
+    name: Performance Tests
+    runs-on: ubuntu-latest
+    
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: 'npm'
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Install Playwright
+        run: npx playwright install chromium
+
+      - name: Build application
+        run: npm run build
+
+      - name: Start application
+        run: |
+          npm run start &
+          npx wait-on http://localhost:3000 --timeout 60000
+
+      - name: Run performance tests
+        run: npx playwright test --project=performance
+
+      - name: Upload performance report
+        uses: actions/upload-artifact@v3
+        if: always()
+        with:
+          name: performance-report
+          path: performance-report/
+
+  visual-regression:
+    name: Visual Regression Tests
+    runs-on: ubuntu-latest
+    
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: 'npm'
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Install Playwright
+        run: npx playwright install chromium
+
+      - name: Build application
+        run: npm run build
+
+      - name: Start application
+        run: |
+          npm run start &
+          npx wait-on http://localhost:3000 --timeout 60000
+
+      - name: Run visual regression tests
+        run: npx playwright test tests/e2e/visual/ --update-snapshots
+        if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+
+      - name: Run visual regression tests (comparison)
+        run: npx playwright test tests/e2e/visual/
+        if: github.event_name == 'pull_request'
+
+      - name: Upload visual diff report
+        uses: actions/upload-artifact@v3
+        if: failure()
+        with:
+          name: visual-diff-report
+          path: test-results/
+
+# Docker configuration for consistent testing
+# Dockerfile.e2e
+FROM mcr.microsoft.com/playwright:v1.40.0-focal
+
+WORKDIR /app
+
+# Copy package files
+COPY package*.json ./
+
+# Install dependencies
+RUN npm ci
+
+# Copy source code
+COPY . .
+
+# Build application
+RUN npm run build
+
+# Expose port
+EXPOSE 3000
+
+# Run tests
+CMD ["npx", "playwright", "test"]
+
+# docker-compose.e2e.yml
+version: '3.8'
+services:
+  e2e-tests:
+    build:
+      context: .
+      dockerfile: Dockerfile.e2e
+    volumes:
+      - ./test-results:/app/test-results
+      - ./playwright-report:/app/playwright-report
+    environment:
+      - NODE_ENV=test
+      - CI=true
+      - PLAYWRIGHT_TEST_BASE_URL=http://app:3000
+    depends_on:
+      - app
+      - database
+    command: npx playwright test
+
+  app:
+    build: .
+    ports:
+      - "3000:3000"
+    environment:
+      - NODE_ENV=production
+      - DATABASE_URL=postgresql://testuser:testpass@database:5432/testdb
+    depends_on:
+      - database
+
+  database:
+    image: postgres:15-alpine
+    environment:
+      POSTGRES_DB: testdb
+      POSTGRES_USER: testuser
+      POSTGRES_PASSWORD: testpass
+    ports:
+      - "5432:5432"
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+
+volumes:
+  postgres_data:
+
+# Makefile for local development
+.PHONY: e2e e2e-headed e2e-debug e2e-ui e2e-trace e2e-docker
+
+e2e:
+	npx playwright test
+
+e2e-headed:
+	npx playwright test --headed
+
+e2e-debug:
+	npx playwright test --debug
+
+e2e-ui:
+	npx playwright test --ui
+
+e2e-trace:
+	npx playwright test --trace on
+
+e2e-report:
+	npx playwright show-report
+
+e2e-docker:
+	docker-compose -f docker-compose.e2e.yml up --abort-on-container-exit
+
+e2e-update-snapshots:
+	npx playwright test --update-snapshots
+
+clean-e2e:
+	rm -rf test-results/ playwright-report/ blob-report/
+
+install-browsers:
+	npx playwright install
+
+# package.json scripts
+{
+  "scripts": {
+    "e2e": "playwright test",
+    "e2e:headed": "playwright test --headed",
+    "e2e:debug": "playwright test --debug",
+    "e2e:ui": "playwright test --ui",
+    "e2e:chromium": "playwright test --project=chromium",
+    "e2e:firefox": "playwright test --project=firefox",
+    "e2e:webkit": "playwright test --project=webkit",
+    "e2e:mobile": "playwright test --project=mobile-chrome --project=mobile-safari",
+    "e2e:accessibility": "playwright test --project=accessibility",
+    "e2e:performance": "playwright test --project=performance",
+    "e2e:visual": "playwright test tests/e2e/visual/",
+    "e2e:api": "playwright test --project=api",
+    "e2e:report": "playwright show-report",
+    "e2e:trace": "playwright test --trace on",
+    "e2e:update-snapshots": "playwright test --update-snapshots",
+    "e2e:install": "playwright install",
+    "e2e:docker": "docker-compose -f docker-compose.e2e.yml up --abort-on-container-exit"
+  }
+}
+
+# Custom reporter for enhanced reporting
+# tests/e2e/reporters/custom-reporter.ts
+import { FullConfig, FullResult, Reporter, Suite, TestCase, TestResult } from '@playwright/test/reporter'
+import fs from 'fs'
+import path from 'path'
+
+class CustomReporter implements Reporter {
+  private startTime: number = 0
+  private results: any[] = []
+
+  onBegin(config: FullConfig, suite: Suite) {
+    this.startTime = Date.now()
+    console.log(`Starting E2E tests with ${config.projects.length} projects`)
+  }
+
+  onTestEnd(test: TestCase, result: TestResult) {
+    const testResult = {
+      title: test.title,
+      projectName: test.parent.project()?.name,
+      status: result.status,
+      duration: result.duration,
+      error: result.error?.message,
+      attachments: result.attachments.map(a => ({
+        name: a.name,
+        contentType: a.contentType,
+        path: a.path
+      }))
+    }
+    
+    this.results.push(testResult)
+
+    if (result.status === 'failed') {
+      console.log(`❌ ${test.title} - ${result.error?.message}`)
+    } else if (result.status === 'passed') {
+      console.log(`✅ ${test.title}`)
+    }
+  }
+
+  onEnd(result: FullResult) {
+    const duration = Date.now() - this.startTime
+    const passed = this.results.filter(r => r.status === 'passed').length
+    const failed = this.results.filter(r => r.status === 'failed').length
+    const skipped = this.results.filter(r => r.status === 'skipped').length
+
+    const report = {
+      summary: {
+        total: this.results.length,
+        passed,
+        failed,
+        skipped,
+        duration,
+        status: result.status
+      },
+      results: this.results
+    }
+
+    // Write detailed JSON report
+    fs.writeFileSync(
+      path.join(process.cwd(), 'test-results', 'detailed-report.json'),
+      JSON.stringify(report, null, 2)
+    )
+
+    console.log(`\n📊 Test Summary:`)
+    console.log(`Total: ${this.results.length}`)
+    console.log(`Passed: ${passed}`)
+    console.log(`Failed: ${failed}`)
+    console.log(`Skipped: ${skipped}`)
+    console.log(`Duration: ${duration}ms`)
+  }
+}
+
+export default CustomReporter]]></correct-example>
+          <incorrect-example title="Basic CI without optimization" conditions="Setting up CI/CD pipeline" expected-result="Optimized CI/CD with cross-browser testing" incorrectness-criteria="Missing parallel execution, no multiple browsers, poor reporting, no artifact management"><![CDATA[# .github/workflows/e2e.yml - Basic CI
+name: E2E
+
+on:
+  push:
+    branches: [main]
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+      - run: npm install
+      - run: npx playwright install
+      - run: npx playwright test
+
+# Missing:
+# - Multiple browsers
+# - Parallel execution
+# - Comprehensive reporting
+# - Artifact management
+# - Performance testing
+# - Visual regression]]></incorrect-example>
+        </example>
+      </examples>
+    </requirement>
+  </requirements>
+
+  <context description="Modern end-to-end testing with Playwright">
+    Playwright is a powerful end-to-end testing framework that enables comprehensive testing across multiple browsers (Chromium, Firefox, WebKit) with excellent developer experience, advanced automation capabilities, and robust test isolation. It provides native support for modern web applications, mobile testing, and accessibility validation.
+
+    Key advantages of Playwright include:
+    - Cross-browser testing with real browser engines
+    - Auto-wait capabilities and smart element selection
+    - Network interception and API testing
+    - Visual comparison and screenshot testing
+    - Mobile device emulation and touch events
+    - Accessibility testing integration
+    - Powerful debugging and tracing tools
+    - Built-in test parallelization and isolation
+
+    Modern e2e testing strategies emphasize comprehensive user journey coverage, including authentication flows, CRUD operations, error scenarios, accessibility compliance, and performance validation. The testing approach should focus on critical user paths while maintaining test reliability and execution speed.
+
+    Effective e2e testing practices include proper page object modeling, realistic test data management, comprehensive error scenario coverage, and continuous integration with automated quality gates across multiple environments and browser configurations.
+  </context>
+
+  <references>
+    <reference as="dependency" href=".cursor/rules/000-core/002-cursor-rules-creation.mdc" reason="Follows standard rule format">Base rule format definition</reference>
+    <reference as="context" href="https://playwright.dev/" reason="Official Playwright documentation">Playwright Testing Framework</reference>
+    <reference as="context" href="https://playwright.dev/docs/best-practices" reason="Playwright best practices">Playwright Best Practices</reference>
+    <reference as="context" href="https://www.deque.com/axe/" reason="Accessibility testing with axe">Axe Accessibility Testing</reference>
+  </references>
+</rule>
+description:
+globs:
+alwaysApply: false
+---

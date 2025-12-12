@@ -1,0 +1,1083 @@
+---
+description: "Comprehensive Cachex caching standards for Elixir with cache management, performance optimization, expiration policies, and distributed caching following modern caching best practices"
+globs: ["*.{ex,exs}", "**/cache/**/*", "**/cachex/**/*", "**/*cache*"]
+alwaysApply: false
+---
+
+<rule>
+  <meta>
+    <title>Cachex Core Standards</title>
+    <description>Comprehensive Cachex caching standards for Elixir with cache management, performance optimization, expiration policies, and distributed caching following modern caching best practices</description>
+    <created-at utc-timestamp="1744157700">January 25, 2025, 10:15 AM</created-at>
+    <last-updated-at utc-timestamp="1744157700">January 25, 2025, 10:15 AM</last-updated-at>
+    <applies-to>
+      <file-matcher glob="*.{ex,exs}">Elixir source files using Cachex for caching</file-matcher>
+      <file-matcher glob="**/cache/**/*">Cache-related modules and configurations</file-matcher>
+      <file-matcher glob="**/cachex/**/*">Cachex-specific files and configurations</file-matcher>
+      <file-matcher glob="**/*cache*">Cache-related files throughout the application</file-matcher>
+      <action-matcher action="caching">Triggered when working with application caching systems</action-matcher>
+    </applies-to>
+  </meta>
+  <requirements>
+    <non-negotiable priority="critical">
+      <description>Use Cachex for comprehensive application caching with proper cache management, expiration policies, performance optimization, and monitoring. Implement cache hierarchies, invalidation strategies, and distributed caching patterns with proper error handling and fallback mechanisms.</description>
+      <examples>
+        <example title="Comprehensive Cachex Implementation">
+          <correct-example title="Production-ready caching setup with advanced features and monitoring" conditions="Implementing application caching with Cachex" expected-result="Robust, performant caching system with proper monitoring and management" correctness-criteria="Cache configuration, expiration policies, performance optimization, monitoring, error handling"><![CDATA[# Elixir - Comprehensive Cachex implementation
+
+# Dependencies in mix.exs
+defp deps do
+  [
+    {:cachex, "~> 3.6"},
+    {:telemetry, "~> 1.2"},
+    {:jason, "~> 1.4"}
+  ]
+end
+
+# Configuration (config/config.exs)
+import Config
+
+config :my_app, MyApp.Cache,
+  # Cache configurations for different use cases
+  caches: [
+    # High-frequency, short-lived cache
+    %{
+      name: :users,
+      options: [
+        limit: 10_000,
+        expiration: [
+          default: :timer.minutes(15),
+          interval: :timer.minutes(5),
+          lazy: true
+        ],
+        fallback: [
+          default: {MyApp.Cache.Fallbacks, :fetch_user, []},
+          provide: []
+        ],
+        stats: true,
+        transactions: true
+      ]
+    },
+    
+    # Medium-frequency, medium-lived cache
+    %{
+      name: :sessions,
+      options: [
+        limit: 50_000,
+        expiration: [
+          default: :timer.hours(2),
+          interval: :timer.minutes(10),
+          lazy: true
+        ],
+        warmup: [
+          enable: true,
+          batch_size: 100
+        ],
+        stats: true
+      ]
+    },
+    
+    # Low-frequency, long-lived cache
+    %{
+      name: :products,
+      options: [
+        limit: 100_000,
+        expiration: [
+          default: :timer.hours(24),
+          interval: :timer.hours(1),
+          lazy: false
+        ],
+        hooks: [
+          pre: [MyApp.Cache.Hooks.PreHook],
+          post: [MyApp.Cache.Hooks.PostHook]
+        ],
+        stats: true,
+        transactions: true
+      ]
+    },
+    
+    # API response cache
+    %{
+      name: :api_responses,
+      options: [
+        limit: 25_000,
+        expiration: [
+          default: :timer.minutes(30),
+          interval: :timer.minutes(5),
+          lazy: true
+        ],
+        compress: true,
+        stats: true
+      ]
+    },
+    
+    # Configuration cache (rarely changes)
+    %{
+      name: :config,
+      options: [
+        limit: 1_000,
+        expiration: [
+          default: :timer.hours(12),
+          interval: :timer.hours(2),
+          lazy: false
+        ],
+        stats: true
+      ]
+    }
+  ]
+
+# Main cache supervision module
+defmodule MyApp.Cache do
+  @moduledoc """
+  Comprehensive caching system using Cachex with advanced features including
+  hierarchical caching, intelligent expiration, performance monitoring, and
+  distributed cache management.
+  """
+
+  use Supervisor
+  require Logger
+
+  # Cache names for easy reference
+  @cache_names [:users, :sessions, :products, :api_responses, :config]
+
+  # API functions
+  def start_link(opts \\ []) do
+    Supervisor.start_link(__MODULE__, opts, name: __MODULE__)
+  end
+
+  # Cache retrieval with fallback
+  @spec get(atom(), term(), keyword()) :: {:ok, term()} | {:error, term()}
+  def get(cache_name, key, opts \\ []) do
+    timeout = Keyword.get(opts, :timeout, 5000)
+    fallback = Keyword.get(opts, :fallback)
+    
+    case Cachex.get(cache_name, key) do
+      {:ok, nil} when not is_nil(fallback) ->
+        fetch_with_fallback(cache_name, key, fallback, opts)
+        
+      {:ok, value} ->
+        record_cache_hit(cache_name)
+        {:ok, value}
+        
+      {:error, reason} = error ->
+        Logger.warning("Cache get error", 
+          cache: cache_name, 
+          key: inspect(key), 
+          reason: inspect(reason)
+        )
+        record_cache_error(cache_name, :get, reason)
+        
+        if fallback do
+          fetch_with_fallback(cache_name, key, fallback, opts)
+        else
+          error
+        end
+    end
+  end
+
+  # Cache storage with validation
+  @spec put(atom(), term(), term(), keyword()) :: :ok | {:error, term()}
+  def put(cache_name, key, value, opts \\ []) do
+    ttl = Keyword.get(opts, :ttl)
+    validate = Keyword.get(opts, :validate, true)
+    
+    if validate and not valid_cache_value?(value) do
+      {:error, :invalid_value}
+    else
+      put_options = if ttl, do: [ttl: ttl], else: []
+      
+      case Cachex.put(cache_name, key, value, put_options) do
+        {:ok, true} ->
+          record_cache_write(cache_name)
+          :ok
+          
+        {:error, reason} = error ->
+          Logger.warning("Cache put error", 
+            cache: cache_name, 
+            key: inspect(key), 
+            reason: inspect(reason)
+          )
+          record_cache_error(cache_name, :put, reason)
+          error
+      end
+    end
+  end
+
+  # Batch cache operations
+  @spec get_many(atom(), [term()], keyword()) :: %{term() => term()}
+  def get_many(cache_name, keys, opts \\ []) when is_list(keys) do
+    batch_opts = [
+      batch_size: Keyword.get(opts, :batch_size, 100),
+      timeout: Keyword.get(opts, :timeout, 10_000)
+    ]
+    
+    results = 
+      keys
+      |> Enum.chunk_every(batch_opts[:batch_size])
+      |> Enum.flat_map(fn key_chunk ->
+        case Cachex.get_many(cache_name, key_chunk) do
+          {:ok, batch_results} -> 
+            Enum.map(batch_results, fn {k, v} -> {k, v} end)
+          {:error, reason} ->
+            Logger.warning("Batch cache get error", 
+              cache: cache_name, 
+              keys: length(key_chunk), 
+              reason: inspect(reason)
+            )
+            []
+        end
+      end)
+      |> Map.new()
+    
+    # Record metrics
+    hit_count = Enum.count(results, fn {_k, v} -> not is_nil(v) end)
+    miss_count = length(keys) - hit_count
+    
+    record_cache_batch_operation(cache_name, hit_count, miss_count)
+    
+    results
+  end
+
+  @spec put_many(atom(), map(), keyword()) :: :ok | {:error, term()}
+  def put_many(cache_name, key_value_pairs, opts \\ []) when is_map(key_value_pairs) do
+    batch_size = Keyword.get(opts, :batch_size, 100)
+    ttl = Keyword.get(opts, :ttl)
+    
+    key_value_pairs
+    |> Enum.chunk_every(batch_size)
+    |> Enum.reduce_while(:ok, fn batch, :ok ->
+      batch_map = Map.new(batch)
+      put_options = if ttl, do: [ttl: ttl], else: []
+      
+      case Cachex.put_many(cache_name, batch_map, put_options) do
+        {:ok, _results} -> 
+          {:cont, :ok}
+        {:error, reason} = error ->
+          Logger.error("Batch cache put error", 
+            cache: cache_name, 
+            batch_size: map_size(batch_map), 
+            reason: inspect(reason)
+          )
+          {:halt, error}
+      end
+    end)
+  end
+
+  # Cache invalidation
+  @spec invalidate(atom(), term()) :: :ok | {:error, term()}
+  def invalidate(cache_name, key) do
+    case Cachex.del(cache_name, key) do
+      {:ok, _result} ->
+        record_cache_invalidation(cache_name, :single)
+        :ok
+        
+      {:error, reason} = error ->
+        Logger.warning("Cache invalidation error", 
+          cache: cache_name, 
+          key: inspect(key), 
+          reason: inspect(reason)
+        )
+        error
+    end
+  end
+
+  @spec invalidate_pattern(atom(), term()) :: :ok | {:error, term()}
+  def invalidate_pattern(cache_name, pattern) do
+    case Cachex.del_many(cache_name, pattern) do
+      {:ok, count} ->
+        record_cache_invalidation(cache_name, :pattern, count)
+        Logger.info("Pattern invalidation completed", 
+          cache: cache_name, 
+          pattern: inspect(pattern), 
+          deleted: count
+        )
+        :ok
+        
+      {:error, reason} = error ->
+        Logger.error("Pattern invalidation error", 
+          cache: cache_name, 
+          pattern: inspect(pattern), 
+          reason: inspect(reason)
+        )
+        error
+    end
+  end
+
+  @spec clear(atom()) :: :ok | {:error, term()}
+  def clear(cache_name) do
+    case Cachex.clear(cache_name) do
+      {:ok, _count} ->
+        record_cache_invalidation(cache_name, :clear)
+        Logger.info("Cache cleared", cache: cache_name)
+        :ok
+        
+      {:error, reason} = error ->
+        Logger.error("Cache clear error", 
+          cache: cache_name, 
+          reason: inspect(reason)
+        )
+        error
+    end
+  end
+
+  # Cache statistics and monitoring
+  @spec stats(atom()) :: {:ok, map()} | {:error, term()}
+  def stats(cache_name) do
+    case Cachex.stats(cache_name) do
+      {:ok, stats} -> 
+        enhanced_stats = enhance_stats(cache_name, stats)
+        {:ok, enhanced_stats}
+        
+      {:error, reason} = error ->
+        Logger.error("Cache stats error", 
+          cache: cache_name, 
+          reason: inspect(reason)
+        )
+        error
+    end
+  end
+
+  @spec all_stats() :: map()
+  def all_stats do
+    @cache_names
+    |> Enum.map(fn cache_name ->
+      case stats(cache_name) do
+        {:ok, cache_stats} -> {cache_name, cache_stats}
+        {:error, _} -> {cache_name, %{error: true}}
+      end
+    end)
+    |> Map.new()
+  end
+
+  # Cache health check
+  @spec health_check(atom()) :: {:ok, map()} | {:error, term()}
+  def health_check(cache_name) do
+    test_key = "health_check_#{System.unique_integer()}"
+    test_value = "test_#{DateTime.utc_now()}"
+    
+    try do
+      # Test write
+      :ok = put(cache_name, test_key, test_value)
+      
+      # Test read
+      {:ok, ^test_value} = get(cache_name, test_key)
+      
+      # Test delete
+      :ok = invalidate(cache_name, test_key)
+      
+      # Get basic stats
+      {:ok, stats} = stats(cache_name)
+      
+      health_info = %{
+        status: :healthy,
+        cache_name: cache_name,
+        operations: [:read, :write, :delete],
+        stats: stats,
+        timestamp: DateTime.utc_now()
+      }
+      
+      {:ok, health_info}
+      
+    rescue
+      error ->
+        Logger.error("Cache health check failed", 
+          cache: cache_name, 
+          error: inspect(error)
+        )
+        
+        {:error, %{
+          status: :unhealthy,
+          cache_name: cache_name,
+          error: inspect(error),
+          timestamp: DateTime.utc_now()
+        }}
+    end
+  end
+
+  # Distributed cache operations
+  @spec sync_cache(atom(), [node()]) :: :ok | {:error, term()}
+  def sync_cache(cache_name, nodes) when is_list(nodes) do
+    try do
+      local_keys = Cachex.keys!(cache_name)
+      
+      # Export local cache
+      local_data = 
+        local_keys
+        |> Enum.map(fn key ->
+          case Cachex.get(cache_name, key) do
+            {:ok, value} -> {key, value}
+            _ -> nil
+          end
+        end)
+        |> Enum.reject(&is_nil/1)
+        |> Map.new()
+      
+      # Sync to remote nodes
+      results = 
+        nodes
+        |> Enum.map(fn node ->
+          Task.async(fn ->
+            :rpc.call(node, __MODULE__, :receive_sync_data, [cache_name, local_data])
+          end)
+        end)
+        |> Task.await_many(30_000)
+      
+      failed_syncs = Enum.count(results, &(&1 != :ok))
+      
+      if failed_syncs > 0 do
+        Logger.warning("Cache sync partially failed", 
+          cache: cache_name, 
+          failed_nodes: failed_syncs, 
+          total_nodes: length(nodes)
+        )
+      end
+      
+      :ok
+      
+    rescue
+      error ->
+        Logger.error("Cache sync error", 
+          cache: cache_name, 
+          error: inspect(error)
+        )
+        {:error, error}
+    end
+  end
+
+  @spec receive_sync_data(atom(), map()) :: :ok | {:error, term()}
+  def receive_sync_data(cache_name, data) when is_map(data) do
+    put_many(cache_name, data)
+  end
+
+  # Cache warming
+  @spec warm_cache(atom(), module(), atom(), list()) :: :ok | {:error, term()}
+  def warm_cache(cache_name, module, function, args) do
+    try do
+      Logger.info("Starting cache warm-up", cache: cache_name)
+      
+      # Execute warming function
+      case apply(module, function, args) do
+        data when is_map(data) ->
+          put_many(cache_name, data)
+          Logger.info("Cache warm-up completed", 
+            cache: cache_name, 
+            items: map_size(data)
+          )
+          :ok
+          
+        data when is_list(data) ->
+          data_map = Map.new(data)
+          put_many(cache_name, data_map)
+          Logger.info("Cache warm-up completed", 
+            cache: cache_name, 
+            items: length(data)
+          )
+          :ok
+          
+        other ->
+          Logger.error("Invalid warm-up data format", 
+            cache: cache_name, 
+            data_type: typeof(other)
+          )
+          {:error, :invalid_data_format}
+      end
+      
+    rescue
+      error ->
+        Logger.error("Cache warm-up error", 
+          cache: cache_name, 
+          error: inspect(error)
+        )
+        {:error, error}
+    end
+  end
+
+  @impl true
+  def init(_opts) do
+    config = Application.get_env(:my_app, __MODULE__, [])
+    caches = Keyword.get(config, :caches, [])
+    
+    # Build child specifications for each cache
+    cache_children = Enum.map(caches, fn cache_config ->
+      cache_name = cache_config.name
+      cache_options = cache_config.options
+      
+      # Add telemetry hooks for monitoring
+      enhanced_options = add_telemetry_hooks(cache_options, cache_name)
+      
+      {Cachex, [name: cache_name] ++ enhanced_options}
+    end)
+    
+    # Additional monitoring and management processes
+    management_children = [
+      # Cache monitor for health checks and statistics
+      {MyApp.Cache.Monitor, []},
+      
+      # Cache warmer for preloading data
+      {MyApp.Cache.Warmer, []},
+      
+      # Cache janitor for cleanup and optimization
+      {MyApp.Cache.Janitor, []},
+      
+      # Distributed cache coordinator
+      {MyApp.Cache.Coordinator, []}
+    ]
+
+    all_children = cache_children ++ management_children
+
+    Supervisor.init(all_children, strategy: :one_for_one)
+  end
+
+  # Private helper functions
+  defp fetch_with_fallback(cache_name, key, fallback_fn, opts) do
+    timeout = Keyword.get(opts, :timeout, 5000)
+    
+    try do
+      case fallback_fn.(key) do
+        {:ok, value} ->
+          # Cache the fetched value
+          put(cache_name, key, value, opts)
+          record_cache_miss(cache_name)
+          {:ok, value}
+          
+        {:error, reason} = error ->
+          Logger.warning("Cache fallback failed", 
+            cache: cache_name, 
+            key: inspect(key), 
+            reason: inspect(reason)
+          )
+          record_cache_error(cache_name, :fallback, reason)
+          error
+          
+        value ->
+          # Handle non-tuple return values
+          put(cache_name, key, value, opts)
+          record_cache_miss(cache_name)
+          {:ok, value}
+      end
+      
+    rescue
+      error ->
+        Logger.error("Cache fallback exception", 
+          cache: cache_name, 
+          key: inspect(key), 
+          error: inspect(error)
+        )
+        record_cache_error(cache_name, :fallback_exception, error)
+        {:error, error}
+    end
+  end
+
+  defp valid_cache_value?(value) do
+    # Validate that value can be safely cached
+    case value do
+      value when is_pid(value) -> false
+      value when is_reference(value) -> false
+      value when is_port(value) -> false
+      value when is_function(value) -> false
+      _ -> true
+    end
+  end
+
+  defp add_telemetry_hooks(options, cache_name) do
+    existing_hooks = Keyword.get(options, :hooks, [])
+    
+    telemetry_hooks = [
+      pre: [MyApp.Cache.TelemetryHook.pre_hook(cache_name)],
+      post: [MyApp.Cache.TelemetryHook.post_hook(cache_name)]
+    ]
+    
+    merged_hooks = Keyword.merge(existing_hooks, telemetry_hooks)
+    Keyword.put(options, :hooks, merged_hooks)
+  end
+
+  defp enhance_stats(cache_name, base_stats) do
+    # Add custom metrics to standard Cachex stats
+    custom_metrics = get_custom_metrics(cache_name)
+    Map.merge(base_stats, custom_metrics)
+  end
+
+  defp get_custom_metrics(cache_name) do
+    # Retrieve custom metrics from telemetry or ETS
+    %{
+      cache_name: cache_name,
+      last_accessed: DateTime.utc_now(),
+      custom_hit_rate: calculate_custom_hit_rate(cache_name)
+    }
+  end
+
+  defp calculate_custom_hit_rate(cache_name) do
+    # Calculate hit rate based on telemetry data
+    case :ets.lookup(:cache_metrics, {cache_name, :hits}) do
+      [{_, hits}] ->
+        case :ets.lookup(:cache_metrics, {cache_name, :misses}) do
+          [{_, misses}] when hits + misses > 0 ->
+            hits / (hits + misses)
+          _ -> 0.0
+        end
+      _ -> 0.0
+    end
+  end
+
+  # Telemetry recording functions
+  defp record_cache_hit(cache_name) do
+    :telemetry.execute([:my_app, :cache, :hit], %{count: 1}, %{cache: cache_name})
+    update_cache_counter(cache_name, :hits, 1)
+  end
+
+  defp record_cache_miss(cache_name) do
+    :telemetry.execute([:my_app, :cache, :miss], %{count: 1}, %{cache: cache_name})
+    update_cache_counter(cache_name, :misses, 1)
+  end
+
+  defp record_cache_write(cache_name) do
+    :telemetry.execute([:my_app, :cache, :write], %{count: 1}, %{cache: cache_name})
+    update_cache_counter(cache_name, :writes, 1)
+  end
+
+  defp record_cache_error(cache_name, operation, reason) do
+    :telemetry.execute([:my_app, :cache, :error], %{count: 1}, %{
+      cache: cache_name,
+      operation: operation,
+      reason: inspect(reason)
+    })
+    update_cache_counter(cache_name, :errors, 1)
+  end
+
+  defp record_cache_invalidation(cache_name, type, count \\ 1) do
+    :telemetry.execute([:my_app, :cache, :invalidation], %{count: count}, %{
+      cache: cache_name,
+      type: type
+    })
+    update_cache_counter(cache_name, :invalidations, count)
+  end
+
+  defp record_cache_batch_operation(cache_name, hits, misses) do
+    :telemetry.execute([:my_app, :cache, :batch], %{
+      hits: hits,
+      misses: misses
+    }, %{cache: cache_name})
+    
+    update_cache_counter(cache_name, :hits, hits)
+    update_cache_counter(cache_name, :misses, misses)
+  end
+
+  defp update_cache_counter(cache_name, metric, increment) do
+    # Ensure ETS table exists
+    :ets.new(:cache_metrics, [:set, :public, :named_table])
+    
+    key = {cache_name, metric}
+    :ets.update_counter(:cache_metrics, key, increment, {key, 0})
+  rescue
+    ArgumentError -> 
+      # Table already exists
+      :ets.update_counter(:cache_metrics, key, increment, {key, 0})
+  end
+
+  defp typeof(value) when is_map(value), do: :map
+  defp typeof(value) when is_list(value), do: :list
+  defp typeof(value) when is_binary(value), do: :binary
+  defp typeof(value) when is_atom(value), do: :atom
+  defp typeof(value) when is_number(value), do: :number
+  defp typeof(_), do: :unknown
+end
+
+# Cache fallback functions
+defmodule MyApp.Cache.Fallbacks do
+  @moduledoc """
+  Fallback functions for cache misses, providing data loading from primary sources.
+  """
+
+  require Logger
+
+  def fetch_user(user_id) do
+    case MyApp.Accounts.get_user(user_id) do
+      %MyApp.Accounts.User{} = user -> {:ok, user}
+      nil -> {:error, :not_found}
+    end
+  end
+
+  def fetch_product(product_id) do
+    case MyApp.Catalog.get_product(product_id) do
+      %MyApp.Catalog.Product{} = product -> {:ok, product}
+      nil -> {:error, :not_found}
+    end
+  end
+
+  def fetch_api_response(endpoint, params) do
+    case MyApp.ExternalAPI.call(endpoint, params) do
+      {:ok, response} -> {:ok, response}
+      {:error, reason} -> {:error, reason}
+    end
+  end
+end
+
+# Cache monitoring hooks
+defmodule MyApp.Cache.TelemetryHook do
+  @moduledoc """
+  Telemetry hooks for monitoring cache operations and performance.
+  """
+
+  def pre_hook(cache_name) do
+    fn operation, args ->
+      start_time = System.monotonic_time(:microsecond)
+      
+      :telemetry.execute([:my_app, :cache, :operation, :start], %{}, %{
+        cache: cache_name,
+        operation: operation,
+        start_time: start_time
+      })
+      
+      %{start_time: start_time}
+    end
+  end
+
+  def post_hook(cache_name) do
+    fn operation, args, result, %{start_time: start_time} ->
+      end_time = System.monotonic_time(:microsecond)
+      duration = end_time - start_time
+      
+      success = case result do
+        {:ok, _} -> true
+        :ok -> true
+        _ -> false
+      end
+      
+      :telemetry.execute([:my_app, :cache, :operation, :stop], %{
+        duration: duration
+      }, %{
+        cache: cache_name,
+        operation: operation,
+        success: success
+      })
+    end
+  end
+end
+
+# Cache monitor for health checks and statistics
+defmodule MyApp.Cache.Monitor do
+  @moduledoc """
+  Monitors cache health, performance, and provides automated maintenance.
+  """
+
+  use GenServer
+  require Logger
+
+  def start_link(opts \\ []) do
+    GenServer.start_link(__MODULE__, opts, name: __MODULE__)
+  end
+
+  def get_health_report do
+    GenServer.call(__MODULE__, :get_health_report)
+  end
+
+  def get_performance_report do
+    GenServer.call(__MODULE__, :get_performance_report)
+  end
+
+  @impl true
+  def init(_opts) do
+    # Schedule periodic health checks
+    :timer.send_interval(:timer.minutes(5), :health_check)
+    
+    # Schedule performance monitoring
+    :timer.send_interval(:timer.minutes(1), :performance_check)
+    
+    state = %{
+      last_health_check: nil,
+      health_status: %{},
+      performance_metrics: %{}
+    }
+
+    {:ok, state}
+  end
+
+  @impl true
+  def handle_info(:health_check, state) do
+    cache_names = [:users, :sessions, :products, :api_responses, :config]
+    
+    health_results = 
+      cache_names
+      |> Enum.map(fn cache_name ->
+        case MyApp.Cache.health_check(cache_name) do
+          {:ok, health_info} -> {cache_name, health_info}
+          {:error, error_info} -> {cache_name, error_info}
+        end
+      end)
+      |> Map.new()
+    
+    # Check for unhealthy caches
+    unhealthy_caches = 
+      health_results
+      |> Enum.filter(fn {_name, info} -> 
+        Map.get(info, :status) == :unhealthy 
+      end)
+    
+    if not Enum.empty?(unhealthy_caches) do
+      Logger.error("Unhealthy caches detected", 
+        caches: Enum.map(unhealthy_caches, fn {name, _} -> name end)
+      )
+    end
+    
+    new_state = %{state |
+      last_health_check: DateTime.utc_now(),
+      health_status: health_results
+    }
+
+    {:noreply, new_state}
+  end
+
+  @impl true
+  def handle_info(:performance_check, state) do
+    performance_data = collect_performance_metrics()
+    
+    # Check for performance issues
+    check_performance_thresholds(performance_data)
+    
+    new_state = %{state |
+      performance_metrics: performance_data
+    }
+
+    {:noreply, new_state}
+  end
+
+  @impl true
+  def handle_call(:get_health_report, _from, state) do
+    report = %{
+      last_check: state.last_health_check,
+      cache_status: state.health_status,
+      overall_status: calculate_overall_status(state.health_status)
+    }
+
+    {:reply, report, state}
+  end
+
+  @impl true
+  def handle_call(:get_performance_report, _from, state) do
+    {:reply, state.performance_metrics, state}
+  end
+
+  defp collect_performance_metrics do
+    cache_names = [:users, :sessions, :products, :api_responses, :config]
+    
+    Enum.map(cache_names, fn cache_name ->
+      case MyApp.Cache.stats(cache_name) do
+        {:ok, stats} -> {cache_name, stats}
+        {:error, _} -> {cache_name, %{error: true}}
+      end
+    end)
+    |> Map.new()
+  end
+
+  defp check_performance_thresholds(performance_data) do
+    Enum.each(performance_data, fn {cache_name, stats} ->
+      unless Map.get(stats, :error, false) do
+        # Check hit rate
+        hit_rate = calculate_hit_rate(stats)
+        if hit_rate < 0.8 do  # Less than 80% hit rate
+          Logger.warning("Low cache hit rate", 
+            cache: cache_name, 
+            hit_rate: hit_rate
+          )
+        end
+        
+        # Check memory usage
+        memory_usage = Map.get(stats, :memory, 0)
+        if memory_usage > 100 * 1024 * 1024 do  # More than 100MB
+          Logger.warning("High cache memory usage", 
+            cache: cache_name, 
+            memory_mb: div(memory_usage, 1024 * 1024)
+          )
+        end
+      end
+    end)
+  end
+
+  defp calculate_hit_rate(stats) do
+    hits = Map.get(stats, :hits, 0)
+    misses = Map.get(stats, :misses, 0)
+    
+    if hits + misses > 0 do
+      hits / (hits + misses)
+    else
+      0.0
+    end
+  end
+
+  defp calculate_overall_status(health_status) do
+    unhealthy_count = 
+      health_status
+      |> Enum.count(fn {_name, info} -> 
+        Map.get(info, :status) == :unhealthy 
+      end)
+    
+    case unhealthy_count do
+      0 -> :healthy
+      count when count < map_size(health_status) / 2 -> :degraded
+      _ -> :unhealthy
+    end
+  end
+end
+
+# Cache warmer for preloading frequently accessed data
+defmodule MyApp.Cache.Warmer do
+  @moduledoc """
+  Preloads frequently accessed data into caches to improve performance.
+  """
+
+  use GenServer
+  require Logger
+
+  def start_link(opts \\ []) do
+    GenServer.start_link(__MODULE__, opts, name: __MODULE__)
+  end
+
+  def warm_all_caches do
+    GenServer.cast(__MODULE__, :warm_all)
+  end
+
+  def warm_cache(cache_name) do
+    GenServer.cast(__MODULE__, {:warm_cache, cache_name})
+  end
+
+  @impl true
+  def init(_opts) do
+    # Schedule initial warm-up
+    Process.send_after(self(), :initial_warmup, :timer.seconds(30))
+    
+    # Schedule periodic warming
+    :timer.send_interval(:timer.hours(6), :periodic_warmup)
+    
+    {:ok, %{}}
+  end
+
+  @impl true
+  def handle_info(:initial_warmup, state) do
+    Logger.info("Starting initial cache warm-up")
+    perform_warmup()
+    {:noreply, state}
+  end
+
+  @impl true
+  def handle_info(:periodic_warmup, state) do
+    Logger.info("Starting periodic cache warm-up")
+    perform_warmup()
+    {:noreply, state}
+  end
+
+  @impl true
+  def handle_cast(:warm_all, state) do
+    perform_warmup()
+    {:noreply, state}
+  end
+
+  @impl true
+  def handle_cast({:warm_cache, cache_name}, state) do
+    warm_specific_cache(cache_name)
+    {:noreply, state}
+  end
+
+  defp perform_warmup do
+    warmup_tasks = [
+      Task.async(fn -> warm_users_cache() end),
+      Task.async(fn -> warm_products_cache() end),
+      Task.async(fn -> warm_config_cache() end)
+    ]
+    
+    Task.await_many(warmup_tasks, :timer.minutes(5))
+    Logger.info("Cache warm-up completed")
+  end
+
+  defp warm_specific_cache(:users), do: warm_users_cache()
+  defp warm_specific_cache(:products), do: warm_products_cache()
+  defp warm_specific_cache(:config), do: warm_config_cache()
+  defp warm_specific_cache(_), do: :ok
+
+  defp warm_users_cache do
+    MyApp.Cache.warm_cache(:users, MyApp.Cache.Warmers, :load_active_users, [])
+  end
+
+  defp warm_products_cache do
+    MyApp.Cache.warm_cache(:products, MyApp.Cache.Warmers, :load_featured_products, [])
+  end
+
+  defp warm_config_cache do
+    MyApp.Cache.warm_cache(:config, MyApp.Cache.Warmers, :load_application_config, [])
+  end
+end
+
+# Cache janitor for cleanup and optimization
+defmodule MyApp.Cache.Janitor do
+  @moduledoc """
+  Performs cache maintenance tasks including cleanup, optimization, and garbage collection.
+  """
+
+  use GenServer
+  require Logger
+
+  def start_link(opts \\ []) do
+    GenServer.start_link(__MODULE__, opts, name: __MODULE__)
+  end
+
+  def cleanup_all_caches do
+    GenServer.cast(__MODULE__, :cleanup_all)
+  end
+
+  @impl true
+  def init(_opts) do
+    # Schedule regular cleanup
+    :timer.send_interval(:timer.hours(2), :cleanup)
+    
+    {:ok, %{}}
+  end
+
+  @impl true
+  def handle_info(:cleanup, state) do
+    Logger.info("Starting cache cleanup")
+    perform_cleanup()
+    {:noreply, state}
+  end
+
+  @impl true
+  def handle_cast(:cleanup_all, state) do
+    perform_cleanup()
+    {:noreply, state}
+  end
+
+  defp perform_cleanup do
+    cache_names = [:users, :sessions, :products, :api_responses, :config]
+    
+    Enum.each(cache_names, fn cache_name ->
+      # Clean expired entries
+      Cachex.purge(cache_name)
+      
+      # Optimize cache structure if needed
+      optimize_cache(cache_name)
+    end)
+    
+    Logger.info("Cache cleanup completed")
+  end
+
+  defp optimize_cache(cache_name) do
+    case MyApp.Cache.stats(cache_name) do
+      {:ok, stats} ->
+        memory_usage = Map.get(stats, :memory, 0)
+        entry_count = Map.get(stats, :size, 0)
+        
+        # If cache is getting large, consider more aggressive cleanup
+        if memory_usage > 50 * 1024 * 1024 or entry_count > 50_000 do
+          Logger.info("Optimizing large cache", 
+            cache: cache_name, 
+            memory_mb: div(memory_usage, 1024 * 1024),
+            entries: entry_count
+          )
+          
+          # Could implement LRU cleanup, compression, etc.
+        end
+        
+      {:error, _} -> 
+        :ok
+    end
+  end
+end
+ 

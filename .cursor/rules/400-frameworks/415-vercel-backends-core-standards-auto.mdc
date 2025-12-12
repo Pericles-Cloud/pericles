@@ -1,0 +1,277 @@
+---
+description: Vercel Backends core standards with Fluid Compute, serverless patterns, database pooling, and realtime guidance
+globs: ["*.{ts,tsx,js,jsx,json,md}"]
+alwaysApply: false
+---
+
+<rule>
+  <meta>
+    <title>Vercel Backends Core Standards Auto</title>
+    <description>Best practices for building and deploying backends on Vercel: Fluid Compute, short-lived functions, database pooling with attachDatabasePool, realtime patterns, zero-config frameworks, security, and deployment hygiene.</description>
+    <created-at utc-timestamp="1757000000">September 4, 2025, 00:00 UTC</created-at>
+    <last-updated-at utc-timestamp="1757000000">September 4, 2025, 00:00 UTC</last-updated-at>
+    <applies-to>
+      <file-matcher glob="api/**">Vercel serverless/edge function source files</file-matcher>
+      <file-matcher glob="*.{ts,tsx,js,jsx}">TypeScript/JavaScript backend files</file-matcher>
+      <file-matcher glob="vercel.json">Vercel configuration</file-matcher>
+      <action-matcher action="vercel-backend-development">Triggered when creating or modifying Vercel backends</action-matcher>
+    </applies-to>
+  </meta>
+  <requirements>
+    <non-negotiable priority="critical">
+      <description>Design for Fluid Compute: functions must be short-lived, stateless, and return promptly; never hold open resources (sockets, infinite loops, long polling) inside a serverless invocation.</description>
+      <examples>
+        <example title="Short-lived function behavior">
+          <correct-example title="Return quickly; offload work" conditions="Implementing API handler" expected-result="Fast response with background/offloaded processing" correctness-criteria="No infinite loops, no long blocking waits, uses background queue or provider">
+<![CDATA[
+// api/tasks/create.ts
+import type { VercelRequest, VercelResponse } from '@vercel/node';
+
+export default async function handler(req: VercelRequest, res: VercelResponse) {
+  if (req.method !== 'POST') return res.status(405).json({ error: 'Method not allowed' });
+
+  // Validate input
+  const { payload } = req.body || {};
+  if (!payload) return res.status(400).json({ error: 'Missing payload' });
+
+  // Enqueue heavy work to a job runner or external service
+  await queueJob('process-payload', { payload });
+
+  // Respond immediately
+  return res.status(202).json({ success: true, status: 'QUEUED' });
+}
+]]>
+          </correct-example>
+          <incorrect-example title="Long-running loop" conditions="Implementing API handler" expected-result="Short-lived function" incorrectness-criteria="Keeps CPU busy or blocks for long time">
+<![CDATA[
+// WRONG: Keeps function hot and blocks CPU
+export default async function handler(req, res) {
+  while (true) {
+    // Poll every second forever
+    await new Promise(r => setTimeout(r, 1000));
+  }
+}
+]]>
+          </incorrect-example>
+        </example>
+      </examples>
+    </non-negotiable>
+
+    <non-negotiable priority="critical">
+      <description>Manage database connections with attachDatabasePool from @vercel/functions; reuse a single pool per function instance and never instantiate a new client per request.</description>
+      <examples>
+        <example title="Database pooling">
+          <correct-example title="attachDatabasePool + pg Pool" conditions="Connecting to Postgres" expected-result="Pooled, reused connections" correctness-criteria="Creates pool once at module scope, reuses across invocations">
+<![CDATA[
+// api/users/list.ts
+import type { VercelRequest, VercelResponse } from '@vercel/node';
+import { attachDatabasePool } from '@vercel/functions';
+import { Pool } from 'pg';
+
+const pool = attachDatabasePool(new Pool({ connectionString: process.env.DATABASE_URL }));
+
+export default async function handler(req: VercelRequest, res: VercelResponse) {
+  if (req.method !== 'GET') return res.status(405).json({ error: 'Method not allowed' });
+  const { rows } = await pool.query('SELECT id, email, created_at FROM users ORDER BY created_at DESC LIMIT 50');
+  return res.status(200).json({ success: true, users: rows });
+}
+]]>
+          </correct-example>
+          <incorrect-example title="New client per request" conditions="Connecting to Postgres" expected-result="Connection reuse" incorrectness-criteria="Instantiates Pool inside handler">
+<![CDATA[
+// WRONG: New Pool for every request
+export default async function handler(req, res) {
+  const { Pool } = require('pg');
+  const pool = new Pool({ connectionString: process.env.DATABASE_URL });
+  const { rows } = await pool.query('SELECT 1');
+  res.json(rows);
+}
+]]>
+          </incorrect-example>
+        </example>
+      </examples>
+    </non-negotiable>
+
+    <non-negotiable priority="critical">
+      <description>Do not maintain WebSocket subscriptions inside serverless functions; use a serverless-friendly realtime provider and publish events from functions instead of subscribing.</description>
+      <examples>
+        <example title="Realtime pattern">
+          <correct-example title="Client subscribes; serverless publishes" conditions="Realtime notifications" expected-result="Serverless publish-only, client subscribes via provider" correctness-criteria="No WS server inside function, uses provider SDK">
+<![CDATA[
+// api/events/publish.ts
+import type { VercelRequest, VercelResponse } from '@vercel/node';
+import { realtime } from '@/lib/realtime-provider';
+
+export default async function handler(req: VercelRequest, res: VercelResponse) {
+  if (req.method !== 'POST') return res.status(405).json({ error: 'Method not allowed' });
+  const { channel, event, data } = req.body || {};
+  await realtime.publish(channel, event, data);
+  return res.status(200).json({ success: true });
+}
+]]>
+          </correct-example>
+          <incorrect-example title="WebSocket server in function" conditions="Realtime notifications" expected-result="No long-lived sockets" incorrectness-criteria="Creates WS server or holds open connections">
+<![CDATA[
+// WRONG: Attempting to run a WebSocket server in a serverless function
+export default async function handler(req, res) {
+  const server = new WebSocketServer({ server: res.socket.server });
+  server.on('connection', () => {/* ... */});
+}
+]]>
+          </incorrect-example>
+        </example>
+      </examples>
+    </non-negotiable>
+
+    <requirement priority="high">
+      <description>Prefer zero-configuration frameworks supported by Vercel for backends (Hono, Nitro, xmcp) and follow their routing conventions for minimal setup.</description>
+      <examples>
+        <example title="Hono on Vercel">
+          <correct-example title="Hono app export" conditions="Creating HTTP handlers" expected-result="Zero-config deployment" correctness-criteria="Exports default handler compatible with Vercel">
+<![CDATA[
+// api/index.ts
+import { Hono } from 'hono';
+
+const app = new Hono();
+app.get('/ping', (c) => c.json({ ok: true }));
+app.post('/echo', async (c) => c.json(await c.req.json()));
+
+export default app.fetch;
+]]>
+          </correct-example>
+          <incorrect-example title="Custom HTTP server" conditions="Creating HTTP handlers" expected-result="Framework adapter export" incorrectness-criteria="Starts its own http.Server and listens">
+<![CDATA[
+// WRONG: Creating a raw http server in a function file
+import http from 'http';
+http.createServer((req, res) => res.end('ok')).listen(3000);
+]]>
+          </incorrect-example>
+        </example>
+      </examples>
+    </requirement>
+
+    <requirement priority="high">
+      <description>Configure function limits intentionally (duration, memory, regions) in vercel.json for predictable performance and cost; include CORS headers and OPTIONS handling for APIs.</description>
+      <examples>
+        <example title="vercel.json functions + CORS">
+          <correct-example title="Scoped function config and CORS" conditions="Configuring deployment" expected-result="Optimized functions with CORS" correctness-criteria="Uses functions config and handles OPTIONS">
+<![CDATA[
+// vercel.json
+{
+  "version": 2,
+  "functions": {
+    "api/**/*.ts": {
+      "runtime": "@vercel/node@5.3.7",
+      "maxDuration": 10,
+      "memory": 1024,
+      "regions": ["iad1", "sfo1"]
+    }
+  },
+  "routes": [
+    { "src": "/api/(.*)", "dest": "/api/$1" }
+  ]
+}
+
+// api/_util/cors.ts
+import type { VercelResponse } from '@vercel/node';
+export const setCors = (res: VercelResponse) => {
+  res.setHeader('Access-Control-Allow-Credentials', 'true');
+  res.setHeader('Access-Control-Allow-Origin', '*');
+  res.setHeader('Access-Control-Allow-Methods', 'GET,OPTIONS,PATCH,DELETE,POST,PUT');
+  res.setHeader('Access-Control-Allow-Headers', 'Authorization, Content-Type');
+};
+
+// api/items/index.ts
+import type { VercelRequest, VercelResponse } from '@vercel/node';
+import { setCors } from '../_util/cors';
+
+export default async function handler(req: VercelRequest, res: VercelResponse) {
+  setCors(res);
+  if (req.method === 'OPTIONS') return res.status(200).end();
+  if (req.method !== 'GET') return res.status(405).json({ error: 'Method not allowed' });
+  return res.status(200).json({ items: [] });
+}
+]]>
+          </correct-example>
+          <incorrect-example title="No config; no CORS" conditions="Configuring deployment" expected-result="Explicit configuration" incorrectness-criteria="Missing function config and CORS handling">
+<![CDATA[
+// WRONG: No vercel.json controls and no CORS headers
+export default (req, res) => res.json({ ok: true });
+]]>
+          </incorrect-example>
+        </example>
+      </examples>
+    </requirement>
+
+    <requirement priority="medium">
+      <description>Optimize for Active CPU pricing: avoid synchronous busy-wait, prefer streaming responses for AI/long I/O, and release CPU while waiting on network/database.</description>
+      <examples>
+        <example title="Streaming and await network">
+          <correct-example title="Stream large responses" conditions="IO-heavy route" expected-result="CPU only used while processing" correctness-criteria="Uses async/await, streaming where applicable">
+<![CDATA[
+// api/ai/stream.ts
+import type { VercelRequest, VercelResponse } from '@vercel/node';
+
+export default async function handler(_req: VercelRequest, res: VercelResponse) {
+  res.setHeader('Content-Type', 'text/plain; charset=utf-8');
+  res.setHeader('Transfer-Encoding', 'chunked');
+
+  const encoder = new TextEncoder();
+  const write = (chunk: string) => res.write(Buffer.from(encoder.encode(chunk)));
+
+  write('Starting...\n');
+  // Simulate async tokens from an AI model or upstream stream
+  for (const part of ['hello', ' ', 'world', '!']) {
+    await new Promise(r => setTimeout(r, 100));
+    write(part);
+  }
+  res.end();
+}
+]]>
+          </correct-example>
+          <incorrect-example title="Busy loop" conditions="IO-heavy route" expected-result="Await I/O" incorrectness-criteria="While loops burning CPU">
+<![CDATA[
+// WRONG: Busy-waiting burns CPU under Active CPU pricing
+const end = Date.now() + 2000;
+while (Date.now() < end) {/* spin */}
+]]>
+          </incorrect-example>
+        </example>
+      </examples>
+    </requirement>
+
+    <requirement priority="medium">
+      <description>Use environment variables for secrets and configuration; leverage Preview Environments and Deployment Protection to validate backends safely before production.</description>
+      <examples>
+        <example title="Env + previews">
+          <correct-example title="Secrets in env; preview validation" conditions="Configuring environments" expected-result="Secure configuration and safe previews" correctness-criteria="Uses process.env, avoids hardcoding, validates in previews">
+<![CDATA[
+// api/secure.ts
+export default async function handler(_req, res) {
+  if (!process.env.API_TOKEN) return res.status(500).json({ error: 'Missing API_TOKEN' });
+  // Use token to call upstream
+  return res.json({ ok: true });
+}
+]]>
+          </correct-example>
+          <incorrect-example title="Hardcoded secrets" conditions="Configuring environments" expected-result="No secrets in code" incorrectness-criteria="Secrets in source">
+<![CDATA[
+// WRONG
+const TOKEN = 'hardcoded-secret';
+]]>
+          </incorrect-example>
+        </example>
+      </examples>
+    </requirement>
+  </requirements>
+
+  <context description="Vercel Backends on Fluid Compute">
+    Backends on Vercel benefit from Fluid Compute (dynamic scaling, background processing, concurrency), Active CPU pricing, and platform features like Instant Rollback, Firewall, and Preview Deployments. Adapting from always-on servers requires short-lived, stateless handlers, graceful I/O patterns, and externalizing realtime and long-running workloads to serverless-friendly providers.
+  </context>
+
+  <references>
+    <reference as="dependency" href=".cursor/rules/000-core/002-cursor-rules-creation.mdc" reason="Follows standard rule format">Base rule format definition</reference>
+    <reference as="context" href="https://vercel.com/docs/frameworks/backend" reason="Official Vercel backends guidance">Backends on Vercel Documentation</reference>
+  </references>
+</rule>
+

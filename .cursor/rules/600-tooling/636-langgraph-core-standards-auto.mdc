@@ -1,0 +1,944 @@
+---
+description: "Comprehensive LangGraph language model graph framework standards with AI agent workflows, graph-based reasoning, state management, tool integration, and production deployment following AI application development best practices"
+globs: ["**/langgraph/**/*", "**/ai-agents/**/*", "**/llm-workflows/**/*", "**/graph-ai/**/*", "**/*langgraph*"]
+alwaysApply: false
+---
+
+<rule>
+  <meta>
+    <title>LangGraph Core Standards</title>
+    <description>Comprehensive LangGraph language model graph framework standards covering AI agent workflows, graph-based reasoning, state management, tool integration, conversation flows, monitoring, and production deployment following AI application development and graph-based reasoning best practices</description>
+    <created-at utc-timestamp="1744157700">January 25, 2025, 10:15 AM</created-at>
+    <last-updated-at utc-timestamp="1744157700">January 25, 2025, 10:15 AM</last-updated-at>
+    <applies-to>
+      <file-matcher glob="**/langgraph/**/*">LangGraph framework implementation files</file-matcher>
+      <file-matcher glob="**/ai-agents/**/*">AI agent workflow implementation files</file-matcher>
+      <file-matcher glob="**/llm-workflows/**/*">Language model workflow files</file-matcher>
+      <file-matcher glob="**/graph-ai/**/*">Graph-based AI reasoning files</file-matcher>
+      <file-matcher glob="**/*langgraph*">LangGraph-related files throughout the application</file-matcher>
+      <action-matcher action="ai-workflows">Triggered when working with LangGraph AI workflows and agent development</action-matcher>
+    </applies-to>
+  </meta>
+  <requirements>
+    <non-negotiable priority="critical">
+      <description>Use LangGraph with proper graph design patterns, state management, error handling, tool integration, and production-ready deployment patterns. Implement comprehensive monitoring, cost optimization, safety measures, and performance optimization with proper agent workflow orchestration and conversation management.</description>
+      <examples>
+        <example title="Production LangGraph AI Agent Implementation">
+          <correct-example title="Comprehensive AI agent with graph workflows and monitoring" conditions="Building production AI agents with LangGraph" expected-result="Robust, scalable AI agent system" correctness-criteria="Graph design, state management, error handling, monitoring, cost optimization, safety measures"><![CDATA[// TypeScript - Comprehensive LangGraph AI agent implementation
+import { StateGraph, END, START } from '@langchain/langgraph';
+import { BaseMessage, HumanMessage, AIMessage, SystemMessage } from '@langchain/core/messages';
+import { ChatOpenAI } from '@langchain/openai';
+import { Tool } from '@langchain/core/tools';
+import { createLogger } from 'winston';
+import { Counter, Histogram, Gauge, register } from 'prom-client';
+import { z } from 'zod';
+
+// State management schemas
+const AgentState = z.object({
+  messages: z.array(z.any()),
+  user_id: z.string(),
+  session_id: z.string(),
+  context: z.record(z.any()).default({}),
+  tools_used: z.array(z.string()).default([]),
+  step_count: z.number().default(0),
+  total_tokens: z.number().default(0),
+  cost_estimate: z.number().default(0),
+  safety_flags: z.array(z.string()).default([]),
+  metadata: z.record(z.any()).default({}),
+  timestamp: z.number().default(() => Date.now()),
+});
+
+type AgentStateType = z.infer<typeof AgentState>;
+
+// Configuration interfaces
+interface LangGraphConfig {
+  llm: {
+    model: string;
+    temperature: number;
+    maxTokens: number;
+    timeout: number;
+    apiKey: string;
+  };
+  safety: {
+    enableContentFilter: boolean;
+    maxStepsPerSession: number;
+    maxTokensPerSession: number;
+    allowedDomains: string[];
+    blockedTerms: string[];
+  };
+  monitoring: {
+    enableMetrics: boolean;
+    enableTracing: boolean;
+    logLevel: string;
+  };
+  tools: {
+    enabled: string[];
+    timeouts: Record<string, number>;
+    retries: Record<string, number>;
+  };
+}
+
+interface ConversationFlow {
+  name: string;
+  description: string;
+  entryPoint: string;
+  nodes: FlowNode[];
+  edges: FlowEdge[];
+  conditions: Record<string, (state: AgentStateType) => boolean>;
+}
+
+interface FlowNode {
+  id: string;
+  type: 'llm' | 'tool' | 'human' | 'condition' | 'transform';
+  config: Record<string, any>;
+  fallback?: string;
+  timeout?: number;
+}
+
+interface FlowEdge {
+  from: string;
+  to: string;
+  condition?: string;
+  weight?: number;
+}
+
+// Metrics interface
+interface LangGraphMetrics {
+  conversationStarts: Counter<string>;
+  messageProcessed: Counter<string>;
+  toolCalls: Counter<string>;
+  conversationLatency: Histogram<string>;
+  activeConversations: Gauge<string>;
+  tokenUsage: Counter<string>;
+  costAccumulator: Counter<string>;
+  safetyViolations: Counter<string>;
+}
+
+// Custom tools implementation
+class WebSearchTool extends Tool {
+  name = 'web_search';
+  description = 'Search the web for current information';
+
+  async _call(query: string): Promise<string> {
+    try {
+      // Implement web search logic
+      const results = await this.performWebSearch(query);
+      return JSON.stringify(results);
+    } catch (error) {
+      throw new Error(`Web search failed: ${error.message}`);
+    }
+  }
+
+  private async performWebSearch(query: string): Promise<any> {
+    // Implementation details
+    return { results: [], query };
+  }
+}
+
+class DatabaseQueryTool extends Tool {
+  name = 'database_query';
+  description = 'Query the database for specific information';
+
+  async _call(query: string): Promise<string> {
+    try {
+      // Implement database query logic with proper sanitization
+      const results = await this.executeDatabaseQuery(query);
+      return JSON.stringify(results);
+    } catch (error) {
+      throw new Error(`Database query failed: ${error.message}`);
+    }
+  }
+
+  private async executeDatabaseQuery(query: string): Promise<any> {
+    // Implementation with SQL injection protection
+    return { results: [], query };
+  }
+}
+
+class CalculatorTool extends Tool {
+  name = 'calculator';
+  description = 'Perform mathematical calculations';
+
+  async _call(expression: string): Promise<string> {
+    try {
+      // Secure mathematical expression evaluation
+      const result = this.evaluateExpression(expression);
+      return result.toString();
+    } catch (error) {
+      throw new Error(`Calculation failed: ${error.message}`);
+    }
+  }
+
+  private evaluateExpression(expression: string): number {
+    // Safe mathematical evaluation implementation
+    return eval(expression); // In production, use a safe expression evaluator
+  }
+}
+
+// Main LangGraph agent implementation
+class LangGraphAgent {
+  private graph: StateGraph<AgentStateType>;
+  private llm: ChatOpenAI;
+  private tools: Tool[];
+  private logger = createLogger({ level: 'info' });
+  private metrics: LangGraphMetrics;
+  private activeConversations = new Map<string, any>();
+
+  constructor(private config: LangGraphConfig) {
+    this.initializeMetrics();
+    this.initializeLLM();
+    this.initializeTools();
+    this.buildGraph();
+  }
+
+  private initializeMetrics(): void {
+    this.metrics = {
+      conversationStarts: new Counter({
+        name: 'langgraph_conversations_started_total',
+        help: 'Total number of conversations started',
+        labelNames: ['flow_type', 'user_type'],
+      }),
+      messageProcessed: new Counter({
+        name: 'langgraph_messages_processed_total',
+        help: 'Total number of messages processed',
+        labelNames: ['message_type', 'flow_name', 'status'],
+      }),
+      toolCalls: new Counter({
+        name: 'langgraph_tool_calls_total',
+        help: 'Total number of tool calls',
+        labelNames: ['tool_name', 'status'],
+      }),
+      conversationLatency: new Histogram({
+        name: 'langgraph_conversation_duration_seconds',
+        help: 'Conversation duration in seconds',
+        labelNames: ['flow_name', 'completion_type'],
+        buckets: [0.1, 0.5, 1, 2, 5, 10, 30, 60],
+      }),
+      activeConversations: new Gauge({
+        name: 'langgraph_active_conversations',
+        help: 'Number of active conversations',
+      }),
+      tokenUsage: new Counter({
+        name: 'langgraph_tokens_used_total',
+        help: 'Total tokens used',
+        labelNames: ['model', 'type'],
+      }),
+      costAccumulator: new Counter({
+        name: 'langgraph_cost_total',
+        help: 'Total cost incurred',
+        labelNames: ['model', 'operation'],
+      }),
+      safetyViolations: new Counter({
+        name: 'langgraph_safety_violations_total',
+        help: 'Total safety violations detected',
+        labelNames: ['violation_type', 'severity'],
+      }),
+    };
+
+    Object.values(this.metrics).forEach(metric => register.registerMetric(metric));
+  }
+
+  private initializeLLM(): void {
+    this.llm = new ChatOpenAI({
+      modelName: this.config.llm.model,
+      temperature: this.config.llm.temperature,
+      maxTokens: this.config.llm.maxTokens,
+      timeout: this.config.llm.timeout,
+      openAIApiKey: this.config.llm.apiKey,
+      streaming: true,
+      callbacks: [
+        {
+          handleLLMStart: () => {
+            this.logger.debug('LLM call started');
+          },
+          handleLLMEnd: (output) => {
+            const tokens = output.llmOutput?.tokenUsage;
+            if (tokens) {
+              this.metrics.tokenUsage.inc(
+                { model: this.config.llm.model, type: 'prompt' },
+                tokens.promptTokens
+              );
+              this.metrics.tokenUsage.inc(
+                { model: this.config.llm.model, type: 'completion' },
+                tokens.completionTokens
+              );
+            }
+          },
+          handleLLMError: (error) => {
+            this.logger.error('LLM call failed', error);
+          },
+        },
+      ],
+    });
+  }
+
+  private initializeTools(): void {
+    this.tools = [
+      new WebSearchTool(),
+      new DatabaseQueryTool(),
+      new CalculatorTool(),
+    ].filter(tool => this.config.tools.enabled.includes(tool.name));
+  }
+
+  private buildGraph(): void {
+    // Create the graph with proper state management
+    this.graph = new StateGraph<AgentStateType>({
+      channels: {
+        messages: { reducer: (left, right) => left.concat(right) },
+        user_id: { default: () => '' },
+        session_id: { default: () => '' },
+        context: { default: () => ({}) },
+        tools_used: { reducer: (left, right) => left.concat(right) },
+        step_count: { default: () => 0 },
+        total_tokens: { default: () => 0 },
+        cost_estimate: { default: () => 0 },
+        safety_flags: { reducer: (left, right) => left.concat(right) },
+        metadata: { default: () => ({}) },
+        timestamp: { default: () => Date.now() },
+      },
+    });
+
+    // Add nodes to the graph
+    this.graph.addNode('input_validation', this.validateInput.bind(this));
+    this.graph.addNode('safety_check', this.safetyCheck.bind(this));
+    this.graph.addNode('intent_classification', this.classifyIntent.bind(this));
+    this.graph.addNode('context_retrieval', this.retrieveContext.bind(this));
+    this.graph.addNode('llm_reasoning', this.llmReasoning.bind(this));
+    this.graph.addNode('tool_selection', this.selectTools.bind(this));
+    this.graph.addNode('tool_execution', this.executeTools.bind(this));
+    this.graph.addNode('response_generation', this.generateResponse.bind(this));
+    this.graph.addNode('output_validation', this.validateOutput.bind(this));
+    this.graph.addNode('conversation_end', this.endConversation.bind(this));
+
+    // Define the conversation flow
+    this.graph.addEdge(START, 'input_validation');
+    this.graph.addEdge('input_validation', 'safety_check');
+    this.graph.addEdge('safety_check', 'intent_classification');
+    this.graph.addEdge('intent_classification', 'context_retrieval');
+    this.graph.addEdge('context_retrieval', 'llm_reasoning');
+    
+    // Conditional edges for tool usage
+    this.graph.addConditionalEdges(
+      'llm_reasoning',
+      this.shouldUseTool.bind(this),
+      {
+        'use_tool': 'tool_selection',
+        'generate_response': 'response_generation',
+      }
+    );
+    
+    this.graph.addEdge('tool_selection', 'tool_execution');
+    this.graph.addEdge('tool_execution', 'llm_reasoning'); // Loop back for reasoning
+    this.graph.addEdge('response_generation', 'output_validation');
+    
+    // Conditional ending
+    this.graph.addConditionalEdges(
+      'output_validation',
+      this.shouldContinue.bind(this),
+      {
+        'continue': 'input_validation',
+        'end': 'conversation_end',
+      }
+    );
+    
+    this.graph.addEdge('conversation_end', END);
+
+    // Compile the graph
+    this.graph = this.graph.compile({
+      checkpointer: this.createCheckpointer(),
+    });
+  }
+
+  // Graph node implementations
+  private async validateInput(state: AgentStateType): Promise<Partial<AgentStateType>> {
+    const startTime = Date.now();
+    
+    try {
+      const lastMessage = state.messages[state.messages.length - 1];
+      
+      // Validate message format and content
+      if (!lastMessage || !lastMessage.content) {
+        throw new Error('Invalid message format');
+      }
+
+      // Check message length
+      if (lastMessage.content.length > 10000) {
+        throw new Error('Message too long');
+      }
+
+      // Update step count and timestamp
+      const updatedState = {
+        step_count: state.step_count + 1,
+        timestamp: Date.now(),
+      };
+
+      const latency = (Date.now() - startTime) / 1000;
+      this.metrics.messageProcessed.inc({ 
+        message_type: 'input', 
+        flow_name: 'validation', 
+        status: 'success' 
+      });
+
+      this.logger.debug('Input validation completed', {
+        session_id: state.session_id,
+        step_count: updatedState.step_count,
+        latency,
+      });
+
+      return updatedState;
+
+    } catch (error) {
+      this.metrics.messageProcessed.inc({ 
+        message_type: 'input', 
+        flow_name: 'validation', 
+        status: 'error' 
+      });
+      
+      this.logger.error('Input validation failed', {
+        session_id: state.session_id,
+        error: error.message,
+      });
+      
+      throw error;
+    }
+  }
+
+  private async safetyCheck(state: AgentStateType): Promise<Partial<AgentStateType>> {
+    const startTime = Date.now();
+    
+    try {
+      const lastMessage = state.messages[state.messages.length - 1];
+      const content = lastMessage.content.toLowerCase();
+      const safetyFlags: string[] = [];
+
+      // Check for blocked terms
+      for (const term of this.config.safety.blockedTerms) {
+        if (content.includes(term.toLowerCase())) {
+          safetyFlags.push(`blocked_term:${term}`);
+        }
+      }
+
+      // Check session limits
+      if (state.step_count >= this.config.safety.maxStepsPerSession) {
+        safetyFlags.push('max_steps_exceeded');
+      }
+
+      if (state.total_tokens >= this.config.safety.maxTokensPerSession) {
+        safetyFlags.push('max_tokens_exceeded');
+      }
+
+      // Record safety violations
+      if (safetyFlags.length > 0) {
+        safetyFlags.forEach(flag => {
+          this.metrics.safetyViolations.inc({ 
+            violation_type: flag.split(':')[0], 
+            severity: 'high' 
+          });
+        });
+      }
+
+      const latency = (Date.now() - startTime) / 1000;
+      this.logger.debug('Safety check completed', {
+        session_id: state.session_id,
+        safety_flags: safetyFlags,
+        latency,
+      });
+
+      return {
+        safety_flags: safetyFlags,
+      };
+
+    } catch (error) {
+      this.logger.error('Safety check failed', {
+        session_id: state.session_id,
+        error: error.message,
+      });
+      
+      throw error;
+    }
+  }
+
+  private async classifyIntent(state: AgentStateType): Promise<Partial<AgentStateType>> {
+    const startTime = Date.now();
+    
+    try {
+      const lastMessage = state.messages[state.messages.length - 1];
+      
+      // Use LLM for intent classification
+      const classificationPrompt = new SystemMessage(`
+        Classify the user's intent from the following message. Return one of:
+        - information_seeking
+        - task_execution
+        - conversation
+        - help_request
+        - complaint
+        
+        Message: ${lastMessage.content}
+      `);
+
+      const response = await this.llm.invoke([classificationPrompt]);
+      const intent = response.content.toString().trim().toLowerCase();
+
+      const latency = (Date.now() - startTime) / 1000;
+      this.logger.debug('Intent classification completed', {
+        session_id: state.session_id,
+        intent,
+        latency,
+      });
+
+      return {
+        context: {
+          ...state.context,
+          intent,
+          classification_timestamp: Date.now(),
+        },
+      };
+
+    } catch (error) {
+      this.logger.error('Intent classification failed', {
+        session_id: state.session_id,
+        error: error.message,
+      });
+      
+      // Default intent on failure
+      return {
+        context: {
+          ...state.context,
+          intent: 'conversation',
+        },
+      };
+    }
+  }
+
+  private async retrieveContext(state: AgentStateType): Promise<Partial<AgentStateType>> {
+    // Implement context retrieval logic (RAG, memory, etc.)
+    return {
+      context: {
+        ...state.context,
+        retrieved_at: Date.now(),
+      },
+    };
+  }
+
+  private async llmReasoning(state: AgentStateType): Promise<Partial<AgentStateType>> {
+    const startTime = Date.now();
+    
+    try {
+      const systemPrompt = new SystemMessage(`
+        You are a helpful AI assistant. You have access to the following tools:
+        ${this.tools.map(tool => `- ${tool.name}: ${tool.description}`).join('\n')}
+        
+        Current context: ${JSON.stringify(state.context)}
+        
+        Respond thoughtfully and use tools when appropriate.
+      `);
+
+      const messages = [systemPrompt, ...state.messages];
+      const response = await this.llm.invoke(messages);
+
+      const latency = (Date.now() - startTime) / 1000;
+      this.logger.debug('LLM reasoning completed', {
+        session_id: state.session_id,
+        latency,
+      });
+
+      return {
+        messages: [response],
+        metadata: {
+          ...state.metadata,
+          last_reasoning_time: latency,
+        },
+      };
+
+    } catch (error) {
+      this.logger.error('LLM reasoning failed', {
+        session_id: state.session_id,
+        error: error.message,
+      });
+      
+      throw error;
+    }
+  }
+
+  private async selectTools(state: AgentStateType): Promise<Partial<AgentStateType>> {
+    // Tool selection logic based on LLM output and context
+    const selectedTools = [];
+    
+    // Analyze the last AI message for tool usage indicators
+    const lastMessage = state.messages[state.messages.length - 1];
+    
+    for (const tool of this.tools) {
+      if (lastMessage.content.includes(tool.name) || 
+          this.shouldUseTool({ tool: tool.name, context: state.context })) {
+        selectedTools.push(tool.name);
+      }
+    }
+
+    return {
+      context: {
+        ...state.context,
+        selected_tools: selectedTools,
+      },
+    };
+  }
+
+  private async executeTools(state: AgentStateType): Promise<Partial<AgentStateType>> {
+    const startTime = Date.now();
+    const toolResults: Record<string, any> = {};
+    const toolsUsed: string[] = [];
+
+    try {
+      const selectedTools = state.context.selected_tools || [];
+      
+      for (const toolName of selectedTools) {
+        const tool = this.tools.find(t => t.name === toolName);
+        if (!tool) continue;
+
+        try {
+          const toolStartTime = Date.now();
+          
+          // Extract tool input from context or LLM response
+          const toolInput = this.extractToolInput(toolName, state);
+          const result = await tool._call(toolInput);
+          
+          toolResults[toolName] = result;
+          toolsUsed.push(toolName);
+          
+          const toolLatency = (Date.now() - toolStartTime) / 1000;
+          this.metrics.toolCalls.inc({ tool_name: toolName, status: 'success' });
+          
+          this.logger.debug('Tool executed successfully', {
+            session_id: state.session_id,
+            tool_name: toolName,
+            latency: toolLatency,
+          });
+
+        } catch (error) {
+          this.metrics.toolCalls.inc({ tool_name: toolName, status: 'error' });
+          
+          this.logger.error('Tool execution failed', {
+            session_id: state.session_id,
+            tool_name: toolName,
+            error: error.message,
+          });
+          
+          toolResults[toolName] = { error: error.message };
+        }
+      }
+
+      const totalLatency = (Date.now() - startTime) / 1000;
+      
+      return {
+        tools_used: toolsUsed,
+        context: {
+          ...state.context,
+          tool_results: toolResults,
+          tool_execution_time: totalLatency,
+        },
+      };
+
+    } catch (error) {
+      this.logger.error('Tool execution phase failed', {
+        session_id: state.session_id,
+        error: error.message,
+      });
+      
+      throw error;
+    }
+  }
+
+  private async generateResponse(state: AgentStateType): Promise<Partial<AgentStateType>> {
+    // Generate final response based on reasoning and tool results
+    const toolResults = state.context.tool_results || {};
+    
+    if (Object.keys(toolResults).length > 0) {
+      const toolSummary = Object.entries(toolResults)
+        .map(([tool, result]) => `${tool}: ${JSON.stringify(result)}`)
+        .join('\n');
+      
+      const responsePrompt = new SystemMessage(`
+        Based on the tool results, provide a helpful response to the user:
+        ${toolSummary}
+      `);
+
+      const response = await this.llm.invoke([responsePrompt, ...state.messages]);
+      
+      return {
+        messages: [response],
+      };
+    }
+
+    // Return the existing LLM response if no tools were used
+    return {};
+  }
+
+  private async validateOutput(state: AgentStateType): Promise<Partial<AgentStateType>> {
+    // Validate the final output for safety and quality
+    const lastMessage = state.messages[state.messages.length - 1];
+    
+    // Basic output validation
+    if (!lastMessage || !lastMessage.content) {
+      throw new Error('Invalid output generated');
+    }
+
+    return {
+      metadata: {
+        ...state.metadata,
+        output_validated: true,
+        validation_timestamp: Date.now(),
+      },
+    };
+  }
+
+  private async endConversation(state: AgentStateType): Promise<Partial<AgentStateType>> {
+    // Clean up and finalize conversation
+    this.activeConversations.delete(state.session_id);
+    this.metrics.activeConversations.set(this.activeConversations.size);
+
+    this.logger.info('Conversation ended', {
+      session_id: state.session_id,
+      total_steps: state.step_count,
+      tools_used: state.tools_used,
+      total_tokens: state.total_tokens,
+    });
+
+    return {
+      metadata: {
+        ...state.metadata,
+        conversation_ended: true,
+        end_timestamp: Date.now(),
+      },
+    };
+  }
+
+  // Helper methods
+  private shouldUseTool(state: AgentStateType): string {
+    const lastMessage = state.messages[state.messages.length - 1];
+    
+    // Check if the AI message indicates tool usage
+    const toolIndicators = ['search', 'calculate', 'query', 'lookup'];
+    const content = lastMessage.content.toLowerCase();
+    
+    for (const indicator of toolIndicators) {
+      if (content.includes(indicator)) {
+        return 'use_tool';
+      }
+    }
+    
+    return 'generate_response';
+  }
+
+  private shouldContinue(state: AgentStateType): string {
+    // Check if conversation should continue
+    if (state.step_count >= this.config.safety.maxStepsPerSession) {
+      return 'end';
+    }
+    
+    if (state.safety_flags.length > 0) {
+      return 'end';
+    }
+    
+    // Check if this was a final response
+    const lastMessage = state.messages[state.messages.length - 1];
+    if (lastMessage.content.includes('goodbye') || lastMessage.content.includes('end')) {
+      return 'end';
+    }
+    
+    return 'continue';
+  }
+
+  private extractToolInput(toolName: string, state: AgentStateType): string {
+    // Extract appropriate input for the tool from the conversation context
+    const lastMessage = state.messages[state.messages.length - 1];
+    return lastMessage.content; // Simplified - implement proper extraction logic
+  }
+
+  private createCheckpointer() {
+    // Implement state checkpointing for conversation persistence
+    return {
+      get: async (threadId: string) => {
+        // Retrieve saved state
+        return null;
+      },
+      put: async (threadId: string, state: AgentStateType) => {
+        // Save state
+      },
+    };
+  }
+
+  // Public interface
+  async processMessage(
+    message: string, 
+    userId: string, 
+    sessionId: string,
+    context: Record<string, any> = {}
+  ): Promise<{ response: string; metadata: any }> {
+    const startTime = Date.now();
+    
+    try {
+      this.activeConversations.set(sessionId, { started: Date.now() });
+      this.metrics.activeConversations.set(this.activeConversations.size);
+      this.metrics.conversationStarts.inc({ flow_type: 'standard', user_type: 'user' });
+
+      const initialState: AgentStateType = {
+        messages: [new HumanMessage(message)],
+        user_id: userId,
+        session_id: sessionId,
+        context,
+        tools_used: [],
+        step_count: 0,
+        total_tokens: 0,
+        cost_estimate: 0,
+        safety_flags: [],
+        metadata: {},
+        timestamp: Date.now(),
+      };
+
+      const result = await this.graph.invoke(initialState, {
+        configurable: { thread_id: sessionId },
+      });
+
+      const latency = (Date.now() - startTime) / 1000;
+      this.metrics.conversationLatency.observe(
+        { flow_name: 'standard', completion_type: 'success' },
+        latency
+      );
+
+      const lastMessage = result.messages[result.messages.length - 1];
+      
+      return {
+        response: lastMessage.content,
+        metadata: {
+          session_id: sessionId,
+          tools_used: result.tools_used,
+          step_count: result.step_count,
+          safety_flags: result.safety_flags,
+          latency,
+        },
+      };
+
+    } catch (error) {
+      const latency = (Date.now() - startTime) / 1000;
+      this.metrics.conversationLatency.observe(
+        { flow_name: 'standard', completion_type: 'error' },
+        latency
+      );
+
+      this.logger.error('Message processing failed', {
+        session_id: sessionId,
+        user_id: userId,
+        error: error.message,
+        latency,
+      });
+
+      throw error;
+    }
+  }
+
+  // Health check and statistics
+  getStats(): any {
+    return {
+      activeConversations: this.activeConversations.size,
+      toolsEnabled: this.tools.map(t => t.name),
+      safetyEnabled: this.config.safety.enableContentFilter,
+      model: this.config.llm.model,
+    };
+  }
+}
+
+// Usage example
+const langGraphConfig: LangGraphConfig = {
+  llm: {
+    model: 'gpt-4',
+    temperature: 0.7,
+    maxTokens: 2000,
+    timeout: 30000,
+    apiKey: process.env.OPENAI_API_KEY!,
+  },
+  safety: {
+    enableContentFilter: true,
+    maxStepsPerSession: 50,
+    maxTokensPerSession: 100000,
+    allowedDomains: ['example.com'],
+    blockedTerms: ['harmful', 'dangerous'],
+  },
+  monitoring: {
+    enableMetrics: true,
+    enableTracing: true,
+    logLevel: 'info',
+  },
+  tools: {
+    enabled: ['web_search', 'calculator', 'database_query'],
+    timeouts: {
+      web_search: 10000,
+      calculator: 1000,
+      database_query: 5000,
+    },
+    retries: {
+      web_search: 2,
+      calculator: 1,
+      database_query: 3,
+    },
+  },
+};
+
+export { LangGraphAgent, LangGraphConfig, AgentStateType };]]></correct-example>
+          <incorrect-example title="Basic LangGraph implementation without production features" conditions="Building AI agents with LangGraph" expected-result="Production-ready AI agent system" incorrectness-criteria="Basic implementation only, no error handling, no monitoring, no safety measures, poor state management"><![CDATA[// Basic LangGraph without production features
+import { StateGraph } from '@langchain/langgraph';
+import { ChatOpenAI } from '@langchain/openai';
+
+const llm = new ChatOpenAI();
+
+const graph = new StateGraph({
+  channels: {
+    messages: { default: () => [] },
+  },
+});
+
+graph.addNode('llm_call', async (state) => {
+  const response = await llm.invoke(state.messages);
+  return { messages: [response] };
+});
+
+graph.addEdge('__start__', 'llm_call');
+graph.addEdge('llm_call', '__end__');
+
+const app = graph.compile();
+
+// Bad: No error handling
+// Bad: No state validation
+// Bad: No safety checks
+// Bad: No monitoring
+// Bad: No cost tracking
+// Bad: No tool integration
+// Bad: No conversation management]]></incorrect-example>
+        </example>
+      </examples>
+    </non-negotiable>
+  </requirements>
+  <context description="LangGraph language model graph framework best practices">
+    LangGraph is a framework for building stateful, multi-actor applications with language models by modeling them as graphs. Modern LangGraph development emphasizes proper graph design patterns, state management, error handling, and production deployment for reliable AI agent systems.
+
+    Key principles for LangGraph implementation include:
+    - Graph-based workflow design with proper state management and flow control
+    - AI agent orchestration with tool integration and conversation management
+    - Safety measures with content filtering, rate limiting, and monitoring
+    - Error handling with fallback mechanisms and graceful degradation
+    - Cost optimization with token tracking and model usage monitoring
+    - Production deployment with checkpointing, persistence, and scalability
+
+    LangGraph security emphasizes input validation, output filtering, safety checks, and proper access controls for AI agent interactions. All agent workflows should include comprehensive error handling and safety measures.
+
+    Performance optimization involves efficient state management, tool caching, conversation persistence, and proper resource allocation for handling multiple concurrent agent interactions.
+
+    Production deployments require monitoring integration, cost tracking, conversation analytics, and proper scaling strategies for handling enterprise-level AI agent workloads.
+
+    Modern AI agent development with LangGraph enables complex reasoning workflows, multi-step problem solving, tool integration, and sophisticated conversation management for advanced AI applications.
+  </context>
+  <references>
+    <reference as="dependency" href=".cursor/rules/000-core/002-cursor-rules-creation.mdc" reason="Follows standard rule format">Base rule format definition</reference>
+    <reference as="context" href="https://langchain-ai.github.io/langgraph/" reason="Official LangGraph documentation">LangGraph Documentation</reference>
+    <reference as="context" href="https://python.langchain.com/docs/langgraph" reason="LangGraph Python documentation">LangGraph Python Guide</reference>
+    <reference as="context" href="https://langchain-ai.github.io/langgraphjs/" reason="LangGraph JavaScript documentation">LangGraph JavaScript Guide</reference>
+  </references>
+</rule>

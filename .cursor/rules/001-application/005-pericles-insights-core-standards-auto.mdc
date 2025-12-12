@@ -1,0 +1,120 @@
+---
+description: "Pericles Insights provides country and sector risk analytics, trend dashboards, and drill-through paths from Atlas and Events, built on the Admin Portal stack and conventions."
+globs: "*"
+alwaysApply: true
+---
+
+<rule>
+  <meta>
+    <title>Pericles Insights Core Standards</title>
+    <description>Comprehensive product, technical, and UI/UX standards for the Pericles Insights feature. Insights provides country and sector risk analytics, trend dashboards, and drill-through paths from Atlas and Events, built on the Admin Portal stack and conventions.</description>
+    <created-at utc-timestamp="1756320000">August 27, 2025, 00:00 UTC</created-at>
+    <last-updated-at utc-timestamp="1756320000">August 27, 2025, 00:00 UTC</last-updated-at>
+    <applies-to>
+      <file-matcher glob="*">All files related to Pericles Insights feature (UI, API, data types, tests)</file-matcher>
+      <action-matcher action="insights-development">All development activities for the Insights feature</action-matcher>
+      <action-matcher action="insights-ui">All UI/UX work for Insights dashboards, filters, and drill-through</action-matcher>
+    </applies-to>
+  </meta>
+
+  <requirements>
+    <non-negotiable priority="critical">
+      <description>Insights must surface organization-scoped risk analytics by default with clear country/sector drill-downs, trend analysis, and seamless navigation from Atlas and Events; only tenant data is visible unless an explicit global context is selected and authorized.</description>
+    </non-negotiable>
+
+    <non-negotiable priority="critical">
+      <description>Follow Admin Portal and Atlas core standards: TypeScript strict mode, React 19 functional components with hooks, Tailwind CSS, Vite, Prisma with Neon for production, JWT auth with role-based access, and comprehensive audit logging.</description>
+    </non-negotiable>
+
+    <requirement priority="high">
+      <description>Navigation and context: all entries from Atlas or Events carry context (country, incidentId, tags) to Insights; breadcrumbs and back navigation must restore the originating context.</description>
+    </requirement>
+
+    <requirement priority="high">
+      <description>Performance: charts and tables must remain smooth at 60 FPS interactions; apply virtualization, memoization, and debounced queries (≥300ms) with efficient pagination and indexed queries.</description>
+    </requirement>
+
+    <requirement priority="high">
+      <description>Security and tenancy: enforce tenant isolation on all queries; log analytics views, exports, and filter changes with user, timestamp, and scope.</description>
+    </requirement>
+
+    <requirement priority="medium">
+      <description>Accessibility: charts, filters, and tables meet WCAG 2.1 AA; provide ARIA labels, keyboard navigation, and sufficient contrast for all visual encodings.</description>
+    </requirement>
+  </requirements>
+
+  <context description="Insights specification (Vision, Plans, Business Requirements, Features, Technical, UI/UX, Acceptance)">
+<![CDATA[
+### Vision
+- Deliver trustworthy, actionable country and sector risk analytics that inform decisions on supply chain, strategy, and operations.
+- Serve as the analytical destination from Atlas and Events with consistent navigation and context retention.
+- Provide transparent scoring and methodology, defensible in audits and executive reviews.
+
+### Plans
+- Near-term (v1): Country risk overview, sector risk panels, trend lines (12–24 months), filterable tables, CSV export, deep links from Atlas/Events.
+- Mid-term (v2): Comparative benchmarking (countries, sectors, suppliers), saved views/watchlists, alerting for threshold breaches.
+- Long-term (v3): Scenario analysis, forecasting, custom weighted models per organization, API access for BI tools.
+
+### Business Requirements
+#### Goals and Objectives
+- Enable users to quickly understand risk by country/sector and identify trends and outliers.
+- Support decisions with drill-through evidence: events, impacted shipments/suppliers, plans status.
+- Ensure consistent role-based access and tenant isolation.
+
+#### User Stories
+1. As an Analyst, I can filter Insights by country, sector, date range, and severity to focus analysis.
+2. As a Manager, I can compare two countries across multiple indicators and export results for review.
+3. As an Executive, I can view a KPI summary with trend direction and confidence and drill into details.
+4. As a Planner, I can navigate from an incident in Atlas to the affected country’s Insights view with context preserved.
+
+#### Details
+- Provide clear indicator definitions, update cadence, and data provenance notes.
+- Persist filters in URL params for sharable deep links (respecting permissions).
+- Record audit logs for view, export, and threshold configuration events.
+
+### Product Features
+#### Core
+1. Country Risk Overview: composite score with sub-scores (political, economic, environmental, security, logistics).
+2. Sector Panels: key sectors with risk deltas and drivers, clickable to detail.
+3. Trends: 12–24 month lines with annotations for major events and plan activations.
+4. Filters: country, sector, date range, severity, tag, and indicator toggles with debounced apply.
+5. Drill-through: to Events, Atlas, and Plans with context (ids, filters) preserved.
+6. Exports: CSV for tables and PNG for charts; include metadata footer (timestamp, filters).
+7. Saved Deep Links: URL-based state for consistent sharing inside the tenant.
+
+#### Premium
+1. Scenario Analysis: user-defined shocks with projected risk deltas and confidence bands.
+2. Forecasting: 3–6 month indicator forecasts with model explainability summaries.
+3. Custom Models: organization-weighted composite scoring and governance workflows.
+4. Benchmarks: multi-country and sector benchmarking with configurable cohorts.
+
+### Technical Requirements
+- TypeScript 5.8 strict; React 19; Tailwind; Vite build.
+- API: Vercel functions with JWT auth; Prisma 6.12 with Neon (production) and Docker Postgres (local).
+- Data: indexed queries for country, sector, date; pagination for tables; caching where safe; exponential backoff on failures.
+- Observability: audit logs for views/exports; basic metrics for query latency and error rates.
+- Testing: Playwright E2E (mobile/desktop) with accessibility scans; critical tests must pass pre-deploy.
+
+### UI/UX Design Requirements
+- Layout: left KPI summary, main charts, right contextual details (events, shipments/suppliers, plans status).
+- Components: responsive cards, accessible filter bar, virtualized tables, accessible chart legends/tooltips.
+- Visuals: consistent color scales for severity; dark/light theme support; clear empty/error/loading states.
+- Navigation: breadcrumbs and back-to-origin; deep links preserve filter state.
+
+### Acceptance Criteria
+- Default tenant-scoped Insights loads under 2s P95 with cached warm path; interactions remain smooth.
+- Filters update results with ≥300ms debounce and show explicit loading states; URLs reflect state.
+- Drill-through from Atlas/Events retains context and is audited; unauthorized access is prevented.
+- Exports include metadata (filters, timestamp); accessibility checks show no WCAG 2.1 AA violations.
+- Tests: all critical E2E for Insights pass in CI; accessibility violations = 0; type checks clean.
+]]>
+  </context>
+
+  <references>
+    <reference as="dependency" href=".cursor/rules/000-core/002-cursor-rules-creation.mdc" reason="Follows standard rule format and YAML frontmatter placement">Cursor rule creation standards</reference>
+    <reference as="dependency" href=".cursor/rules/000-core/003-pericles-admin-portal-core-standards-auto.mdc" reason="Reuse stack, security, and design system conventions">Admin Portal core standards</reference>
+    <reference as="dependency" href=".cursor/rules/000-core/004-pericles-atlas-core-standards-auto.mdc" reason="Navigation and data context integration">Atlas core standards</reference>
+    <reference as="dependency" href=".cursor/rules/300-languages/307-typescript-core-standards-auto.mdc" reason="TypeScript strict-mode best practices">TypeScript standards</reference>
+    <reference as="dependency" href=".cursor/rules/403-tailwind-core-standards-auto.mdc" reason="Design system and styling">Tailwind standards</reference>
+  </references>
+</rule>

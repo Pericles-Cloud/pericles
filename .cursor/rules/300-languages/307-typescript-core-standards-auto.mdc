@@ -1,0 +1,218 @@
+---
+description: A comprehensive set of best practices and coding standards for TypeScript development.
+globs: ["*.{ts,tsx}"]
+alwaysApply: false
+---
+<rule>
+  <meta>
+    <title>TypeScript Best Practices and Coding Standards</title>
+    <description>This document outlines best practices and coding standards for developing TypeScript applications. Following these guidelines will help ensure code quality, maintainability, and scalability.</description>
+    <created-at utc-timestamp="1715860800">May 16, 2024, 12:00 PM UTC</created-at>
+    <last-updated-at utc-timestamp="1715862600">May 16, 2024, 12:30 PM UTC</last-updated-at>
+    <applies-to>
+      <file-matcher glob="*.{ts,tsx}">All TypeScript and TypeScript React files.</file-matcher>
+    </applies-to>
+  </meta>
+  <requirements>
+    <!-- Section 1: Code Organization and Structure -->
+    <requirement priority="medium">
+      <description>Organize code by feature or type for better maintainability. Consistency is key.</description>
+      <examples>
+        <example title="Directory Structures">
+          <correct-example title="Feature-based structure"><![CDATA[
+// Good: Group files by feature.
+src/
+├── feature1/
+│   ├── components/
+│   └── services/
+└── shared/
+    ├── components/
+    └── services/
+]]></correct-example>
+          <correct-example title="Type-based structure"><![CDATA[
+// Also good: Group files by type.
+src/
+├── components/
+│   ├── Feature1Component.tsx
+│   └── Feature2Component.tsx
+├── services/
+│   ├── feature1.service.ts
+│   └── feature2.service.ts
+]]></correct-example>
+        </example>
+      </examples>
+    </requirement>
+    <requirement priority="high">
+        <description>Follow consistent file naming conventions. E.g., `ComponentName.tsx`, `serviceName.service.ts`.</description>
+        <examples>
+            <example title="File Naming">
+                <correct-example title="Component Naming"><![CDATA[// MyComponent.tsx]]></correct-example>
+                <correct-example title="Service Naming"><![CDATA[// data.service.ts]]></correct-example>
+                <incorrect-example title="Inconsistent Naming"><![CDATA[// my-component.ts
+// DataService.ts]]></incorrect-example>
+            </example>
+        </examples>
+    </requirement>
+    <requirement priority="high">
+        <description>Use ES Modules (import/export) and favor named exports over default exports for clarity and easier refactoring.</description>
+        <examples>
+            <example title="Module Exports">
+                <correct-example title="Named Export"><![CDATA[
+// utils.ts
+export const util1 = () => {};
+export const util2 = () => {};
+
+// main.ts
+import { util1, util2 } from './utils';
+]]></correct-example>
+                <incorrect-example title="Default Export"><![CDATA[
+// utils.ts
+// Avoid default exports for objects with multiple properties.
+export default { util1: () => {}, util2: () => {} };
+]]></incorrect-example>
+            </example>
+        </examples>
+    </requirement>
+
+    <!-- Section 2: Common Patterns and Anti-patterns -->
+    <non-negotiable priority="critical">
+        <description>Avoid using the `any` type. Use specific types, generics, or `unknown` instead to maintain type safety.</description>
+        <examples>
+            <example title="Usage of 'any'">
+                <correct-example title="Using a specific type"><![CDATA[
+function processData(data: { id: number; name: string }) { /* ... */ }
+]]></correct-example>
+                 <correct-example title="Using 'unknown' for safety"><![CDATA[
+function processData(data: unknown) {
+  if (typeof data === 'string') {
+    // a type guard is required to use the variable
+    console.log(data.toUpperCase());
+  }
+}
+]]></correct-example>
+                <incorrect-example title="Overusing 'any'"><![CDATA[
+// This defeats the purpose of TypeScript.
+function processData(data: any) { 
+    console.log(data.toUpperCase()); // No type checking, potential runtime error.
+}
+]]></incorrect-example>
+            </example>
+        </examples>
+    </non-negotiable>
+    <requirement priority="medium">
+        <description>Break down long functions into smaller, single-responsibility functions.</description>
+    </requirement>
+    <requirement priority="medium">
+        <description>Use constants for magic numbers and strings to improve readability and maintainability.</description>
+        <examples>
+            <example title="Magic Numbers/Strings">
+                <correct-example title="Using constants"><![CDATA[
+const MAX_RETRIES = 3;
+for (let i = 0; i < MAX_RETRIES; i++) { /* ... */ }
+]]></correct-example>
+                <incorrect-example title="Using magic number"><![CDATA[
+for (let i = 0; i < 3; i++) { /* '3' is a magic number with no clear meaning. */ }
+]]></incorrect-example>
+            </example>
+        </examples>
+    </requirement>
+    <non-negotiable priority="critical">
+        <description>Always handle errors gracefully. Do not use empty catch blocks, as this can hide critical issues.</description>
+         <examples>
+            <example title="Error Handling">
+                <correct-example title="Proper error handling"><![CDATA[
+try {
+  mightThrowError();
+} catch (error) {
+  console.error('An error occurred:', error);
+  // Potentially re-throw, or handle gracefully by showing a message to the user.
+}
+]]></correct-example>
+                <incorrect-example title="Ignoring errors"><![CDATA[
+try {
+  mightThrowError();
+} catch (error) {
+  // This empty catch block swallows the error, making debugging difficult.
+}
+]]></incorrect-example>
+            </example>
+        </examples>
+    </non-negotiable>
+
+    <!-- Section 3: Performance Considerations -->
+    <requirement priority="medium">
+      <description>Use memoization (e.g., React.memo, useMemo) to prevent unnecessary computations and re-renders in UI applications.</description>
+    </requirement>
+    <requirement priority="medium">
+      <description>Implement lazy loading for modules and components that are not immediately needed using dynamic imports.</description>
+      <examples>
+          <example title="Lazy Loading">
+              <correct-example title="Dynamic Import in React"><![CDATA[
+import React, { Suspense } from 'react';
+
+const MyComponent = React.lazy(() => import('./MyComponent'));
+
+function App() {
+  return (
+    <div>
+      <Suspense fallback={<div>Loading...</div>}>
+        <MyComponent />
+      </Suspense>
+    </div>
+  );
+}
+]]></correct-example>
+          </example>
+      </examples>
+    </requirement>
+
+    <!-- Section 4: Security Best Practices -->
+    <non-negotiable priority="critical">
+      <description>Sanitize user input and escape output to prevent Cross-Site Scripting (XSS) attacks.</description>
+    </non-negotiable>
+    <non-negotiable priority="critical">
+      <description>Use parameterized queries or ORMs to prevent SQL injection attacks in backend TypeScript code.</description>
+    </non-negotiable>
+    <non-negotiable priority="critical">
+      <description>Validate all user input on both the client and server sides.</description>
+    </non-negotiable>
+    
+    <!-- Section 5: Testing Approaches -->
+    <requirement priority="high">
+        <description>Write unit tests for individual functions and components, testing edge cases and error conditions.</description>
+    </requirement>
+    <requirement priority="medium">
+        <description>Use integration tests to verify that different parts of the application work together correctly.</description>
+    </requirement>
+    
+    <!-- Section 6: Common Pitfalls and Gotchas -->
+    <requirement priority="high">
+        <description>Handle asynchronous operations correctly using Promises and async/await syntax, including proper error handling.</description>
+    </requirement>
+    
+    <!-- Section 7: Tooling and Environment -->
+    <requirement priority="high">
+        <description>Use a linter (like ESLint) and a formatter (like Prettier) to enforce consistent code style and catch issues early.</description>
+    </requirement>
+    <requirement priority="high">
+        <description>Configure the TypeScript compiler via `tsconfig.json`, enabling `strict` mode and other strict checks to leverage TypeScript's full potential.</description>
+        <examples>
+            <example title="tsconfig.json">
+                <correct-example title="Strict configuration"><![CDATA[
+{
+  "compilerOptions": {
+    "strict": true,
+    "noImplicitAny": true,
+    "strictNullChecks": true,
+    "forceConsistentCasingInFileNames": true
+  }
+}
+]]></correct-example>
+            </example>
+        </examples>
+    </requirement>
+  </requirements>
+  <references>
+    <reference as="dependency" href=".cursor/rules/rules.mdc" reason="Follows standard rule format">Base rule format definition</reference>
+  </references>
+</rule>

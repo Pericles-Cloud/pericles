@@ -1,0 +1,594 @@
+---
+description: CSV2JSON utility best practices for CSV to JSON data transformation with TypeScript and error handling
+globs: "*.{ts,js,json,csv}"
+alwaysApply: false
+---
+
+<rule>
+  <meta>
+    <title>CSV2JSON Core Standards Auto</title>
+    <description>CSV2JSON utility best practices for CSV to JSON data transformation with TypeScript and error handling</description>
+    <created-at utc-timestamp="1744165400">July 16, 2025, 5:43 PM</created-at>
+    <last-updated-at utc-timestamp="1744165400">July 16, 2025, 5:43 PM</last-updated-at>
+    <applies-to>
+      <file-matcher glob="*.{ts,js,json,csv}">TypeScript/JavaScript files handling CSV to JSON conversion</file-matcher>
+      <action-matcher action="csv-json-conversion">Triggered when converting CSV data to JSON format</action-matcher>
+    </applies-to>
+  </meta>
+  <requirements>
+    <non-negotiable priority="critical">
+      <description>Use TypeScript interfaces for CSV schema definition and JSON output validation. Implement proper error handling for malformed CSV data and encoding issues.</description>
+      <examples>
+        <example title="Type-Safe CSV to JSON Conversion">
+          <correct-example title="Comprehensive CSV2JSON with TypeScript" conditions="Converting CSV data to JSON with validation" expected-result="Type-safe conversion with error handling" correctness-criteria="Uses TypeScript interfaces, validates data, handles errors, supports custom configurations"><![CDATA[// types/csv.ts
+export interface CSVRow {
+  [key: string]: string | number | boolean | null;
+}
+
+export interface CSVConversionConfig {
+  delimiter?: string;
+  quote?: string;
+  escape?: string;
+  skipEmptyLines?: boolean;
+  trimFields?: boolean;
+  headers?: string[] | boolean;
+  encoding?: 'utf8' | 'utf16le' | 'latin1';
+  maxRows?: number;
+}
+
+export interface ConversionResult<T = CSVRow> {
+  data: T[];
+  errors: ConversionError[];
+  metadata: {
+    totalRows: number;
+    skippedRows: number;
+    headers: string[];
+    processingTime: number;
+  };
+}
+
+export interface ConversionError {
+  row: number;
+  column?: string;
+  message: string;
+  data?: string;
+}
+
+// utils/csv2json.ts
+import fs from 'fs/promises';
+import { createReadStream } from 'fs';
+import { parse } from 'csv-parse';
+import { z } from 'zod';
+
+export class CSV2JSONConverter<T extends CSVRow = CSVRow> {
+  private config: Required<CSVConversionConfig>;
+  private schema?: z.ZodSchema<T>;
+
+  constructor(
+    config: CSVConversionConfig = {},
+    schema?: z.ZodSchema<T>
+  ) {
+    this.config = {
+      delimiter: ',',
+      quote: '"',
+      escape: '"',
+      skipEmptyLines: true,
+      trimFields: true,
+      headers: true,
+      encoding: 'utf8',
+      maxRows: Infinity,
+      ...config,
+    };
+    this.schema = schema;
+  }
+
+  async convertFile(filePath: string): Promise<ConversionResult<T>> {
+    const startTime = Date.now();
+    const errors: ConversionError[] = [];
+    const data: T[] = [];
+    let headers: string[] = [];
+    let totalRows = 0;
+    let skippedRows = 0;
+
+    try {
+      const fileStats = await fs.stat(filePath);
+      if (fileStats.size === 0) {
+        throw new Error('CSV file is empty');
+      }
+
+      return new Promise((resolve, reject) => {
+        const stream = createReadStream(filePath, { encoding: this.config.encoding });
+        
+        const parser = parse({
+          delimiter: this.config.delimiter,
+          quote: this.config.quote,
+          escape: this.config.escape,
+          skip_empty_lines: this.config.skipEmptyLines,
+          trim: this.config.trimFields,
+          columns: this.config.headers,
+          cast: (value, context) => {
+            // Type casting with validation
+            if (value === '' || value === null) return null;
+            
+            // Try to parse numbers
+            if (!isNaN(Number(value)) && value.trim() !== '') {
+              return Number(value);
+            }
+            
+            // Try to parse booleans
+            if (value.toLowerCase() === 'true') return true;
+            if (value.toLowerCase() === 'false') return false;
+            
+            return value;
+          },
+        });
+
+        parser.on('headers', (headerList) => {
+          headers = headerList;
+        });
+
+        parser.on('data', (row) => {
+          totalRows++;
+          
+          if (totalRows > this.config.maxRows) {
+            parser.end();
+            return;
+          }
+
+          try {
+            // Validate against schema if provided
+            if (this.schema) {
+              const validatedRow = this.schema.parse(row);
+              data.push(validatedRow);
+            } else {
+              data.push(row as T);
+            }
+          } catch (error) {
+            skippedRows++;
+            errors.push({
+              row: totalRows,
+              message: error instanceof Error ? error.message : 'Validation failed',
+              data: JSON.stringify(row),
+            });
+          }
+        });
+
+        parser.on('error', (error) => {
+          errors.push({
+            row: totalRows,
+            message: error.message,
+          });
+        });
+
+        parser.on('end', () => {
+          const processingTime = Date.now() - startTime;
+          
+          resolve({
+            data,
+            errors,
+            metadata: {
+              totalRows,
+              skippedRows,
+              headers,
+              processingTime,
+            },
+          });
+        });
+
+        stream.pipe(parser);
+      });
+    } catch (error) {
+      throw new Error(
+        `Failed to process CSV file: ${error instanceof Error ? error.message : 'Unknown error'}`
+      );
+    }
+  }
+
+  async convertString(csvString: string): Promise<ConversionResult<T>> {
+    const startTime = Date.now();
+    const errors: ConversionError[] = [];
+    const data: T[] = [];
+    let headers: string[] = [];
+    let totalRows = 0;
+    let skippedRows = 0;
+
+    return new Promise((resolve, reject) => {
+      const parser = parse(csvString, {
+        delimiter: this.config.delimiter,
+        quote: this.config.quote,
+        escape: this.config.escape,
+        skip_empty_lines: this.config.skipEmptyLines,
+        trim: this.config.trimFields,
+        columns: this.config.headers,
+      });
+
+      parser.on('readable', function() {
+        let row;
+        while (row = parser.read()) {
+          totalRows++;
+          
+          if (totalRows === 1 && this.config.headers === true) {
+            headers = Object.keys(row);
+          }
+
+          try {
+            if (this.schema) {
+              const validatedRow = this.schema.parse(row);
+              data.push(validatedRow);
+            } else {
+              data.push(row as T);
+            }
+          } catch (error) {
+            skippedRows++;
+            errors.push({
+              row: totalRows,
+              message: error instanceof Error ? error.message : 'Validation failed',
+              data: JSON.stringify(row),
+            });
+          }
+        }
+      });
+
+      parser.on('error', (error) => {
+        reject(new Error(`CSV parsing error: ${error.message}`));
+      });
+
+      parser.on('end', () => {
+        const processingTime = Date.now() - startTime;
+        
+        resolve({
+          data,
+          errors,
+          metadata: {
+            totalRows,
+            skippedRows,
+            headers,
+            processingTime,
+          },
+        });
+      });
+    });
+  }
+
+  async saveJSON(data: ConversionResult<T>, outputPath: string): Promise<void> {
+    try {
+      const jsonOutput = {
+        data: data.data,
+        metadata: data.metadata,
+        errors: data.errors.length > 0 ? data.errors : undefined,
+      };
+
+      await fs.writeFile(
+        outputPath,
+        JSON.stringify(jsonOutput, null, 2),
+        'utf8'
+      );
+    } catch (error) {
+      throw new Error(
+        `Failed to save JSON file: ${error instanceof Error ? error.message : 'Unknown error'}`
+      );
+    }
+  }
+}
+
+// Example usage
+const userSchema = z.object({
+  id: z.number(),
+  name: z.string().min(1),
+  email: z.string().email(),
+  age: z.number().min(0).max(150),
+  active: z.boolean(),
+});
+
+type User = z.infer<typeof userSchema>;
+
+export const convertUsersCSV = async (filePath: string) => {
+  const converter = new CSV2JSONConverter<User>({
+    delimiter: ',',
+    skipEmptyLines: true,
+    maxRows: 10000,
+  }, userSchema);
+
+  try {
+    const result = await converter.convertFile(filePath);
+    
+    console.log(`Converted ${result.data.length} users successfully`);
+    if (result.errors.length > 0) {
+      console.warn(`${result.errors.length} rows had errors`);
+      result.errors.forEach(error => {
+        console.error(`Row ${error.row}: ${error.message}`);
+      });
+    }
+
+    await converter.saveJSON(result, 'output/users.json');
+    return result;
+  } catch (error) {
+    console.error('Conversion failed:', error);
+    throw error;
+  }
+};]]></correct-example>
+          <incorrect-example title="Basic CSV conversion without validation" conditions="Converting CSV data to JSON with validation" expected-result="Type-safe conversion with error handling" incorrectness-criteria="No TypeScript types, missing error handling, no validation"><![CDATA[// Bad: No TypeScript, no error handling
+const fs = require('fs');
+
+function convertCSV(filePath) {
+  const csv = fs.readFileSync(filePath, 'utf8'); // Synchronous, no encoding
+  const lines = csv.split('\n'); // Basic string splitting
+  const result = [];
+  
+  for (let i = 1; i < lines.length; i++) {
+    const values = lines[i].split(','); // No proper CSV parsing
+    result.push({
+      col1: values[0], // Hard-coded column mapping
+      col2: values[1],
+      col3: values[2]
+    });
+  }
+  
+  return result; // No error information
+}
+
+// No validation
+// No type safety
+// Poor error handling
+// No configuration options]]></incorrect-example>
+        </example>
+      </examples>
+    </non-negotiable>
+    <requirement priority="high">
+      <description>Implement streaming processing for large CSV files to manage memory usage efficiently. Support both file-based and string-based conversion with progress tracking.</description>
+      <examples>
+        <example title="Streaming CSV Processing">
+          <correct-example title="Memory-efficient streaming conversion" conditions="Processing large CSV files" expected-result="Efficient memory usage with progress tracking" correctness-criteria="Uses streaming, progress callbacks, memory management, batch processing"><![CDATA[// utils/streamingCSV2JSON.ts
+import { Transform, Readable } from 'stream';
+import { pipeline } from 'stream/promises';
+
+export interface ProgressCallback {
+  (progress: {
+    rowsProcessed: number;
+    rowsValid: number;
+    rowsInvalid: number;
+    bytesProcessed: number;
+    estimatedTotal?: number;
+  }): void;
+}
+
+export class StreamingCSV2JSONConverter<T extends CSVRow = CSVRow> {
+  private batchSize: number;
+  private progressCallback?: ProgressCallback;
+
+  constructor(
+    config: CSVConversionConfig = {},
+    schema?: z.ZodSchema<T>,
+    options: {
+      batchSize?: number;
+      progressCallback?: ProgressCallback;
+    } = {}
+  ) {
+    this.batchSize = options.batchSize || 1000;
+    this.progressCallback = options.progressCallback;
+  }
+
+  async *processCSVStream(
+    inputStream: Readable
+  ): AsyncGenerator<T[], void, unknown> {
+    let batch: T[] = [];
+    let rowsProcessed = 0;
+    let rowsValid = 0;
+    let rowsInvalid = 0;
+    let bytesProcessed = 0;
+
+    const parser = parse({
+      delimiter: this.config.delimiter,
+      quote: this.config.quote,
+      columns: this.config.headers,
+      skip_empty_lines: this.config.skipEmptyLines,
+    });
+
+    try {
+      await pipeline(
+        inputStream,
+        parser,
+        new Transform({
+          objectMode: true,
+          transform: (row, encoding, callback) => {
+            rowsProcessed++;
+            bytesProcessed += JSON.stringify(row).length;
+
+            try {
+              if (this.schema) {
+                const validatedRow = this.schema.parse(row);
+                batch.push(validatedRow);
+                rowsValid++;
+              } else {
+                batch.push(row as T);
+                rowsValid++;
+              }
+            } catch (error) {
+              rowsInvalid++;
+              // Log error but continue processing
+              console.warn(`Row ${rowsProcessed} validation failed:`, error.message);
+            }
+
+            // Report progress
+            if (this.progressCallback && rowsProcessed % 100 === 0) {
+              this.progressCallback({
+                rowsProcessed,
+                rowsValid,
+                rowsInvalid,
+                bytesProcessed,
+              });
+            }
+
+            // Yield batch when full
+            if (batch.length >= this.batchSize) {
+              this.push({ batch: [...batch] });
+              batch = [];
+            }
+
+            callback();
+          },
+          flush: (callback) => {
+            // Yield remaining items
+            if (batch.length > 0) {
+              this.push({ batch });
+            }
+            callback();
+          }
+        })
+      );
+
+      // Process in batches
+      const transform = new Transform({
+        objectMode: true,
+        transform: function(chunk, encoding, callback) {
+          this.push(chunk.batch);
+          callback();
+        }
+      });
+
+      for await (const batch of transform) {
+        yield batch;
+      }
+
+    } catch (error) {
+      throw new Error(`Streaming conversion failed: ${error.message}`);
+    }
+  }
+
+  async convertLargeFile(
+    inputPath: string,
+    outputPath: string,
+    options: {
+      chunkSize?: number;
+      maxMemoryUsage?: number; // in MB
+    } = {}
+  ): Promise<ConversionResult<T>> {
+    const startTime = Date.now();
+    const errors: ConversionError[] = [];
+    let totalRows = 0;
+    let validRows = 0;
+    const headers: string[] = [];
+
+    const inputStream = createReadStream(inputPath, {
+      encoding: this.config.encoding,
+      highWaterMark: options.chunkSize || 64 * 1024, // 64KB chunks
+    });
+
+    const outputStream = createWriteStream(outputPath, { encoding: 'utf8' });
+    outputStream.write('{"data":[\n');
+
+    let isFirstBatch = true;
+
+    try {
+      for await (const batch of this.processCSVStream(inputStream)) {
+        totalRows += batch.length;
+        validRows += batch.length;
+
+        // Write batch to output
+        for (const [index, row] of batch.entries()) {
+          if (!isFirstBatch || index > 0) {
+            outputStream.write(',\n');
+          }
+          outputStream.write(JSON.stringify(row, null, 2));
+        }
+
+        isFirstBatch = false;
+
+        // Memory management - force garbage collection if available
+        if (global.gc && totalRows % 10000 === 0) {
+          global.gc();
+        }
+      }
+
+      outputStream.write('\n]}');
+      outputStream.end();
+
+      const processingTime = Date.now() - startTime;
+
+      return {
+        data: [], // Data is streamed to file, not kept in memory
+        errors,
+        metadata: {
+          totalRows,
+          skippedRows: totalRows - validRows,
+          headers,
+          processingTime,
+        },
+      };
+
+    } catch (error) {
+      outputStream.destroy();
+      throw error;
+    }
+  }
+}
+
+// Usage example
+export const processLargeCSVFile = async (inputPath: string, outputPath: string) => {
+  const converter = new StreamingCSV2JSONConverter({
+    delimiter: ',',
+    headers: true,
+    skipEmptyLines: true,
+  }, undefined, {
+    batchSize: 5000,
+    progressCallback: (progress) => {
+      console.log(`Processed ${progress.rowsProcessed} rows, ${progress.rowsValid} valid`);
+    },
+  });
+
+  try {
+    const result = await converter.convertLargeFile(inputPath, outputPath, {
+      chunkSize: 128 * 1024, // 128KB chunks
+      maxMemoryUsage: 100, // 100MB max
+    });
+
+    console.log(`Conversion completed in ${result.metadata.processingTime}ms`);
+    return result;
+  } catch (error) {
+    console.error('Large file conversion failed:', error);
+    throw error;
+  }
+};]]></correct-example>
+          <incorrect-example title="Loading entire file into memory" conditions="Processing large CSV files" expected-result="Efficient memory usage with progress tracking" incorrectness-criteria="Loads all data into memory, no streaming, no progress tracking"><![CDATA[// Bad: Loading entire file into memory
+const fs = require('fs');
+
+function convertLargeCSV(filePath) {
+  const csv = fs.readFileSync(filePath, 'utf8'); // Loads entire file
+  const lines = csv.split('\n'); // Creates large array
+  const result = [];
+  
+  for (const line of lines) { // No batching
+    result.push(processLine(line)); // Keeps everything in memory
+  }
+  
+  return result; // Huge memory usage for large files
+}
+
+// No progress tracking
+// No memory management
+// No streaming
+// Will crash on large files]]></incorrect-example>
+        </example>
+      </examples>
+    </requirement>
+  </requirements>
+  <context description="CSV2JSON conversion considerations">
+    CSV2JSON conversion involves transforming comma-separated values data into JavaScript Object Notation format. This process requires careful handling of various CSV dialects, encoding issues, data validation, and performance considerations for large datasets.
+
+    Key considerations:
+    - CSV format variations (delimiters, quotes, escape characters)
+    - Data type inference and validation
+    - Memory management for large files
+    - Error handling and data quality reporting
+    - Unicode and encoding support
+    - Performance optimization through streaming
+
+    Modern applications often require real-time conversion with validation against schemas, making TypeScript integration and proper error handling essential for production use.
+  </context>
+  <references>
+    <reference as="dependency" href=".cursor/rules/000-core/002-cursor-rules-creation.mdc" reason="Follows standard rule format">Base rule format definition</reference>
+    <reference as="context" href="https://www.npmjs.com/package/csv-parse" reason="CSV parsing library">CSV Parse library documentation</reference>
+    <reference as="context" href="https://datatracker.ietf.org/doc/html/rfc4180" reason="CSV format specification">RFC 4180 CSV format specification</reference>
+  </references>
+</rule>
+ 

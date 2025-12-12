@@ -1,0 +1,2369 @@
+---
+description: "Comprehensive Python testing conventions with pytest, advanced testing patterns, mocking, coverage, and professional testing strategies following expert best practices and Python testing community standards"
+globs: ["**/test*.py", "**/conftest.py", "**/*_test.py", "**/tests/**/*.py", "**/pytest.ini", "**/pyproject.toml", "**/.coveragerc", "**/tox.ini"]
+alwaysApply: false
+---
+
+<rule>
+  <meta>
+    <title>Python Testing Conventions</title>
+    <description>Comprehensive Python testing conventions with pytest, advanced testing patterns, mocking, coverage, and professional testing strategies following expert best practices and Python testing community standards</description>
+    <created-at utc-timestamp="1744245220">January 27, 2025, 11:40 AM</created-at>
+    <last-updated-at utc-timestamp="1744245220">January 27, 2025, 11:40 AM</last-updated-at>
+    <applies-to>
+      <file-matcher glob="**/test*.py">Python test files</file-matcher>
+      <file-matcher glob="**/conftest.py">Pytest configuration and fixtures</file-matcher>
+      <file-matcher glob="**/*_test.py">Alternative test file naming pattern</file-matcher>
+      <file-matcher glob="**/tests/**/*.py">Test modules in tests directory</file-matcher>
+      <file-matcher glob="**/pytest.ini">Pytest configuration files</file-matcher>
+      <file-matcher glob="**/pyproject.toml">Project configuration with pytest settings</file-matcher>
+      <file-matcher glob="**/.coveragerc">Coverage configuration</file-matcher>
+      <file-matcher glob="**/tox.ini">Multi-environment testing configuration</file-matcher>
+      <action-matcher action="python-testing">Triggered when writing or configuring Python tests</action-matcher>
+    </applies-to>
+  </meta>
+
+  <requirements>
+    <non-negotiable priority="critical">
+      <description>Use pytest as the primary testing framework with proper test organization, fixtures, parametrization, and advanced testing patterns following the project structure defined in python-core-project-rules.mdc.</description>
+      <examples>
+        <example title="Comprehensive Test Organization and Structure">
+          <correct-example title="Professional test organization with pytest best practices" conditions="Organizing Python tests" expected-result="Well-structured, maintainable test suite with proper organization" correctness-criteria="Follows python-core-project-rules.mdc structure, uses pytest fixtures, proper test organization, comprehensive coverage">"""
+Test Organization Structure (following python-core-project-rules.mdc):
+
+my_project/
+├── src/
+│   └── my_package/
+│       ├── __init__.py
+│       ├── core/
+│       │   ├── models.py
+│       │   └── services.py
+│       └── api/
+│           ├── routes.py
+│           └── middleware.py
+├── tests/
+│   ├── __init__.py
+│   ├── conftest.py                    # Global fixtures and configuration
+│   ├── unit/                          # Unit tests mirror src/ structure
+│   │   ├── __init__.py
+│   │   ├── conftest.py               # Unit-specific fixtures
+│   │   ├── core/
+│   │   │   ├── __init__.py
+│   │   │   ├── test_models.py
+│   │   │   └── test_services.py
+│   │   └── api/
+│   │       ├── __init__.py
+│   │       ├── test_routes.py
+│   │       └── test_middleware.py
+│   ├── integration/                   # Integration tests
+│   │   ├── __init__.py
+│   │   ├── conftest.py               # Integration-specific fixtures
+│   │   ├── test_api_endpoints.py
+│   │   ├── test_database_integration.py
+│   │   └── test_external_services.py
+│   ├── functional/                    # End-to-end functional tests
+│   │   ├── __init__.py
+│   │   ├── conftest.py
+│   │   └── test_user_workflows.py
+│   ├── performance/                   # Performance and load tests
+│   │   ├── __init__.py
+│   │   ├── conftest.py
+│   │   └── test_load_performance.py
+│   └── fixtures/                      # Test data and fixture files
+│       ├── data/
+│       │   ├── sample_users.json
+│       │   └── test_configs.yml
+│       └── factories.py
+└── pyproject.toml                     # Includes pytest configuration
+"""
+
+# conftest.py - Global test configuration
+import pytest
+import asyncio
+import tempfile
+import shutil
+from pathlib import Path
+from unittest.mock import Mock, AsyncMock
+from typing import Generator, AsyncGenerator, Dict, Any
+
+import httpx
+from sqlalchemy import create_engine
+from sqlalchemy.orm import sessionmaker
+from fastapi.testclient import TestClient
+
+from my_package.core.models import Base, User
+from my_package.core.services import UserService, EmailService
+from my_package.api.routes import app
+from my_package.core.config import Settings
+
+
+# Pytest configuration
+def pytest_configure(config):
+    """Configure pytest with custom markers and settings."""
+    config.addinivalue_line(
+        "markers", "unit: marks tests as unit tests (fast, isolated)"
+    )
+    config.addinivalue_line(
+        "markers", "integration: marks tests as integration tests (slower, with dependencies)"
+    )
+    config.addinivalue_line(
+        "markers", "functional: marks tests as functional/e2e tests (slowest, full system)"
+    )
+    config.addinivalue_line(
+        "markers", "slow: marks tests as slow running"
+    )
+    config.addinivalue_line(
+        "markers", "external: marks tests that require external services"
+    )
+
+
+def pytest_collection_modifyitems(config, items):
+    """Auto-mark tests based on location and add skip conditions."""
+    for item in items:
+        # Auto-mark based on test location
+        if "unit" in str(item.fspath):
+            item.add_marker(pytest.mark.unit)
+        elif "integration" in str(item.fspath):
+            item.add_marker(pytest.mark.integration)
+        elif "functional" in str(item.fspath):
+            item.add_marker(pytest.mark.functional)
+        
+        # Auto-mark external tests
+        if "external" in item.name or hasattr(item, "external"):
+            item.add_marker(pytest.mark.external)
+
+
+# Event loop fixture for async tests
+@pytest.fixture(scope="session")
+def event_loop():
+    """Create an instance of the default event loop for the test session."""
+    loop = asyncio.get_event_loop_policy().new_event_loop()
+    yield loop
+    loop.close()
+
+
+# Database fixtures
+@pytest.fixture(scope="session")
+def db_engine():
+    """Create a test database engine."""
+    engine = create_engine(
+        "sqlite:///:memory:",
+        echo=False,
+        connect_args={"check_same_thread": False}
+    )
+    Base.metadata.create_all(engine)
+    yield engine
+    engine.dispose()
+
+
+@pytest.fixture(scope="function")
+def db_session(db_engine):
+    """Create a fresh database session for each test."""
+    connection = db_engine.connect()
+    transaction = connection.begin()
+    Session = sessionmaker(bind=connection)
+    session = Session()
+    
+    yield session
+    
+    session.close()
+    transaction.rollback()
+    connection.close()
+
+
+# Configuration fixtures
+@pytest.fixture
+def test_settings() -> Settings:
+    """Provide test-specific settings."""
+    return Settings(
+        database_url="sqlite:///:memory:",
+        redis_url="redis://localhost:6379/1",
+        environment="testing",
+        debug=True,
+        secret_key="test-secret-key-not-for-production",
+        email_backend="console"
+    )
+
+
+@pytest.fixture
+def temp_dir() -> Generator[Path, None, None]:
+    """Provide a temporary directory that's cleaned up after the test."""
+    temp_path = Path(tempfile.mkdtemp())
+    yield temp_path
+    shutil.rmtree(temp_path)
+
+
+# HTTP client fixtures
+@pytest.fixture
+def client(test_settings) -> TestClient:
+    """Provide a FastAPI test client."""
+    app.dependency_overrides[get_settings] = lambda: test_settings
+    with TestClient(app) as client:
+        yield client
+    app.dependency_overrides.clear()
+
+
+@pytest.fixture
+async def async_client(test_settings) -> AsyncGenerator[httpx.AsyncClient, None]:
+    """Provide an async HTTP client for testing."""
+    app.dependency_overrides[get_settings] = lambda: test_settings
+    async with httpx.AsyncClient(app=app, base_url="http://test") as client:
+        yield client
+    app.dependency_overrides.clear()
+
+
+# Mock fixtures
+@pytest.fixture
+def mock_email_service() -> Mock:
+    """Provide a mocked email service."""
+    mock_service = Mock(spec=EmailService)
+    mock_service.send_email.return_value = True
+    mock_service.send_bulk_email.return_value = {"sent": 10, "failed": 0}
+    return mock_service
+
+
+@pytest.fixture
+async def mock_async_service() -> AsyncMock:
+    """Provide a mocked async service."""
+    mock_service = AsyncMock()
+    mock_service.process_data.return_value = {"status": "success", "data": {}}
+    return mock_service
+
+
+# Data fixtures using factories
+@pytest.fixture
+def user_factory():
+    """Factory for creating test users."""
+    def _create_user(**kwargs):
+        defaults = {
+            "username": "testuser",
+            "email": "test@example.com",
+            "full_name": "Test User",
+            "is_active": True,
+            "is_superuser": False
+        }
+        defaults.update(kwargs)
+        return User(**defaults)
+    return _create_user
+
+
+@pytest.fixture
+def sample_users_data() -> List[Dict[str, Any]]:
+    """Provide sample user data for testing."""
+    return [
+        {
+            "username": "alice",
+            "email": "alice@example.com",
+            "full_name": "Alice Smith",
+            "is_active": True
+        },
+        {
+            "username": "bob", 
+            "email": "bob@example.com",
+            "full_name": "Bob Jones",
+            "is_active": False
+        }
+    ]
+
+
+# tests/unit/core/test_models.py - Example unit test
+import pytest
+from datetime import datetime, timedelta
+from sqlalchemy.exc import IntegrityError
+
+from my_package.core.models import User, UserRole
+from my_package.core.exceptions import ValidationError
+
+
+class TestUserModel:
+    """Test the User model with comprehensive coverage."""
+    
+    def test_user_creation_with_valid_data(self, user_factory):
+        """Test creating a user with valid data."""
+        user = user_factory(
+            username="validuser",
+            email="valid@example.com",
+            full_name="Valid User"
+        )
+        
+        assert user.username == "validuser"
+        assert user.email == "valid@example.com"
+        assert user.full_name == "Valid User"
+        assert user.is_active is True
+        assert user.is_superuser is False
+        assert user.created_at is not None
+    
+    @pytest.mark.parametrize("invalid_email", [
+        "invalid-email",
+        "@example.com",
+        "user@",
+        "user@.com",
+        "",
+        None
+    ])
+    def test_user_creation_with_invalid_email(self, user_factory, invalid_email):
+        """Test user creation fails with invalid email formats."""
+        with pytest.raises(ValidationError, match="Invalid email format"):
+            user_factory(email=invalid_email)
+    
+    @pytest.mark.parametrize("username,expected_valid", [
+        ("validuser", True),
+        ("user123", True),
+        ("user_name", True),
+        ("user-name", True),
+        ("us", False),  # Too short
+        ("u" * 51, False),  # Too long
+        ("user@name", False),  # Invalid character
+        ("", False),  # Empty
+        (None, False)  # None
+    ])
+    def test_username_validation(self, user_factory, username, expected_valid):
+        """Test username validation with various inputs."""
+        if expected_valid:
+            user = user_factory(username=username)
+            assert user.username == username
+        else:
+            with pytest.raises(ValidationError):
+                user_factory(username=username)
+    
+    def test_user_password_hashing(self, user_factory):
+        """Test that passwords are properly hashed."""
+        user = user_factory()
+        plain_password = "securepassword123"
+        
+        user.set_password(plain_password)
+        
+        assert user.password_hash != plain_password
+        assert user.verify_password(plain_password) is True
+        assert user.verify_password("wrongpassword") is False
+    
+    def test_user_role_assignment(self, user_factory, db_session):
+        """Test assigning roles to users."""
+        user = user_factory()
+        admin_role = UserRole(name="admin", description="Administrator")
+        
+        db_session.add(user)
+        db_session.add(admin_role)
+        db_session.commit()
+        
+        user.add_role(admin_role)
+        db_session.commit()
+        
+        assert admin_role in user.roles
+        assert user.has_role("admin") is True
+        assert user.has_role("user") is False
+    
+    def test_user_soft_delete(self, user_factory, db_session):
+        """Test soft deletion of users."""
+        user = user_factory()
+        db_session.add(user)
+        db_session.commit()
+        
+        user.soft_delete()
+        db_session.commit()
+        
+        assert user.is_active is False
+        assert user.deleted_at is not None
+        assert user.deleted_at <= datetime.utcnow()
+    
+    def test_unique_username_constraint(self, user_factory, db_session):
+        """Test that usernames must be unique."""
+        user1 = user_factory(username="duplicate")
+        user2 = user_factory(username="duplicate", email="different@example.com")
+        
+        db_session.add(user1)
+        db_session.commit()
+        
+        db_session.add(user2)
+        with pytest.raises(IntegrityError):
+            db_session.commit()
+
+
+# tests/unit/core/test_services.py - Example service test with mocking
+import pytest
+from unittest.mock import Mock, patch, call
+from datetime import datetime
+
+from my_package.core.services import UserService, EmailService
+from my_package.core.models import User
+from my_package.core.exceptions import UserNotFoundError, EmailDeliveryError
+
+
+class TestUserService:
+    """Test the UserService with comprehensive mocking."""
+    
+    @pytest.fixture
+    def user_service(self, db_session, mock_email_service):
+        """Create a UserService instance with mocked dependencies."""
+        return UserService(
+            db_session=db_session,
+            email_service=mock_email_service
+        )
+    
+    def test_create_user_success(self, user_service, mock_email_service):
+        """Test successful user creation with welcome email."""
+        user_data = {
+            "username": "newuser",
+            "email": "newuser@example.com",
+            "full_name": "New User",
+            "password": "securepassword123"
+        }
+        
+        user = user_service.create_user(**user_data)
+        
+        assert user.username == "newuser"
+        assert user.email == "newuser@example.com"
+        assert user.verify_password("securepassword123") is True
+        
+        # Verify welcome email was sent
+        mock_email_service.send_email.assert_called_once_with(
+            to=user_data["email"],
+            subject="Welcome to Our Platform",
+            template="welcome",
+            context={"user": user}
+        )
+    
+    def test_create_user_email_failure_rollback(self, user_service, mock_email_service, db_session):
+        """Test user creation rollback when welcome email fails."""
+        mock_email_service.send_email.side_effect = EmailDeliveryError("SMTP connection failed")
+        
+        user_data = {
+            "username": "failuser",
+            "email": "fail@example.com",
+            "password": "password123"
+        }
+        
+        with pytest.raises(EmailDeliveryError):
+            user_service.create_user(**user_data)
+        
+        # Verify user was not created due to rollback
+        assert db_session.query(User).filter_by(username="failuser").first() is None
+    
+    @pytest.mark.parametrize("search_term,expected_users", [
+        ("alice", ["alice@example.com"]),
+        ("smith", ["alice@example.com"]),  # Matches full name
+        ("bob", ["bob@example.com"]),
+        ("nonexistent", []),
+        ("", [])  # Empty search
+    ])
+    def test_search_users(self, user_service, sample_users_data, search_term, expected_users):
+        """Test user search functionality with various terms."""
+        # Setup test data
+        for user_data in sample_users_data:
+            user_service.create_user(**user_data, password="password123")
+        
+        results = user_service.search_users(search_term)
+        result_emails = [user.email for user in results]
+        
+        assert result_emails == expected_users
+    
+    @patch('my_package.core.services.send_password_reset_email')
+    def test_request_password_reset(self, mock_send_email, user_service, user_factory):
+        """Test password reset request with external email service mocking."""
+        user = user_factory()
+        user_service.db_session.add(user)
+        user_service.db_session.commit()
+        
+        token = user_service.request_password_reset(user.email)
+        
+        assert token is not None
+        assert len(token) == 32  # Assuming 32-character tokens
+        
+        # Verify email was sent with correct parameters
+        mock_send_email.assert_called_once_with(
+            email=user.email,
+            token=token,
+            user=user
+        )
+    
+    def test_bulk_user_operations(self, user_service, sample_users_data):
+        """Test bulk operations on users."""
+        # Create multiple users
+        created_users = user_service.bulk_create_users(sample_users_data)
+        
+        assert len(created_users) == len(sample_users_data)
+        
+        # Test bulk activation
+        user_ids = [user.id for user in created_users]
+        activated_count = user_service.bulk_activate_users(user_ids)
+        
+        assert activated_count == len(user_ids)
+        
+        # Verify all users are active
+        for user_id in user_ids:
+            user = user_service.get_user_by_id(user_id)
+            assert user.is_active is True
+
+
+# tests/integration/test_api_endpoints.py - Example integration test
+import pytest
+import json
+from httpx import AsyncClient
+from fastapi import status
+
+from my_package.core.models import User
+
+
+@pytest.mark.integration
+class TestUserAPIIntegration:
+    """Integration tests for user API endpoints."""
+    
+    async def test_user_registration_flow(self, async_client: AsyncClient, db_session):
+        """Test complete user registration flow."""
+        registration_data = {
+            "username": "integrationuser",
+            "email": "integration@example.com",
+            "full_name": "Integration User",
+            "password": "securepassword123",
+            "confirm_password": "securepassword123"
+        }
+        
+        # Register user
+        response = await async_client.post("/api/v1/users/register", json=registration_data)
+        
+        assert response.status_code == status.HTTP_201_CREATED
+        response_data = response.json()
+        assert response_data["username"] == registration_data["username"]
+        assert response_data["email"] == registration_data["email"]
+        assert "password" not in response_data  # Password should not be returned
+        
+        # Verify user exists in database
+        user = db_session.query(User).filter_by(username="integrationuser").first()
+        assert user is not None
+        assert user.email == registration_data["email"]
+        assert user.verify_password(registration_data["password"]) is True
+    
+    async def test_user_authentication_flow(self, async_client: AsyncClient, user_factory, db_session):
+        """Test user login and JWT token generation."""
+        # Create a test user
+        user = user_factory(username="authuser", email="auth@example.com")
+        user.set_password("password123")
+        db_session.add(user)
+        db_session.commit()
+        
+        # Attempt login
+        login_data = {
+            "username": "authuser",
+            "password": "password123"
+        }
+        
+        response = await async_client.post("/api/v1/auth/login", json=login_data)
+        
+        assert response.status_code == status.HTTP_200_OK
+        response_data = response.json()
+        assert "access_token" in response_data
+        assert "refresh_token" in response_data
+        assert response_data["token_type"] == "bearer"
+        
+        # Test accessing protected endpoint with token
+        headers = {"Authorization": f"Bearer {response_data['access_token']}"}
+        profile_response = await async_client.get("/api/v1/users/me", headers=headers)
+        
+        assert profile_response.status_code == status.HTTP_200_OK
+        profile_data = profile_response.json()
+        assert profile_data["username"] == "authuser"
+    
+    @pytest.mark.parametrize("invalid_data,expected_error", [
+        ({"username": "", "email": "test@example.com", "password": "pass123"}, "Username is required"),
+        ({"username": "test", "email": "invalid-email", "password": "pass123"}, "Invalid email format"),
+        ({"username": "test", "email": "test@example.com", "password": "123"}, "Password too short"),
+        ({"username": "test", "email": "test@example.com"}, "Password is required")
+    ])
+    async def test_user_registration_validation(self, async_client: AsyncClient, invalid_data, expected_error):
+        """Test user registration input validation."""
+        response = await async_client.post("/api/v1/users/register", json=invalid_data)
+        
+        assert response.status_code == status.HTTP_422_UNPROCESSABLE_ENTITY
+        error_data = response.json()
+        assert expected_error in str(error_data["detail"])
+
+
+# tests/functional/test_user_workflows.py - Example functional test
+import pytest
+from playwright.async_api import async_playwright, Page, BrowserContext
+
+
+@pytest.mark.functional
+@pytest.mark.slow
+class TestUserWorkflowsFunctional:
+    """End-to-end functional tests for user workflows."""
+    
+    @pytest.fixture
+    async def browser_context(self):
+        """Create a browser context for functional tests."""
+        async with async_playwright() as p:
+            browser = await p.chromium.launch(headless=True)
+            context = await browser.new_context()
+            yield context
+            await context.close()
+            await browser.close()
+    
+    @pytest.fixture
+    async def page(self, browser_context: BrowserContext):
+        """Create a page for testing."""
+        page = await browser_context.new_page()
+        yield page
+        await page.close()
+    
+    async def test_complete_user_onboarding_workflow(self, page: Page, base_url: str):
+        """Test complete user onboarding from registration to first login."""
+        # Navigate to registration page
+        await page.goto(f"{base_url}/register")
+        
+        # Fill registration form
+        await page.fill('[data-testid="username-input"]', "functionaluser")
+        await page.fill('[data-testid="email-input"]', "functional@example.com")
+        await page.fill('[data-testid="password-input"]', "securepassword123")
+        await page.fill('[data-testid="confirm-password-input"]', "securepassword123")
+        
+        # Submit registration
+        await page.click('[data-testid="register-submit"]')
+        
+        # Verify success message
+        success_message = await page.wait_for_selector('[data-testid="success-message"]')
+        assert await success_message.text_content() == "Registration successful! Please check your email."
+        
+        # Navigate to login page
+        await page.goto(f"{base_url}/login")
+        
+        # Perform login
+        await page.fill('[data-testid="username-input"]', "functionaluser")
+        await page.fill('[data-testid="password-input"]', "securepassword123")
+        await page.click('[data-testid="login-submit"]')
+        
+        # Verify successful login by checking dashboard
+        await page.wait_for_url(f"{base_url}/dashboard")
+        welcome_text = await page.wait_for_selector('[data-testid="welcome-message"]')
+        assert "Welcome, functionaluser" in await welcome_text.text_content()
+
+
+# pyproject.toml - Pytest configuration section
+[tool.pytest.ini_options]
+minversion = "7.0"
+addopts = [
+    "-ra",                    # Show extra test summary info for all except passed
+    "--strict-markers",       # Treat unregistered markers as errors
+    "--strict-config",        # Treat config issues as errors
+    "--cov=src",             # Coverage for src directory
+    "--cov-branch",          # Include branch coverage
+    "--cov-report=term-missing",  # Show missing lines in terminal
+    "--cov-report=html:htmlcov",  # Generate HTML coverage report
+    "--cov-report=xml",      # Generate XML coverage report for CI
+    "--cov-fail-under=80",   # Fail if coverage below 80%
+    "--durations=10",        # Show 10 slowest tests
+    "--tb=short",            # Shorter traceback format
+]
+testpaths = ["tests"]
+python_files = ["test_*.py", "*_test.py"]
+python_classes = ["Test*"]
+python_functions = ["test_*"]
+markers = [
+    "unit: Unit tests (fast, isolated)",
+    "integration: Integration tests (medium speed, with dependencies)", 
+    "functional: Functional/E2E tests (slow, full system)",
+    "slow: Slow running tests",
+    "external: Tests requiring external services",
+    "asyncio: Async tests",
+]
+asyncio_mode = "auto"
+filterwarnings = [
+    "error",
+    "ignore::UserWarning",
+    "ignore::DeprecationWarning",
+]
+log_cli = true
+log_cli_level = "INFO"
+log_cli_format = "%(asctime)s [%(levelname)8s] %(name)s: %(message)s (%(filename)s:%(lineno)d)"</correct-example>
+          <incorrect-example title="Poor test organization without proper structure" conditions="Organizing Python tests" expected-result="Well-structured, maintainable test suite with proper organization" incorrectness-criteria="Flat test structure, no fixtures, poor organization, missing configuration">"""
+Bad Test Organization:
+
+my_project/
+├── my_package.py
+├── test_my_package.py              # All tests in one file
+├── conftest.py                     # Missing or empty
+└── requirements.txt
+"""
+
+# test_my_package.py - Bad example
+def test_user():
+    # No fixtures, hardcoded data
+    user = User("test", "test@example.com")
+    assert user.username == "test"
+    
+def test_user_service():
+    # No mocking, direct database calls
+    service = UserService()
+    user = service.create_user("test", "test@example.com")
+    assert user is not None
+    
+# No parametrization
+# No proper assertions
+# No error testing
+# No async support
+# No coverage configuration</incorrect-example>
+        </example>
+      </examples>
+    </non-negotiable>
+
+    <non-negotiable priority="critical">
+      <description>Implement comprehensive test fixtures and factories with proper dependency injection, mocking strategies, and test data management following pytest best practices.</description>
+      <examples>
+        <example title="Advanced Fixtures and Mocking Patterns">
+          <correct-example title="Professional fixture design with dependency injection and mocking" conditions="Creating test fixtures and mocks" expected-result="Reusable, maintainable test infrastructure" correctness-criteria="Uses pytest fixtures, proper mocking, factory patterns, dependency injection">"""
+Advanced Fixture and Mocking Patterns
+"""
+
+# tests/conftest.py - Advanced fixture patterns
+import pytest
+import asyncio
+from typing import Generator, AsyncGenerator, Protocol, runtime_checkable
+from unittest.mock import Mock, AsyncMock, patch, MagicMock
+from contextlib import asynccontextmanager
+import factory
+from factory import fuzzy
+from datetime import datetime, timedelta
+
+from sqlalchemy import create_engine
+from sqlalchemy.orm import sessionmaker, Session
+from httpx import AsyncClient
+from redis import Redis
+from celery import Celery
+
+from my_package.core.models import Base, User, Product, Order
+from my_package.core.services import UserService, OrderService, PaymentService
+from my_package.core.repositories import UserRepository, OrderRepository
+from my_package.core.config import Settings
+from my_package.api.dependencies import get_db, get_redis, get_celery
+
+
+# Protocol-based dependency injection for better testing
+@runtime_checkable
+class UserRepositoryProtocol(Protocol):
+    def get_by_id(self, user_id: int) -> User | None: ...
+    def create(self, user: User) -> User: ...
+    def update(self, user: User) -> User: ...
+    def delete(self, user_id: int) -> bool: ...
+
+
+@runtime_checkable
+class PaymentServiceProtocol(Protocol):
+    async def process_payment(self, amount: float, payment_method: str) -> dict: ...
+    async def refund_payment(self, transaction_id: str) -> dict: ...
+
+
+# Factory classes for test data generation
+class UserFactory(factory.Factory):
+    """Factory for creating User instances with realistic data."""
+    
+    class Meta:
+        model = User
+    
+    username = factory.Sequence(lambda n: f"user{n}")
+    email = factory.LazyAttribute(lambda obj: f"{obj.username}@example.com")
+    full_name = factory.Faker("name")
+    is_active = True
+    is_superuser = False
+    created_at = factory.LazyFunction(datetime.utcnow)
+    date_of_birth = factory.Faker("date_of_birth", minimum_age=18, maximum_age=80)
+    phone_number = factory.Faker("phone_number")
+    
+    @factory.post_generation
+    def set_password(self, create, extracted, **kwargs):
+        if not create:
+            return
+        password = extracted or "testpassword123"
+        self.set_password(password)
+
+
+class AdminUserFactory(UserFactory):
+    """Factory for admin users."""
+    
+    is_superuser = True
+    username = factory.Sequence(lambda n: f"admin{n}")
+    email = factory.LazyAttribute(lambda obj: f"{obj.username}@admin.example.com")
+
+
+class ProductFactory(factory.Factory):
+    """Factory for creating Product instances."""
+    
+    class Meta:
+        model = Product
+    
+    name = factory.Faker("commerce_product_name")
+    description = factory.Faker("text", max_nb_chars=500)
+    price = fuzzy.FuzzyDecimal(1.0, 1000.0, 2)
+    sku = factory.Sequence(lambda n: f"SKU{n:06d}")
+    category = factory.Faker("word")
+    in_stock = True
+    stock_quantity = fuzzy.FuzzyInteger(1, 100)
+
+
+class OrderFactory(factory.Factory):
+    """Factory for creating Order instances with relationships."""
+    
+    class Meta:
+        model = Order
+    
+    user = factory.SubFactory(UserFactory)
+    status = "pending"
+    total_amount = fuzzy.FuzzyDecimal(10.0, 500.0, 2)
+    created_at = factory.LazyFunction(datetime.utcnow)
+    
+    @factory.post_generation
+    def products(self, create, extracted, **kwargs):
+        if not create:
+            return
+        
+        if extracted:
+            for product in extracted:
+                self.products.append(product)
+        else:
+            # Create some default products
+            for _ in range(2):
+                self.products.append(ProductFactory())
+
+
+# Database fixtures with different scopes
+@pytest.fixture(scope="session")
+def db_engine():
+    """Session-scoped database engine for tests."""
+    engine = create_engine(
+        "sqlite:///:memory:",
+        echo=False,
+        connect_args={"check_same_thread": False},
+        pool_pre_ping=True
+    )
+    Base.metadata.create_all(engine)
+    yield engine
+    engine.dispose()
+
+
+@pytest.fixture(scope="function")
+def db_session(db_engine) -> Generator[Session, None, None]:
+    """Function-scoped database session with automatic rollback."""
+    connection = db_engine.connect()
+    transaction = connection.begin()
+    session = sessionmaker(bind=connection)()
+    
+    # Override the get_db dependency
+    def override_get_db():
+        try:
+            yield session
+        finally:
+            pass  # Don't close here, let fixture handle it
+    
+    app.dependency_overrides[get_db] = override_get_db
+    
+    yield session
+    
+    session.close()
+    transaction.rollback()
+    connection.close()
+    app.dependency_overrides.clear()
+
+
+@pytest.fixture
+def db_session_with_data(db_session) -> Session:
+    """Database session pre-populated with test data."""
+    # Create test users
+    users = UserFactory.build_batch(5)
+    for user in users:
+        db_session.add(user)
+    
+    # Create test products
+    products = ProductFactory.build_batch(10)
+    for product in products:
+        db_session.add(product)
+    
+    # Create test orders
+    orders = OrderFactory.build_batch(3)
+    for order in orders:
+        db_session.add(order)
+    
+    db_session.commit()
+    return db_session
+
+
+# Service mocking fixtures
+@pytest.fixture
+def mock_user_repository() -> Mock:
+    """Mock user repository with common behaviors."""
+    mock_repo = Mock(spec=UserRepositoryProtocol)
+    
+    # Configure common return values
+    mock_repo.get_by_id.return_value = UserFactory.build()
+    mock_repo.create.side_effect = lambda user: user
+    mock_repo.update.side_effect = lambda user: user
+    mock_repo.delete.return_value = True
+    
+    return mock_repo
+
+
+@pytest.fixture
+def mock_payment_service() -> AsyncMock:
+    """Mock payment service for testing payment flows."""
+    mock_service = AsyncMock(spec=PaymentServiceProtocol)
+    
+    # Configure successful payment responses
+    mock_service.process_payment.return_value = {
+        "status": "success",
+        "transaction_id": "txn_123456789",
+        "amount": 100.0,
+        "currency": "USD"
+    }
+    
+    mock_service.refund_payment.return_value = {
+        "status": "success",
+        "refund_id": "ref_123456789",
+        "amount": 100.0
+    }
+    
+    return mock_service
+
+
+@pytest.fixture
+def mock_external_api() -> Mock:
+    """Mock external API calls with different response scenarios."""
+    mock_api = Mock()
+    
+    def mock_get(url, **kwargs):
+        """Mock GET requests with realistic responses."""
+        if "users" in url:
+            return Mock(
+                status_code=200,
+                json=lambda: {"users": [{"id": 1, "name": "External User"}]}
+            )
+        elif "error" in url:
+            return Mock(status_code=500, text="Internal Server Error")
+        else:
+            return Mock(status_code=404, text="Not Found")
+    
+    mock_api.get = mock_get
+    return mock_api
+
+
+# Redis and Celery fixtures
+@pytest.fixture
+def mock_redis() -> Mock:
+    """Mock Redis client for caching tests."""
+    mock_redis = Mock(spec=Redis)
+    
+    # In-memory cache simulation
+    cache = {}
+    
+    def mock_get(key):
+        return cache.get(key)
+    
+    def mock_set(key, value, ex=None):
+        cache[key] = value
+        return True
+    
+    def mock_delete(key):
+        return cache.pop(key, None) is not None
+    
+    mock_redis.get.side_effect = mock_get
+    mock_redis.set.side_effect = mock_set
+    mock_redis.delete.side_effect = mock_delete
+    mock_redis.exists.side_effect = lambda key: key in cache
+    
+    return mock_redis
+
+
+@pytest.fixture
+def mock_celery() -> Mock:
+    """Mock Celery for async task testing."""
+    mock_celery = Mock(spec=Celery)
+    
+    # Mock task results
+    mock_result = Mock()
+    mock_result.id = "task_123456"
+    mock_result.status = "SUCCESS"
+    mock_result.result = {"status": "completed"}
+    
+    mock_celery.send_task.return_value = mock_result
+    
+    return mock_celery
+
+
+# Context manager fixtures
+@pytest.fixture
+async def async_context_manager():
+    """Example async context manager fixture."""
+    
+    @asynccontextmanager
+    async def _context():
+        # Setup
+        resource = await setup_async_resource()
+        try:
+            yield resource
+        finally:
+            # Cleanup
+            await cleanup_async_resource(resource)
+    
+    return _context
+
+
+# Parametrized fixtures for testing multiple scenarios
+@pytest.fixture(params=[
+    {"db_type": "sqlite", "url": "sqlite:///:memory:"},
+    {"db_type": "postgresql", "url": "postgresql://test:test@localhost/test"},
+])
+def db_config(request):
+    """Parametrized database configuration for testing multiple databases."""
+    return request.param
+
+
+@pytest.fixture(params=["sync", "async"])
+def client_type(request):
+    """Parametrized client type for testing both sync and async clients."""
+    return request.param
+
+
+# Advanced dependency injection fixtures
+@pytest.fixture
+def user_service(mock_user_repository, mock_redis) -> UserService:
+    """User service with injected mocks."""
+    return UserService(
+        repository=mock_user_repository,
+        cache=mock_redis
+    )
+
+
+@pytest.fixture
+async def order_service(
+    db_session,
+    mock_payment_service,
+    mock_celery
+) -> OrderService:
+    """Order service with complex dependencies."""
+    return OrderService(
+        db_session=db_session,
+        payment_service=mock_payment_service,
+        task_queue=mock_celery
+    )
+
+
+# Example usage in tests
+@pytest.mark.unit
+class TestUserServiceWithMocks:
+    """Test UserService with comprehensive mocking."""
+    
+    def test_create_user_with_mock_repository(self, user_service, mock_user_repository):
+        """Test user creation with mocked repository."""
+        user_data = {
+            "username": "testuser",
+            "email": "test@example.com",
+            "password": "password123"
+        }
+        
+        # Setup mock behavior
+        created_user = UserFactory.build(**user_data)
+        mock_user_repository.create.return_value = created_user
+        
+        # Execute
+        result = user_service.create_user(user_data)
+        
+        # Verify
+        assert result.username == "testuser"
+        mock_user_repository.create.assert_called_once()
+        
+        # Verify the call arguments
+        call_args = mock_user_repository.create.call_args[0][0]
+        assert call_args.username == "testuser"
+        assert call_args.email == "test@example.com"
+    
+    def test_get_user_with_caching(self, user_service, mock_user_repository, mock_redis):
+        """Test user retrieval with Redis caching."""
+        user_id = 1
+        cached_user = UserFactory.build(id=user_id)
+        
+        # First call - not in cache
+        mock_redis.get.return_value = None
+        mock_user_repository.get_by_id.return_value = cached_user
+        
+        result = user_service.get_user_by_id(user_id)
+        
+        assert result.id == user_id
+        mock_redis.get.assert_called_with(f"user:{user_id}")
+        mock_user_repository.get_by_id.assert_called_once_with(user_id)
+        mock_redis.set.assert_called_once()
+    
+    @patch('my_package.core.services.send_notification')
+    def test_user_creation_with_notification(
+        self,
+        mock_send_notification,
+        user_service,
+        mock_user_repository
+    ):
+        """Test user creation triggers notification using patch decorator."""
+        user_data = {"username": "testuser", "email": "test@example.com"}
+        created_user = UserFactory.build(**user_data)
+        mock_user_repository.create.return_value = created_user
+        
+        user_service.create_user(user_data)
+        
+        mock_send_notification.assert_called_once_with(
+            user_id=created_user.id,
+            event="user_created"
+        )
+
+
+@pytest.mark.integration
+class TestOrderServiceIntegration:
+    """Integration tests for OrderService with real database."""
+    
+    async def test_create_order_with_payment(
+        self,
+        order_service,
+        db_session_with_data,
+        mock_payment_service
+    ):
+        """Test order creation with payment processing."""
+        # Get a user from test data
+        user = db_session_with_data.query(User).first()
+        
+        order_data = {
+            "user_id": user.id,
+            "items": [
+                {"product_id": 1, "quantity": 2},
+                {"product_id": 2, "quantity": 1}
+            ],
+            "payment_method": "credit_card"
+        }
+        
+        # Execute
+        order = await order_service.create_order_with_payment(order_data)
+        
+        # Verify order creation
+        assert order.user_id == user.id
+        assert order.status == "paid"
+        assert len(order.items) == 2
+        
+        # Verify payment service was called
+        mock_payment_service.process_payment.assert_called_once()
+        payment_call = mock_payment_service.process_payment.call_args
+        assert payment_call.kwargs["amount"] == order.total_amount
+        assert payment_call.kwargs["payment_method"] == "credit_card"</correct-example>
+          <incorrect-example title="Poor fixture design without proper mocking" conditions="Creating test fixtures and mocks" expected-result="Reusable, maintainable test infrastructure" incorrectness-criteria="No fixtures, hardcoded data, no mocking, poor separation of concerns"># Bad test without fixtures or mocking
+def test_user_creation():
+    # Hardcoded database connection
+    engine = create_engine("sqlite:///test.db")
+    Base.metadata.create_all(engine)
+    session = sessionmaker(bind=engine)()
+    
+    # Hardcoded test data
+    user = User("testuser", "test@example.com")
+    session.add(user)
+    session.commit()
+    
+    # No mocking of external services
+    email_service = EmailService()  # Real service
+    email_service.send_welcome_email(user.email)
+    
+    # No cleanup
+    assert user.username == "testuser"
+    
+# No fixtures
+# No factories
+# No dependency injection  
+# No proper mocking
+# No cleanup</incorrect-example>
+        </example>
+      </examples>
+    </non-negotiable>
+
+    <requirement priority="high">
+      <description>Implement comprehensive test coverage strategies with branch coverage, mutation testing, and performance testing using modern Python testing tools and methodologies.</description>
+      <examples>
+        <example title="Advanced Testing Strategies and Coverage">
+          <correct-example title="Comprehensive testing strategies with coverage, performance, and quality metrics" conditions="Implementing comprehensive testing strategies" expected-result="High-quality test suite with comprehensive coverage and performance monitoring" correctness-criteria="Uses coverage tools, performance testing, mutation testing, property-based testing">"""
+Advanced Testing Strategies and Coverage Configuration
+"""
+
+# pyproject.toml - Comprehensive testing configuration
+[tool.pytest.ini_options]
+minversion = "7.0"
+addopts = [
+    "-ra",                           # Show extra test summary info
+    "--strict-markers",              # Treat unregistered markers as errors
+    "--strict-config",               # Treat config issues as errors
+    "--cov=src",                     # Coverage for src directory
+    "--cov-branch",                  # Include branch coverage
+    "--cov-report=term-missing",     # Show missing lines in terminal
+    "--cov-report=html:htmlcov",     # Generate HTML coverage report
+    "--cov-report=xml",              # Generate XML coverage report for CI
+    "--cov-fail-under=85",           # Fail if coverage below 85%
+    "--durations=10",                # Show 10 slowest tests
+    "--tb=short",                    # Shorter traceback format
+    "--disable-warnings",            # Disable warnings in output
+]
+testpaths = ["tests"]
+python_files = ["test_*.py", "*_test.py"]
+python_classes = ["Test*"]
+python_functions = ["test_*"]
+markers = [
+    "unit: Unit tests (fast, isolated)",
+    "integration: Integration tests (medium speed, with dependencies)",
+    "functional: Functional/E2E tests (slow, full system)",
+    "performance: Performance and load tests",
+    "slow: Slow running tests",
+    "external: Tests requiring external services",
+    "property: Property-based tests",
+    "mutation: Mutation testing",
+    "smoke: Smoke tests for basic functionality",
+    "regression: Regression tests for bug fixes",
+]
+asyncio_mode = "auto"
+filterwarnings = [
+    "error",
+    "ignore::UserWarning",
+    "ignore::DeprecationWarning",
+    "ignore::pytest.PytestUnraisableExceptionWarning",
+]
+
+# Coverage configuration
+[tool.coverage.run]
+source = ["src"]
+branch = true
+omit = [
+    "*/tests/*",
+    "*/migrations/*",
+    "*/venv/*",
+    "*/__pycache__/*",
+    "*/conftest.py",
+    "*/settings/*",
+]
+dynamic_context = "test_function"
+
+[tool.coverage.report]
+exclude_lines = [
+    "pragma: no cover",
+    "def __repr__",
+    "raise AssertionError",
+    "raise NotImplementedError",
+    "if __name__ == .__main__.:",
+    "if TYPE_CHECKING:",
+    "@abstract",
+]
+show_missing = true
+skip_covered = false
+precision = 2
+
+[tool.coverage.html]
+directory = "htmlcov"
+title = "My Project Coverage Report"
+
+[tool.coverage.xml]
+output = "coverage.xml"
+
+# Mutation testing configuration
+[tool.mutmut]
+paths_to_mutate = "src/"
+backup = false
+runner = "python -m pytest"
+tests_dir = "tests/"
+
+# Performance testing requirements
+performance-requirements = [
+    "pytest-benchmark>=4.0.0",
+    "memory-profiler>=0.60.0",
+    "psutil>=5.9.0",
+    "locust>=2.15.0",
+]
+
+# Property testing requirements  
+property-requirements = [
+    "hypothesis>=6.75.0",
+    "hypothesis[django]>=6.75.0",
+]
+
+# tests/performance/test_performance.py - Performance testing examples
+import pytest
+import time
+import psutil
+import memory_profiler
+from unittest.mock import patch
+
+from my_package.core.services import UserService, OrderService
+from my_package.core.models import User
+
+
+@pytest.mark.performance
+class TestPerformance:
+    """Performance tests for critical system components."""
+    
+    def test_user_creation_performance(self, benchmark, user_service):
+        """Benchmark user creation performance."""
+        user_data = {
+            "username": "perfuser",
+            "email": "perf@example.com",
+            "password": "password123"
+        }
+        
+        # Benchmark the operation
+        result = benchmark(user_service.create_user, user_data)
+        
+        assert result.username == "perfuser"
+        
+        # Additional performance assertions
+        stats = benchmark.stats
+        assert stats.mean < 0.1  # Should complete in under 100ms
+        assert stats.stddev < 0.05  # Low variance
+    
+    def test_bulk_user_operations_performance(self, benchmark, user_service):
+        """Test performance of bulk operations."""
+        users_data = [
+            {
+                "username": f"bulkuser{i}",
+                "email": f"bulk{i}@example.com",
+                "password": "password123"
+            }
+            for i in range(100)
+        ]
+        
+        result = benchmark(user_service.bulk_create_users, users_data)
+        
+        assert len(result) == 100
+        
+        # Performance thresholds for bulk operations
+        stats = benchmark.stats
+        assert stats.mean < 2.0  # Should complete in under 2 seconds
+    
+    @pytest.mark.parametrize("num_users", [10, 50, 100, 500])
+    def test_search_performance_scaling(self, user_service, num_users, benchmark):
+        """Test search performance with varying data sizes."""
+        # Setup test data
+        for i in range(num_users):
+            user_service.create_user({
+                "username": f"searchuser{i}",
+                "email": f"search{i}@example.com",
+                "password": "password123"
+            })
+        
+        # Benchmark search operation
+        result = benchmark(user_service.search_users, "search")
+        
+        assert len(result) == num_users
+        
+        # Performance should scale reasonably
+        stats = benchmark.stats
+        if num_users <= 100:
+            assert stats.mean < 0.5
+        else:
+            assert stats.mean < 1.0
+    
+    @memory_profiler.profile
+    def test_memory_usage_bulk_operations(self, user_service):
+        """Test memory usage during bulk operations."""
+        initial_memory = psutil.Process().memory_info().rss / 1024 / 1024  # MB
+        
+        # Perform memory-intensive operation
+        large_dataset = [
+            {
+                "username": f"memuser{i}",
+                "email": f"mem{i}@example.com", 
+                "password": "password123"
+            }
+            for i in range(1000)
+        ]
+        
+        result = user_service.bulk_create_users(large_dataset)
+        
+        final_memory = psutil.Process().memory_info().rss / 1024 / 1024  # MB
+        memory_increase = final_memory - initial_memory
+        
+        assert len(result) == 1000
+        assert memory_increase < 100  # Should not use more than 100MB
+
+
+@pytest.mark.performance
+class TestLoadTesting:
+    """Load testing using locust patterns."""
+    
+    def test_concurrent_user_creation(self, user_service):
+        """Test concurrent user creation load."""
+        import concurrent.futures
+        import threading
+        
+        def create_user(index):
+            return user_service.create_user({
+                "username": f"concurrent{index}",
+                "email": f"concurrent{index}@example.com",
+                "password": "password123"
+            })
+        
+        # Test with 50 concurrent requests
+        with concurrent.futures.ThreadPoolExecutor(max_workers=10) as executor:
+            futures = [executor.submit(create_user, i) for i in range(50)]
+            results = [future.result() for future in concurrent.futures.as_completed(futures)]
+        
+        assert len(results) == 50
+        assert all(user.username.startswith("concurrent") for user in results)
+    
+    def test_database_connection_pool_stress(self, db_session):
+        """Test database connection pool under stress."""
+        import threading
+        
+        def database_operation(thread_id):
+            # Simulate database operations
+            for i in range(10):
+                user = User(
+                    username=f"stress{thread_id}_{i}",
+                    email=f"stress{thread_id}_{i}@example.com"
+                )
+                db_session.add(user)
+                db_session.commit()
+        
+        threads = []
+        for i in range(20):  # 20 concurrent threads
+            thread = threading.Thread(target=database_operation, args=(i,))
+            threads.append(thread)
+            thread.start()
+        
+        for thread in threads:
+            thread.join()
+        
+        # Verify all operations completed successfully
+        total_users = db_session.query(User).filter(
+            User.username.like("stress%")
+        ).count()
+        assert total_users == 200  # 20 threads * 10 users each
+
+
+# tests/property/test_property_based.py - Property-based testing
+import pytest
+from hypothesis import given, strategies as st, assume, settings
+from hypothesis.stateful import RuleBasedStateMachine, rule, invariant
+import string
+
+from my_package.core.models import User
+from my_package.core.services import UserService
+from my_package.core.validators import EmailValidator, PasswordValidator
+
+
+@pytest.mark.property
+class TestPropertyBasedValidation:
+    """Property-based tests for validation logic."""
+    
+    @given(st.text(alphabet=string.ascii_letters + string.digits, min_size=3, max_size=50))
+    def test_username_validation_property(self, username):
+        """Test username validation with generated strings."""
+        validator = UsernameValidator()
+        
+        # Property: valid usernames should always pass validation
+        if validator.is_valid(username):
+            # If valid, it should not raise an exception
+            try:
+                validator.validate(username)
+            except Exception:
+                pytest.fail(f"Valid username {username} raised exception")
+    
+    @given(st.emails())
+    def test_email_validation_property(self, email):
+        """Test email validation with generated emails."""
+        validator = EmailValidator()
+        
+        # Property: all hypothesis-generated emails should be valid
+        assert validator.is_valid(email), f"Generated email {email} should be valid"
+        
+        # Property: validation should not raise exception for valid emails
+        try:
+            validator.validate(email)
+        except Exception:
+            pytest.fail(f"Valid email {email} raised exception")
+    
+    @given(st.text(min_size=8, max_size=128))
+    @settings(max_examples=50)
+    def test_password_strength_property(self, password):
+        """Test password strength validation properties."""
+        validator = PasswordValidator()
+        
+        # Property: passwords with required complexity should pass
+        has_upper = any(c.isupper() for c in password)
+        has_lower = any(c.islower() for c in password)
+        has_digit = any(c.isdigit() for c in password)
+        has_special = any(c in "!@#$%^&*()_+-=[]{}|;:,.<>?" for c in password)
+        
+        if all([has_upper, has_lower, has_digit, has_special]) and len(password) >= 8:
+            assert validator.is_strong_password(password)
+    
+    @given(
+        st.text(alphabet=string.ascii_letters, min_size=3, max_size=50),
+        st.emails(),
+        st.text(min_size=8, max_size=128)
+    )
+    def test_user_creation_property(self, username, email, password, user_service):
+        """Test user creation with generated data."""
+        assume(len(username) >= 3)  # Assume valid username length
+        
+        user_data = {
+            "username": username,
+            "email": email,
+            "password": password
+        }
+        
+        try:
+            user = user_service.create_user(user_data)
+            
+            # Properties that should always hold for created users
+            assert user.username == username
+            assert user.email == email
+            assert user.is_active is True
+            assert user.created_at is not None
+            assert user.verify_password(password) is True
+            
+        except ValidationError:
+            # If creation fails due to validation, that's acceptable
+            # The property is that it fails gracefully
+            pass
+
+
+class UserServiceStateMachine(RuleBasedStateMachine):
+    """Stateful property-based testing for UserService."""
+    
+    def __init__(self):
+        super().__init__()
+        self.users = {}
+        self.next_id = 1
+        self.service = UserService()
+    
+    @rule(
+        username=st.text(alphabet=string.ascii_letters, min_size=3, max_size=20),
+        email=st.emails()
+    )
+    def create_user(self, username, email):
+        """Rule for creating users."""
+        assume(username not in self.users)
+        
+        user_data = {
+            "username": username,
+            "email": email,
+            "password": "TestPassword123!"
+        }
+        
+        try:
+            user = self.service.create_user(user_data)
+            self.users[username] = user
+        except ValidationError:
+            # Creation failed due to validation - acceptable
+            pass
+    
+    @rule(username=st.sampled_from(lambda self: list(self.users.keys()) or ["nonexistent"]))
+    def get_user(self, username):
+        """Rule for retrieving users."""
+        user = self.service.get_user_by_username(username)
+        
+        if username in self.users:
+            assert user is not None
+            assert user.username == username
+        else:
+            assert user is None
+    
+    @rule(username=st.sampled_from(lambda self: list(self.users.keys()) or ["nonexistent"]))
+    def delete_user(self, username):
+        """Rule for deleting users."""
+        if username in self.users:
+            success = self.service.delete_user(username)
+            assert success is True
+            del self.users[username]
+    
+    @invariant()
+    def users_exist_in_service(self):
+        """Invariant: all tracked users should exist in the service."""
+        for username in self.users:
+            user = self.service.get_user_by_username(username)
+            assert user is not None
+            assert user.username == username
+
+
+@pytest.mark.property
+def test_user_service_state_machine():
+    """Run the stateful property-based test."""
+    UserServiceStateMachine.TestCase.test_state_machine()
+
+
+# tests/mutation/test_mutation.py - Mutation testing setup
+"""
+Mutation Testing Configuration
+
+Run mutation tests with:
+mutmut run --paths-to-mutate src/my_package/core/validators.py
+mutmut results
+mutmut show <mutation_id>
+
+This helps identify weaknesses in test coverage by introducing
+small code changes and checking if tests catch them.
+"""
+
+import subprocess
+import pytest
+
+
+@pytest.mark.mutation
+class TestMutationTesting:
+    """Setup and verification for mutation testing."""
+    
+    def test_mutation_testing_setup(self):
+        """Verify mutation testing is properly configured."""
+        try:
+            result = subprocess.run(
+                ["mutmut", "--version"],
+                capture_output=True,
+                text=True,
+                timeout=10
+            )
+            assert result.returncode == 0
+        except (subprocess.TimeoutExpired, FileNotFoundError):
+            pytest.skip("mutmut not available")
+    
+    def test_critical_code_has_high_mutation_score(self):
+        """Ensure critical code has high mutation testing score."""
+        # This would typically be run in CI to verify mutation scores
+        # For example purposes, we'll just verify the concept
+        
+        critical_modules = [
+            "src/my_package/core/validators.py",
+            "src/my_package/core/models.py",
+            "src/my_package/core/services.py"
+        ]
+        
+        for module in critical_modules:
+            # In practice, you'd run mutmut and parse results
+            # mutmut run --paths-to-mutate {module}
+            # Expected mutation score > 80% for critical code
+            pass
+
+
+# Makefile or script for running comprehensive test suite
+test_commands = """
+# Run all test types with coverage
+pytest tests/ \\
+    --cov=src \\
+    --cov-branch \\
+    --cov-report=html \\
+    --cov-report=xml \\
+    --cov-report=term-missing \\
+    --cov-fail-under=85 \\
+    --durations=10 \\
+    -m "not slow"
+
+# Run performance tests
+pytest tests/performance/ -m performance --benchmark-only
+
+# Run property-based tests  
+pytest tests/property/ -m property --hypothesis-show-statistics
+
+# Run mutation testing on critical modules
+mutmut run --paths-to-mutate src/my_package/core/
+
+# Generate comprehensive test report
+pytest tests/ \\
+    --html=reports/test_report.html \\
+    --self-contained-html \\
+    --junit-xml=reports/junit.xml \\
+    --cov-report=html:reports/coverage \\
+    --benchmark-json=reports/benchmark.json
+"""</correct-example>
+          <incorrect-example title="Basic testing without comprehensive coverage strategies" conditions="Implementing comprehensive testing strategies" expected-result="High-quality test suite with comprehensive coverage and performance monitoring" incorrectness-criteria="No coverage configuration, no performance testing, no property-based testing, basic assertions only"># Basic test without coverage or advanced strategies
+def test_user_creation():
+    user = User("test", "test@example.com")
+    assert user.username == "test"
+
+def test_user_service():
+    service = UserService()
+    user = service.create_user("test", "test@example.com")
+    assert user is not None
+
+# No coverage configuration
+# No performance testing
+# No property-based testing  
+# No mutation testing
+# No benchmarking
+# Basic assertions only</incorrect-example>
+        </example>
+      </examples>
+    </requirement>
+
+    <requirement priority="high">
+      <description>Implement specialized testing patterns for different Python application types including web APIs, CLI tools, async applications, and data processing pipelines with appropriate testing strategies.</description>
+      <examples>
+        <example title="Specialized Testing Patterns for Different Application Types">
+          <correct-example title="Comprehensive testing strategies for various Python application types" conditions="Testing different types of Python applications" expected-result="Appropriate testing strategies for web APIs, CLI tools, async applications, and data pipelines" correctness-criteria="Uses FastAPI testing, Click testing, async testing patterns, data pipeline testing">"""
+Specialized Testing Patterns for Different Application Types
+"""
+
+# tests/api/test_fastapi_endpoints.py - Web API testing
+import pytest
+import json
+from httpx import AsyncClient
+from fastapi import status
+from unittest.mock import patch, AsyncMock
+
+from my_package.api.main import app
+from my_package.core.models import User, Product
+from my_package.core.auth import create_access_token
+
+
+@pytest.mark.integration
+class TestFastAPIEndpoints:
+    """Comprehensive testing for FastAPI endpoints."""
+    
+    async def test_user_registration_endpoint(self, async_client: AsyncClient):
+        """Test user registration API endpoint."""
+        registration_data = {
+            "username": "apiuser",
+            "email": "api@example.com",
+            "password": "SecurePass123!",
+            "full_name": "API User"
+        }
+        
+        response = await async_client.post("/api/v1/users/register", json=registration_data)
+        
+        assert response.status_code == status.HTTP_201_CREATED
+        data = response.json()
+        assert data["username"] == "apiuser"
+        assert data["email"] == "api@example.com"
+        assert "password" not in data  # Password should not be in response
+        assert "id" in data
+        assert data["is_active"] is True
+    
+    async def test_authentication_flow(self, async_client: AsyncClient, user_factory, db_session):
+        """Test complete authentication flow."""
+        # Create test user
+        user = user_factory(username="authuser", email="auth@example.com")
+        user.set_password("TestPass123!")
+        db_session.add(user)
+        db_session.commit()
+        
+        # Test login
+        login_data = {"username": "authuser", "password": "TestPass123!"}
+        response = await async_client.post("/api/v1/auth/login", json=login_data)
+        
+        assert response.status_code == status.HTTP_200_OK
+        tokens = response.json()
+        assert "access_token" in tokens
+        assert "refresh_token" in tokens
+        assert tokens["token_type"] == "bearer"
+        
+        # Test accessing protected endpoint
+        headers = {"Authorization": f"Bearer {tokens['access_token']}"}
+        profile_response = await async_client.get("/api/v1/users/me", headers=headers)
+        
+        assert profile_response.status_code == status.HTTP_200_OK
+        profile = profile_response.json()
+        assert profile["username"] == "authuser"
+    
+    async def test_api_rate_limiting(self, async_client: AsyncClient):
+        """Test API rate limiting functionality."""
+        # Make multiple requests quickly
+        responses = []
+        for _ in range(101):  # Assuming rate limit is 100/minute
+            response = await async_client.get("/api/v1/health")
+            responses.append(response)
+        
+        # Check that some requests were rate limited
+        rate_limited = [r for r in responses if r.status_code == status.HTTP_429_TOO_MANY_REQUESTS]
+        assert len(rate_limited) > 0
+    
+    @pytest.mark.parametrize("endpoint,method,expected_status", [
+        ("/api/v1/users", "GET", status.HTTP_401_UNAUTHORIZED),
+        ("/api/v1/users/me", "GET", status.HTTP_401_UNAUTHORIZED),
+        ("/api/v1/admin/users", "GET", status.HTTP_401_UNAUTHORIZED),
+    ])
+    async def test_protected_endpoints_without_auth(
+        self, 
+        async_client: AsyncClient, 
+        endpoint, 
+        method, 
+        expected_status
+    ):
+        """Test that protected endpoints require authentication."""
+        if method == "GET":
+            response = await async_client.get(endpoint)
+        elif method == "POST":
+            response = await async_client.post(endpoint, json={})
+        
+        assert response.status_code == expected_status
+    
+    async def test_api_error_handling(self, async_client: AsyncClient):
+        """Test API error handling and response format."""
+        # Test 404 error
+        response = await async_client.get("/api/v1/users/999999")
+        assert response.status_code == status.HTTP_404_NOT_FOUND
+        error_data = response.json()
+        assert "detail" in error_data
+        assert "error_code" in error_data
+        
+        # Test validation error
+        invalid_data = {"username": "", "email": "invalid-email"}
+        response = await async_client.post("/api/v1/users/register", json=invalid_data)
+        assert response.status_code == status.HTTP_422_UNPROCESSABLE_ENTITY
+        error_data = response.json()
+        assert "detail" in error_data
+        assert isinstance(error_data["detail"], list)
+    
+    async def test_api_pagination(self, async_client: AsyncClient, db_session_with_data):
+        """Test API pagination functionality."""
+        # Create admin user for access
+        admin_token = create_access_token({"sub": "admin", "is_superuser": True})
+        headers = {"Authorization": f"Bearer {admin_token}"}
+        
+        # Test pagination parameters
+        response = await async_client.get(
+            "/api/v1/users?page=1&size=2", 
+            headers=headers
+        )
+        
+        assert response.status_code == status.HTTP_200_OK
+        data = response.json()
+        assert "items" in data
+        assert "total" in data
+        assert "page" in data
+        assert "size" in data
+        assert "pages" in data
+        assert len(data["items"]) <= 2
+
+
+# tests/cli/test_click_commands.py - CLI application testing
+import pytest
+from click.testing import CliRunner
+from unittest.mock import patch, Mock
+import tempfile
+import json
+
+from my_package.cli.main import cli
+from my_package.cli.commands import users, database
+
+
+@pytest.mark.unit
+class TestCLICommands:
+    """Test CLI commands using Click's testing utilities."""
+    
+    @pytest.fixture
+    def runner(self):
+        """Provide Click test runner."""
+        return CliRunner()
+    
+    def test_cli_help_command(self, runner):
+        """Test CLI help command."""
+        result = runner.invoke(cli, ['--help'])
+        
+        assert result.exit_code == 0
+        assert "Usage:" in result.output
+        assert "Commands:" in result.output
+    
+    def test_user_create_command_success(self, runner):
+        """Test successful user creation via CLI."""
+        with patch('my_package.cli.commands.users.UserService') as mock_service:
+            # Setup mock
+            mock_instance = Mock()
+            mock_service.return_value = mock_instance
+            mock_instance.create_user.return_value = Mock(
+                id=1, username="cliuser", email="cli@example.com"
+            )
+            
+            result = runner.invoke(cli, [
+                'users', 'create',
+                '--username', 'cliuser',
+                '--email', 'cli@example.com',
+                '--password', 'password123'
+            ])
+            
+            assert result.exit_code == 0
+            assert "User created successfully" in result.output
+            assert "cliuser" in result.output
+            
+            # Verify service was called correctly
+            mock_instance.create_user.assert_called_once()
+            call_args = mock_instance.create_user.call_args[0][0]
+            assert call_args["username"] == "cliuser"
+            assert call_args["email"] == "cli@example.com"
+    
+    def test_user_create_command_validation_error(self, runner):
+        """Test user creation with validation errors."""
+        result = runner.invoke(cli, [
+            'users', 'create',
+            '--username', '',  # Invalid username
+            '--email', 'invalid-email',  # Invalid email
+            '--password', '123'  # Weak password
+        ])
+        
+        assert result.exit_code != 0
+        assert "Error:" in result.output
+    
+    def test_user_list_command_with_filters(self, runner):
+        """Test user listing with various filters."""
+        with patch('my_package.cli.commands.users.UserService') as mock_service:
+            # Setup mock users
+            mock_users = [
+                Mock(id=1, username="user1", email="user1@example.com", is_active=True),
+                Mock(id=2, username="user2", email="user2@example.com", is_active=False),
+            ]
+            mock_instance = Mock()
+            mock_service.return_value = mock_instance
+            mock_instance.list_users.return_value = mock_users
+            
+            # Test with filters
+            result = runner.invoke(cli, [
+                'users', 'list',
+                '--active-only',
+                '--format', 'json'
+            ])
+            
+            assert result.exit_code == 0
+            
+            # Verify JSON output
+            output_data = json.loads(result.output)
+            assert isinstance(output_data, list)
+            assert len(output_data) == 2
+    
+    def test_database_migration_command(self, runner):
+        """Test database migration CLI commands."""
+        with patch('my_package.cli.commands.database.run_migrations') as mock_migrate:
+            mock_migrate.return_value = {"applied": 3, "skipped": 0}
+            
+            result = runner.invoke(cli, ['database', 'migrate', '--dry-run'])
+            
+            assert result.exit_code == 0
+            assert "Migration completed" in result.output
+            mock_migrate.assert_called_once_with(dry_run=True)
+    
+    def test_cli_config_file_handling(self, runner):
+        """Test CLI configuration file handling."""
+        config_data = {
+            "database_url": "sqlite:///test.db",
+            "debug": True,
+            "log_level": "INFO"
+        }
+        
+        with tempfile.NamedTemporaryFile(mode='w', suffix='.json', delete=False) as f:
+            json.dump(config_data, f)
+            config_file = f.name
+        
+        result = runner.invoke(cli, [
+            '--config', config_file,
+            'database', 'status'
+        ])
+        
+        assert result.exit_code == 0
+        # Verify config was loaded and used
+    
+    def test_cli_interactive_prompts(self, runner):
+        """Test CLI interactive prompts."""
+        # Test interactive user creation
+        result = runner.invoke(cli, ['users', 'create', '--interactive'], input='testuser\ntest@example.com\npassword123\ny\n')
+        
+        # Verify prompts were handled correctly
+        assert "Username:" in result.output
+        assert "Email:" in result.output
+        assert "Password:" in result.output
+
+
+# tests/async/test_async_operations.py - Async application testing
+import pytest
+import asyncio
+from unittest.mock import AsyncMock, patch
+import aiohttp
+import aioredis
+
+from my_package.async_services import AsyncUserService, AsyncEmailService
+from my_package.async_workers import AsyncTaskProcessor
+
+
+@pytest.mark.asyncio
+class TestAsyncOperations:
+    """Test async operations and services."""
+    
+    async def test_async_user_service_operations(self, mock_async_db_session):
+        """Test async user service operations."""
+        service = AsyncUserService(mock_async_db_session)
+        
+        user_data = {
+            "username": "asyncuser",
+            "email": "async@example.com",
+            "password": "password123"
+        }
+        
+        # Test async user creation
+        user = await service.create_user(user_data)
+        
+        assert user.username == "asyncuser"
+        assert user.email == "async@example.com"
+        
+        # Test async user retrieval
+        retrieved_user = await service.get_user_by_id(user.id)
+        assert retrieved_user.id == user.id
+    
+    async def test_async_bulk_operations(self, mock_async_db_session):
+        """Test async bulk operations with proper concurrency."""
+        service = AsyncUserService(mock_async_db_session)
+        
+        users_data = [
+            {
+                "username": f"bulkuser{i}",
+                "email": f"bulk{i}@example.com",
+                "password": "password123"
+            }
+            for i in range(10)
+        ]
+        
+        # Test concurrent user creation
+        tasks = [service.create_user(user_data) for user_data in users_data]
+        users = await asyncio.gather(*tasks)
+        
+        assert len(users) == 10
+        assert all(user.username.startswith("bulkuser") for user in users)
+    
+    async def test_async_external_api_calls(self):
+        """Test async external API integration."""
+        service = AsyncUserService()
+        
+        with patch('aiohttp.ClientSession.get') as mock_get:
+            # Setup mock response
+            mock_response = AsyncMock()
+            mock_response.status = 200
+            mock_response.json.return_value = {"user_id": 123, "verified": True}
+            mock_get.return_value.__aenter__.return_value = mock_response
+            
+            # Test async API call
+            result = await service.verify_user_external("test@example.com")
+            
+            assert result["verified"] is True
+            assert result["user_id"] == 123
+    
+    async def test_async_error_handling(self, mock_async_db_session):
+        """Test async error handling and retries."""
+        service = AsyncUserService(mock_async_db_session)
+        
+        # Setup service to fail initially then succeed
+        call_count = 0
+        
+        async def failing_operation():
+            nonlocal call_count
+            call_count += 1
+            if call_count < 3:
+                raise aiohttp.ClientError("Connection failed")
+            return {"status": "success"}
+        
+        with patch.object(service, '_external_api_call', side_effect=failing_operation):
+            # Test retry mechanism
+            result = await service.operation_with_retry()
+            
+            assert result["status"] == "success"
+            assert call_count == 3  # Should have retried 2 times
+    
+    async def test_async_task_processor(self):
+        """Test async task processing with queues."""
+        processor = AsyncTaskProcessor()
+        
+        # Setup test tasks
+        tasks = [
+            {"id": i, "type": "email", "data": {"to": f"test{i}@example.com"}}
+            for i in range(5)
+        ]
+        
+        # Process tasks asynchronously
+        results = await processor.process_tasks(tasks)
+        
+        assert len(results) == 5
+        assert all(result["status"] == "completed" for result in results)
+    
+    async def test_async_context_managers(self):
+        """Test async context managers for resource management."""
+        
+        async def test_redis_context():
+            async with aioredis.from_url("redis://localhost") as redis:
+                await redis.set("test_key", "test_value")
+                value = await redis.get("test_key")
+                assert value == b"test_value"
+        
+        # Mock redis for testing
+        with patch('aioredis.from_url') as mock_redis:
+            mock_instance = AsyncMock()
+            mock_instance.set.return_value = True
+            mock_instance.get.return_value = b"test_value"
+            mock_redis.return_value.__aenter__.return_value = mock_instance
+            
+            await test_redis_context()
+    
+    async def test_async_streaming_operations(self):
+        """Test async streaming and generator operations."""
+        service = AsyncUserService()
+        
+        async def mock_stream_users():
+            """Mock async generator for user streaming."""
+            for i in range(5):
+                yield {"id": i, "username": f"stream_user{i}"}
+                await asyncio.sleep(0.01)  # Simulate async work
+        
+        with patch.object(service, 'stream_users', side_effect=mock_stream_users):
+            users = []
+            async for user in service.stream_users():
+                users.append(user)
+            
+            assert len(users) == 5
+            assert all("stream_user" in user["username"] for user in users)
+
+
+# tests/data_pipeline/test_data_processing.py - Data pipeline testing
+import pytest
+import pandas as pd
+import numpy as np
+from unittest.mock import patch, Mock
+import tempfile
+import json
+
+from my_package.data.processors import DataProcessor, DataValidator
+from my_package.data.transformers import DataTransformer
+from my_package.data.pipeline import DataPipeline
+
+
+@pytest.mark.integration
+class TestDataPipeline:
+    """Test data processing pipeline components."""
+    
+    @pytest.fixture
+    def sample_dataframe(self):
+        """Provide sample DataFrame for testing."""
+        return pd.DataFrame({
+            'user_id': [1, 2, 3, 4, 5],
+            'age': [25, 30, 35, 40, 45],
+            'email': ['user1@test.com', 'user2@test.com', 'user3@test.com', 'user4@test.com', 'user5@test.com'],
+            'signup_date': pd.date_range('2023-01-01', periods=5),
+            'revenue': [100.0, 150.0, 200.0, 250.0, 300.0]
+        })
+    
+    def test_data_validation_pipeline(self, sample_dataframe):
+        """Test data validation in processing pipeline."""
+        validator = DataValidator()
+        
+        # Test valid data
+        validation_result = validator.validate(sample_dataframe)
+        assert validation_result.is_valid
+        assert len(validation_result.errors) == 0
+        
+        # Test invalid data
+        invalid_df = sample_dataframe.copy()
+        invalid_df.loc[0, 'email'] = 'invalid-email'
+        invalid_df.loc[1, 'age'] = -5  # Invalid age
+        
+        validation_result = validator.validate(invalid_df)
+        assert not validation_result.is_valid
+        assert len(validation_result.errors) == 2
+    
+    def test_data_transformation_pipeline(self, sample_dataframe):
+        """Test data transformation operations."""
+        transformer = DataTransformer()
+        
+        # Test feature engineering
+        transformed_df = transformer.engineer_features(sample_dataframe)
+        
+        # Verify new features were created
+        assert 'age_group' in transformed_df.columns
+        assert 'days_since_signup' in transformed_df.columns
+        assert 'revenue_per_day' in transformed_df.columns
+        
+        # Verify transformations are correct
+        assert transformed_df['age_group'].iloc[0] == 'young'
+        assert transformed_df['age_group'].iloc[-1] == 'senior'
+    
+    def test_data_aggregation_pipeline(self, sample_dataframe):
+        """Test data aggregation operations."""
+        processor = DataProcessor()
+        
+        # Test user metrics aggregation
+        metrics = processor.calculate_user_metrics(sample_dataframe)
+        
+        expected_metrics = {
+            'total_users': 5,
+            'avg_age': 35.0,
+            'total_revenue': 1000.0,
+            'avg_revenue_per_user': 200.0
+        }
+        
+        assert metrics == expected_metrics
+    
+    def test_batch_processing_pipeline(self):
+        """Test batch processing of multiple data files."""
+        processor = DataProcessor()
+        
+        # Create temporary test files
+        test_files = []
+        for i in range(3):
+            df = pd.DataFrame({
+                'batch_id': [i] * 10,
+                'user_id': range(i*10, (i+1)*10),
+                'value': np.random.rand(10)
+            })
+            
+            with tempfile.NamedTemporaryFile(mode='w', suffix='.csv', delete=False) as f:
+                df.to_csv(f.name, index=False)
+                test_files.append(f.name)
+        
+        # Test batch processing
+        results = processor.process_batch_files(test_files)
+        
+        assert len(results) == 3
+        assert all('processed_count' in result for result in results)
+        assert sum(result['processed_count'] for result in results) == 30
+    
+    def test_streaming_data_processing(self):
+        """Test streaming data processing."""
+        processor = DataProcessor()
+        
+        def data_generator():
+            """Generate streaming data for testing."""
+            for i in range(100):
+                yield {
+                    'timestamp': pd.Timestamp.now(),
+                    'user_id': i,
+                    'event_type': 'click',
+                    'value': np.random.rand()
+                }
+        
+        # Test streaming processing
+        processed_count = 0
+        for batch in processor.process_stream(data_generator(), batch_size=10):
+            processed_count += len(batch)
+            
+            # Verify batch processing
+            assert len(batch) <= 10
+            assert all('processed' in item for item in batch)
+        
+        assert processed_count == 100
+    
+    def test_data_quality_monitoring(self, sample_dataframe):
+        """Test data quality monitoring and alerting."""
+        processor = DataProcessor()
+        
+        # Test with good data
+        quality_report = processor.assess_data_quality(sample_dataframe)
+        
+        assert quality_report.completeness_score > 0.95
+        assert quality_report.validity_score > 0.95
+        assert len(quality_report.anomalies) == 0
+        
+        # Test with poor quality data
+        poor_df = sample_dataframe.copy()
+        poor_df.loc[0:2, 'email'] = None  # Missing values
+        poor_df.loc[3, 'age'] = 150  # Outlier
+        
+        quality_report = processor.assess_data_quality(poor_df)
+        
+        assert quality_report.completeness_score < 0.8
+        assert len(quality_report.anomalies) > 0
+    
+    def test_pipeline_error_handling_and_recovery(self):
+        """Test pipeline error handling and recovery mechanisms."""
+        pipeline = DataPipeline()
+        
+        # Setup pipeline steps that may fail
+        def failing_step(data):
+            if len(data) > 50:
+                raise ValueError("Data too large")
+            return data
+        
+        def recovery_step(data, error):
+            # Recovery logic - chunk the data
+            return [data[i:i+25] for i in range(0, len(data), 25)]
+        
+        pipeline.add_step("process", failing_step, recovery_fn=recovery_step)
+        
+        # Test with data that causes failure
+        large_dataset = list(range(100))
+        results = pipeline.execute(large_dataset)
+        
+        # Verify recovery was successful
+        assert len(results) == 4  # Data was chunked into 4 pieces
+        assert all(len(chunk) <= 25 for chunk in results)
+    
+    @patch('my_package.data.external.api_client')
+    def test_external_data_integration(self, mock_api_client):
+        """Test integration with external data sources."""
+        processor = DataProcessor()
+        
+        # Setup mock external API
+        mock_api_client.get_user_data.return_value = {
+            'users': [
+                {'id': 1, 'external_score': 0.85},
+                {'id': 2, 'external_score': 0.92}
+            ]
+        }
+        
+        # Test data enrichment
+        base_data = pd.DataFrame({'user_id': [1, 2], 'revenue': [100, 200]})
+        enriched_data = processor.enrich_with_external_data(base_data)
+        
+        assert 'external_score' in enriched_data.columns
+        assert enriched_data['external_score'].iloc[0] == 0.85
+        assert enriched_data['external_score'].iloc[1] == 0.92</correct-example>
+          <incorrect-example title="Basic testing without specialized patterns" conditions="Testing different types of Python applications" expected-result="Appropriate testing strategies for web APIs, CLI tools, async applications, and data pipelines" incorrectness-criteria="No specialized testing patterns, basic assertions only, no async testing, no CLI testing">"""
+Basic Testing Without Specialized Patterns
+"""
+
+# Bad: Basic API test without proper setup
+def test_api_endpoint():
+    response = requests.get("http://localhost:8000/users")
+    assert response.status_code == 200
+
+# Bad: CLI test without Click testing utilities  
+def test_cli_command():
+    import subprocess
+    result = subprocess.run(["python", "cli.py", "users", "create"])
+    assert result.returncode == 0
+
+# Bad: Async test without proper async testing
+def test_async_function():
+    # This won't work properly
+    result = async_function()
+    assert result is not None
+
+# Bad: Data pipeline test without proper data handling
+def test_data_processing():
+    df = pd.DataFrame({"col1": [1, 2, 3]})
+    result = process_data(df)
+    assert len(result) > 0
+
+# No specialized testing patterns
+# No proper async testing
+# No CLI testing utilities
+# No data validation
+# No error handling testing
+# No integration testing</incorrect-example>
+        </example>
+      </examples>
+    </requirement>
+  </requirements>
+
+  <context description="Comprehensive Python testing conventions with modern best practices">
+    Python testing has evolved significantly with pytest becoming the de facto standard testing framework. Modern Python testing emphasizes comprehensive coverage, property-based testing, performance testing, and specialized patterns for different application types.
+
+    This rule builds upon the python-core-project-rules.mdc foundation, extending the basic testing setup with advanced patterns, fixtures, mocking strategies, and specialized testing approaches for web APIs, CLI applications, async code, and data pipelines.
+
+    Key testing principles include:
+    - Test organization mirroring source code structure as defined in python-core-project-rules.mdc
+    - Comprehensive fixture design with dependency injection
+    - Property-based testing for robust validation
+    - Performance and load testing for critical components
+    - Mutation testing for test quality assessment
+    - Specialized patterns for different application architectures
+
+    Modern testing practices require integration of coverage tools, performance benchmarking, property-based testing with Hypothesis, and continuous integration with comprehensive test automation and quality gates.
+  </context>
+
+  <references>
+    <reference as="dependency" href=".cursor/rules/000-core/002-cursor-rules-creation.mdc" reason="Follows standard rule format">Base rule format definition</reference>
+    <reference as="dependency" href=".cursor/rules/projects/python-core-project-rules.mdc" reason="Builds upon Python project structure">Python Core Project Rules</reference>
+    <reference as="context" href="https://docs.pytest.org/" reason="Primary testing framework">pytest documentation</reference>
+    <reference as="context" href="https://hypothesis.readthedocs.io/" reason="Property-based testing">Hypothesis property-based testing</reference>
+    <reference as="context" href="https://coverage.readthedocs.io/" reason="Coverage measurement">Coverage.py documentation</reference>
+    <reference as="context" href="https://mutmut.readthedocs.io/" reason="Mutation testing">mutmut mutation testing</reference>
+    <reference as="context" href="https://pytest-benchmark.readthedocs.io/" reason="Performance testing">pytest-benchmark documentation</reference>
+    <reference as="context" href="https://fastapi.tiangolo.com/tutorial/testing/" reason="FastAPI testing">FastAPI testing documentation</reference>
+    <reference as="context" href="https://click.palletsprojects.com/en/8.1.x/testing/" reason="CLI testing">Click testing utilities</reference>
+  </references>
+</rule>
+description:
+globs:
+alwaysApply: false
+---

@@ -1,0 +1,900 @@
+---
+description: Comprehensive Elixir testing best practices for unit tests and integration tests following community standards and ExUnit conventions
+globs: ["*.{ex,exs}"]
+alwaysApply: false
+---
+
+<rule>
+  <meta>
+    <title>Elixir Testing Conventions</title>
+    <description>Comprehensive Elixir testing best practices for unit tests and integration tests following community standards and ExUnit conventions</description>
+    <created-at utc-timestamp="1744244520">January 27, 2025, 11:22 AM</created-at>
+    <last-updated-at utc-timestamp="1744244520">January 27, 2025, 11:22 AM</last-updated-at>
+    <applies-to>
+      <file-matcher glob="*.{ex,exs}">All Elixir source files and test files</file-matcher>
+      <action-matcher action="testing">Triggered when writing or maintaining Elixir tests</action-matcher>
+    </applies-to>
+  </meta>
+  <requirements>
+    <non-negotiable priority="critical">
+      <description>Use ExUnit framework with proper test module structure and descriptive test names that clearly indicate what is being tested.</description>
+      <examples>
+        <example title="ExUnit Test Module Structure">
+          <correct-example title="Proper ExUnit module structure" conditions="Creating a test module" expected-result="Well-structured test module" correctness-criteria="Uses ExUnit.Case, descriptive module name, and clear test organization"><![CDATA[defmodule MyApp.UserServiceTest do
+  use ExUnit.Case, async: true
+  
+  alias MyApp.UserService
+  alias MyApp.User
+  
+  describe "create_user/1" do
+    test "creates user with valid attributes" do
+      attrs = %{name: "John Doe", email: "john@example.com"}
+      
+      assert {:ok, %User{} = user} = UserService.create_user(attrs)
+      assert user.name == "John Doe"
+      assert user.email == "john@example.com"
+    end
+    
+    test "returns error with invalid email" do
+      attrs = %{name: "John Doe", email: "invalid-email"}
+      
+      assert {:error, :invalid_email} = UserService.create_user(attrs)
+    end
+  end
+end]]></correct-example>
+          <incorrect-example title="Poor test module structure" conditions="Creating a test module" expected-result="Well-structured test module" incorrectness-criteria="Missing ExUnit.Case, unclear module name, poor test organization"><![CDATA[defmodule Test do
+  test "user stuff" do
+    user = create_user()
+    assert user.name
+  end
+  
+  test "other test" do
+    # unclear what this tests
+    assert true
+  end
+end]]></incorrect-example>
+        </example>
+      </examples>
+    </non-negotiable>
+    
+    <non-negotiable priority="critical">
+      <description>Use `describe/2` blocks to group related tests and provide clear context for test organization.</description>
+      <examples>
+        <example title="Test Organization with describe/2">
+          <correct-example title="Proper test grouping" conditions="Organizing tests for a module" expected-result="Well-organized test groups" correctness-criteria="Uses describe blocks to group related functionality"><![CDATA[defmodule MyApp.CalculatorTest do
+  use ExUnit.Case, async: true
+  
+  alias MyApp.Calculator
+  
+  describe "add/2" do
+    test "adds two positive numbers" do
+      assert Calculator.add(2, 3) == 5
+    end
+    
+    test "adds negative numbers" do
+      assert Calculator.add(-2, -3) == -5
+    end
+    
+    test "adds zero" do
+      assert Calculator.add(5, 0) == 5
+    end
+  end
+  
+  describe "divide/2" do
+    test "divides two numbers" do
+      assert Calculator.divide(10, 2) == 5
+    end
+    
+    test "returns error when dividing by zero" do
+      assert Calculator.divide(10, 0) == {:error, :division_by_zero}
+    end
+  end
+end]]></correct-example>
+          <incorrect-example title="Poor test organization" conditions="Organizing tests for a module" expected-result="Well-organized test groups" incorrectness-criteria="No describe blocks, tests are not grouped logically"><![CDATA[defmodule MyApp.CalculatorTest do
+  use ExUnit.Case, async: true
+  
+  test "add positive" do
+    assert Calculator.add(2, 3) == 5
+  end
+  
+  test "divide numbers" do
+    assert Calculator.divide(10, 2) == 5
+  end
+  
+  test "add negative" do
+    assert Calculator.add(-2, -3) == -5
+  end
+  
+  test "divide by zero" do
+    assert Calculator.divide(10, 0) == {:error, :division_by_zero}
+  end
+end]]></incorrect-example>
+        </example>
+      </examples>
+    </non-negotiable>
+    
+    <requirement priority="critical">
+      <description>Use `async: true` for unit tests that don't share state or resources to enable parallel test execution.</description>
+      <examples>
+        <example title="Async Test Configuration">
+          <correct-example title="Proper async usage" conditions="Writing unit tests" expected-result="Parallel test execution" correctness-criteria="Uses async: true for stateless tests"><![CDATA[defmodule MyApp.MathUtilsTest do
+  use ExUnit.Case, async: true  # Safe for pure functions
+  
+  alias MyApp.MathUtils
+  
+  test "calculates factorial" do
+    assert MathUtils.factorial(5) == 120
+  end
+end]]></correct-example>
+          <incorrect-example title="Missing async for unit tests" conditions="Writing unit tests" expected-result="Parallel test execution" incorrectness-criteria="Not using async: true for stateless tests"><![CDATA[defmodule MyApp.MathUtilsTest do
+  use ExUnit.Case  # Missing async: true
+  
+  alias MyApp.MathUtils
+  
+  test "calculates factorial" do
+    assert MathUtils.factorial(5) == 120
+  end
+end]]></incorrect-example>
+        </example>
+      </examples>
+    </requirement>
+    
+    <requirement priority="high">
+      <description>Use proper setup and teardown with `setup/1`, `setup_all/1`, and `on_exit/1` for test initialization and cleanup.</description>
+      <examples>
+        <example title="Test Setup and Teardown">
+          <correct-example title="Proper setup usage" conditions="Setting up test data" expected-result="Clean test environment" correctness-criteria="Uses setup blocks for initialization and cleanup"><![CDATA[defmodule MyApp.UserServiceTest do
+  use ExUnit.Case
+  
+  alias MyApp.{UserService, Repo}
+  
+  setup do
+    # Setup runs before each test
+    :ok = Ecto.Adapters.SQL.Sandbox.checkout(Repo)
+    user = insert(:user, name: "Test User")
+    
+    on_exit(fn ->
+      # Cleanup after test
+      Repo.delete_all(User)
+    end)
+    
+    %{user: user}
+  end
+  
+  setup_all do
+    # Setup runs once before all tests
+    start_supervised!(MyApp.Cache)
+    :ok
+  end
+  
+  describe "get_user/1" do
+    test "returns user when found", %{user: user} do
+      assert {:ok, found_user} = UserService.get_user(user.id)
+      assert found_user.name == "Test User"
+    end
+  end
+end]]></correct-example>
+          <incorrect-example title="Poor setup practices" conditions="Setting up test data" expected-result="Clean test environment" incorrectness-criteria="Manual setup in each test without proper cleanup"><![CDATA[defmodule MyApp.UserServiceTest do
+  use ExUnit.Case
+  
+  test "returns user when found" do
+    # Manual setup in each test
+    user = %User{id: 1, name: "Test User"}
+    Repo.insert!(user)
+    
+    assert {:ok, found_user} = UserService.get_user(user.id)
+    assert found_user.name == "Test User"
+    
+    # No cleanup - test pollution
+  end
+end]]></incorrect-example>
+        </example>
+      </examples>
+    </requirement>
+    
+    <requirement priority="critical">
+      <description>Write comprehensive doctests for public functions using `@doc` with examples that demonstrate usage and expected behavior.</description>
+      <examples>
+        <example title="Doctests Implementation">
+          <correct-example title="Proper doctests" conditions="Documenting public functions" expected-result="Executable documentation" correctness-criteria="Uses @doc with iex examples that are tested"><![CDATA[defmodule MyApp.StringUtils do
+  @doc """
+  Capitalizes the first letter of each word in a string.
+  
+  ## Examples
+  
+      iex> MyApp.StringUtils.title_case("hello world")
+      "Hello World"
+      
+      iex> MyApp.StringUtils.title_case("elixir is awesome")
+      "Elixir Is Awesome"
+      
+      iex> MyApp.StringUtils.title_case("")
+      ""
+  """
+  def title_case(string) do
+    string
+    |> String.split(" ")
+    |> Enum.map(&String.capitalize/1)
+    |> Enum.join(" ")
+  end
+end
+
+# In test file
+defmodule MyApp.StringUtilsTest do
+  use ExUnit.Case, async: true
+  
+  doctest MyApp.StringUtils
+end]]></correct-example>
+          <incorrect-example title="Missing doctests" conditions="Documenting public functions" expected-result="Executable documentation" incorrectness-criteria="No doctest examples or missing doctest in test file"><![CDATA[defmodule MyApp.StringUtils do
+  @doc """
+  Capitalizes the first letter of each word in a string.
+  """
+  def title_case(string) do
+    # Implementation without examples
+    String.split(string, " ")
+    |> Enum.map(&String.capitalize/1)
+    |> Enum.join(" ")
+  end
+end]]></incorrect-example>
+        </example>
+      </examples>
+    </requirement>
+    
+    <requirement priority="high">
+      <description>Use Mox for mocking external dependencies and services, ensuring tests remain isolated and deterministic.</description>
+      <examples>
+        <example title="Mocking with Mox">
+          <correct-example title="Proper mocking setup" conditions="Testing code with external dependencies" expected-result="Isolated tests" correctness-criteria="Uses Mox to mock external services and dependencies"><![CDATA[# In test_helper.exs
+Mox.defmock(MyApp.MockEmailService, for: MyApp.EmailService)
+
+# In test file
+defmodule MyApp.NotificationServiceTest do
+  use ExUnit.Case, async: true
+  
+  import Mox
+  
+  alias MyApp.{NotificationService, MockEmailService}
+  
+  setup :verify_on_exit!
+  
+  describe "send_welcome_email/1" do
+    test "sends email with correct parameters" do
+      user = %{id: 1, email: "test@example.com", name: "Test User"}
+      
+      expect(MockEmailService, :send_email, fn params ->
+        assert params.to == "test@example.com"
+        assert params.subject == "Welcome Test User!"
+        assert params.template == "welcome"
+        {:ok, %{message_id: "123"}}
+      end)
+      
+      assert {:ok, %{message_id: "123"}} = 
+        NotificationService.send_welcome_email(user)
+    end
+    
+    test "handles email service errors" do
+      user = %{id: 1, email: "test@example.com", name: "Test User"}
+      
+      expect(MockEmailService, :send_email, fn _params ->
+        {:error, :rate_limited}
+      end)
+      
+      assert {:error, :rate_limited} = 
+        NotificationService.send_welcome_email(user)
+    end
+  end
+end]]></correct-example>
+          <incorrect-example title="Poor mocking practices" conditions="Testing code with external dependencies" expected-result="Isolated tests" incorrectness-criteria="Uses real external services or poor mocking setup"><![CDATA[defmodule MyApp.NotificationServiceTest do
+  use ExUnit.Case
+  
+  test "sends email" do
+    user = %{id: 1, email: "test@example.com", name: "Test User"}
+    
+    # Calling real email service - not isolated
+    assert {:ok, _} = NotificationService.send_welcome_email(user)
+  end
+end]]></incorrect-example>
+        </example>
+      </examples>
+    </requirement>
+    
+    <requirement priority="high">
+      <description>Use StreamData for property-based testing to verify function behavior across a wide range of inputs.</description>
+      <examples>
+        <example title="Property-based Testing">
+          <correct-example title="Proper property-based tests" conditions="Testing functions with various inputs" expected-result="Comprehensive input coverage" correctness-criteria="Uses StreamData to generate test inputs and verify properties"><![CDATA[defmodule MyApp.MathUtilsTest do
+  use ExUnit.Case, async: true
+  use ExUnitProperties
+  
+  alias MyApp.MathUtils
+  
+  describe "add/2" do
+    property "is commutative" do
+      check all a <- integer(),
+                b <- integer() do
+        assert MathUtils.add(a, b) == MathUtils.add(b, a)
+      end
+    end
+    
+    property "is associative" do
+      check all a <- integer(),
+                b <- integer(),
+                c <- integer() do
+        assert MathUtils.add(MathUtils.add(a, b), c) == 
+               MathUtils.add(a, MathUtils.add(b, c))
+      end
+    end
+    
+    property "identity element is zero" do
+      check all a <- integer() do
+        assert MathUtils.add(a, 0) == a
+        assert MathUtils.add(0, a) == a
+      end
+    end
+  end
+end]]></correct-example>
+          <incorrect-example title="Only unit tests" conditions="Testing functions with various inputs" expected-result="Comprehensive input coverage" incorrectness-criteria="Only tests specific cases, missing property-based tests"><![CDATA[defmodule MyApp.MathUtilsTest do
+  use ExUnit.Case, async: true
+  
+  test "adds two numbers" do
+    assert MathUtils.add(2, 3) == 5
+  end
+  
+  test "adds negative numbers" do
+    assert MathUtils.add(-2, -3) == -5
+  end
+  
+  # Missing property-based tests for comprehensive coverage
+end]]></incorrect-example>
+        </example>
+      </examples>
+    </requirement>
+    
+    <requirement priority="critical">
+      <description>Use Phoenix.ConnTest for integration testing of Phoenix controllers and endpoints with proper test setup.</description>
+      <examples>
+        <example title="Phoenix Integration Testing">
+          <correct-example title="Proper Phoenix integration tests" conditions="Testing Phoenix controllers" expected-result="Comprehensive endpoint testing" correctness-criteria="Uses Phoenix.ConnTest with proper setup and realistic scenarios"><![CDATA[defmodule MyAppWeb.UserControllerTest do
+  use MyAppWeb.ConnCase
+  
+  import MyApp.Factory
+  
+  describe "POST /users" do
+    test "creates user with valid attributes", %{conn: conn} do
+      user_attrs = %{
+        name: "John Doe",
+        email: "john@example.com",
+        password: "secure_password"
+      }
+      
+      conn = post(conn, ~p"/users", user: user_attrs)
+      
+      assert %{"id" => id, "name" => "John Doe"} = json_response(conn, 201)
+      assert MyApp.Repo.get(MyApp.User, id)
+    end
+    
+    test "returns error with invalid attributes", %{conn: conn} do
+      invalid_attrs = %{name: "", email: "invalid"}
+      
+      conn = post(conn, ~p"/users", user: invalid_attrs)
+      
+      assert json_response(conn, 422) == %{
+        "errors" => %{
+          "name" => ["can't be blank"],
+          "email" => ["has invalid format"]
+        }
+      }
+    end
+  end
+  
+  describe "GET /users/:id" do
+    setup do
+      user = insert(:user)
+      %{user: user}
+    end
+    
+    test "returns user when authenticated", %{conn: conn, user: user} do
+      conn = 
+        conn
+        |> authenticate_user(user)
+        |> get(~p"/users/#{user.id}")
+      
+      assert %{"id" => id, "name" => name} = json_response(conn, 200)
+      assert id == user.id
+      assert name == user.name
+    end
+    
+    test "returns 401 when not authenticated", %{conn: conn, user: user} do
+      conn = get(conn, ~p"/users/#{user.id}")
+      
+      assert json_response(conn, 401) == %{"error" => "Unauthorized"}
+    end
+  end
+end]]></correct-example>
+          <incorrect-example title="Poor integration testing" conditions="Testing Phoenix controllers" expected-result="Comprehensive endpoint testing" incorrectness-criteria="Missing proper setup, not testing error cases, or poor assertions"><![CDATA[defmodule MyAppWeb.UserControllerTest do
+  use MyAppWeb.ConnCase
+  
+  test "creates user" do
+    conn = post(conn, "/users", %{name: "John"})
+    assert response(conn, 201)
+  end
+  
+  test "gets user" do
+    conn = get(conn, "/users/1")
+    assert response(conn, 200)
+  end
+  
+  # Missing error cases, proper setup, and detailed assertions
+end]]></incorrect-example>
+        </example>
+      </examples>
+    </requirement>
+    
+    <requirement priority="high">
+      <description>Use ExMachina or similar factories for creating test data, ensuring consistent and maintainable test fixtures.</description>
+      <examples>
+        <example title="Test Data Factories">
+          <correct-example title="Proper factory usage" conditions="Creating test data" expected-result="Consistent test fixtures" correctness-criteria="Uses ExMachina factories for data generation"><![CDATA[# In test/support/factory.ex
+defmodule MyApp.Factory do
+  use ExMachina.Ecto, repo: MyApp.Repo
+  
+  def user_factory do
+    %MyApp.User{
+      name: sequence(:name, &"User #{&1}"),
+      email: sequence(:email, &"user#{&1}@example.com"),
+      age: Enum.random(18..80),
+      active: true,
+      inserted_at: DateTime.utc_now(),
+      updated_at: DateTime.utc_now()
+    }
+  end
+  
+  def admin_user_factory do
+    struct!(
+      user_factory(),
+      %{role: :admin, permissions: [:read, :write, :delete]}
+    )
+  end
+  
+  def post_factory do
+    %MyApp.Post{
+      title: sequence(:title, &"Post Title #{&1}"),
+      content: "This is post content",
+      author: build(:user),
+      published: false
+    }
+  end
+end
+
+# In test file
+defmodule MyApp.UserServiceTest do
+  use ExUnit.Case
+  
+  import MyApp.Factory
+  
+  test "creates user with valid data" do
+    user_attrs = params_for(:user)
+    
+    assert {:ok, user} = MyApp.UserService.create(user_attrs)
+    assert user.name == user_attrs.name
+  end
+  
+  test "admin user has correct permissions" do
+    admin = insert(:admin_user)
+    
+    assert admin.role == :admin
+    assert :write in admin.permissions
+  end
+end]]></correct-example>
+          <incorrect-example title="Manual test data creation" conditions="Creating test data" expected-result="Consistent test fixtures" incorrectness-criteria="Manual data creation without factories"><![CDATA[defmodule MyApp.UserServiceTest do
+  use ExUnit.Case
+  
+  test "creates user" do
+    # Manual test data creation
+    user_attrs = %{
+      name: "John Doe",
+      email: "john@example.com",
+      age: 30,
+      active: true
+    }
+    
+    assert {:ok, user} = MyApp.UserService.create(user_attrs)
+  end
+  
+  test "another test" do
+    # Duplicated manual creation
+    user_attrs = %{
+      name: "Jane Doe",
+      email: "jane@example.com",
+      age: 25,
+      active: true
+    }
+    
+    # Inconsistent data structure
+  end
+end]]></incorrect-example>
+        </example>
+      </examples>
+    </requirement>
+    
+    <requirement priority="high">
+      <description>Use `test_helper.exs` for global test configuration including database setup, mock configuration, and test environment settings.</description>
+      <examples>
+        <example title="Test Helper Configuration">
+          <correct-example title="Proper test helper setup" conditions="Configuring test environment" expected-result="Consistent test environment" correctness-criteria="Comprehensive test_helper.exs with proper configuration"><![CDATA[# test/test_helper.exs
+ExUnit.start()
+
+# Configure Ecto sandbox for database isolation
+Ecto.Adapters.SQL.Sandbox.mode(MyApp.Repo, :manual)
+
+# Setup Mox for mocking
+Mox.defmock(MyApp.MockEmailService, for: MyApp.EmailService)
+Mox.defmock(MyApp.MockPaymentService, for: MyApp.PaymentService)
+Mox.defmock(MyApp.MockExternalAPI, for: MyApp.ExternalAPI)
+
+# Configure test environment
+Application.put_env(:my_app, :email_service, MyApp.MockEmailService)
+Application.put_env(:my_app, :payment_service, MyApp.MockPaymentService)
+Application.put_env(:my_app, :external_api, MyApp.MockExternalAPI)
+
+# Setup test factories
+{:ok, _} = Application.ensure_all_started(:ex_machina)
+
+# Configure logging for tests
+Logger.configure(level: :warn)
+
+# Setup test database
+Mix.Task.run("ecto.create", ~w(-r MyApp.Repo --quiet))
+Mix.Task.run("ecto.migrate", ~w(-r MyApp.Repo --quiet))]]></correct-example>
+          <incorrect-example title="Minimal test helper" conditions="Configuring test environment" expected-result="Consistent test environment" incorrectness-criteria="Missing essential configuration for testing"><![CDATA[# test/test_helper.exs
+ExUnit.start()
+
+# Missing database configuration
+# Missing mock setup
+# Missing environment configuration]]></incorrect-example>
+        </example>
+      </examples>
+    </requirement>
+    
+    <requirement priority="medium">
+      <description>Use `assert_raise/2` and `assert_raise/3` for testing exception handling and error conditions.</description>
+      <examples>
+        <example title="Exception Testing">
+          <correct-example title="Proper exception testing" conditions="Testing error conditions" expected-result="Comprehensive error handling tests" correctness-criteria="Uses assert_raise with specific exception types and messages"><![CDATA[defmodule MyApp.BankAccountTest do
+  use ExUnit.Case, async: true
+  
+  alias MyApp.BankAccount
+  
+  describe "withdraw/2" do
+    test "raises InsufficientFundsError when balance is insufficient" do
+      account = %BankAccount{balance: 100}
+      
+      assert_raise BankAccount.InsufficientFundsError, 
+                   "Cannot withdraw $150.00, balance is $100.00", fn ->
+        BankAccount.withdraw(account, 150)
+      end
+    end
+    
+    test "raises ArgumentError for negative amounts" do
+      account = %BankAccount{balance: 100}
+      
+      assert_raise ArgumentError, "Amount must be positive", fn ->
+        BankAccount.withdraw(account, -50)
+      end
+    end
+  end
+  
+  describe "transfer/3" do
+    test "raises InvalidAccountError for same account transfer" do
+      account = %BankAccount{id: 1, balance: 100}
+      
+      assert_raise BankAccount.InvalidAccountError, fn ->
+        BankAccount.transfer(account, account, 50)
+      end
+    end
+  end
+end]]></correct-example>
+          <incorrect-example title="Poor exception testing" conditions="Testing error conditions" expected-result="Comprehensive error handling tests" incorrectness-criteria="Not testing exceptions or using generic error testing"><![CDATA[defmodule MyApp.BankAccountTest do
+  use ExUnit.Case, async: true
+  
+  test "withdraw fails with insufficient funds" do
+    account = %BankAccount{balance: 100}
+    
+    # Not testing the specific exception
+    result = BankAccount.withdraw(account, 150)
+    assert {:error, _} = result
+  end
+  
+  test "withdraw fails with negative amount" do
+    account = %BankAccount{balance: 100}
+    
+    # Generic error testing without specific exception
+    try do
+      BankAccount.withdraw(account, -50)
+    rescue
+      _ -> :ok
+    end
+  end
+end]]></incorrect-example>
+        </example>
+      </examples>
+    </requirement>
+    
+    <requirement priority="high">
+      <description>Use `capture_io/1` and `capture_log/1` for testing functions that produce output or log messages.</description>
+      <examples>
+        <example title="Output and Log Testing">
+          <correct-example title="Proper output testing" conditions="Testing functions with output" expected-result="Verified output behavior" correctness-criteria="Uses capture_io and capture_log to test output"><![CDATA[defmodule MyApp.ReportGeneratorTest do
+  use ExUnit.Case, async: true
+  
+  import ExUnit.CaptureIO
+  import ExUnit.CaptureLog
+  
+  alias MyApp.ReportGenerator
+  
+  describe "print_report/1" do
+    test "prints formatted report to stdout" do
+      data = [%{name: "John", score: 85}, %{name: "Jane", score: 92}]
+      
+      output = capture_io(fn ->
+        ReportGenerator.print_report(data)
+      end)
+      
+      assert output =~ "Report Generated"
+      assert output =~ "John: 85"
+      assert output =~ "Jane: 92"
+    end
+  end
+  
+  describe "process_data/1" do
+    test "logs processing steps" do
+      data = [1, 2, 3, 4, 5]
+      
+      log = capture_log(fn ->
+        ReportGenerator.process_data(data)
+      end)
+      
+      assert log =~ "Processing 5 items"
+      assert log =~ "Processing completed"
+    end
+    
+    test "logs warning for empty data" do
+      log = capture_log(fn ->
+        ReportGenerator.process_data([])
+      end)
+      
+      assert log =~ "[warn] No data to process"
+    end
+  end
+end]]></correct-example>
+          <incorrect-example title="Not testing output" conditions="Testing functions with output" expected-result="Verified output behavior" incorrectness-criteria="Not capturing or testing output and log messages"><![CDATA[defmodule MyApp.ReportGeneratorTest do
+  use ExUnit.Case, async: true
+  
+  test "generates report" do
+    data = [%{name: "John", score: 85}]
+    
+    # Not testing the actual output
+    assert :ok = ReportGenerator.print_report(data)
+  end
+  
+  test "processes data" do
+    data = [1, 2, 3]
+    
+    # Not testing log messages
+    assert {:ok, _result} = ReportGenerator.process_data(data)
+  end
+end]]></incorrect-example>
+        </example>
+      </examples>
+    </requirement>
+    
+    <requirement priority="high">
+      <description>Use consistent test naming conventions that clearly describe the scenario being tested and expected outcome.</description>
+      <examples>
+        <example title="Test Naming Conventions">
+          <correct-example title="Descriptive test names" conditions="Writing test names" expected-result="Clear test purpose" correctness-criteria="Test names describe scenario and expected outcome"><![CDATA[defmodule MyApp.UserServiceTest do
+  use ExUnit.Case, async: true
+  
+  describe "create_user/1" do
+    test "creates user successfully with valid attributes" do
+      # Test implementation
+    end
+    
+    test "returns validation error when email is invalid" do
+      # Test implementation
+    end
+    
+    test "returns error when email already exists" do
+      # Test implementation
+    end
+  end
+  
+  describe "authenticate_user/2" do
+    test "returns user when credentials are valid" do
+      # Test implementation
+    end
+    
+    test "returns error when password is incorrect" do
+      # Test implementation
+    end
+    
+    test "returns error when user does not exist" do
+      # Test implementation
+    end
+  end
+end]]></correct-example>
+          <incorrect-example title="Poor test naming" conditions="Writing test names" expected-result="Clear test purpose" incorrectness-criteria="Vague or unclear test names"><![CDATA[defmodule MyApp.UserServiceTest do
+  use ExUnit.Case, async: true
+  
+  test "user creation" do
+    # Unclear what aspect of user creation
+  end
+  
+  test "test_validation" do
+    # Unclear what validation is being tested
+  end
+  
+  test "it works" do
+    # Completely unclear what this tests
+  end
+  
+  test "edge case" do
+    # Unclear what edge case
+  end
+end]]></incorrect-example>
+        </example>
+      </examples>
+    </requirement>
+    
+    <requirement priority="medium">
+      <description>Use `refute/1` and `refute/2` for negative assertions to clearly express what should not be true.</description>
+      <examples>
+        <example title="Negative Assertions">
+          <correct-example title="Proper use of refute" conditions="Testing negative conditions" expected-result="Clear negative assertions" correctness-criteria="Uses refute for negative conditions instead of assert !"><![CDATA[defmodule MyApp.UserServiceTest do
+  use ExUnit.Case, async: true
+  
+  describe "delete_user/1" do
+    test "removes user from database" do
+      user = insert(:user)
+      
+      assert {:ok, _} = UserService.delete_user(user.id)
+      
+      # Use refute for negative assertions
+      refute Repo.get(User, user.id)
+    end
+  end
+  
+  describe "deactivate_user/1" do
+    test "sets user as inactive" do
+      user = insert(:user, active: true)
+      
+      assert {:ok, updated_user} = UserService.deactivate_user(user.id)
+      
+      refute updated_user.active
+    end
+  end
+  
+  describe "validate_email/1" do
+    test "rejects invalid email formats" do
+      invalid_emails = ["invalid", "@example.com", "test@", "test.com"]
+      
+      for email <- invalid_emails do
+        refute UserService.validate_email(email), 
+               "Expected #{email} to be invalid"
+      end
+    end
+  end
+end]]></correct-example>
+          <incorrect-example title="Using assert with negation" conditions="Testing negative conditions" expected-result="Clear negative assertions" incorrectness-criteria="Uses assert ! instead of refute"><![CDATA[defmodule MyApp.UserServiceTest do
+  use ExUnit.Case, async: true
+  
+  test "removes user from database" do
+    user = insert(:user)
+    
+    assert {:ok, _} = UserService.delete_user(user.id)
+    
+    # Using assert with negation instead of refute
+    assert !Repo.get(User, user.id)
+  end
+  
+  test "sets user as inactive" do
+    user = insert(:user, active: true)
+    
+    assert {:ok, updated_user} = UserService.deactivate_user(user.id)
+    
+    # Using assert with negation instead of refute
+    assert !updated_user.active
+  end
+end]]></incorrect-example>
+        </example>
+      </examples>
+    </requirement>
+    
+    <requirement priority="high">
+      <description>Use `flunk/1` for tests that should never reach a certain point in execution.</description>
+      <examples>
+        <example title="Flunk Usage">
+          <correct-example title="Proper flunk usage" conditions="Testing execution paths" expected-result="Clear test failures" correctness-criteria="Uses flunk when code should not be reached"><![CDATA[defmodule MyApp.PaymentServiceTest do
+  use ExUnit.Case, async: true
+  
+  describe "process_payment/1" do
+    test "handles payment processing errors" do
+      invalid_payment = %{amount: -100, currency: "USD"}
+      
+      case PaymentService.process_payment(invalid_payment) do
+        {:error, :invalid_amount} ->
+          # Expected path
+          assert true
+          
+        {:ok, _result} ->
+          flunk("Payment should not succeed with negative amount")
+          
+        other ->
+          flunk("Unexpected result: #{inspect(other)}")
+      end
+    end
+  end
+  
+  describe "validate_card/1" do
+    test "rejects expired cards" do
+      expired_card = %{number: "4111111111111111", exp_date: "01/20"}
+      
+      try do
+        PaymentService.validate_card(expired_card)
+        flunk("Expected validation to raise an exception")
+      rescue
+        PaymentService.ExpiredCardError ->
+          # Expected exception
+          assert true
+      end
+    end
+  end
+end]]></correct-example>
+          <incorrect-example title="Not using flunk" conditions="Testing execution paths" expected-result="Clear test failures" incorrectness-criteria="Not failing tests when unexpected code paths are reached"><![CDATA[defmodule MyApp.PaymentServiceTest do
+  use ExUnit.Case, async: true
+  
+  test "handles payment processing errors" do
+    invalid_payment = %{amount: -100, currency: "USD"}
+    
+    case PaymentService.process_payment(invalid_payment) do
+      {:error, :invalid_amount} ->
+        assert true
+        
+      {:ok, _result} ->
+        # Should use flunk here
+        assert false
+        
+      other ->
+        # Should use flunk with descriptive message
+        assert false
+    end
+  end
+end]]></incorrect-example>
+        </example>
+      </examples>
+    </requirement>
+  </requirements>
+  
+  <context description="Elixir testing ecosystem and best practices">
+    Elixir's testing ecosystem is built around ExUnit, which provides a comprehensive framework for unit testing, integration testing, and property-based testing. The language's functional nature and immutable data structures make it particularly well-suited for testing, as functions are predictable and side effects are explicit.
+    
+    Key testing principles in Elixir include:
+    - Isolation: Tests should not depend on each other or shared state
+    - Clarity: Test names and structure should clearly communicate intent
+    - Comprehensiveness: Use multiple testing strategies (unit, integration, property-based)
+    - Performance: Leverage async testing where possible for faster test suites
+    - Maintainability: Use factories and proper setup/teardown for clean tests
+    
+    The Elixir community strongly emphasizes documentation testing through doctests, which serve as both documentation and executable tests. This practice ensures that code examples in documentation remain accurate and up-to-date.
+    
+    For Phoenix applications, additional testing tools like Phoenix.ConnTest provide specialized functionality for testing web applications, including HTTP requests, JSON responses, and authentication flows.
+  </context>
+  
+  <references>
+    <reference as="dependency" href=".cursor/rules/000-core/002-cursor-rules-creation.mdc" reason="Follows standard rule format">Base rule format definition</reference>
+    <reference as="context" href="https://hexdocs.pm/ex_unit/ExUnit.html" reason="Official ExUnit documentation">ExUnit framework documentation</reference>
+    <reference as="context" href="https://hexdocs.pm/stream_data/StreamData.html" reason="Property-based testing">StreamData library for property-based testing</reference>
+    <reference as="context" href="https://hexdocs.pm/mox/Mox.html" reason="Mocking library">Mox library for mocking in Elixir</reference>
+    <reference as="context" href="https://hexdocs.pm/ex_machina/ExMachina.html" reason="Test factories">ExMachina library for test data factories</reference>
+  </references>
+</rule>

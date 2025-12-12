@@ -1,0 +1,1714 @@
+---
+description: "Comprehensive Pericles Admin Portal development standards with role-based permissions, user management, SAML SSO integration, AI agent training, and organizational configuration following SaaS application best practices"
+globs: "*"
+alwaysApply: true
+---
+
+<rule>
+  <meta>
+    <title>Pericles Admin Portal Core Standards</title>
+    <description>Complete development standards for Pericles Admin Portal with three-tier permission system (Admin/Manager/Viewer), comprehensive user management, SAML SSO, AI agent training capabilities, and organizational configuration following established SaaS application patterns and security best practices.</description>
+    <created-at utc-timestamp="1737924000">January 26, 2025, 3:40 PM UTC</created-at>
+    <last-updated-at utc-timestamp="1737924000">January 26, 2025, 3:40 PM UTC</last-updated-at>
+    <applies-to>
+      <file-matcher glob="*">All files in Pericles Admin Portal implementation</file-matcher>
+      <action-matcher action="admin-portal-development">All development activities for the Pericles Admin Portal</action-matcher>
+      <action-matcher action="user-management">User and organizational management functionality</action-matcher>
+      <action-matcher action="ai-training">AI agent training and configuration features</action-matcher>
+    </applies-to>
+  </meta>
+  <requirements>
+    <!-- Root Organization and Global Governance -->
+    <non-negotiable priority="critical">
+      <description>Establish a Root Organization that owns all organizations and enforces global governance. Only users authenticated with the pericles.cloud domain can belong to the Root Organization. Root Admins have global manage permissions across all organizations; Root Managers/Viewers have global read-only access. Non-root users are always scoped to their own organization.</description>
+      <examples>
+        <example title="Root Organization Access Model">
+          <correct-example title="Root org and global permissions" conditions="Authorizing requests and listing/managing organizations" expected-result="Root Admin can manage all orgs; Root non-admins can only view; non-root users are tenant-scoped" correctness-criteria="Domain-gated root membership, explicit root checks, read-only downgrade for non-admins"><![CDATA[// constants/access.ts
+export const ROOT_ORG_SLUG = 'pericles-root';
+export const ROOT_ALLOWED_DOMAIN = 'pericles.cloud';
+
+// lib/authz.ts
+export const isRootUser = (user: AdminUser | null | undefined): boolean => {
+  if (!user) return false;
+  return user.organizationId === ROOT_ORG_SLUG || (user.email.toLowerCase().endsWith('@' + ROOT_ALLOWED_DOMAIN));
+};
+
+export const canManageAnyOrganization = (user: AdminUser | null | undefined): boolean => {
+  return !!user && isRootUser(user) && user.adminRole === 'ADMIN';
+};
+
+export const isRootReadOnly = (user: AdminUser | null | undefined): boolean => {
+  return !!user && isRootUser(user) && user.adminRole !== 'ADMIN';
+};
+
+// api/admin/organizations.ts (listing snippet)
+const isAdmin = (req.user?.adminRole || '').toUpperCase() === 'ADMIN';
+const rootUser = isRootUser(req.user);
+const where: { id?: string } = {};
+if (!(rootUser && isAdmin)) {
+  // scope to tenant when not root-admin
+  const orgId = req.user?.organizationId || '';
+  const isUuid = /^[0-9a-f-]{36}$/i.test(orgId);
+  if (isUuid) where.id = orgId;
+}
+
+// api/admin/organizations/import.ts / updates (write guard)
+if (isRootReadOnly(req.user)) {
+  return res.status(403).json({ success: false, error: 'READ_ONLY', message: 'Root non-admins have read-only access' });
+}
+
+// Prisma schema (relationship hint)
+model Organization {
+  id          String   @id @default(uuid()) @db.Uuid
+  name        String
+  slug        String   @unique
+  parent_id   String?  @db.Uuid // ROOT owns all orgs (parent_id = null for ROOT)
+  // ... other fields
+  @@map("organizations")
+}]]></correct-example>
+          <incorrect-example title="Missing root controls" conditions="Global authorization" expected-result="Enforced root-only global access" incorrectness-criteria="Any domain can become root, or root non-admins can write"><![CDATA[// WRONG - global list without root checks
+const organizations = await prisma.organization.findMany(); // Leaks all orgs to any user
+
+// WRONG - allows root viewer to modify tenants
+if (isRootUser(user)) {
+  await prisma.organization.update(...); // no role check]]></incorrect-example>
+        </example>
+      </examples>
+    </non-negotiable>
+    <!-- Three-Tier Role-Based Permission System -->
+    <non-negotiable priority="critical">
+      <description>Implement comprehensive three-tier role-based permission system with Admin (full organizational control), Manager (user area configuration), and Viewer (personal settings only) roles. Enforce strict permission boundaries with proper authorization checks on all endpoints and UI components following established SaaS authentication patterns.</description>
+      <examples>
+        <example title="Role-Based Permission Implementation">
+          <correct-example title="Comprehensive role permission system with proper checks" conditions="Implementing admin portal permissions" expected-result="Secure role-based access control with proper enforcement" correctness-criteria="Uses established authentication patterns, proper permission checks, role hierarchy enforcement, and secure API endpoints"><![CDATA[// types/admin.ts - Admin Portal Role System
+export type AdminRole = 'ADMIN' | 'MANAGER' | 'VIEWER';
+
+export interface AdminUser extends User {
+  adminRole: AdminRole;
+  organizationId: string;
+  permissions: AdminPermission[];
+  lastAdminAccess: Date;
+}
+
+export interface AdminPermission {
+  resource: AdminResource;
+  actions: AdminAction[];
+  scope: 'ORGANIZATION' | 'USER_GROUP' | 'SELF';
+}
+
+export type AdminResource = 
+  | 'USER_MANAGEMENT' 
+  | 'ROLE_ASSIGNMENT' 
+  | 'SAML_CONFIG' 
+  | 'AI_TRAINING' 
+  | 'BULK_IMPORT' 
+  | 'INTEGRATIONS' 
+  | 'NOTIFICATIONS' 
+  | 'PERSONAL_SETTINGS';
+
+export type AdminAction = 'CREATE' | 'READ' | 'UPDATE' | 'DELETE' | 'EXECUTE';
+
+// Role definitions with specific permissions
+export const ADMIN_ROLE_PERMISSIONS: Record<AdminRole, AdminPermission[]> = {
+  ADMIN: [
+    { resource: 'USER_MANAGEMENT', actions: ['CREATE', 'READ', 'UPDATE', 'DELETE'], scope: 'ORGANIZATION' },
+    { resource: 'ROLE_ASSIGNMENT', actions: ['CREATE', 'READ', 'UPDATE', 'DELETE'], scope: 'ORGANIZATION' },
+    { resource: 'SAML_CONFIG', actions: ['CREATE', 'READ', 'UPDATE', 'DELETE'], scope: 'ORGANIZATION' },
+    { resource: 'AI_TRAINING', actions: ['CREATE', 'READ', 'UPDATE', 'DELETE', 'EXECUTE'], scope: 'ORGANIZATION' },
+    { resource: 'BULK_IMPORT', actions: ['CREATE', 'READ', 'EXECUTE'], scope: 'ORGANIZATION' },
+    { resource: 'INTEGRATIONS', actions: ['CREATE', 'READ', 'UPDATE', 'DELETE'], scope: 'ORGANIZATION' },
+    { resource: 'NOTIFICATIONS', actions: ['CREATE', 'READ', 'UPDATE', 'DELETE'], scope: 'ORGANIZATION' },
+    { resource: 'PERSONAL_SETTINGS', actions: ['READ', 'UPDATE'], scope: 'SELF' }
+  ],
+  MANAGER: [
+    { resource: 'USER_MANAGEMENT', actions: ['READ'], scope: 'USER_GROUP' },
+    { resource: 'PERSONAL_SETTINGS', actions: ['READ', 'UPDATE'], scope: 'SELF' },
+    { resource: 'NOTIFICATIONS', actions: ['READ', 'UPDATE'], scope: 'SELF' }
+  ],
+  VIEWER: [
+    { resource: 'PERSONAL_SETTINGS', actions: ['READ', 'UPDATE'], scope: 'SELF' },
+    { resource: 'NOTIFICATIONS', actions: ['READ', 'UPDATE'], scope: 'SELF' }
+  ]
+};
+
+// Permission check utility following SaaS authentication patterns
+export const hasAdminPermission = (
+  user: AdminUser, 
+  resource: AdminResource, 
+  action: AdminAction,
+  targetScope: 'ORGANIZATION' | 'USER_GROUP' | 'SELF' = 'SELF'
+): boolean => {
+  const userPermissions = ADMIN_ROLE_PERMISSIONS[user.adminRole];
+  
+  return userPermissions.some(permission => 
+    permission.resource === resource &&
+    permission.actions.includes(action) &&
+    (permission.scope === targetScope || permission.scope === 'ORGANIZATION')
+  );
+};
+
+// API middleware for admin permission enforcement
+// api/admin/middleware/permissions.ts
+import type { VercelRequest, VercelResponse } from '@vercel/node';
+import { hasAdminPermission } from '../../../types/admin';
+
+interface AdminRequest extends VercelRequest {
+  user?: AdminUser;
+  requiredPermission?: {
+    resource: AdminResource;
+    action: AdminAction;
+    scope?: 'ORGANIZATION' | 'USER_GROUP' | 'SELF';
+  };
+}
+
+export const requireAdminPermission = (
+  resource: AdminResource,
+  action: AdminAction,
+  scope: 'ORGANIZATION' | 'USER_GROUP' | 'SELF' = 'SELF'
+) => {
+  return (req: AdminRequest, res: VercelResponse, next: () => void) => {
+    if (!req.user) {
+      return res.status(401).json({ error: 'Authentication required' });
+    }
+
+    if (!hasAdminPermission(req.user, resource, action, scope)) {
+      // Create audit log for permission denial
+      await prisma.audit_logs.create({
+        data: {
+          user_id: req.user.id,
+          action: 'ADMIN_PERMISSION_DENIED',
+          resource_type: 'admin_portal',
+          resource_id: `${resource}:${action}:${scope}`,
+          success: false,
+          details: { deniedPermission: { resource, action, scope } },
+          ip_address: req.headers['x-forwarded-for'] as string || 'unknown',
+          user_agent: req.headers['user-agent'] || 'unknown'
+        }
+      });
+
+      return res.status(403).json({ 
+        error: 'Insufficient permissions',
+        required: { resource, action, scope },
+        userRole: req.user.adminRole
+      });
+    }
+
+    req.requiredPermission = { resource, action, scope };
+    next();
+  };
+};]]></correct-example>
+          <incorrect-example title="Basic role check without comprehensive permission system" conditions="Implementing admin portal permissions" expected-result="Secure role-based access control" incorrectness-criteria="Missing granular permissions, no audit logging, improper role hierarchy, or insecure permission checks"><![CDATA[// WRONG - overly simplistic role checking
+const isAdmin = user.role === 'admin';
+if (isAdmin) {
+  // Allow all actions - too permissive!
+  return true;
+}
+
+// Missing: Granular permissions, audit logging, proper scope checking, resource-specific access control]]></incorrect-example>
+        </example>
+      </examples>
+    </non-negotiable>
+
+    <!-- User Management and Bulk Operations -->
+    <non-negotiable priority="critical">
+      <description>Implement comprehensive user management system for Admins with ability to add/remove users, assign roles, create custom user groups, and perform bulk user import via CSV/TXT. Include proper validation, error handling, and audit logging for all user management operations following established SaaS patterns.</description>
+      <examples>
+        <example title="User Management Implementation">
+          <correct-example title="Complete user management with bulk operations and audit logging" conditions="Implementing admin user management features" expected-result="Secure user management system with comprehensive features" correctness-criteria="Includes individual and bulk operations, proper validation, role assignment, user groups, audit logging, and error handling"><![CDATA[// types/user-management.ts
+export interface UserGroup {
+  id: string;
+  name: string;
+  description: string;
+  organizationId: string;
+  memberIds: string[];
+  permissions: string[];
+  createdBy: string;
+  createdAt: Date;
+  updatedAt: Date;
+}
+
+export interface BulkUserImport {
+  id: string;
+  organizationId: string;
+  fileName: string;
+  uploadedBy: string;
+  totalRows: number;
+  successCount: number;
+  errorCount: number;
+  errors: BulkImportError[];
+  status: 'PENDING' | 'PROCESSING' | 'COMPLETED' | 'FAILED';
+  createdAt: Date;
+  completedAt?: Date;
+}
+
+export interface BulkImportError {
+  row: number;
+  field: string;
+  value: string;
+  error: string;
+}
+
+// api/admin/users/create.ts - Individual User Creation
+import type { VercelRequest, VercelResponse } from '@vercel/node';
+import { requireAdminPermission } from '../middleware/permissions';
+import { PrismaClient } from '@prisma/client';
+import bcrypt from 'bcrypt';
+
+const prisma = new PrismaClient();
+
+export default async function handler(req: VercelRequest, res: VercelResponse) {
+  // Apply permission middleware
+  await requireAdminPermission('USER_MANAGEMENT', 'CREATE', 'ORGANIZATION')(req, res, () => {});
+  
+  if (req.method !== 'POST') {
+    return res.status(405).json({ error: 'Method not allowed' });
+  }
+
+  const { email, firstName, lastName, role, userGroups, sendInvitation } = req.body;
+
+  try {
+    // Validate email format and uniqueness
+    const existingUser = await prisma.users.findUnique({
+      where: { email: email.toLowerCase() }
+    });
+
+    if (existingUser) {
+      return res.status(400).json({
+        success: false,
+        error: 'USER_EXISTS',
+        message: 'A user with this email already exists'
+      });
+    }
+
+    // Generate temporary password for invitation
+    const tempPassword = generateSecurePassword();
+    const { hash, salt } = await hashPassword(tempPassword);
+
+    // Create user with admin-specified role
+    const newUser = await prisma.users.create({
+      data: {
+        email: email.toLowerCase(),
+        password_hash: hash,
+        password_salt: salt,
+        first_name: firstName,
+        last_name: lastName,
+        role: role || 'GUEST',
+        admin_role: 'VIEWER', // Default admin role
+        organization_id: req.user.organizationId,
+        account_status: 'PENDING',
+        email_status: 'UNVERIFIED',
+        email_verification_token: generateVerificationToken(),
+        created_by: req.user.id
+      }
+    });
+
+    // Assign to user groups if specified
+    if (userGroups && userGroups.length > 0) {
+      await Promise.all(userGroups.map(groupId => 
+        prisma.user_group_members.create({
+          data: {
+            user_id: newUser.id,
+            group_id: groupId,
+            added_by: req.user.id
+          }
+        })
+      ));
+    }
+
+    // Send invitation email if requested
+    if (sendInvitation) {
+      await sendUserInvitationEmail(newUser, tempPassword);
+    }
+
+    // Create audit log
+    await prisma.audit_logs.create({
+      data: {
+        user_id: req.user.id,
+        action: 'ADMIN_USER_CREATED',
+        resource_type: 'user',
+        resource_id: newUser.id,
+        success: true,
+        details: { 
+          newUserEmail: newUser.email,
+          assignedRole: newUser.role,
+          userGroups: userGroups || [],
+          invitationSent: sendInvitation
+        },
+        ip_address: req.headers['x-forwarded-for'] as string || 'unknown',
+        user_agent: req.headers['user-agent'] || 'unknown'
+      }
+    });
+
+    return res.json({
+      success: true,
+      user: {
+        id: newUser.id,
+        email: newUser.email,
+        firstName: newUser.first_name,
+        lastName: newUser.last_name,
+        role: newUser.role,
+        accountStatus: newUser.account_status
+      },
+      message: 'User created successfully'
+    });
+  } catch (error) {
+    console.error('User creation error:', error);
+    return res.status(500).json({ error: 'Internal server error' });
+  } finally {
+    await prisma.$disconnect();
+  }
+}
+
+// api/admin/users/bulk-import.ts - Bulk User Import
+export default async function bulkImportHandler(req: VercelRequest, res: VercelResponse) {
+  await requireAdminPermission('BULK_IMPORT', 'EXECUTE', 'ORGANIZATION')(req, res, () => {});
+  
+  if (req.method !== 'POST') {
+    return res.status(405).json({ error: 'Method not allowed' });
+  }
+
+  try {
+    const { csvData, fileName } = req.body;
+    
+    // Create bulk import record
+    const bulkImport = await prisma.bulk_user_imports.create({
+      data: {
+        organization_id: req.user.organizationId,
+        file_name: fileName,
+        uploaded_by: req.user.id,
+        total_rows: csvData.length,
+        status: 'PROCESSING'
+      }
+    });
+
+    // Process CSV data with validation
+    const results = await processBulkUserImport(csvData, req.user.organizationId, req.user.id);
+    
+    // Update bulk import with results
+    await prisma.bulk_user_imports.update({
+      where: { id: bulkImport.id },
+      data: {
+        success_count: results.successCount,
+        error_count: results.errorCount,
+        errors: results.errors,
+        status: results.errorCount > 0 ? 'COMPLETED' : 'COMPLETED',
+        completed_at: new Date()
+      }
+    });
+
+    // Create audit log
+    await prisma.audit_logs.create({
+      data: {
+        user_id: req.user.id,
+        action: 'ADMIN_BULK_USER_IMPORT',
+        resource_type: 'user_import',
+        resource_id: bulkImport.id,
+        success: true,
+        details: {
+          fileName,
+          totalRows: csvData.length,
+          successCount: results.successCount,
+          errorCount: results.errorCount
+        },
+        ip_address: req.headers['x-forwarded-for'] as string || 'unknown',
+        user_agent: req.headers['user-agent'] || 'unknown'
+      }
+    });
+
+    return res.json({
+      success: true,
+      bulkImportId: bulkImport.id,
+      results: {
+        total: csvData.length,
+        successful: results.successCount,
+        errors: results.errorCount,
+        errorDetails: results.errors
+      }
+    });
+  } catch (error) {
+    console.error('Bulk import error:', error);
+    return res.status(500).json({ error: 'Internal server error' });
+  } finally {
+    await prisma.$disconnect();
+  }
+}]]></correct-example>
+          <incorrect-example title="Basic user management without proper validation or audit logging" conditions="Implementing admin user management" expected-result="Secure user management system" incorrectness-criteria="Missing validation, no audit logging, improper error handling, no bulk operations, or insufficient permission checks"><![CDATA[// WRONG - insecure user management
+export default async function handler(req, res) {
+  const { email, name } = req.body;
+  
+  // Missing permission checks
+  const user = await db.create({ email, name }); // No validation
+  res.json({ user }); // No audit logging, error handling, or security measures
+}
+
+// Missing: Bulk import, user groups, role assignment, proper validation, audit logging]]></incorrect-example>
+        </example>
+      </examples>
+    </non-negotiable>
+
+    <!-- SAML SSO Integration -->
+    <non-negotiable priority="critical">
+      <description>Implement comprehensive SAML SSO integration with configuration management, automatic account creation toggle, identity provider metadata handling, and proper certificate management. Follow enterprise SSO security standards with proper session management and audit logging.</description>
+      <examples>
+        <example title="SAML SSO Implementation">
+          <correct-example title="Complete SAML SSO configuration with enterprise security standards" conditions="Implementing SAML SSO for organizational authentication" expected-result="Secure enterprise SSO integration with proper configuration management" correctness-criteria="Includes SAML metadata handling, certificate management, automatic provisioning, session management, and comprehensive audit logging"><![CDATA[// types/saml.ts
+export interface SAMLConfiguration {
+  id: string;
+  organizationId: string;
+  enabled: boolean;
+  identityProviderName: string;
+  entityId: string;
+  ssoUrl: string;
+  sloUrl?: string;
+  x509Certificate: string;
+  attributeMapping: SAMLAttributeMapping;
+  autoCreateAccounts: boolean;
+  defaultRole: AdminRole;
+  defaultUserGroups: string[];
+  createdBy: string;
+  createdAt: Date;
+  updatedAt: Date;
+  lastTested?: Date;
+  testResults?: SAMLTestResult;
+}
+
+export interface SAMLAttributeMapping {
+  email: string;
+  firstName: string;
+  lastName: string;
+  groups?: string;
+  role?: string;
+  department?: string;
+}
+
+export interface SAMLTestResult {
+  success: boolean;
+  testedAt: Date;
+  testedBy: string;
+  errors?: string[];
+  warnings?: string[];
+}
+
+// api/admin/saml/configure.ts - SAML Configuration
+import type { VercelRequest, VercelResponse } from '@vercel/node';
+import { requireAdminPermission } from '../middleware/permissions';
+import { validateSAMLMetadata, validateX509Certificate } from '../../../lib/saml-validation';
+
+export default async function handler(req: VercelRequest, res: VercelResponse) {
+  await requireAdminPermission('SAML_CONFIG', 'CREATE', 'ORGANIZATION')(req, res, () => {});
+  
+  if (req.method !== 'POST') {
+    return res.status(405).json({ error: 'Method not allowed' });
+  }
+
+  const {
+    identityProviderName,
+    entityId,
+    ssoUrl,
+    sloUrl,
+    x509Certificate,
+    attributeMapping,
+    autoCreateAccounts,
+    defaultRole,
+    defaultUserGroups
+  } = req.body;
+
+  try {
+    // Validate SAML configuration
+    const validationErrors = [];
+    
+    if (!validateSAMLMetadata(entityId, ssoUrl)) {
+      validationErrors.push('Invalid SAML metadata configuration');
+    }
+    
+    if (!validateX509Certificate(x509Certificate)) {
+      validationErrors.push('Invalid X.509 certificate format');
+    }
+    
+    if (!attributeMapping.email || !attributeMapping.firstName || !attributeMapping.lastName) {
+      validationErrors.push('Required attribute mappings missing (email, firstName, lastName)');
+    }
+
+    if (validationErrors.length > 0) {
+      return res.status(400).json({
+        success: false,
+        error: 'VALIDATION_FAILED',
+        details: validationErrors
+      });
+    }
+
+    // Check for existing SAML configuration
+    const existingConfig = await prisma.saml_configurations.findUnique({
+      where: { organization_id: req.user.organizationId }
+    });
+
+    let samlConfig;
+    if (existingConfig) {
+      // Update existing configuration
+      samlConfig = await prisma.saml_configurations.update({
+        where: { id: existingConfig.id },
+        data: {
+          identity_provider_name: identityProviderName,
+          entity_id: entityId,
+          sso_url: ssoUrl,
+          slo_url: sloUrl,
+          x509_certificate: x509Certificate,
+          attribute_mapping: attributeMapping,
+          auto_create_accounts: autoCreateAccounts,
+          default_role: defaultRole,
+          default_user_groups: defaultUserGroups,
+          updated_by: req.user.id,
+          updated_at: new Date()
+        }
+      });
+    } else {
+      // Create new configuration
+      samlConfig = await prisma.saml_configurations.create({
+        data: {
+          organization_id: req.user.organizationId,
+          enabled: false, // Start disabled for testing
+          identity_provider_name: identityProviderName,
+          entity_id: entityId,
+          sso_url: ssoUrl,
+          slo_url: sloUrl,
+          x509_certificate: x509Certificate,
+          attribute_mapping: attributeMapping,
+          auto_create_accounts: autoCreateAccounts,
+          default_role: defaultRole,
+          default_user_groups: defaultUserGroups,
+          created_by: req.user.id
+        }
+      });
+    }
+
+    // Create audit log
+    await prisma.audit_logs.create({
+      data: {
+        user_id: req.user.id,
+        action: existingConfig ? 'ADMIN_SAML_CONFIG_UPDATED' : 'ADMIN_SAML_CONFIG_CREATED',
+        resource_type: 'saml_configuration',
+        resource_id: samlConfig.id,
+        success: true,
+        details: {
+          identityProviderName,
+          autoCreateAccounts,
+          defaultRole,
+          attributeMappingFields: Object.keys(attributeMapping)
+        },
+        ip_address: req.headers['x-forwarded-for'] as string || 'unknown',
+        user_agent: req.headers['user-agent'] || 'unknown'
+      }
+    });
+
+    return res.json({
+      success: true,
+      configuration: {
+        id: samlConfig.id,
+        enabled: samlConfig.enabled,
+        identityProviderName: samlConfig.identity_provider_name,
+        autoCreateAccounts: samlConfig.auto_create_accounts,
+        defaultRole: samlConfig.default_role
+      },
+      message: `SAML configuration ${existingConfig ? 'updated' : 'created'} successfully`
+    });
+  } catch (error) {
+    console.error('SAML configuration error:', error);
+    return res.status(500).json({ error: 'Internal server error' });
+  } finally {
+    await prisma.$disconnect();
+  }
+}
+
+// api/auth/saml/callback.ts - SAML Authentication Handler
+import { verifySSAMLResponse, extractSAMLAttributes } from '../../../lib/saml-auth';
+
+export default async function handler(req: VercelRequest, res: VercelResponse) {
+  if (req.method !== 'POST') {
+    return res.status(405).json({ error: 'Method not allowed' });
+  }
+
+  try {
+    const { SAMLResponse, RelayState } = req.body;
+    
+    // Extract organization from RelayState
+    const organizationId = extractOrganizationFromRelayState(RelayState);
+    
+    // Get SAML configuration for organization
+    const samlConfig = await prisma.saml_configurations.findUnique({
+      where: { 
+        organization_id: organizationId,
+        enabled: true
+      }
+    });
+
+    if (!samlConfig) {
+      return res.status(400).json({ error: 'SAML not configured for organization' });
+    }
+
+    // Verify SAML response
+    const verificationResult = await verifySSAMLResponse(SAMLResponse, samlConfig);
+    if (!verificationResult.valid) {
+      // Audit failed authentication
+      await prisma.audit_logs.create({
+        data: {
+          action: 'SAML_AUTH_FAILED',
+          resource_type: 'authentication',
+          success: false,
+          details: { errors: verificationResult.errors },
+          ip_address: req.headers['x-forwarded-for'] as string || 'unknown',
+          user_agent: req.headers['user-agent'] || 'unknown'
+        }
+      });
+      
+      return res.status(401).json({ error: 'Invalid SAML response' });
+    }
+
+    // Extract user attributes from SAML response
+    const attributes = extractSAMLAttributes(verificationResult.assertions, samlConfig.attribute_mapping);
+    
+    // Find or create user based on auto-create setting
+    let user = await prisma.users.findUnique({
+      where: { email: attributes.email.toLowerCase() }
+    });
+
+    if (!user && samlConfig.auto_create_accounts) {
+      // Auto-create user account
+      user = await prisma.users.create({
+        data: {
+          email: attributes.email.toLowerCase(),
+          first_name: attributes.firstName,
+          last_name: attributes.lastName,
+          role: samlConfig.default_role,
+          organization_id: organizationId,
+          account_status: 'ACTIVE',
+          email_status: 'VERIFIED', // Trust SAML provider
+          auth_provider: 'SAML',
+          auth_provider_id: attributes.nameId
+        }
+      });
+
+      // Assign to default user groups
+      if (samlConfig.default_user_groups?.length > 0) {
+        await Promise.all(samlConfig.default_user_groups.map(groupId =>
+          prisma.user_group_members.create({
+            data: {
+              user_id: user.id,
+              group_id: groupId,
+              added_by: 'SYSTEM'
+            }
+          })
+        ));
+      }
+    } else if (!user) {
+      return res.status(401).json({ error: 'Account not found and auto-creation disabled' });
+    }
+
+    // Generate JWT tokens for authenticated user
+    const accessToken = jwt.sign(
+      { userId: user.id, email: user.email, role: user.role },
+      process.env.JWT_SECRET!,
+      { expiresIn: '15m' }
+    );
+
+    const refreshToken = jwt.sign(
+      { userId: user.id, email: user.email, type: 'refresh' },
+      process.env.JWT_REFRESH_SECRET!,
+      { expiresIn: '7d' }
+    );
+
+    // Create audit log for successful SAML authentication
+    await prisma.audit_logs.create({
+      data: {
+        user_id: user.id,
+        action: 'SAML_AUTH_SUCCESS',
+        resource_type: 'authentication',
+        success: true,
+        details: {
+          identityProvider: samlConfig.identity_provider_name,
+          autoCreated: !user
+        },
+        ip_address: req.headers['x-forwarded-for'] as string || 'unknown',
+        user_agent: req.headers['user-agent'] || 'unknown'
+      }
+    });
+
+    return res.json({
+      success: true,
+      user: {
+        id: user.id,
+        email: user.email,
+        firstName: user.first_name,
+        lastName: user.last_name,
+        role: user.role
+      },
+      accessToken,
+      refreshToken,
+      message: 'SAML authentication successful'
+    });
+  } catch (error) {
+    console.error('SAML authentication error:', error);
+    return res.status(500).json({ error: 'Internal server error' });
+  } finally {
+    await prisma.$disconnect();
+  }
+}]]></correct-example>
+          <incorrect-example title="Basic SSO without proper security or configuration management" conditions="Implementing SAML SSO" expected-result="Secure enterprise SSO integration" incorrectness-criteria="Missing certificate validation, no audit logging, improper session management, missing auto-provisioning, or inadequate security measures"><![CDATA[// WRONG - insecure SAML implementation
+export default async function handler(req, res) {
+  const { samlResponse } = req.body;
+  
+  // No certificate validation
+  // No audit logging
+  const user = createUserFromSAML(samlResponse); // No validation
+  const token = jwt.sign({ user }, 'secret'); // Insecure
+  
+  res.json({ token }); // Missing proper session management, audit logging, error handling
+}
+
+// Missing: Certificate validation, metadata handling, auto-provisioning, proper security measures]]></incorrect-example>
+        </example>
+      </examples>
+    </non-negotiable>
+
+    <!-- AI Agent Training and Configuration -->
+    <non-negotiable priority="critical">
+      <description>Implement comprehensive AI agent training system for Atlas event monitoring, Event/Insight analysis agents, and Plan execution agents. Include document upload capabilities for organizational context, training data management, and agent performance monitoring with proper security and audit logging.</description>
+      <examples>
+        <example title="AI Agent Training Implementation">
+          <correct-example title="Complete AI agent training system with document management and performance monitoring" conditions="Implementing AI agent training for Pericles" expected-result="Comprehensive AI training platform with secure document handling and agent optimization" correctness-criteria="Includes document upload and processing, training data management, agent performance monitoring, secure file handling, and comprehensive audit logging"><![CDATA[// types/ai-training.ts
+export interface AIAgentConfig {
+  id: string;
+  organizationId: string;
+  agentType: 'ATLAS' | 'EVENT_INSIGHT' | 'PLAN_EXECUTION';
+  name: string;
+  description: string;
+  configuration: AgentConfiguration;
+  trainingDocuments: TrainingDocument[];
+  performanceMetrics: AgentPerformanceMetrics;
+  isActive: boolean;
+  createdBy: string;
+  createdAt: Date;
+  updatedAt: Date;
+  lastTrainedAt?: Date;
+}
+
+export interface TrainingDocument {
+  id: string;
+  organizationId: string;
+  fileName: string;
+  fileType: 'PDF' | 'DOCX' | 'TXT' | 'MD';
+  fileSize: number;
+  uploadedBy: string;
+  uploadedAt: Date;
+  processedAt?: Date;
+  extractedText?: string;
+  documentType: 'STRATEGY' | 'RISK_PLAN' | 'POLICY' | 'PROCEDURE' | 'CONTEXT';
+  tags: string[];
+  isActive: boolean;
+  vectorEmbeddings?: number[];
+}
+
+export interface AgentConfiguration {
+  model: string;
+  temperature: number;
+  maxTokens: number;
+  systemPrompt: string;
+  contextWindow: number;
+  specializations: string[];
+  geographicFocus: string[];
+  industryFocus: string[];
+  riskCategories: string[];
+  customParameters: Record<string, any>;
+}
+
+export interface AgentPerformanceMetrics {
+  accuracyScore: number;
+  responseTime: number;
+  confidenceLevel: number;
+  feedbackScore: number;
+  totalInteractions: number;
+  successfulPredictions: number;
+  lastEvaluatedAt: Date;
+}
+
+// api/admin/ai-training/documents/upload.ts - Secure Document Upload
+import type { VercelRequest, VercelResponse } from '@vercel/node';
+import { requireAdminPermission } from '../../middleware/permissions';
+import { processDocument, extractText, generateEmbeddings } from '../../../../lib/ai-processing';
+import { validateFileType, sanitizeFileName, scanForMalware } from '../../../../lib/file-security';
+
+export default async function handler(req: VercelRequest, res: VercelResponse) {
+  await requireAdminPermission('AI_TRAINING', 'CREATE', 'ORGANIZATION')(req, res, () => {});
+  
+  if (req.method !== 'POST') {
+    return res.status(405).json({ error: 'Method not allowed' });
+  }
+
+  try {
+    const { fileData, fileName, fileType, documentType, tags } = req.body;
+
+    // Validate file type and security
+    if (!validateFileType(fileType, ['PDF', 'DOCX', 'TXT', 'MD'])) {
+      return res.status(400).json({
+        success: false,
+        error: 'INVALID_FILE_TYPE',
+        message: 'Only PDF, DOCX, TXT, and MD files are allowed'
+      });
+    }
+
+    // Security scan for malicious content
+    const securityScan = await scanForMalware(fileData);
+    if (!securityScan.safe) {
+      // Log security incident
+      await prisma.audit_logs.create({
+        data: {
+          user_id: req.user.id,
+          action: 'AI_TRAINING_SECURITY_VIOLATION',
+          resource_type: 'document_upload',
+          success: false,
+          details: {
+            fileName: sanitizeFileName(fileName),
+            securityIssues: securityScan.issues
+          },
+          ip_address: req.headers['x-forwarded-for'] as string || 'unknown',
+          user_agent: req.headers['user-agent'] || 'unknown'
+        }
+      });
+
+      return res.status(400).json({
+        success: false,
+        error: 'SECURITY_VIOLATION',
+        message: 'File failed security scan'
+      });
+    }
+
+    // Extract text content from document
+    const extractedText = await extractText(fileData, fileType);
+    if (!extractedText || extractedText.length < 100) {
+      return res.status(400).json({
+        success: false,
+        error: 'INSUFFICIENT_CONTENT',
+        message: 'Document must contain at least 100 characters of text'
+      });
+    }
+
+    // Generate vector embeddings for semantic search
+    const vectorEmbeddings = await generateEmbeddings(extractedText);
+
+    // Create training document record
+    const trainingDocument = await prisma.training_documents.create({
+      data: {
+        organization_id: req.user.organizationId,
+        file_name: sanitizeFileName(fileName),
+        file_type: fileType,
+        file_size: Buffer.byteLength(fileData),
+        uploaded_by: req.user.id,
+        extracted_text: extractedText,
+        document_type: documentType,
+        tags: tags || [],
+        vector_embeddings: vectorEmbeddings,
+        is_active: true
+      }
+    });
+
+    // Update related AI agents with new training data
+    await updateAgentTraining(req.user.organizationId, trainingDocument.id);
+
+    // Create audit log
+    await prisma.audit_logs.create({
+      data: {
+        user_id: req.user.id,
+        action: 'AI_TRAINING_DOCUMENT_UPLOADED',
+        resource_type: 'training_document',
+        resource_id: trainingDocument.id,
+        success: true,
+        details: {
+          fileName: trainingDocument.file_name,
+          documentType,
+          fileSize: trainingDocument.file_size,
+          textLength: extractedText.length,
+          tags: tags || []
+        },
+        ip_address: req.headers['x-forwarded-for'] as string || 'unknown',
+        user_agent: req.headers['user-agent'] || 'unknown'
+      }
+    });
+
+    return res.json({
+      success: true,
+      document: {
+        id: trainingDocument.id,
+        fileName: trainingDocument.file_name,
+        documentType: trainingDocument.document_type,
+        fileSize: trainingDocument.file_size,
+        uploadedAt: trainingDocument.uploaded_at
+      },
+      message: 'Training document uploaded and processed successfully'
+    });
+  } catch (error) {
+    console.error('Document upload error:', error);
+    return res.status(500).json({ error: 'Internal server error' });
+  } finally {
+    await prisma.$disconnect();
+  }
+}
+
+// api/admin/ai-training/agents/configure.ts - AI Agent Configuration
+export default async function handler(req: VercelRequest, res: VercelResponse) {
+  await requireAdminPermission('AI_TRAINING', 'UPDATE', 'ORGANIZATION')(req, res, () => {});
+  
+  if (req.method !== 'PUT') {
+    return res.status(405).json({ error: 'Method not allowed' });
+  }
+
+  try {
+    const { agentId, configuration, specializations, geographicFocus, riskCategories } = req.body;
+
+    // Validate agent ownership
+    const agent = await prisma.ai_agent_configs.findFirst({
+      where: {
+        id: agentId,
+        organization_id: req.user.organizationId
+      }
+    });
+
+    if (!agent) {
+      return res.status(404).json({
+        success: false,
+        error: 'AGENT_NOT_FOUND',
+        message: 'AI agent not found for your organization'
+      });
+    }
+
+    // Validate configuration parameters
+    const validationErrors = validateAgentConfiguration(configuration);
+    if (validationErrors.length > 0) {
+      return res.status(400).json({
+        success: false,
+        error: 'INVALID_CONFIGURATION',
+        details: validationErrors
+      });
+    }
+
+    // Update agent configuration
+    const updatedAgent = await prisma.ai_agent_configs.update({
+      where: { id: agentId },
+      data: {
+        configuration: {
+          ...configuration,
+          specializations,
+          geographicFocus,
+          riskCategories,
+          updatedAt: new Date()
+        },
+        updated_by: req.user.id,
+        updated_at: new Date()
+      }
+    });
+
+    // Trigger agent retraining with new configuration
+    await triggerAgentRetraining(agentId, updatedAgent.configuration);
+
+    // Create audit log
+    await prisma.audit_logs.create({
+      data: {
+        user_id: req.user.id,
+        action: 'AI_AGENT_CONFIGURED',
+        resource_type: 'ai_agent',
+        resource_id: agentId,
+        success: true,
+        details: {
+          agentType: agent.agent_type,
+          configurationChanges: {
+            specializations,
+            geographicFocus,
+            riskCategories
+          }
+        },
+        ip_address: req.headers['x-forwarded-for'] as string || 'unknown',
+        user_agent: req.headers['user-agent'] || 'unknown'
+      }
+    });
+
+    return res.json({
+      success: true,
+      agent: {
+        id: updatedAgent.id,
+        name: updatedAgent.name,
+        agentType: updatedAgent.agent_type,
+        lastTrainedAt: updatedAgent.last_trained_at
+      },
+      message: 'AI agent configuration updated successfully'
+    });
+  } catch (error) {
+    console.error('Agent configuration error:', error);
+    return res.status(500).json({ error: 'Internal server error' });
+  } finally {
+    await prisma.$disconnect();
+  }
+}
+
+// lib/ai-processing.ts - AI Processing Utilities
+export const updateAgentTraining = async (organizationId: string, documentId: string) => {
+  const agents = await prisma.ai_agent_configs.findMany({
+    where: { 
+      organization_id: organizationId,
+      is_active: true
+    }
+  });
+
+  // Trigger retraining for all active agents
+  for (const agent of agents) {
+    await triggerAgentRetraining(agent.id, agent.configuration);
+  }
+};
+
+export const triggerAgentRetraining = async (agentId: string, configuration: any) => {
+  // Queue agent retraining job with new configuration
+  await queueJob('agent-retraining', {
+    agentId,
+    configuration,
+    timestamp: new Date()
+  });
+};
+
+export const validateAgentConfiguration = (config: any): string[] => {
+  const errors: string[] = [];
+  
+  if (!config.model || typeof config.model !== 'string') {
+    errors.push('Model specification is required');
+  }
+  
+  if (config.temperature < 0 || config.temperature > 1) {
+    errors.push('Temperature must be between 0 and 1');
+  }
+  
+  if (config.maxTokens < 100 || config.maxTokens > 8000) {
+    errors.push('Max tokens must be between 100 and 8000');
+  }
+  
+  return errors;
+};]]></correct-example>
+          <incorrect-example title="Basic AI configuration without proper security or training management" conditions="Implementing AI agent training" expected-result="Comprehensive AI training system" incorrectness-criteria="Missing document security, no training validation, improper file handling, missing performance monitoring, or inadequate audit logging"><![CDATA[// WRONG - insecure AI training implementation
+export default async function handler(req, res) {
+  const { file, config } = req.body;
+  
+  // No security validation
+  // No file type checking
+  const agent = await updateAgent(config); // No validation
+  res.json({ agent }); // No audit logging, error handling, or security measures
+}
+
+// Missing: Document security, training validation, performance monitoring, proper file handling]]></incorrect-example>
+        </example>
+      </examples>
+    </non-negotiable>
+
+    <!-- Third-Party Integrations -->
+    <requirement priority="high">
+      <description>Implement secure third-party integrations for Slack, Microsoft Teams, Microsoft 365, Google Workspace, and other organizational tools. Include OAuth configuration, webhook management, and proper API credential storage with encryption.</description>
+      <examples>
+        <example title="Third-Party Integration Implementation">
+          <correct-example title="Secure third-party integration with OAuth and webhook management" conditions="Implementing organizational tool integrations" expected-result="Secure integration system with proper credential management" correctness-criteria="Includes OAuth flows, encrypted credential storage, webhook management, and comprehensive error handling"><![CDATA[// types/integrations.ts
+export interface Integration {
+  id: string;
+  organizationId: string;
+  type: 'SLACK' | 'MICROSOFT_TEAMS' | 'GOOGLE_WORKSPACE' | 'MICROSOFT_365';
+  name: string;
+  enabled: boolean;
+  configuration: IntegrationConfiguration;
+  credentials: EncryptedCredentials;
+  webhookUrl?: string;
+  lastSyncAt?: Date;
+  syncStatus: 'ACTIVE' | 'ERROR' | 'DISABLED';
+  errorMessage?: string;
+  createdBy: string;
+  createdAt: Date;
+  updatedAt: Date;
+}
+
+export interface IntegrationConfiguration {
+  notifications: NotificationConfig;
+  channels: ChannelConfig[];
+  permissions: string[];
+  syncSettings: SyncSettings;
+}
+
+// api/admin/integrations/slack/configure.ts
+export default async function handler(req: VercelRequest, res: VercelResponse) {
+  await requireAdminPermission('INTEGRATIONS', 'CREATE', 'ORGANIZATION')(req, res, () => {});
+  
+  // Implementation with OAuth, secure credential storage, webhook setup
+  // Includes proper error handling and audit logging
+};]]></correct-example>
+          <incorrect-example title="Basic integration without security" conditions="Implementing integrations" expected-result="Secure integration system" incorrectness-criteria="Missing OAuth, insecure credential storage, no webhook management"><![CDATA[// WRONG - insecure integration
+const integration = await save({ apiKey, secret }); // Plain text storage
+res.json({ integration }); // No security measures]]></incorrect-example>
+        </example>
+      </examples>
+    </requirement>
+
+    <!-- Personal User Settings -->
+    <requirement priority="high">
+      <description>Implement comprehensive personal user settings for all role types including appearance (system/light/dark mode), language, timezone, notification preferences, default landing page, and notification delivery methods (email/SMS/app/Slack/Teams).</description>
+      <examples>
+        <example title="Personal Settings Implementation">
+          <correct-example title="Comprehensive user settings with all customization options" conditions="Implementing personal user settings" expected-result="Complete user preference system" correctness-criteria="Includes appearance, language, timezone, notifications, landing page, and delivery method preferences"><![CDATA[// types/user-settings.ts
+export interface UserSettings {
+  id: string;
+  userId: string;
+  appearance: 'SYSTEM' | 'LIGHT' | 'DARK';
+  language: string;
+  timezone: 'AUTO' | string;
+  defaultLandingPage: 'ATLAS' | 'EVENTS' | 'INSIGHTS' | 'PLANS';
+  notifications: NotificationSettings;
+  createdAt: Date;
+  updatedAt: Date;
+}
+
+export interface NotificationSettings {
+  email: NotificationTypeConfig;
+  sms: NotificationTypeConfig;
+  app: NotificationTypeConfig;
+  slack: NotificationTypeConfig;
+  teams: NotificationTypeConfig;
+}
+
+export interface NotificationTypeConfig {
+  enabled: boolean;
+  events: EventNotificationConfig;
+  plans: PlanNotificationConfig;
+}
+
+// api/user/settings/update.ts - Personal Settings Update
+export default async function handler(req: VercelRequest, res: VercelResponse) {
+  // All authenticated users can update their own settings
+  // Implementation with validation and audit logging
+};]]></correct-example>
+          <incorrect-example title="Basic settings without comprehensive options" conditions="Implementing user settings" expected-result="Complete preference system" incorrectness-criteria="Missing notification types, no appearance options, limited customization"><![CDATA[// WRONG - limited settings
+const settings = { theme: 'dark' }; // Missing comprehensive options
+await save(settings); // No validation or proper structure]]></incorrect-example>
+        </example>
+      </examples>
+    </requirement>
+
+    <!-- Organizational Notification Management -->
+    <requirement priority="high">
+      <description>Implement organizational notification system for Admins to configure automatic email notifications to internal and external stakeholders about events, plans, and organizational activities with proper template management and delivery tracking.</description>
+    </requirement>
+
+    <!-- Geographic and Regional Configuration -->
+    <requirement priority="medium">
+      <description>Implement geographic and regional configuration management for Admins to define organizational areas of interest, affecting event monitoring and analysis across Pericles products with proper geographic data validation.</description>
+    </requirement>
+
+    <!-- UI Components and Design System -->
+    <requirement priority="high">
+      <description>Implement consistent admin portal UI components following the established SaaS application design system with proper role-based component visibility, form validation, and modern mobile-first responsive design patterns.</description>
+      <examples>
+        <example title="Admin Portal UI Components">
+          <correct-example title="Role-based admin component with proper design system integration" conditions="Creating admin portal UI components" expected-result="Consistent UI following SaaS design patterns" correctness-criteria="Uses established design system, proper role-based visibility, modern responsive components, and comprehensive form validation"><![CDATA[// components/admin/UserManagementComponent.tsx
+import React, { useState, useEffect } from 'react';
+import type { AdminUser, AdminRole } from '../../types/admin';
+import { hasAdminPermission } from '../../lib/admin-permissions';
+import { useAuth } from '../../hooks/useAuth';
+
+interface UserManagementComponentProps {
+  className?: string;
+}
+
+const UserManagementComponent: React.FC<UserManagementComponentProps> = ({ className }) => {
+  const { user } = useAuth();
+  const [users, setUsers] = useState<AdminUser[]>([]);
+  const [isLoading, setIsLoading] = useState(false);
+  const [showCreateForm, setShowCreateForm] = useState(false);
+
+  // Check if user has permission to manage users
+  const canManageUsers = hasAdminPermission(user, 'USER_MANAGEMENT', 'READ', 'ORGANIZATION');
+  const canCreateUsers = hasAdminPermission(user, 'USER_MANAGEMENT', 'CREATE', 'ORGANIZATION');
+  const canDeleteUsers = hasAdminPermission(user, 'USER_MANAGEMENT', 'DELETE', 'ORGANIZATION');
+
+  if (!canManageUsers) {
+    return (
+      <div className="min-h-screen bg-gray-50 safe-area-top safe-area-bottom">
+        <div className="w-full max-w-4xl mx-auto">
+          <div className="container p-6">
+            <div className="bg-yellow-50 border border-yellow-200 rounded-lg p-4">
+              <h3 className="text-lg font-semibold text-yellow-800">Access Restricted</h3>
+              <p className="text-yellow-700 mt-2">You don't have permission to manage users.</p>
+            </div>
+          </div>
+        </div>
+      </div>
+    );
+  }
+
+  return (
+    <div className="min-h-screen bg-gray-50 safe-area-top safe-area-bottom">
+      <div className="w-full max-w-6xl mx-auto">
+        <div className="container p-6">
+          {/* Header with role-based actions */}
+          <div className="flex items-center justify-between mb-6">
+            <div>
+              <h1 className="text-2xl font-bold text-gray-900">User Management</h1>
+              <p className="text-gray-600 mt-1">Manage organizational users and permissions</p>
+            </div>
+            {canCreateUsers && (
+              <button
+                onClick={() => setShowCreateForm(true)}
+                className="flex items-center bg-blue-500 text-white px-4 py-2 rounded-lg font-semibold transition-transform active:scale-95 hover:bg-blue-600"
+              >
+                <svg className="w-5 h-5 mr-2" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 6v6m0 0v6m0-6h6m-6 0H6" />
+                </svg>
+                Add User
+              </button>
+            )}
+          </div>
+
+          {/* User list with role-based actions */}
+          <div className="bg-white rounded-lg shadow-sm border">
+            <div className="p-6">
+              <div className="overflow-x-auto">
+                <table className="w-full">
+                  <thead>
+                    <tr className="border-b">
+                      <th className="text-left py-3 px-4 font-semibold text-gray-900">User</th>
+                      <th className="text-left py-3 px-4 font-semibold text-gray-900">Role</th>
+                      <th className="text-left py-3 px-4 font-semibold text-gray-900">Status</th>
+                      <th className="text-left py-3 px-4 font-semibold text-gray-900">Last Active</th>
+                      {(canDeleteUsers || canCreateUsers) && (
+                        <th className="text-right py-3 px-4 font-semibold text-gray-900">Actions</th>
+                      )}
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {users.map((userData) => (
+                      <tr key={userData.id} className="border-b hover:bg-gray-50">
+                        <td className="py-3 px-4">
+                          <div className="flex items-center">
+                            <div className="w-8 h-8 bg-blue-100 rounded-full flex items-center justify-center mr-3">
+                              <span className="text-blue-600 font-semibold text-sm">
+                                {userData.firstName.charAt(0)}{userData.lastName.charAt(0)}
+                              </span>
+                            </div>
+                            <div>
+                              <p className="font-semibold text-gray-900">
+                                {userData.firstName} {userData.lastName}
+                              </p>
+                              <p className="text-sm text-gray-500">{userData.email}</p>
+                            </div>
+                          </div>
+                        </td>
+                        <td className="py-3 px-4">
+                          <span className={`inline-flex px-2 py-1 rounded-full text-xs font-semibold ${
+                            userData.adminRole === 'ADMIN' ? 'bg-red-100 text-red-800' :
+                            userData.adminRole === 'MANAGER' ? 'bg-yellow-100 text-yellow-800' :
+                            'bg-green-100 text-green-800'
+                          }`}>
+                            {userData.adminRole}
+                          </span>
+                        </td>
+                        <td className="py-3 px-4">
+                          <span className={`inline-flex px-2 py-1 rounded-full text-xs font-semibold ${
+                            userData.accountStatus === 'ACTIVE' ? 'bg-green-100 text-green-800' :
+                            userData.accountStatus === 'PENDING' ? 'bg-yellow-100 text-yellow-800' :
+                            'bg-red-100 text-red-800'
+                          }`}>
+                            {userData.accountStatus}
+                          </span>
+                        </td>
+                        <td className="py-3 px-4 text-sm text-gray-500">
+                          {userData.lastAdminAccess ? new Date(userData.lastAdminAccess).toLocaleDateString() : 'Never'}
+                        </td>
+                        {(canDeleteUsers || canCreateUsers) && (
+                          <td className="py-3 px-4 text-right">
+                            <div className="flex items-center justify-end space-x-2">
+                              {canCreateUsers && (
+                                <button
+                                  onClick={() => handleEditUser(userData.id)}
+                                  className="text-blue-500 hover:text-blue-700 p-1"
+                                >
+                                  <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M11 5H6a2 2 0 00-2 2v11a2 2 0 002 2h11a2 2 0 002-2v-5m-1.414-9.414a2 2 0 112.828 2.828L11.828 15H9v-2.828l8.586-8.586z" />
+                                  </svg>
+                                </button>
+                              )}
+                              {canDeleteUsers && userData.id !== user.id && (
+                                <button
+                                  onClick={() => handleDeleteUser(userData.id)}
+                                  className="text-red-500 hover:text-red-700 p-1"
+                                >
+                                  <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" />
+                                  </svg>
+                                </button>
+                              )}
+                            </div>
+                          </td>
+                        )}
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            </div>
+          </div>
+
+          {/* Create User Form Modal */}
+          {showCreateForm && canCreateUsers && (
+            <CreateUserModal 
+              onClose={() => setShowCreateForm(false)}
+              onUserCreated={handleUserCreated}
+            />
+          )}
+        </div>
+      </div>
+    </div>
+  );
+};
+
+export default UserManagementComponent;]]></correct-example>
+          <incorrect-example title="Basic admin component without role-based security or design system" conditions="Creating admin portal components" expected-result="Consistent secure UI" incorrectness-criteria="Missing role-based visibility, no design system integration, poor responsive design, or inadequate security checks"><![CDATA[// WRONG - insecure admin component
+const UserManagement = () => {
+  const [users, setUsers] = useState([]);
+  
+  // No permission checks
+  // No role-based visibility
+  return (
+    <div>
+      <h1>Users</h1>
+      {users.map(user => (
+        <div key={user.id}>
+          {user.name}
+          <button onClick={() => deleteUser(user.id)}>Delete</button> {/* No permission check */}
+        </div>
+      ))}
+    </div>
+  ); // Missing design system, responsive design, proper security
+};]]></incorrect-example>
+        </example>
+      </examples>
+    </requirement>
+
+    <!-- Database Schema and Data Management -->
+    <requirement priority="critical">
+      <description>Extend existing Prisma schema with admin portal specific tables including user groups, SAML configurations, training documents, AI agent configs, integrations, and user settings while maintaining consistency with established SaaS authentication schema.</description>
+      <examples>
+        <example title="Admin Portal Database Schema">
+          <correct-example title="Comprehensive Prisma schema extension for admin portal" conditions="Extending database schema for admin functionality" expected-result="Complete admin portal data model with proper relationships" correctness-criteria="Extends existing SaaS schema with admin tables, proper foreign keys, indexes, and data consistency"><![CDATA[// prisma/schema.prisma - Admin Portal Extensions
+// Extend existing User model with admin fields
+model User {
+  id                          String   @id @default(cuid())
+  email                       String   @unique
+  password_hash               String
+  password_salt               String
+  first_name                  String
+  last_name                   String
+  role                        Role     @default(GUEST)
+  admin_role                  AdminRole @default(VIEWER) // New admin role field
+  organization_id             String   // Link to organization
+  account_status              AccountStatus @default(PENDING)
+  email_status               EmailStatus @default(UNVERIFIED)
+  auth_provider              String?   // For SAML/OAuth
+  auth_provider_id           String?   // External provider ID
+  last_admin_access          DateTime? // Track admin portal usage
+  created_at                  DateTime @default(now())
+  updated_at                  DateTime @updatedAt
+
+  // Existing relations
+  sessions                    UserSession[]
+  audit_logs                  AuditLog[]
+  
+  // New admin-specific relations
+  created_users              User[] @relation("UserCreatedBy")
+  created_by_user            User?  @relation("UserCreatedBy", fields: [created_by], references: [id])
+  created_by                 String?
+  
+  user_group_memberships     UserGroupMember[]
+  uploaded_training_docs     TrainingDocument[]
+  created_integrations       Integration[]
+  user_settings              UserSettings?
+
+  @@map("users")
+}
+
+enum AdminRole {
+  ADMIN
+  MANAGER  
+  VIEWER
+}
+
+// User Groups for organizational management
+model UserGroup {
+  id                String   @id @default(cuid())
+  organization_id   String
+  name              String
+  description       String
+  permissions       String[] // JSON array of permissions
+  created_by        String
+  created_at        DateTime @default(now())
+  updated_at        DateTime @updatedAt
+
+  // Relations
+  members           UserGroupMember[]
+  created_by_user   User @relation(fields: [created_by], references: [id])
+
+  @@map("user_groups")
+  @@unique([organization_id, name])
+}
+
+model UserGroupMember {
+  id         String   @id @default(cuid())
+  user_id    String
+  group_id   String
+  added_by   String
+  added_at   DateTime @default(now())
+
+  // Relations
+  user       User      @relation(fields: [user_id], references: [id], onDelete: Cascade)
+  group      UserGroup @relation(fields: [group_id], references: [id], onDelete: Cascade)
+  added_by_user User   @relation("UserGroupAdder", fields: [added_by], references: [id])
+
+  @@map("user_group_members")
+  @@unique([user_id, group_id])
+}
+
+// SAML SSO Configuration
+model SAMLConfiguration {
+  id                        String   @id @default(cuid())
+  organization_id           String   @unique
+  enabled                   Boolean  @default(false)
+  identity_provider_name    String
+  entity_id                 String
+  sso_url                   String
+  slo_url                   String?
+  x509_certificate          String
+  attribute_mapping         Json     // SAML attribute mappings
+  auto_create_accounts      Boolean  @default(false)
+  default_role              Role     @default(GUEST)
+  default_admin_role        AdminRole @default(VIEWER)
+  default_user_groups       String[] // Array of group IDs
+  created_by                String
+  created_at                DateTime @default(now())
+  updated_at                DateTime @updatedAt
+  last_tested_at            DateTime?
+  test_results              Json?    // Test results and errors
+
+  // Relations
+  created_by_user           User @relation("SAMLCreatedBy", fields: [created_by], references: [id])
+
+  @@map("saml_configurations")
+}
+
+// AI Training Documents
+model TrainingDocument {
+  id                String   @id @default(cuid())
+  organization_id   String
+  file_name         String
+  file_type         String   // PDF, DOCX, TXT, MD
+  file_size         Int
+  uploaded_by       String
+  uploaded_at       DateTime @default(now())
+  processed_at      DateTime?
+  extracted_text    String?  @db.Text
+  document_type     String   // STRATEGY, RISK_PLAN, POLICY, etc.
+  tags              String[]
+  vector_embeddings Float[]  // For semantic search
+  is_active         Boolean  @default(true)
+
+  // Relations
+  uploaded_by_user  User @relation(fields: [uploaded_by], references: [id])
+  agent_trainings   AIAgentTraining[]
+
+  @@map("training_documents")
+  @@index([organization_id, document_type])
+  @@index([organization_id, is_active])
+}
+
+// AI Agent Configurations
+model AIAgentConfig {
+  id                   String   @id @default(cuid())
+  organization_id      String
+  agent_type           String   // ATLAS, EVENT_INSIGHT, PLAN_EXECUTION
+  name                 String
+  description          String
+  configuration        Json     // Agent-specific config
+  performance_metrics  Json     // Performance tracking
+  is_active            Boolean  @default(true)
+  created_by           String
+  created_at           DateTime @default(now())
+  updated_at           DateTime @updatedAt
+  last_trained_at      DateTime?
+
+  // Relations
+  created_by_user      User @relation("AIAgentCreatedBy", fields: [created_by], references: [id])
+  training_sessions    AIAgentTraining[]
+
+  @@map("ai_agent_configs")
+  @@unique([organization_id, agent_type, name])
+}
+
+model AIAgentTraining {
+  id                   String   @id @default(cuid())
+  agent_id             String
+  document_id          String
+  training_status      String   // PENDING, PROCESSING, COMPLETED, FAILED
+  started_at           DateTime @default(now())
+  completed_at         DateTime?
+  performance_impact   Json?    // Before/after metrics
+  error_message        String?
+
+  // Relations
+  agent                AIAgentConfig @relation(fields: [agent_id], references: [id], onDelete: Cascade)
+  document             TrainingDocument @relation(fields: [document_id], references: [id], onDelete: Cascade)
+
+  @@map("ai_agent_training")
+  @@unique([agent_id, document_id])
+}
+
+// Third-party Integrations
+model Integration {
+  id                String   @id @default(cuid())
+  organization_id   String
+  type              String   // SLACK, MICROSOFT_TEAMS, GOOGLE_WORKSPACE, etc.
+  name              String
+  enabled           Boolean  @default(false)
+  configuration     Json     // Integration-specific config
+  encrypted_credentials String // Encrypted API keys/tokens
+  webhook_url       String?
+  last_sync_at      DateTime?
+  sync_status       String   @default("DISABLED") // ACTIVE, ERROR, DISABLED
+  error_message     String?
+  created_by        String
+  created_at        DateTime @default(now())
+  updated_at        DateTime @updatedAt
+
+  // Relations
+  created_by_user   User @relation(fields: [created_by], references: [id])
+
+  @@map("integrations")
+  @@unique([organization_id, type, name])
+}
+
+// User Personal Settings
+model UserSettings {
+  id                     String   @id @default(cuid())
+  user_id                String   @unique
+  appearance             String   @default("SYSTEM") // SYSTEM, LIGHT, DARK
+  language               String   @default("en")
+  timezone               String   @default("AUTO")   // AUTO or specific timezone
+  default_landing_page   String   @default("ATLAS")  // ATLAS, EVENTS, INSIGHTS, PLANS
+  notification_settings  Json     // Notification preferences
+  created_at             DateTime @default(now())
+  updated_at             DateTime @updatedAt
+
+  // Relations
+  user                   User @relation(fields: [user_id], references: [id], onDelete: Cascade)
+
+  @@map("user_settings")
+}
+
+// Bulk User Import Tracking
+model BulkUserImport {
+  id                String   @id @default(cuid())
+  organization_id   String
+  file_name         String
+  uploaded_by       String
+  total_rows        Int
+  success_count     Int      @default(0)
+  error_count       Int      @default(0)
+  errors            Json?    // Array of import errors
+  status            String   @default("PENDING") // PENDING, PROCESSING, COMPLETED, FAILED
+  created_at        DateTime @default(now())
+  completed_at      DateTime?
+
+  // Relations
+  uploaded_by_user  User @relation("BulkImportUploadedBy", fields: [uploaded_by], references: [id])
+
+  @@map("bulk_user_imports")
+  @@index([organization_id, status])
+}
+
+// Enhanced audit logs for admin actions
+model AuditLog {
+  id                String   @id @default(cuid())
+  user_id           String?
+  action            String   // Action type (e.g., USER_CREATED, SAML_CONFIGURED)
+  resource_type     String   // Type of resource affected
+  resource_id       String?  // ID of affected resource
+  organization_id   String?  // For organizational-level actions
+  success           Boolean
+  details           Json?    // Additional context/data
+  ip_address        String
+  user_agent        String
+  created_at        DateTime @default(now())
+
+  // Relations
+  user              User? @relation(fields: [user_id], references: [id])
+
+  @@map("audit_logs")
+  @@index([organization_id, action])
+  @@index([user_id, created_at])
+  @@index([created_at])
+}]]></correct-example>
+          <incorrect-example title="Basic schema without proper admin portal support" conditions="Extending database schema" expected-result="Complete admin portal data model" incorrectness-criteria="Missing admin-specific tables, poor relationships, no audit logging, or inadequate indexing"><![CDATA[// WRONG - incomplete schema extension
+model User {
+  id    String @id
+  email String @unique
+  // Missing admin fields, relationships, proper indexing
+}
+
+// Missing: UserGroup, SAMLConfiguration, TrainingDocument, AIAgentConfig, Integration tables]]></incorrect-example>
+        </example>
+      </examples>
+    </requirement>
+  </requirements>
+  <context description="Pericles Admin Portal development context">
+    The Pericles Admin Portal serves as the central administrative interface for organizational configuration and user management within the Pericles platform. It implements a sophisticated three-tier permission system (Admin/Manager/Viewer) with granular access controls and comprehensive feature sets tailored to each role.
+
+    Key architectural considerations:
+    - Built on established SaaS application foundation with React 19.1.0, TypeScript 5.8.3, and Tailwind CSS
+    - Follows existing authentication patterns with JWT tokens and role-based access control
+    - Extends Prisma schema with admin-specific tables while maintaining data consistency
+    - Implements comprehensive audit logging for all administrative actions
+    - Uses established API patterns with proper permission middleware
+    - Follows mobile-first responsive design with modern UI components
+    - Integrates with existing Docker local development and Neon production database
+    - Maintains security best practices with encrypted credential storage and SAML SSO
+
+    Permission Hierarchy:
+    - **Admin**: Full organizational control including user management, SAML configuration, AI training, and all integrations
+    - **Manager**: Limited to user area configuration and personal settings management  
+    - **Viewer**: Restricted to personal settings and notification preferences only
+
+    Core Features by Role:
+    - User Management: Add/remove users, bulk import, role assignment, user groups (Admin only)
+    - SAML SSO: Complete SSO configuration and management (Admin only)
+    - AI Training: Document upload, agent configuration, performance monitoring (Admin only)
+    - Integrations: Third-party tool connections and webhook management (Admin only)
+    - Personal Settings: Appearance, language, timezone, notifications (All roles)
+    - Organizational Config: Geographic regions, notification templates (Admin only)
+
+    Security Considerations:
+    - All endpoints require proper authentication and role-based authorization
+    - Comprehensive audit logging for security and compliance
+    - Encrypted storage of sensitive credentials and API keys
+    - SAML certificate validation and secure SSO implementation
+    - File upload security with malware scanning and type validation
+    - Proper session management and token rotation
+
+    The admin portal maintains consistency with the established SaaS application patterns while providing the specialized functionality required for organizational administration and AI agent training within the Pericles ecosystem.
+  </context>
+  <references>
+    <reference as="dependency" href=".cursor/rules/000-core/002-cursor-rules-creation.mdc" reason="Follows standard rule format">Base rule format definition</reference>
+    <reference as="dependency" href=".cursor/rules/000-core/000-saas-app-core-always.mdc" reason="Base SaaS application standards">Comprehensive SaaS application development standards and authentication patterns</reference>
+    <reference as="dependency" href="300-languages/307-typescript-core-standards-auto.mdc" reason="TypeScript development standards">Core TypeScript best practices and coding standards</reference>
+    <reference as="dependency" href="500-architecture/517-docker-core-standards-auto.mdc" reason="Docker development standards">Comprehensive Docker containerization standards for local development environment</reference>
+    <reference as="dependency" href="500-architecture/524-neon-core-standards-auto.mdc" reason="Neon serverless PostgreSQL standards">Comprehensive Neon serverless PostgreSQL best practices for production database</reference>
+    <reference as="dependency" href="500-architecture/526-vercel-deployment-core-standards-auto.mdc" reason="Vercel deployment standards">Comprehensive Vercel deployment best practices and configuration standards</reference>
+    <reference as="dependency" href="600-tooling/613-nx-core-standards-auto.mdc" reason="Nx workspace standards for monorepo organization and execution">Nx monorepo standards</reference>
+    <reference as="context" href="prisma/schema.prisma" reason="Database schema foundation">Existing Prisma ORM schema for authentication and application data</reference>
+    <reference as="context" href="src/types/" reason="Core data types and domain logic">Application interfaces and data model definitions for consistency</reference>
+    <reference as="context" href="api/auth/" reason="Authentication implementation patterns">Established authentication API patterns and security measures</reference>
+  </references>
+</rule>

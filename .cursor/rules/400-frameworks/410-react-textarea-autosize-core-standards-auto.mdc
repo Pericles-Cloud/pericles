@@ -1,0 +1,82 @@
+---
+description: React textarea autosize best practices with TypeScript and performance optimization
+globs: "*.{ts,tsx,js,jsx}"
+alwaysApply: false
+---
+<rule>
+  <meta>
+    <title>React Textarea Autosize Core Standards Auto</title>
+    <description>React textarea autosize best practices with TypeScript and performance optimization</description>
+    <created-at utc-timestamp="1752701607">July 16, 2025, 05:33 PM</created-at>
+    <last-updated-at utc-timestamp="1752701607">July 16, 2025, 05:33 PM</last-updated-at>
+    <applies-to>
+      <file-matcher glob="*.{ts,tsx,js,jsx}">TypeScript and JavaScript files using react-textarea-autosize</file-matcher>
+      <action-matcher action="react-textarea-autosize-development">Triggered when developing with react-textarea-autosize</action-matcher>
+    </applies-to>
+  </meta>
+  <requirements>
+    <non-negotiable priority="critical">
+      <description>Use TypeScript for type safety and proper integration patterns with react-textarea-autosize. Follow modern best practices for performance and maintainability.</description>
+      <examples>
+        <example title="Basic React-Textarea-Autosize Usage">
+          <correct-example title="Proper react-textarea-autosize implementation" conditions="Using react-textarea-autosize in TypeScript project" expected-result="Type-safe and performant implementation" correctness-criteria="Uses TypeScript interfaces, proper error handling, follows best practices"><![CDATA[// Example usage with TypeScript
+import { /* relevant imports */ } from 'react-textarea-autosize';
+
+// Type-safe implementation
+interface ExampleConfig {
+  // Configuration interface
+}
+
+export const useExample = (config: ExampleConfig) => {
+  // Implementation with proper typing and error handling
+  return {
+    // Return type-safe results
+  };
+};]]></correct-example>
+          <incorrect-example title="Poor react-textarea-autosize implementation" conditions="Using react-textarea-autosize without proper setup" expected-result="Type-safe and performant implementation" incorrectness-criteria="Missing TypeScript types, no error handling, poor performance"><![CDATA[// Bad: No TypeScript, poor error handling
+const example = require('react-textarea-autosize'); // CommonJS import
+// Missing type definitions
+// No error handling
+// Performance issues]]></incorrect-example>
+        </example>
+      </examples>
+    </non-negotiable>
+    <requirement priority="high">
+      <description>Implement proper error handling and performance optimization when using react-textarea-autosize. Follow library-specific best practices and recommendations.</description>
+      <examples>
+        <example title="Error Handling and Performance">
+          <correct-example title="Robust implementation with error handling" conditions="Production usage of react-textarea-autosize" expected-result="Reliable and performant code" correctness-criteria="Proper error boundaries, performance optimization, monitoring"><![CDATA[// Production-ready implementation
+try {
+  // Safe usage with error handling
+  const result = await performOperation();
+  return result;
+} catch (error) {
+  // Proper error handling
+  console.error('React-Textarea-Autosize error:', error);
+  throw new Error('Operation failed');
+}]]></correct-example>
+          <incorrect-example title="Poor error handling" conditions="Production usage of react-textarea-autosize" expected-result="Reliable and performant code" incorrectness-criteria="No error handling, performance issues, missing monitoring"><![CDATA[// Bad: No error handling
+const result = performOperation(); // May throw
+// No error recovery
+// No performance monitoring]]></incorrect-example>
+        </example>
+      </examples>
+    </requirement>
+  </requirements>
+  <context description="React-Textarea-Autosize development considerations">
+    React-Textarea-Autosize is a textarea autosize library that provides react textarea autosize best practices with typescript and performance optimization.
+
+    Key considerations:
+    - TypeScript integration for type safety
+    - Performance optimization and best practices
+    - Error handling and edge cases
+    - Modern development patterns
+    - Testing and maintainability
+
+    Follow the official documentation and community best practices for optimal results.
+  </context>
+  <references>
+    <reference as="dependency" href=".cursor/rules/000-core/002-cursor-rules-creation.mdc" reason="Follows standard rule format">Base rule format definition</reference>
+    <reference as="context" href="https://www.npmjs.com/package/react-textarea-autosize" reason="Package documentation">Official react-textarea-autosize package documentation</reference>
+  </references>
+</rule>

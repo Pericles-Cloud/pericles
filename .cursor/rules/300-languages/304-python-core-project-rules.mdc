@@ -1,0 +1,1419 @@
+---
+description: Comprehensive Python project setup with modern file system layout, build tools, linters, virtual environments, and PEP best practices following community standards
+globs: ["*.{py,toml,cfg,txt,md,yml,yaml,json,ini}"]
+alwaysApply: false
+---
+
+<rule>
+  <meta>
+    <title>Python Core Project Rules</title>
+    <description>Comprehensive Python project setup with modern file system layout, build tools, linters, virtual environments, and PEP best practices following community standards</description>
+    <created-at utc-timestamp="1744249380">January 27, 2025, 12:43 PM</created-at>
+    <last-updated-at utc-timestamp="1744249380">January 27, 2025, 12:43 PM</last-updated-at>
+    <applies-to>
+      <file-matcher glob="*.{py,toml,cfg,txt,md,yml,yaml,json,ini}">Python project files including source code, configuration, and documentation</file-matcher>
+      <action-matcher action="python-project-setup">Triggered when setting up or configuring Python projects</action-matcher>
+    </applies-to>
+  </meta>
+  <requirements>
+    <non-negotiable priority="critical">
+      <description>Use modern Python project structure following PEP 518 and community standards with src/ layout, pyproject.toml configuration, and proper package organization.</description>
+      <examples>
+        <example title="Modern Python Project Structure">
+          <correct-example title="Standard src/ layout with pyproject.toml" conditions="Creating a new Python project" expected-result="Well-organized project structure" correctness-criteria="Follows PEP 518, uses src/ layout, includes all essential configuration files"><![CDATA[my_project/
+├── src/
+│   └── my_package/
+│       ├── __init__.py
+│       ├── core/
+│       │   ├── __init__.py
+│       │   ├── models.py
+│       │   └── services.py
+│       ├── api/
+│       │   ├── __init__.py
+│       │   ├── routes.py
+│       │   └── middleware.py
+│       └── utils/
+│           ├── __init__.py
+│           ├── helpers.py
+│           └── validators.py
+├── tests/
+│   ├── __init__.py
+│   ├── unit/
+│   │   ├── __init__.py
+│   │   ├── test_models.py
+│   │   └── test_services.py
+│   ├── integration/
+│   │   ├── __init__.py
+│   │   └── test_api.py
+│   └── conftest.py
+├── docs/
+│   ├── conf.py
+│   ├── index.rst
+│   └── api/
+├── scripts/
+│   ├── setup.py
+│   └── build.py
+├── .github/
+│   └── workflows/
+│       └── ci.yml
+├── pyproject.toml
+├── requirements.txt
+├── requirements-dev.txt
+├── README.md
+├── LICENSE
+├── .gitignore
+├── .pre-commit-config.yaml
+├── .flake8
+├── .mypy.ini
+├── pytest.ini
+└── tox.ini]]></correct-example>
+          <incorrect-example title="Flat structure without src/ layout" conditions="Creating a new Python project" expected-result="Well-organized project structure" incorrectness-criteria="Uses flat structure, missing src/ layout, lacks proper organization"><![CDATA[my_project/
+├── my_package.py
+├── test_my_package.py
+├── setup.py
+├── requirements.txt
+└── README.md]]></incorrect-example>
+        </example>
+      </examples>
+    </non-negotiable>
+
+    <non-negotiable priority="critical">
+      <description>Use pyproject.toml as the primary configuration file following PEP 518, PEP 621, and PEP 660 for build system, project metadata, and tool configuration.</description>
+      <examples>
+        <example title="Modern pyproject.toml Configuration">
+          <correct-example title="Comprehensive pyproject.toml with all sections" conditions="Configuring Python project" expected-result="Complete project configuration" correctness-criteria="Follows PEP 518/621/660, includes build system, project metadata, and tool configurations"><![CDATA[# pyproject.toml
+[build-system]
+requires = ["setuptools>=68.0.0", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "my-package"
+version = "0.1.0"
+description = "A modern Python package"
+readme = "README.md"
+license = {text = "MIT"}
+authors = [
+    {name = "Your Name", email = "your.email@example.com"},
+]
+maintainers = [
+    {name = "Your Name", email = "your.email@example.com"},
+]
+keywords = ["python", "package", "example"]
+classifiers = [
+    "Development Status :: 4 - Beta",
+    "Intended Audience :: Developers",
+    "License :: OSI Approved :: MIT License",
+    "Programming Language :: Python :: 3",
+    "Programming Language :: Python :: 3.9",
+    "Programming Language :: Python :: 3.10",
+    "Programming Language :: Python :: 3.11",
+    "Programming Language :: Python :: 3.12",
+    "Programming Language :: Python :: 3.13",
+    "Topic :: Software Development :: Libraries :: Python Modules",
+]
+requires-python = ">=3.9"
+dependencies = [
+    "requests>=2.28.0",
+    "click>=8.0.0",
+    "pydantic>=2.0.0",
+]
+
+[project.optional-dependencies]
+dev = [
+    "pytest>=7.0.0",
+    "pytest-cov>=4.0.0",
+    "pytest-xdist>=3.0.0",
+    "black>=23.0.0",
+    "isort>=5.12.0",
+    "flake8>=6.0.0",
+    "mypy>=1.0.0",
+    "pre-commit>=3.0.0",
+]
+docs = [
+    "sphinx>=7.0.0",
+    "sphinx-rtd-theme>=1.3.0",
+    "sphinx-autodoc-typehints>=1.24.0",
+]
+test = [
+    "pytest>=7.0.0",
+    "pytest-cov>=4.0.0",
+    "pytest-xdist>=3.0.0",
+    "hypothesis>=6.0.0",
+    "factory-boy>=3.2.0",
+]
+
+[project.urls]
+Homepage = "https://github.com/username/my-package"
+Documentation = "https://my-package.readthedocs.io"
+Repository = "https://github.com/username/my-package"
+Issues = "https://github.com/username/my-package/issues"
+Changelog = "https://github.com/username/my-package/blob/main/CHANGELOG.md"
+
+[project.scripts]
+my-cli = "my_package.cli:main"
+
+[tool.setuptools]
+package-dir = {"" = "src"}
+
+[tool.setuptools.packages.find]
+where = ["src"]
+include = ["my_package*"]
+exclude = ["tests*"]
+
+[tool.black]
+line-length = 88
+target-version = ['py39', 'py310', 'py311', 'py312']
+include = '\.pyi?$'
+extend-exclude = '''
+/(
+  # directories
+  \.eggs
+  | \.git
+  | \.hg
+  | \.mypy_cache
+  | \.tox
+  | \.venv
+  | build
+  | dist
+)/
+'''
+
+[tool.isort]
+profile = "black"
+line_length = 88
+multi_line_output = 3
+include_trailing_comma = true
+force_grid_wrap = 0
+use_parentheses = true
+ensure_newline_before_comments = true
+src_paths = ["src", "tests"]
+
+[tool.mypy]
+python_version = "3.9"
+strict = true
+warn_return_any = true
+warn_unused_configs = true
+disallow_untyped_defs = true
+disallow_incomplete_defs = true
+check_untyped_defs = true
+disallow_untyped_decorators = true
+no_implicit_optional = true
+warn_redundant_casts = true
+warn_unused_ignores = true
+warn_no_return = true
+warn_unreachable = true
+strict_equality = true
+show_error_codes = true
+
+[[tool.mypy.overrides]]
+module = "tests.*"
+disallow_untyped_defs = false
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+python_files = ["test_*.py", "*_test.py"]
+python_classes = ["Test*"]
+python_functions = ["test_*"]
+addopts = [
+    "--strict-markers",
+    "--strict-config",
+    "--cov=src",
+    "--cov-report=term-missing",
+    "--cov-report=html",
+    "--cov-report=xml",
+    "--cov-fail-under=80",
+    "-ra",
+    "--tb=short",
+]
+markers = [
+    "slow: marks tests as slow (deselect with '-m \"not slow\"')",
+    "integration: marks tests as integration tests",
+    "unit: marks tests as unit tests",
+]
+filterwarnings = [
+    "error",
+    "ignore::UserWarning",
+    "ignore::DeprecationWarning",
+]
+
+[tool.coverage.run]
+source = ["src"]
+branch = true
+omit = [
+    "*/tests/*",
+    "*/test_*",
+    "*/__pycache__/*",
+    "*/venv/*",
+    "*/virtualenv/*",
+]
+
+[tool.coverage.report]
+exclude_lines = [
+    "pragma: no cover",
+    "def __repr__",
+    "raise AssertionError",
+    "raise NotImplementedError",
+    "if __name__ == .__main__.:",
+    "class .*\\bProtocol\\):",
+    "@(abc\\.)?abstractmethod",
+]
+
+[tool.ruff]
+line-length = 88
+target-version = "py39"
+select = [
+    "E",  # pycodestyle errors
+    "W",  # pycodestyle warnings
+    "F",  # pyflakes
+    "I",  # isort
+    "B",  # flake8-bugbear
+    "C4", # flake8-comprehensions
+    "UP", # pyupgrade
+    "N",  # pep8-naming
+    "S",  # flake8-bandit
+    "T20", # flake8-print
+    "PT", # flake8-pytest-style
+    "RET", # flake8-return
+    "SIM", # flake8-simplify
+    "TCH", # flake8-type-checking
+    "ARG", # flake8-unused-arguments
+    "PTH", # flake8-use-pathlib
+    "ERA", # eradicate
+    "PL", # pylint
+    "TRY", # tryceratops
+    "RUF", # ruff-specific rules
+]
+ignore = [
+    "E501",  # line too long, handled by black
+    "B008",  # do not perform function calls in argument defaults
+    "S101",  # use of assert detected
+    "PLR0913", # too many arguments to function call
+    "PLR0912", # too many branches
+    "PLR0915", # too many statements
+]
+
+[tool.ruff.per-file-ignores]
+"tests/*" = ["S101", "PLR2004", "ARG001"]
+"__init__.py" = ["F401"]
+
+[tool.ruff.flake8-pytest-style]
+fixture-parentheses = false
+mark-parentheses = false
+
+[tool.ruff.mccabe]
+max-complexity = 10]]></correct-example>
+          <incorrect-example title="Old-style setup.py configuration" conditions="Configuring Python project" expected-result="Modern configuration" incorrectness-criteria="Uses deprecated setup.py, lacks modern PEP compliance, missing tool configurations"><![CDATA[# setup.py
+from setuptools import setup, find_packages
+
+setup(
+    name="my-package",
+    version="0.1.0",
+    packages=find_packages(),
+    install_requires=[
+        "requests",
+        "click",
+    ],
+)]]></incorrect-example>
+        </example>
+      </examples>
+    </non-negotiable>
+
+    <non-negotiable priority="critical">
+      <description>Use virtual environments for all Python projects with proper isolation and dependency management using venv, poetry, or pipenv.</description>
+      <examples>
+        <example title="Virtual Environment Setup">
+          <correct-example title="Modern virtual environment with venv" conditions="Setting up development environment" expected-result="Isolated Python environment" correctness-criteria="Uses venv, proper activation/deactivation, includes requirements files"><![CDATA[# Create virtual environment
+python -m venv venv
+
+# Activate virtual environment
+# On Unix/macOS:
+source venv/bin/activate
+# On Windows:
+# venv\Scripts\activate.bat
+
+# Install dependencies
+pip install --upgrade pip
+pip install -r requirements.txt
+pip install -r requirements-dev.txt
+
+# Install package in development mode
+pip install -e .
+
+# Deactivate when done
+deactivate
+
+# .gitignore entry
+venv/
+.venv/
+env/
+.env/
+
+# requirements.txt (production dependencies)
+requests>=2.28.0,<3.0.0
+click>=8.0.0,<9.0.0
+pydantic>=2.0.0,<3.0.0
+
+# requirements-dev.txt (development dependencies)
+-r requirements.txt
+pytest>=7.0.0
+pytest-cov>=4.0.0
+black>=23.0.0
+isort>=5.12.0
+flake8>=6.0.0
+mypy>=1.0.0
+pre-commit>=3.0.0]]></correct-example>
+          <incorrect-example title="No virtual environment isolation" conditions="Setting up development environment" expected-result="Isolated Python environment" incorrectness-criteria="Installs packages globally, no isolation, version conflicts"><![CDATA[# Installing packages globally - BAD
+pip install requests click pydantic pytest black
+
+# No isolation between projects
+# Version conflicts between projects
+# System Python pollution]]></incorrect-example>
+        </example>
+      </examples>
+    </non-negotiable>
+
+    <non-negotiable priority="critical">
+      <description>Implement comprehensive linting and formatting with Black, isort, Flake8/Ruff, mypy, and pre-commit hooks following PEP 8 and modern Python standards.</description>
+      <examples>
+        <example title="Complete Linting and Formatting Setup">
+          <correct-example title="Modern linting configuration" conditions="Setting up code quality tools" expected-result="Comprehensive code quality enforcement" correctness-criteria="Includes Black, isort, Flake8/Ruff, mypy, pre-commit hooks"><![CDATA[# .pre-commit-config.yaml
+repos:
+  - repo: https://github.com/pre-commit/pre-commit-hooks
+    rev: v4.5.0
+    hooks:
+      - id: trailing-whitespace
+      - id: end-of-file-fixer
+      - id: check-yaml
+      - id: check-added-large-files
+      - id: check-merge-conflict
+      - id: debug-statements
+      - id: check-docstring-first
+
+  - repo: https://github.com/psf/black
+    rev: 23.12.1
+    hooks:
+      - id: black
+        language_version: python3
+
+  - repo: https://github.com/pycqa/isort
+    rev: 5.13.2
+    hooks:
+      - id: isort
+
+  - repo: https://github.com/charliermarsh/ruff-pre-commit
+    rev: v0.1.9
+    hooks:
+      - id: ruff
+        args: ["--fix", "--exit-non-zero-on-fix"]
+
+  - repo: https://github.com/pre-commit/mirrors-mypy
+    rev: v1.8.0
+    hooks:
+      - id: mypy
+        additional_dependencies: [types-requests, types-PyYAML]
+
+  - repo: https://github.com/pycqa/bandit
+    rev: 1.7.5
+    hooks:
+      - id: bandit
+        args: ["-c", "pyproject.toml"]
+
+  - repo: https://github.com/pycqa/pydocstyle
+    rev: 6.3.0
+    hooks:
+      - id: pydocstyle
+        additional_dependencies: [toml]
+
+# .mypy.ini
+[mypy]
+python_version = 3.9
+strict = true
+warn_return_any = true
+warn_unused_configs = true
+disallow_untyped_defs = true
+disallow_incomplete_defs = true
+check_untyped_defs = true
+disallow_untyped_decorators = true
+no_implicit_optional = true
+warn_redundant_casts = true
+warn_unused_ignores = true
+warn_no_return = true
+warn_unreachable = true
+strict_equality = true
+show_error_codes = true
+
+[mypy-tests.*]
+disallow_untyped_defs = false
+
+# .flake8 (if using Flake8 instead of Ruff)
+[flake8]
+max-line-length = 88
+extend-ignore = E203, E501, W503
+exclude = 
+    .git,
+    __pycache__,
+    .venv,
+    venv,
+    build,
+    dist,
+    *.egg-info
+per-file-ignores = 
+    __init__.py:F401
+    tests/*:S101
+
+# Makefile for common tasks
+.PHONY: install format lint test clean build
+
+install:
+	pip install -e .[dev]
+	pre-commit install
+
+format:
+	black src tests
+	isort src tests
+
+lint:
+	ruff check src tests
+	mypy src
+	bandit -r src
+
+test:
+	pytest tests/ -v --cov=src --cov-report=term-missing
+
+clean:
+	rm -rf build/
+	rm -rf dist/
+	rm -rf *.egg-info/
+	rm -rf .pytest_cache/
+	rm -rf .coverage
+	rm -rf htmlcov/
+	find . -type d -name __pycache__ -exec rm -rf {} +
+	find . -type f -name "*.pyc" -delete
+
+build:
+	python -m build
+
+ci: install lint test]]></correct-example>
+          <incorrect-example title="No code quality tools" conditions="Setting up code quality tools" expected-result="Comprehensive code quality enforcement" incorrectness-criteria="Missing linting, no formatting, no type checking, no pre-commit hooks"><![CDATA[# No linting configuration
+# No formatting tools
+# No type checking
+# No pre-commit hooks
+# Inconsistent code style
+# No automated quality checks]]></incorrect-example>
+        </example>
+      </examples>
+    </non-negotiable>
+
+    <requirement priority="critical">
+      <description>Implement comprehensive testing strategy with pytest, coverage reporting, and proper test organization following testing best practices.</description>
+      <examples>
+        <example title="Modern Testing Setup">
+          <correct-example title="Comprehensive testing configuration" conditions="Setting up testing framework" expected-result="Complete testing infrastructure" correctness-criteria="Uses pytest, includes coverage, proper test organization, fixtures"><![CDATA[# pytest.ini
+[tool:pytest]
+testpaths = tests
+python_files = test_*.py *_test.py
+python_classes = Test*
+python_functions = test_*
+addopts = 
+    --strict-markers
+    --strict-config
+    --cov=src
+    --cov-report=term-missing
+    --cov-report=html
+    --cov-report=xml
+    --cov-fail-under=80
+    -ra
+    --tb=short
+markers =
+    slow: marks tests as slow (deselect with '-m "not slow"')
+    integration: marks tests as integration tests
+    unit: marks tests as unit tests
+filterwarnings =
+    error
+    ignore::UserWarning
+    ignore::DeprecationWarning
+
+# tests/conftest.py
+import pytest
+from unittest.mock import Mock
+from my_package.core.models import User
+from my_package.core.services import UserService
+
+@pytest.fixture
+def sample_user():
+    """Create a sample user for testing."""
+    return User(
+        id=1,
+        name="Test User",
+        email="test@example.com",
+        active=True
+    )
+
+@pytest.fixture
+def mock_database():
+    """Mock database connection."""
+    return Mock()
+
+@pytest.fixture
+def user_service(mock_database):
+    """Create UserService with mocked database."""
+    return UserService(database=mock_database)
+
+@pytest.fixture(scope="session")
+def test_config():
+    """Test configuration."""
+    return {
+        "DATABASE_URL": "sqlite:///:memory:",
+        "DEBUG": True,
+        "TESTING": True
+    }
+
+# tests/unit/test_models.py
+import pytest
+from pydantic import ValidationError
+from my_package.core.models import User
+
+class TestUser:
+    """Test User model."""
+    
+    def test_user_creation(self):
+        """Test user can be created with valid data."""
+        user = User(
+            id=1,
+            name="Test User",
+            email="test@example.com",
+            active=True
+        )
+        assert user.id == 1
+        assert user.name == "Test User"
+        assert user.email == "test@example.com"
+        assert user.active is True
+    
+    def test_user_validation_invalid_email(self):
+        """Test user validation fails with invalid email."""
+        with pytest.raises(ValidationError):
+            User(
+                id=1,
+                name="Test User",
+                email="invalid-email",
+                active=True
+            )
+    
+    @pytest.mark.parametrize("email", [
+        "test@example.com",
+        "user.name@domain.co.uk",
+        "test+tag@example.org"
+    ])
+    def test_user_valid_emails(self, email):
+        """Test user accepts various valid email formats."""
+        user = User(id=1, name="Test", email=email, active=True)
+        assert user.email == email
+
+# tests/integration/test_api.py
+import pytest
+from fastapi.testclient import TestClient
+from my_package.api.app import app
+
+@pytest.fixture
+def client():
+    """Create test client."""
+    return TestClient(app)
+
+class TestUserAPI:
+    """Integration tests for User API."""
+    
+    def test_create_user(self, client):
+        """Test user creation endpoint."""
+        user_data = {
+            "name": "Test User",
+            "email": "test@example.com",
+            "active": True
+        }
+        response = client.post("/users", json=user_data)
+        assert response.status_code == 201
+        assert response.json()["name"] == "Test User"
+    
+    def test_get_users(self, client):
+        """Test get users endpoint."""
+        response = client.get("/users")
+        assert response.status_code == 200
+        assert isinstance(response.json(), list)
+    
+    @pytest.mark.slow
+    def test_user_performance(self, client):
+        """Test user endpoint performance."""
+        import time
+        start = time.time()
+        response = client.get("/users")
+        end = time.time()
+        assert response.status_code == 200
+        assert (end - start) < 1.0  # Should respond within 1 second]]></correct-example>
+          <incorrect-example title="Basic testing without proper setup" conditions="Setting up testing framework" expected-result="Complete testing infrastructure" incorrectness-criteria="Uses basic unittest, no coverage, poor organization, no fixtures"><![CDATA[# test_basic.py
+import unittest
+from my_package import MyClass
+
+class TestMyClass(unittest.TestCase):
+    def test_something(self):
+        obj = MyClass()
+        self.assertTrue(obj.method())
+
+if __name__ == '__main__':
+    unittest.main()]]></incorrect-example>
+        </example>
+      </examples>
+    </requirement>
+
+    <requirement priority="high">
+      <description>Use modern Python build tools including setuptools with pyproject.toml, wheel building, and proper package distribution following PEP 517 and PEP 518.</description>
+      <examples>
+        <example title="Modern Build System">
+          <correct-example title="PEP 517/518 compliant build system" conditions="Setting up package building" expected-result="Modern build configuration" correctness-criteria="Uses pyproject.toml, setuptools backend, proper wheel building"><![CDATA[# pyproject.toml build system section
+[build-system]
+requires = ["setuptools>=68.0.0", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[tool.setuptools]
+package-dir = {"" = "src"}
+
+[tool.setuptools.packages.find]
+where = ["src"]
+include = ["my_package*"]
+exclude = ["tests*"]
+
+[tool.setuptools.dynamic]
+version = {attr = "my_package.__version__"}
+
+# Build commands
+python -m build
+# Creates both wheel and source distribution
+
+# Upload to PyPI
+python -m twine upload dist/*
+
+# Development installation
+pip install -e .
+
+# Check package
+python -m twine check dist/*
+
+# Build script - scripts/build.py
+#!/usr/bin/env python3
+"""Build script for the package."""
+import subprocess
+import sys
+import shutil
+from pathlib import Path
+
+def clean_build():
+    """Clean build artifacts."""
+    dirs_to_clean = ["build", "dist", "*.egg-info"]
+    for dir_pattern in dirs_to_clean:
+        for path in Path(".").glob(dir_pattern):
+            if path.is_dir():
+                shutil.rmtree(path)
+                print(f"Cleaned {path}")
+
+def build_package():
+    """Build the package."""
+    print("Building package...")
+    result = subprocess.run([sys.executable, "-m", "build"], check=True)
+    if result.returncode == 0:
+        print("Package built successfully!")
+    else:
+        print("Build failed!")
+        return False
+    return True
+
+def check_package():
+    """Check built package."""
+    print("Checking package...")
+    result = subprocess.run([sys.executable, "-m", "twine", "check", "dist/*"], check=True)
+    if result.returncode == 0:
+        print("Package check passed!")
+    else:
+        print("Package check failed!")
+        return False
+    return True
+
+if __name__ == "__main__":
+    clean_build()
+    if build_package():
+        check_package()]]></correct-example>
+          <incorrect-example title="Old-style setup.py build system" conditions="Setting up package building" expected-result="Modern build configuration" incorrectness-criteria="Uses old setup.py, no PEP 517/518 compliance, manual build process"><![CDATA[# setup.py
+from setuptools import setup, find_packages
+
+setup(
+    name="my-package",
+    version="0.1.0",
+    packages=find_packages(),
+    install_requires=[
+        "requests",
+    ],
+)
+
+# Manual build process
+python setup.py sdist bdist_wheel
+python setup.py install]]></incorrect-example>
+        </example>
+      </examples>
+    </requirement>
+
+    <requirement priority="high">
+      <description>Implement comprehensive documentation with Sphinx, docstrings following PEP 257, and automated documentation generation.</description>
+      <examples>
+        <example title="Documentation Setup">
+          <correct-example title="Sphinx documentation with automated generation" conditions="Setting up documentation" expected-result="Complete documentation system" correctness-criteria="Uses Sphinx, PEP 257 docstrings, automated generation, proper themes"><![CDATA[# docs/conf.py
+import os
+import sys
+sys.path.insert(0, os.path.abspath('../src'))
+
+project = 'My Package'
+copyright = '2024, Your Name'
+author = 'Your Name'
+release = '0.1.0'
+
+extensions = [
+    'sphinx.ext.autodoc',
+    'sphinx.ext.napoleon',
+    'sphinx.ext.viewcode',
+    'sphinx.ext.githubpages',
+    'sphinx_autodoc_typehints',
+    'myst_parser',
+]
+
+templates_path = ['_templates']
+exclude_patterns = ['_build', 'Thumbs.db', '.DS_Store']
+
+html_theme = 'sphinx_rtd_theme'
+html_static_path = ['_static']
+
+# Napoleon settings
+napoleon_google_docstring = True
+napoleon_numpy_docstring = True
+napoleon_include_init_with_doc = False
+napoleon_include_private_with_doc = False
+
+# Autodoc settings
+autodoc_default_options = {
+    'members': True,
+    'member-order': 'bysource',
+    'special-members': '__init__',
+    'undoc-members': True,
+    'exclude-members': '__weakref__'
+}
+
+# docs/index.rst
+Welcome to My Package's documentation!
+======================================
+
+.. toctree::
+   :maxdepth: 2
+   :caption: Contents:
+
+   installation
+   quickstart
+   api
+   contributing
+   changelog
+
+Indices and tables
+==================
+
+* :ref:`genindex`
+* :ref:`modindex`
+* :ref:`search`
+
+# src/my_package/core/models.py
+"""Core data models for the application.
+
+This module contains the main data models used throughout the application.
+All models follow Pydantic for validation and serialization.
+"""
+
+from typing import Optional
+from pydantic import BaseModel, EmailStr, Field
+
+class User(BaseModel):
+    """User model representing a system user.
+    
+    Attributes:
+        id: Unique identifier for the user
+        name: Full name of the user
+        email: Email address (validated)
+        active: Whether the user account is active
+        
+    Example:
+        >>> user = User(
+        ...     id=1,
+        ...     name="John Doe",
+        ...     email="john@example.com",
+        ...     active=True
+        ... )
+        >>> user.name
+        'John Doe'
+    """
+    
+    id: int = Field(..., description="Unique identifier")
+    name: str = Field(..., min_length=1, max_length=100, description="User's full name")
+    email: EmailStr = Field(..., description="Valid email address")
+    active: bool = Field(default=True, description="Account active status")
+    
+    class Config:
+        """Pydantic configuration."""
+        
+        json_encoders = {
+            EmailStr: str
+        }
+        schema_extra = {
+            "example": {
+                "id": 1,
+                "name": "John Doe",
+                "email": "john@example.com",
+                "active": True
+            }
+        }
+
+def create_user(name: str, email: str, active: bool = True) -> User:
+    """Create a new user instance.
+    
+    Args:
+        name: The user's full name
+        email: Valid email address
+        active: Whether the account should be active (default: True)
+        
+    Returns:
+        User: A new User instance
+        
+    Raises:
+        ValueError: If name is empty or email is invalid
+        
+    Example:
+        >>> user = create_user("Jane Doe", "jane@example.com")
+        >>> user.name
+        'Jane Doe'
+    """
+    if not name.strip():
+        raise ValueError("Name cannot be empty")
+    
+    # Auto-generate ID (in real app, this would come from database)
+    user_id = hash(email) % 1000000
+    
+    return User(id=user_id, name=name, email=email, active=active)
+
+# Makefile for documentation
+.PHONY: docs clean-docs
+
+docs:
+	cd docs && make html
+
+clean-docs:
+	cd docs && make clean
+
+serve-docs:
+	cd docs/_build/html && python -m http.server 8000]]></correct-example>
+          <incorrect-example title="No documentation system" conditions="Setting up documentation" expected-result="Complete documentation system" incorrectness-criteria="Missing docstrings, no Sphinx, no automated generation"><![CDATA[# No documentation configuration
+# Missing docstrings
+# No Sphinx setup
+# No automated doc generation
+
+class User:
+    def __init__(self, id, name, email):
+        self.id = id
+        self.name = name
+        self.email = email
+    
+    def is_active(self):
+        return True]]></incorrect-example>
+        </example>
+      </examples>
+    </requirement>
+
+    <requirement priority="high">
+      <description>Implement CI/CD pipeline with GitHub Actions including automated testing, linting, security scanning, and deployment following modern DevOps practices.</description>
+      <examples>
+        <example title="CI/CD Pipeline">
+          <correct-example title="Comprehensive GitHub Actions workflow" conditions="Setting up CI/CD pipeline" expected-result="Complete automated pipeline" correctness-criteria="Includes testing, linting, security scanning, build, and deployment"><![CDATA[# .github/workflows/ci.yml
+name: CI/CD Pipeline
+
+on:
+  push:
+    branches: [ main, develop ]
+  pull_request:
+    branches: [ main ]
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        python-version: [3.9, "3.10", "3.11", "3.12"]
+    
+    steps:
+    - uses: actions/checkout@v4
+    
+    - name: Set up Python ${{ matrix.python-version }}
+      uses: actions/setup-python@v5
+      with:
+        python-version: ${{ matrix.python-version }}
+    
+    - name: Install dependencies
+      run: |
+        python -m pip install --upgrade pip
+        pip install -e .[dev]
+    
+    - name: Lint with ruff
+      run: |
+        ruff check src tests
+    
+    - name: Format check with black
+      run: |
+        black --check src tests
+    
+    - name: Import sort check with isort
+      run: |
+        isort --check-only src tests
+    
+    - name: Type check with mypy
+      run: |
+        mypy src
+    
+    - name: Security check with bandit
+      run: |
+        bandit -r src
+    
+    - name: Test with pytest
+      run: |
+        pytest tests/ -v --cov=src --cov-report=xml --cov-report=term-missing
+    
+    - name: Upload coverage to Codecov
+      uses: codecov/codecov-action@v4
+      with:
+        file: ./coverage.xml
+        flags: unittests
+        name: codecov-umbrella
+        fail_ci_if_error: true
+
+  build:
+    needs: test
+    runs-on: ubuntu-latest
+    
+    steps:
+    - uses: actions/checkout@v4
+    
+    - name: Set up Python
+      uses: actions/setup-python@v5
+      with:
+        python-version: "3.11"
+    
+    - name: Install build dependencies
+      run: |
+        python -m pip install --upgrade pip
+        pip install build twine
+    
+    - name: Build package
+      run: |
+        python -m build
+    
+    - name: Check package
+      run: |
+        twine check dist/*
+    
+    - name: Upload build artifacts
+      uses: actions/upload-artifact@v4
+      with:
+        name: distributions
+        path: dist/
+
+  security:
+    runs-on: ubuntu-latest
+    
+    steps:
+    - uses: actions/checkout@v4
+    
+    - name: Run Semgrep
+      uses: returntocorp/semgrep-action@v1
+      with:
+        config: >-
+          p/security-audit
+          p/secrets
+          p/python
+    
+    - name: Run Safety check
+      run: |
+        pip install safety
+        safety check
+    
+    - name: Run pip-audit
+      run: |
+        pip install pip-audit
+        pip-audit
+
+  deploy:
+    needs: [test, build]
+    runs-on: ubuntu-latest
+    if: github.ref == 'refs/heads/main' && github.event_name == 'push'
+    
+    steps:
+    - uses: actions/checkout@v4
+    
+    - name: Download build artifacts
+      uses: actions/download-artifact@v4
+      with:
+        name: distributions
+        path: dist/
+    
+    - name: Publish to PyPI
+      uses: pypa/gh-action-pypi-publish@v1.8.11
+      with:
+        password: ${{ secrets.PYPI_API_TOKEN }}
+        skip_existing: true
+
+# .github/workflows/docs.yml
+name: Documentation
+
+on:
+  push:
+    branches: [ main ]
+  pull_request:
+    branches: [ main ]
+
+jobs:
+  build-docs:
+    runs-on: ubuntu-latest
+    
+    steps:
+    - uses: actions/checkout@v4
+    
+    - name: Set up Python
+      uses: actions/setup-python@v5
+      with:
+        python-version: "3.11"
+    
+    - name: Install dependencies
+      run: |
+        python -m pip install --upgrade pip
+        pip install -e .[docs]
+    
+    - name: Build documentation
+      run: |
+        cd docs
+        make html
+    
+    - name: Upload documentation
+      uses: actions/upload-artifact@v4
+      with:
+        name: documentation
+        path: docs/_build/html/
+    
+    - name: Deploy to GitHub Pages
+      if: github.ref == 'refs/heads/main' && github.event_name == 'push'
+      uses: peaceiris/actions-gh-pages@v3
+      with:
+        github_token: ${{ secrets.GITHUB_TOKEN }}
+        publish_dir: ./docs/_build/html]]></correct-example>
+          <incorrect-example title="No CI/CD pipeline" conditions="Setting up CI/CD pipeline" expected-result="Complete automated pipeline" incorrectness-criteria="Missing automation, no testing, no deployment, manual processes"><![CDATA[# No CI/CD configuration
+# Manual testing
+# No automated deployment
+# No security scanning
+# No build automation]]></incorrect-example>
+        </example>
+      </examples>
+    </requirement>
+
+    <requirement priority="medium">
+      <description>Use modern dependency management with proper version pinning, security scanning, and regular updates using tools like pip-tools, poetry, or dependabot.</description>
+      <examples>
+        <example title="Dependency Management">
+          <correct-example title="Modern dependency management with pip-tools" conditions="Managing project dependencies" expected-result="Secure and maintainable dependencies" correctness-criteria="Uses pip-tools, version pinning, regular updates, security scanning"><![CDATA[# requirements.in (abstract dependencies)
+requests>=2.28.0,<3.0.0
+click>=8.0.0,<9.0.0
+pydantic>=2.0.0,<3.0.0
+
+# requirements-dev.in (development dependencies)
+-r requirements.in
+pytest>=7.0.0
+pytest-cov>=4.0.0
+black>=23.0.0
+isort>=5.12.0
+ruff>=0.1.0
+mypy>=1.0.0
+pre-commit>=3.0.0
+sphinx>=7.0.0
+build>=0.10.0
+twine>=4.0.0
+
+# Generate locked requirements
+pip-compile requirements.in
+pip-compile requirements-dev.in
+
+# requirements.txt (generated by pip-compile)
+certifi==2023.11.17
+charset-normalizer==3.3.2
+click==8.1.7
+idna==3.6
+pydantic==2.5.2
+pydantic-core==2.14.5
+requests==2.31.0
+typing-extensions==4.8.0
+urllib3==2.1.0
+
+# Update dependencies
+pip-compile --upgrade requirements.in
+pip-compile --upgrade requirements-dev.in
+
+# .github/dependabot.yml
+version: 2
+updates:
+  - package-ecosystem: "pip"
+    directory: "/"
+    schedule:
+      interval: "weekly"
+    open-pull-requests-limit: 10
+    reviewers:
+      - "maintainer-username"
+    assignees:
+      - "maintainer-username"
+    commit-message:
+      prefix: "deps"
+      include: "scope"
+
+# Makefile targets for dependency management
+.PHONY: deps-compile deps-sync deps-update deps-audit
+
+deps-compile:
+	pip-compile requirements.in
+	pip-compile requirements-dev.in
+
+deps-sync:
+	pip-sync requirements-dev.txt
+
+deps-update:
+	pip-compile --upgrade requirements.in
+	pip-compile --upgrade requirements-dev.in
+
+deps-audit:
+	safety check
+	pip-audit]]></correct-example>
+          <incorrect-example title="Poor dependency management" conditions="Managing project dependencies" expected-result="Secure and maintainable dependencies" incorrectness-criteria="No version pinning, no security scanning, manual updates"><![CDATA[# requirements.txt
+requests
+click
+pydantic
+pytest
+black
+
+# No version pinning
+# No security scanning
+# No automated updates
+# No separation of dev/prod dependencies]]></incorrect-example>
+        </example>
+      </examples>
+    </requirement>
+
+    <requirement priority="medium">
+      <description>Implement proper logging configuration with structured logging, appropriate log levels, and rotation following Python logging best practices.</description>
+      <examples>
+        <example title="Logging Configuration">
+          <correct-example title="Structured logging with proper configuration" conditions="Setting up application logging" expected-result="Professional logging system" correctness-criteria="Uses structured logging, proper levels, rotation, configuration files"><![CDATA[# src/my_package/core/logging.py
+"""Logging configuration module."""
+
+import logging
+import logging.config
+import sys
+from pathlib import Path
+from typing import Dict, Any
+import json
+from datetime import datetime
+
+class JSONFormatter(logging.Formatter):
+    """Custom JSON formatter for structured logging."""
+    
+    def format(self, record: logging.LogRecord) -> str:
+        """Format log record as JSON."""
+        log_entry = {
+            'timestamp': datetime.utcnow().isoformat() + 'Z',
+            'level': record.levelname,
+            'logger': record.name,
+            'message': record.getMessage(),
+            'module': record.module,
+            'function': record.funcName,
+            'line': record.lineno,
+        }
+        
+        # Add exception info if present
+        if record.exc_info:
+            log_entry['exception'] = self.formatException(record.exc_info)
+        
+        # Add extra fields
+        if hasattr(record, 'user_id'):
+            log_entry['user_id'] = record.user_id
+        if hasattr(record, 'request_id'):
+            log_entry['request_id'] = record.request_id
+        
+        return json.dumps(log_entry)
+
+def setup_logging(config_path: Path = None, level: str = "INFO") -> None:
+    """Set up logging configuration.
+    
+    Args:
+        config_path: Path to logging configuration file
+        level: Default logging level
+    """
+    if config_path and config_path.exists():
+        with open(config_path, 'r') as f:
+            config = json.load(f)
+        logging.config.dictConfig(config)
+    else:
+        # Default configuration
+        logging.basicConfig(
+            level=getattr(logging, level.upper()),
+            format='%(asctime)s - %(name)s - %(levelname)s - %(message)s',
+            handlers=[
+                logging.StreamHandler(sys.stdout),
+                logging.FileHandler('app.log')
+            ]
+        )
+
+def get_logger(name: str) -> logging.Logger:
+    """Get a logger instance.
+    
+    Args:
+        name: Logger name
+        
+    Returns:
+        Logger instance
+    """
+    return logging.getLogger(name)
+
+# logging.json
+{
+    "version": 1,
+    "disable_existing_loggers": false,
+    "formatters": {
+        "standard": {
+            "format": "%(asctime)s - %(name)s - %(levelname)s - %(message)s"
+        },
+        "json": {
+            "()": "my_package.core.logging.JSONFormatter"
+        }
+    },
+    "handlers": {
+        "console": {
+            "class": "logging.StreamHandler",
+            "level": "INFO",
+            "formatter": "standard",
+            "stream": "ext://sys.stdout"
+        },
+        "file": {
+            "class": "logging.handlers.RotatingFileHandler",
+            "level": "DEBUG",
+            "formatter": "json",
+            "filename": "logs/app.log",
+            "maxBytes": 10485760,
+            "backupCount": 5
+        },
+        "error_file": {
+            "class": "logging.handlers.RotatingFileHandler",
+            "level": "ERROR",
+            "formatter": "json",
+            "filename": "logs/error.log",
+            "maxBytes": 10485760,
+            "backupCount": 5
+        }
+    },
+    "loggers": {
+        "my_package": {
+            "level": "DEBUG",
+            "handlers": ["console", "file", "error_file"],
+            "propagate": false
+        },
+        "uvicorn": {
+            "level": "INFO",
+            "handlers": ["console", "file"],
+            "propagate": false
+        }
+    },
+    "root": {
+        "level": "INFO",
+        "handlers": ["console", "file"]
+    }
+}
+
+# Usage example
+from my_package.core.logging import get_logger
+
+logger = get_logger(__name__)
+
+def process_user_data(user_id: int, data: dict) -> dict:
+    """Process user data with proper logging."""
+    logger.info(
+        "Processing user data",
+        extra={'user_id': user_id, 'data_keys': list(data.keys())}
+    )
+    
+    try:
+        # Process data
+        result = {"processed": True, "user_id": user_id}
+        logger.info(
+            "Successfully processed user data",
+            extra={'user_id': user_id, 'result': result}
+        )
+        return result
+    except Exception as e:
+        logger.error(
+            "Failed to process user data",
+            extra={'user_id': user_id, 'error': str(e)},
+            exc_info=True
+        )
+        raise]]></correct-example>
+          <incorrect-example title="Basic print statements for logging" conditions="Setting up application logging" expected-result="Professional logging system" incorrectness-criteria="Uses print statements, no structure, no levels, no rotation"><![CDATA[# No proper logging configuration
+def process_user_data(user_id, data):
+    print(f"Processing user {user_id}")
+    
+    try:
+        # Process data
+        result = {"processed": True}
+        print(f"Success for user {user_id}")
+        return result
+    except Exception as e:
+        print(f"Error: {e}")
+        raise]]></incorrect-example>
+        </example>
+      </examples>
+    </requirement>
+  </requirements>
+  
+  <context description="Modern Python project development considerations">
+    Modern Python projects require careful consideration of project structure, dependency management, and tooling to ensure maintainability, security, and professional development practices. The Python ecosystem has evolved significantly with the introduction of PEP 517, PEP 518, and PEP 621, which modernize the packaging and build system.
+
+    Key considerations for modern Python projects:
+    - Use src/ layout to avoid import issues and ensure proper testing
+    - Adopt pyproject.toml as the central configuration file
+    - Implement comprehensive testing with pytest and coverage
+    - Use modern linting tools like Ruff which combine multiple tools
+    - Implement type checking with mypy for better code quality
+    - Use pre-commit hooks to enforce code quality standards
+    - Implement proper virtual environment management
+    - Use structured logging for better debugging and monitoring
+    - Implement CI/CD pipelines for automated testing and deployment
+    - Follow security best practices with regular dependency audits
+
+    The Python Package Authority (PyPA) provides authoritative guidance on packaging, and the Python Enhancement Proposals (PEPs) define the standards for modern Python development. Tools like Black, isort, and Ruff have become industry standards for code formatting and linting.
+
+    Modern Python development emphasizes developer experience with tools like pre-commit hooks, comprehensive testing, and automated CI/CD pipelines. The ecosystem has moved away from setup.py in favor of pyproject.toml for configuration, and modern tools like pip-tools or Poetry for dependency management.
+  </context>
+  
+  <references>
+    <reference as="dependency" href=".cursor/rules/000-core/002-cursor-rules-creation.mdc" reason="Follows standard rule format">Base rule format definition</reference>
+    <reference as="context" href="https://peps.python.org/pep-0518/" reason="Build system specification">PEP 518 - Specifying Minimum Build System Requirements</reference>
+    <reference as="context" href="https://peps.python.org/pep-0621/" reason="Project metadata">PEP 621 - Storing project metadata in pyproject.toml</reference>
+    <reference as="context" href="https://peps.python.org/pep-0517/" reason="Build frontend/backend">PEP 517 - A build-system independent format for source trees</reference>
+    <reference as="context" href="https://packaging.python.org/" reason="Official packaging guide">Python Packaging Authority documentation</reference>
+    <reference as="context" href="https://peps.python.org/pep-0008/" reason="Code style">PEP 8 - Style Guide for Python Code</reference>
+    <reference as="context" href="https://peps.python.org/pep-0257/" reason="Docstring conventions">PEP 257 - Docstring Conventions</reference>
+    <reference as="context" href="https://docs.pytest.org/" reason="Testing framework">pytest documentation</reference>
+    <reference as="context" href="https://black.readthedocs.io/" reason="Code formatting">Black code formatter</reference>
+    <reference as="context" href="https://docs.astral.sh/ruff/" reason="Linting and formatting">Ruff linter and formatter</reference>
+    <reference as="context" href="https://mypy.readthedocs.io/" reason="Type checking">mypy static type checker</reference>
+    <reference as="context" href="https://pre-commit.com/" reason="Git hooks">pre-commit framework</reference>
+  </references>
+</rule>

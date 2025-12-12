@@ -1,0 +1,1535 @@
+---
+description: "Comprehensive TelemetryPoller standards for Elixir with periodic measurements, system monitoring, custom pollers, and performance optimization following observability best practices"
+globs: ["*.{ex,exs}", "**/telemetry/**/*", "**/poller/**/*", "**/monitoring/**/*"]
+alwaysApply: false
+---
+
+<rule>
+  <meta>
+    <title>TelemetryPoller Core Standards</title>
+    <description>Comprehensive TelemetryPoller standards for Elixir with periodic measurements, system monitoring, custom pollers, and performance optimization following observability best practices</description>
+    <created-at utc-timestamp="1744157700">January 25, 2025, 10:15 AM</created-at>
+    <last-updated-at utc-timestamp="1744157700">January 25, 2025, 10:15 AM</last-updated-at>
+    <applies-to>
+      <file-matcher glob="*.{ex,exs}">Elixir source files using TelemetryPoller for periodic measurements</file-matcher>
+      <file-matcher glob="**/telemetry/**/*">Telemetry and polling-related files</file-matcher>
+      <file-matcher glob="**/poller/**/*">Poller modules and configurations</file-matcher>
+      <file-matcher glob="**/monitoring/**/*">Monitoring and observability configuration</file-matcher>
+      <action-matcher action="periodic-monitoring">Triggered when working with periodic system monitoring</action-matcher>
+    </applies-to>
+  </meta>
+  <requirements>
+    <non-negotiable priority="critical">
+      <description>Use TelemetryPoller for comprehensive periodic system monitoring with proper measurement collection, scheduling, error handling, and performance optimization. Implement custom pollers for application-specific metrics and integrate with telemetry ecosystem for complete observability coverage.</description>
+      <examples>
+        <example title="Comprehensive TelemetryPoller Implementation">
+          <correct-example title="Production-ready polling setup with system monitoring and custom measurements" conditions="Implementing periodic system monitoring and custom metric collection" expected-result="Comprehensive polling system with proper error handling and performance optimization" correctness-criteria="Periodic measurements, custom pollers, error handling, performance optimization, telemetry integration"><![CDATA[# Elixir - Comprehensive TelemetryPoller implementation
+
+# Dependencies in mix.exs
+defp deps do
+  [
+    {:telemetry, "~> 1.2"},
+    {:telemetry_poller, "~> 1.0"},
+    {:telemetry_metrics, "~> 0.6"},
+    {:jason, "~> 1.4"}
+  ]
+end
+
+# Configuration (config/config.exs)
+import Config
+
+config :my_app, MyApp.TelemetryPoller,
+  # Default polling period (5 seconds)
+  period: 5_000,
+  
+  # VM measurements configuration
+  vm_measurements: [
+    # Memory measurements
+    {[:vm, :memory], :erlang, :memory, []},
+    {[:vm, :total_run_queue_lengths], :erlang, :statistics, [:total_run_queue_lengths]},
+    {[:vm, :system_counts], :erlang, :system_info, [:process_count]},
+    
+    # System statistics
+    {[:vm, :statistics], :erlang, :statistics, [:reductions]},
+    {[:vm, :gc_statistics], :erlang, :statistics, [:garbage_collection]}
+  ],
+  
+  # Application-specific measurements
+  app_measurements: [
+    {[:my_app, :database], {MyApp.Monitors.DatabaseMonitor, :collect_metrics, []}},
+    {[:my_app, :cache], {MyApp.Monitors.CacheMonitor, :collect_metrics, []}},
+    {[:my_app, :queues], {MyApp.Monitors.QueueMonitor, :collect_metrics, []}},
+    {[:my_app, :external_services], {MyApp.Monitors.ExternalServiceMonitor, :collect_metrics, []}}
+  ],
+  
+  # Polling schedules for different metric types
+  schedules: [
+    # High frequency monitoring (every 5 seconds)
+    %{
+      name: :system_metrics,
+      period: 5_000,
+      measurements: [:vm_memory, :vm_processes, :vm_run_queues]
+    },
+    
+    # Medium frequency monitoring (every 30 seconds)
+    %{
+      name: :application_metrics,
+      period: 30_000,
+      measurements: [:database_connections, :cache_stats, :queue_sizes]
+    },
+    
+    # Low frequency monitoring (every 5 minutes)
+    %{
+      name: :health_checks,
+      period: 300_000,
+      measurements: [:external_services, :disk_usage, :network_stats]
+    }
+  ]
+
+# Main TelemetryPoller supervision module
+defmodule MyApp.TelemetryPoller do
+  @moduledoc """
+  Comprehensive telemetry polling setup for periodic system and application monitoring
+  with customizable schedules, error handling, and performance optimization.
+  """
+
+  use Supervisor
+  require Logger
+
+  # API functions
+  def start_link(opts \\ []) do
+    Supervisor.start_link(__MODULE__, opts, name: __MODULE__)
+  end
+
+  def stop_poller(name) do
+    case Supervisor.terminate_child(__MODULE__, name) do
+      :ok -> Logger.info("Stopped poller: #{name}")
+      {:error, :not_found} -> Logger.warning("Poller not found: #{name}")
+      error -> Logger.error("Failed to stop poller #{name}: #{inspect(error)}")
+    end
+  end
+
+  def start_poller(name, period, measurements) do
+    child_spec = {
+      :telemetry_poller,
+      [
+        measurements: measurements,
+        period: period,
+        name: :"#{name}_poller"
+      ]
+    }
+
+    case Supervisor.start_child(__MODULE__, child_spec) do
+      {:ok, _pid} -> Logger.info("Started poller: #{name}")
+      {:error, {:already_started, _pid}} -> Logger.info("Poller already running: #{name}")
+      error -> Logger.error("Failed to start poller #{name}: #{inspect(error)}")
+    end
+  end
+
+  def get_poller_status(name) do
+    case Supervisor.which_children(__MODULE__) do
+      children when is_list(children) ->
+        Enum.find_value(children, fn
+          {^name, pid, :worker, _} when is_pid(pid) -> 
+            %{name: name, pid: pid, status: :running}
+          {^name, :undefined, :worker, _} -> 
+            %{name: name, pid: nil, status: :stopped}
+          _ -> 
+            nil
+        end) || %{name: name, pid: nil, status: :not_found}
+      _ -> 
+        %{name: name, pid: nil, status: :error}
+    end
+  end
+
+  @impl true
+  def init(opts) do
+    config = Application.get_env(:my_app, __MODULE__, [])
+    
+    children = [
+      # Main system metrics poller
+      system_poller_spec(),
+      
+      # Application metrics poller
+      application_poller_spec(),
+      
+      # Health check poller
+      health_check_poller_spec(),
+      
+      # Custom measurement collectors
+      MyApp.Monitors.DatabaseMonitor,
+      MyApp.Monitors.CacheMonitor,
+      MyApp.Monitors.QueueMonitor,
+      MyApp.Monitors.ExternalServiceMonitor,
+      
+      # Poller manager for dynamic pollers
+      MyApp.TelemetryPoller.Manager,
+      
+      # Performance monitor for polling overhead
+      MyApp.TelemetryPoller.PerformanceMonitor
+    ]
+
+    Supervisor.init(children, strategy: :one_for_one)
+  end
+
+  # System metrics poller specification
+  defp system_poller_spec do
+    measurements = [
+      # VM memory measurements
+      {[:vm, :memory], :erlang, :memory, []},
+      
+      # Process and system counts
+      {[:vm, :system_info, :process_count], :erlang, :system_info, [:process_count]},
+      {[:vm, :system_info, :port_count], :erlang, :system_info, [:port_count]},
+      {[:vm, :system_info, :atom_count], :erlang, :system_info, [:atom_count]},
+      
+      # Run queue statistics
+      {[:vm, :statistics, :run_queue], :erlang, :statistics, [:run_queue]},
+      {[:vm, :statistics, :total_run_queue_lengths], :erlang, :statistics, [:total_run_queue_lengths]},
+      
+      # Scheduler statistics  
+      {[:vm, :statistics, :scheduler_wall_time], :erlang, :statistics, [:scheduler_wall_time]},
+      
+      # Garbage collection statistics
+      {[:vm, :statistics, :garbage_collection], :erlang, :statistics, [:garbage_collection]},
+      
+      # IO statistics
+      {[:vm, :statistics, :io], :erlang, :statistics, [:io]},
+      
+      # Custom VM measurements
+      {[:vm, :custom], {MyApp.Monitors.VMMonitor, :collect_advanced_metrics, []}}
+    ]
+
+    {
+      :telemetry_poller,
+      [
+        measurements: measurements,
+        period: 5_000,  # 5 seconds
+        name: :system_metrics_poller
+      ]
+    }
+  end
+
+  # Application metrics poller specification
+  defp application_poller_spec do
+    measurements = [
+      # Database metrics
+      {[:my_app, :database, :connections], {MyApp.Monitors.DatabaseMonitor, :collect_connection_metrics, []}},
+      {[:my_app, :database, :queries], {MyApp.Monitors.DatabaseMonitor, :collect_query_metrics, []}},
+      
+      # Cache metrics
+      {[:my_app, :cache, :performance], {MyApp.Monitors.CacheMonitor, :collect_performance_metrics, []}},
+      {[:my_app, :cache, :memory], {MyApp.Monitors.CacheMonitor, :collect_memory_metrics, []}},
+      
+      # Queue metrics
+      {[:my_app, :queues, :sizes], {MyApp.Monitors.QueueMonitor, :collect_size_metrics, []}},
+      {[:my_app, :queues, :processing], {MyApp.Monitors.QueueMonitor, :collect_processing_metrics, []}},
+      
+      # Application-specific business metrics
+      {[:my_app, :business, :users], {MyApp.Monitors.BusinessMonitor, :collect_user_metrics, []}},
+      {[:my_app, :business, :orders], {MyApp.Monitors.BusinessMonitor, :collect_order_metrics, []}}
+    ]
+
+    {
+      :telemetry_poller,
+      [
+        measurements: measurements,
+        period: 30_000,  # 30 seconds
+        name: :application_metrics_poller
+      ]
+    }
+  end
+
+  # Health check poller specification
+  defp health_check_poller_spec do
+    measurements = [
+      # External service health checks
+      {[:my_app, :health, :external_services], {MyApp.Monitors.ExternalServiceMonitor, :collect_health_metrics, []}},
+      
+      # System resource checks
+      {[:my_app, :health, :disk_usage], {MyApp.Monitors.SystemMonitor, :collect_disk_metrics, []}},
+      {[:my_app, :health, :network], {MyApp.Monitors.SystemMonitor, :collect_network_metrics, []}},
+      
+      # Application health checks
+      {[:my_app, :health, :application], {MyApp.Monitors.ApplicationMonitor, :collect_health_metrics, []}}
+    ]
+
+    {
+      :telemetry_poller,
+      [
+        measurements: measurements,
+        period: 300_000,  # 5 minutes
+        name: :health_check_poller
+      ]
+    }
+  end
+end
+
+# Advanced VM monitoring with custom measurements
+defmodule MyApp.Monitors.VMMonitor do
+  @moduledoc """
+  Advanced VM monitoring providing detailed insights into Erlang VM performance
+  and behavior beyond standard system measurements.
+  """
+
+  require Logger
+
+  def collect_advanced_metrics do
+    try do
+      metrics = %{
+        # Scheduler utilization
+        scheduler_utilization: collect_scheduler_utilization(),
+        
+        # Memory fragmentation analysis
+        memory_fragmentation: collect_memory_fragmentation(),
+        
+        # Process distribution analysis
+        process_distribution: collect_process_distribution(),
+        
+        # Message queue analysis
+        message_queue_analysis: collect_message_queue_analysis(),
+        
+        # ETS table statistics
+        ets_statistics: collect_ets_statistics(),
+        
+        # Port statistics
+        port_statistics: collect_port_statistics()
+      }
+
+      :telemetry.execute([:vm, :custom], metrics, %{})
+      
+    rescue
+      error ->
+        Logger.error("Error collecting advanced VM metrics", 
+          error: inspect(error),
+          stacktrace: __STACKTRACE__
+        )
+        :telemetry.execute([:vm, :custom, :error], %{count: 1}, %{error_type: inspect(error)})
+    end
+  end
+
+  defp collect_scheduler_utilization do
+    case :scheduler.sample() do
+      :undefined -> 
+        %{available: false}
+      sample ->
+        utilization = :scheduler.utilization(sample)
+        
+        total_utilization = Enum.reduce(utilization, 0, fn {_id, util, _}, acc -> 
+          acc + util 
+        end) / length(utilization)
+        
+        %{
+          total: total_utilization,
+          per_scheduler: Enum.map(utilization, fn {id, util, _} -> 
+            %{scheduler_id: id, utilization: util}
+          end)
+        }
+    end
+  end
+
+  defp collect_memory_fragmentation do
+    memory_info = :erlang.memory()
+    
+    total = Keyword.get(memory_info, :total, 0)
+    system = Keyword.get(memory_info, :system, 0)
+    processes = Keyword.get(memory_info, :processes, 0)
+    
+    fragmentation_ratio = if total > 0 do
+      (total - processes - system) / total
+    else
+      0.0
+    end
+
+    %{
+      total_memory: total,
+      system_memory: system,
+      processes_memory: processes,
+      fragmentation_ratio: fragmentation_ratio
+    }
+  end
+
+  defp collect_process_distribution do
+    processes = Process.list()
+    total_count = length(processes)
+    
+    # Analyze message queue lengths
+    {long_queues, total_messages} = Enum.reduce(processes, {0, 0}, fn pid, {long_count, msg_count} ->
+      case Process.info(pid, :message_queue_len) do
+        {:message_queue_len, len} when len > 100 ->
+          {long_count + 1, msg_count + len}
+        {:message_queue_len, len} ->
+          {long_count, msg_count + len}
+        nil ->
+          {long_count, msg_count}
+      end
+    end)
+
+    %{
+      total_processes: total_count,
+      processes_with_long_queues: long_queues,
+      total_messages_queued: total_messages,
+      average_queue_length: if(total_count > 0, do: total_messages / total_count, else: 0)
+    }
+  end
+
+  defp collect_message_queue_analysis do
+    processes = Process.list()
+    
+    queue_lengths = Enum.map(processes, fn pid ->
+      case Process.info(pid, :message_queue_len) do
+        {:message_queue_len, len} -> len
+        nil -> 0
+      end
+    end)
+    
+    sorted_lengths = Enum.sort(queue_lengths, :desc)
+    
+    %{
+      max_queue_length: List.first(sorted_lengths) || 0,
+      top_10_max_queues: Enum.take(sorted_lengths, 10),
+      processes_with_messages: Enum.count(queue_lengths, &(&1 > 0))
+    }
+  end
+
+  defp collect_ets_statistics do
+    tables = :ets.all()
+    
+    table_stats = Enum.map(tables, fn table ->
+      try do
+        info = :ets.info(table)
+        %{
+          table: table,
+          size: Keyword.get(info, :size, 0),
+          memory: Keyword.get(info, :memory, 0),
+          type: Keyword.get(info, :type, :unknown)
+        }
+      rescue
+        _ -> nil
+      end
+    end)
+    |> Enum.reject(&is_nil/1)
+
+    total_memory = Enum.reduce(table_stats, 0, fn %{memory: mem}, acc -> acc + mem end)
+    total_objects = Enum.reduce(table_stats, 0, fn %{size: size}, acc -> acc + size end)
+
+    %{
+      total_tables: length(tables),
+      total_memory: total_memory,
+      total_objects: total_objects,
+      largest_tables: Enum.sort_by(table_stats, & &1.memory, :desc) |> Enum.take(5)
+    }
+  end
+
+  defp collect_port_statistics do
+    ports = Port.list()
+    total_count = length(ports)
+    
+    port_info = Enum.map(ports, fn port ->
+      try do
+        info = Port.info(port)
+        %{
+          port: port,
+          name: Keyword.get(info, :name, :unknown),
+          queue_size: Keyword.get(info, :queue_size, 0)
+        }
+      rescue
+        _ -> nil
+      end
+    end)
+    |> Enum.reject(&is_nil/1)
+
+    total_queue_size = Enum.reduce(port_info, 0, fn %{queue_size: size}, acc -> acc + size end)
+
+    %{
+      total_ports: total_count,
+      total_queue_size: total_queue_size,
+      ports_with_queues: Enum.count(port_info, fn %{queue_size: size} -> size > 0 end)
+    }
+  end
+end
+
+# Database connection and query monitoring
+defmodule MyApp.Monitors.DatabaseMonitor do
+  @moduledoc """
+  Monitors database connections, query performance, and pool statistics.
+  """
+
+  require Logger
+
+  def collect_connection_metrics do
+    try do
+      pool_status = MyApp.Repo.checkout_status()
+      
+      metrics = %{
+        pool_size: pool_status.pool_size,
+        checked_out: pool_status.checked_out,
+        checked_in: pool_status.checked_in,
+        queue_length: pool_status.queue_length || 0
+      }
+
+      :telemetry.execute([:my_app, :database, :connections], metrics, %{})
+      
+    rescue
+      error ->
+        Logger.error("Error collecting database connection metrics", 
+          error: inspect(error)
+        )
+        :telemetry.execute([:my_app, :database, :connections, :error], %{count: 1}, %{})
+    end
+  end
+
+  def collect_query_metrics do
+    try do
+      # This would integrate with your database query tracking
+      # Simplified example
+      recent_queries = get_recent_query_stats()
+      
+      metrics = %{
+        slow_queries_count: count_slow_queries(recent_queries),
+        average_query_time: calculate_average_query_time(recent_queries),
+        failed_queries_count: count_failed_queries(recent_queries)
+      }
+
+      :telemetry.execute([:my_app, :database, :queries], metrics, %{})
+      
+    rescue
+      error ->
+        Logger.error("Error collecting database query metrics", 
+          error: inspect(error)
+        )
+    end
+  end
+
+  defp get_recent_query_stats do
+    # This would integrate with your query logging/monitoring system
+    # Return mock data for example
+    []
+  end
+
+  defp count_slow_queries(queries) do
+    Enum.count(queries, fn query -> query.duration > 1000 end)
+  end
+
+  defp calculate_average_query_time(queries) when length(queries) > 0 do
+    total_time = Enum.reduce(queries, 0, fn query, acc -> acc + query.duration end)
+    total_time / length(queries)
+  end
+  defp calculate_average_query_time(_), do: 0.0
+
+  defp count_failed_queries(queries) do
+    Enum.count(queries, fn query -> query.status == :error end)
+  end
+end
+
+# Cache performance monitoring
+defmodule MyApp.Monitors.CacheMonitor do
+  @moduledoc """
+  Monitors cache performance, hit rates, and memory usage across different cache systems.
+  """
+
+  require Logger
+
+  def collect_performance_metrics do
+    try do
+      caches = [:users, :sessions, :products, :api_responses]
+      
+      cache_stats = Enum.map(caches, fn cache_name ->
+        {hits, misses} = get_cache_stats(cache_name)
+        total_requests = hits + misses
+        hit_rate = if total_requests > 0, do: hits / total_requests, else: 0.0
+
+        %{
+          cache_name: cache_name,
+          hits: hits,
+          misses: misses,
+          hit_rate: hit_rate,
+          total_requests: total_requests
+        }
+      end)
+
+      Enum.each(cache_stats, fn stats ->
+        :telemetry.execute([:my_app, :cache, :performance], %{
+          hits: stats.hits,
+          misses: stats.misses,
+          hit_rate: stats.hit_rate
+        }, %{cache_name: stats.cache_name})
+      end)
+      
+    rescue
+      error ->
+        Logger.error("Error collecting cache performance metrics", 
+          error: inspect(error)
+        )
+    end
+  end
+
+  def collect_memory_metrics do
+    try do
+      caches = [:users, :sessions, :products, :api_responses]
+      
+      Enum.each(caches, fn cache_name ->
+        memory_usage = get_cache_memory_usage(cache_name)
+        object_count = get_cache_object_count(cache_name)
+        
+        :telemetry.execute([:my_app, :cache, :memory], %{
+          memory_bytes: memory_usage,
+          object_count: object_count
+        }, %{cache_name: cache_name})
+      end)
+      
+    rescue
+      error ->
+        Logger.error("Error collecting cache memory metrics", 
+          error: inspect(error)
+        )
+    end
+  end
+
+  defp get_cache_stats(cache_name) do
+    # This would integrate with your actual cache implementation
+    # Return mock data for example
+    {1000, 100}  # 90% hit rate
+  end
+
+  defp get_cache_memory_usage(cache_name) do
+    # This would get actual memory usage from your cache system
+    :rand.uniform(10_000_000)  # Random value for example
+  end
+
+  defp get_cache_object_count(cache_name) do
+    # This would get actual object count from your cache system
+    :rand.uniform(10_000)  # Random value for example
+  end
+end
+
+# Queue monitoring for background jobs
+defmodule MyApp.Monitors.QueueMonitor do
+  @moduledoc """
+  Monitors background job queues, processing rates, and failure rates.
+  """
+
+  require Logger
+
+  def collect_size_metrics do
+    try do
+      queues = [:default, :emails, :reports, :analytics, :critical]
+      
+      Enum.each(queues, fn queue_name ->
+        pending_jobs = get_queue_size(queue_name)
+        processing_jobs = get_processing_count(queue_name)
+        
+        :telemetry.execute([:my_app, :queues, :sizes], %{
+          pending: pending_jobs,
+          processing: processing_jobs
+        }, %{queue: queue_name})
+      end)
+      
+    rescue
+      error ->
+        Logger.error("Error collecting queue size metrics", 
+          error: inspect(error)
+        )
+    end
+  end
+
+  def collect_processing_metrics do
+    try do
+      queues = [:default, :emails, :reports, :analytics, :critical]
+      
+      Enum.each(queues, fn queue_name ->
+        stats = get_queue_processing_stats(queue_name)
+        
+        :telemetry.execute([:my_app, :queues, :processing], %{
+          jobs_per_minute: stats.jobs_per_minute,
+          average_duration: stats.average_duration,
+          failure_rate: stats.failure_rate
+        }, %{queue: queue_name})
+      end)
+      
+    rescue
+      error ->
+        Logger.error("Error collecting queue processing metrics", 
+          error: inspect(error)
+        )
+    end
+  end
+
+  defp get_queue_size(queue_name) do
+    # This would integrate with your job queue system (Oban, etc.)
+    :rand.uniform(100)
+  end
+
+  defp get_processing_count(queue_name) do
+    # This would get currently processing jobs count
+    :rand.uniform(10)
+  end
+
+  defp get_queue_processing_stats(queue_name) do
+    # This would get actual processing statistics
+    %{
+      jobs_per_minute: :rand.uniform(100),
+      average_duration: :rand.uniform(5000),
+      failure_rate: :rand.uniform() * 0.1
+    }
+  end
+end
+
+# External service monitoring
+defmodule MyApp.Monitors.ExternalServiceMonitor do
+  @moduledoc """
+  Monitors external service availability, response times, and error rates.
+  """
+
+  require Logger
+
+  def collect_health_metrics do
+    try do
+      services = [
+        %{name: :payment_gateway, url: "https://api.payment.com/health"},
+        %{name: :notification_service, url: "https://api.notifications.com/status"},
+        %{name: :analytics_service, url: "https://analytics.service.com/ping"}
+      ]
+
+      Enum.each(services, fn service ->
+        {availability, response_time} = check_service_health(service.url)
+        
+        :telemetry.execute([:my_app, :health, :external_services], %{
+          available: if(availability, do: 1, else: 0),
+          response_time: response_time
+        }, %{service: service.name})
+      end)
+      
+    rescue
+      error ->
+        Logger.error("Error collecting external service health metrics", 
+          error: inspect(error)
+        )
+    end
+  end
+
+  defp check_service_health(url) do
+    start_time = System.monotonic_time(:millisecond)
+    
+    case HTTPoison.get(url, [], timeout: 5000, recv_timeout: 5000) do
+      {:ok, %{status_code: status}} when status in 200..299 ->
+        response_time = System.monotonic_time(:millisecond) - start_time
+        {true, response_time}
+        
+      {:ok, %{status_code: _status}} ->
+        response_time = System.monotonic_time(:millisecond) - start_time
+        {false, response_time}
+        
+      {:error, _reason} ->
+        {false, -1}
+    end
+  end
+end
+
+# Dynamic poller management
+defmodule MyApp.TelemetryPoller.Manager do
+  @moduledoc """
+  Manages dynamic creation, modification, and removal of telemetry pollers
+  based on runtime conditions and configuration changes.
+  """
+
+  use GenServer
+  require Logger
+
+  def start_link(opts \\ []) do
+    GenServer.start_link(__MODULE__, opts, name: __MODULE__)
+  end
+
+  def add_poller(name, period, measurements, metadata \\ %{}) do
+    GenServer.call(__MODULE__, {:add_poller, name, period, measurements, metadata})
+  end
+
+  def remove_poller(name) do
+    GenServer.call(__MODULE__, {:remove_poller, name})
+  end
+
+  def update_poller_period(name, new_period) do
+    GenServer.call(__MODULE__, {:update_period, name, new_period})
+  end
+
+  def list_pollers do
+    GenServer.call(__MODULE__, :list_pollers)
+  end
+
+  @impl true
+  def init(_opts) do
+    state = %{
+      active_pollers: %{},
+      poller_configs: %{}
+    }
+
+    {:ok, state}
+  end
+
+  @impl true
+  def handle_call({:add_poller, name, period, measurements, metadata}, _from, state) do
+    case Map.get(state.active_pollers, name) do
+      nil ->
+        case start_dynamic_poller(name, period, measurements) do
+          {:ok, pid} ->
+            new_state = %{state |
+              active_pollers: Map.put(state.active_pollers, name, pid),
+              poller_configs: Map.put(state.poller_configs, name, %{
+                period: period,
+                measurements: measurements,
+                metadata: metadata,
+                started_at: DateTime.utc_now()
+              })
+            }
+            
+            Logger.info("Added dynamic poller", name: name, period: period)
+            {:reply, {:ok, pid}, new_state}
+            
+          {:error, reason} ->
+            Logger.error("Failed to add dynamic poller", name: name, reason: inspect(reason))
+            {:reply, {:error, reason}, state}
+        end
+        
+      _existing_pid ->
+        {:reply, {:error, :already_exists}, state}
+    end
+  end
+
+  @impl true
+  def handle_call({:remove_poller, name}, _from, state) do
+    case Map.get(state.active_pollers, name) do
+      nil ->
+        {:reply, {:error, :not_found}, state}
+        
+      pid ->
+        :telemetry_poller.stop(pid)
+        
+        new_state = %{state |
+          active_pollers: Map.delete(state.active_pollers, name),
+          poller_configs: Map.delete(state.poller_configs, name)
+        }
+        
+        Logger.info("Removed dynamic poller", name: name)
+        {:reply, :ok, new_state}
+    end
+  end
+
+  @impl true
+  def handle_call({:update_period, name, new_period}, _from, state) do
+    case Map.get(state.poller_configs, name) do
+      nil ->
+        {:reply, {:error, :not_found}, state}
+        
+      config ->
+        # Remove and recreate with new period
+        old_pid = Map.get(state.active_pollers, name)
+        if old_pid, do: :telemetry_poller.stop(old_pid)
+        
+        case start_dynamic_poller(name, new_period, config.measurements) do
+          {:ok, new_pid} ->
+            new_config = %{config | period: new_period}
+            
+            new_state = %{state |
+              active_pollers: Map.put(state.active_pollers, name, new_pid),
+              poller_configs: Map.put(state.poller_configs, name, new_config)
+            }
+            
+            Logger.info("Updated poller period", name: name, old_period: config.period, new_period: new_period)
+            {:reply, {:ok, new_pid}, new_state}
+            
+          {:error, reason} ->
+            Logger.error("Failed to update poller period", name: name, reason: inspect(reason))
+            {:reply, {:error, reason}, state}
+        end
+    end
+  end
+
+  @impl true
+  def handle_call(:list_pollers, _from, state) do
+    poller_list = Enum.map(state.poller_configs, fn {name, config} ->
+      pid = Map.get(state.active_pollers, name)
+      %{
+        name: name,
+        pid: pid,
+        period: config.period,
+        measurements: length(config.measurements),
+        metadata: config.metadata,
+        started_at: config.started_at,
+        status: if(is_pid(pid) and Process.alive?(pid), do: :running, else: :stopped)
+      }
+    end)
+
+    {:reply, poller_list, state}
+  end
+
+  defp start_dynamic_poller(name, period, measurements) do
+    :telemetry_poller.start_link([
+      measurements: measurements,
+      period: period,
+      name: :"dynamic_poller_#{name}"
+    ])
+  end
+end
+
+# Performance monitoring for polling overhead
+defmodule MyApp.TelemetryPoller.PerformanceMonitor do
+  @moduledoc """
+  Monitors the performance impact and overhead of telemetry polling operations.
+  """
+
+  use GenServer
+  require Logger
+
+  def start_link(opts \\ []) do
+    GenServer.start_link(__MODULE__, opts, name: __MODULE__)
+  end
+
+  def get_performance_stats do
+    GenServer.call(__MODULE__, :get_stats)
+  end
+
+  def reset_stats do
+    GenServer.call(__MODULE__, :reset_stats)
+  end
+
+  @impl true
+  def init(_opts) do
+    # Attach to telemetry polling events
+    :telemetry.attach_many(
+      "poller-performance-monitor",
+      [
+        [:telemetry_poller, :measurement, :start],
+        [:telemetry_poller, :measurement, :stop],
+        [:telemetry_poller, :measurement, :exception]
+      ],
+      &handle_polling_event/4,
+      self()
+    )
+
+    state = %{
+      total_measurements: 0,
+      total_duration: 0,
+      error_count: 0,
+      measurements_per_poller: %{},
+      start_times: %{}
+    }
+
+    {:ok, state}
+  end
+
+  def handle_polling_event([:telemetry_poller, :measurement, :start], measurements, metadata, monitor_pid) do
+    GenServer.cast(monitor_pid, {:measurement_start, measurements, metadata})
+  end
+
+  def handle_polling_event([:telemetry_poller, :measurement, :stop], measurements, metadata, monitor_pid) do
+    GenServer.cast(monitor_pid, {:measurement_stop, measurements, metadata})
+  end
+
+  def handle_polling_event([:telemetry_poller, :measurement, :exception], measurements, metadata, monitor_pid) do
+    GenServer.cast(monitor_pid, {:measurement_error, measurements, metadata})
+  end
+
+  @impl true
+  def handle_cast({:measurement_start, _measurements, metadata}, state) do
+    measurement_id = generate_measurement_id(metadata)
+    start_time = System.monotonic_time(:microsecond)
+    
+    new_state = %{state |
+      start_times: Map.put(state.start_times, measurement_id, start_time)
+    }
+
+    {:noreply, new_state}
+  end
+
+  @impl true
+  def handle_cast({:measurement_stop, _measurements, metadata}, state) do
+    measurement_id = generate_measurement_id(metadata)
+    
+    case Map.get(state.start_times, measurement_id) do
+      nil ->
+        {:noreply, state}
+        
+      start_time ->
+        duration = System.monotonic_time(:microsecond) - start_time
+        poller_name = Map.get(metadata, :name, :unknown)
+        
+        # Update statistics
+        new_state = %{state |
+          total_measurements: state.total_measurements + 1,
+          total_duration: state.total_duration + duration,
+          measurements_per_poller: Map.update(state.measurements_per_poller, poller_name, 
+                                              %{count: 1, total_duration: duration}, 
+                                              fn stats -> 
+                                                %{
+                                                  count: stats.count + 1,
+                                                  total_duration: stats.total_duration + duration
+                                                }
+                                              end),
+          start_times: Map.delete(state.start_times, measurement_id)
+        }
+        
+        # Log if measurement took too long
+        if duration > 100_000 do  # 100ms
+          Logger.warning("Slow telemetry measurement detected", 
+            poller: poller_name,
+            duration_ms: duration / 1000,
+            measurement_id: measurement_id
+          )
+        end
+
+        {:noreply, new_state}
+    end
+  end
+
+  @impl true
+  def handle_cast({:measurement_error, _measurements, metadata}, state) do
+    poller_name = Map.get(metadata, :name, :unknown)
+    
+    Logger.error("Telemetry measurement error", 
+      poller: poller_name,
+      metadata: metadata
+    )
+
+    new_state = %{state |
+      error_count: state.error_count + 1
+    }
+
+    {:noreply, new_state}
+  end
+
+  @impl true
+  def handle_call(:get_stats, _from, state) do
+    average_duration = if state.total_measurements > 0 do
+      state.total_duration / state.total_measurements / 1000  # Convert to milliseconds
+    else
+      0.0
+    end
+
+    poller_stats = Enum.map(state.measurements_per_poller, fn {poller, stats} ->
+      %{
+        poller: poller,
+        measurements: stats.count,
+        average_duration_ms: stats.total_duration / stats.count / 1000
+      }
+    end)
+
+    performance_stats = %{
+      total_measurements: state.total_measurements,
+      total_errors: state.error_count,
+      average_measurement_duration_ms: average_duration,
+      per_poller_stats: poller_stats
+    }
+
+    {:reply, performance_stats, state}
+  end
+
+  @impl true
+  def handle_call(:reset_stats, _from, _state) do
+    new_state = %{
+      total_measurements: 0,
+      total_duration: 0,
+      error_count: 0,
+      measurements_per_poller: %{},
+      start_times: %{}
+    }
+
+    {:reply, :ok, new_state}
+  end
+
+  defp generate_measurement_id(metadata) do
+    :crypto.hash(:md5, inspect(metadata)) |> Base.encode16()
+  end
+end]]></correct-example>
+          <incorrect-example title="Poor TelemetryPoller testing without comprehensive validation" conditions="Testing polling functionality" expected-result="Comprehensive polling tests" incorrectness-criteria="No measurement validation, missing lifecycle tests, no performance testing, poor error coverage"><![CDATA[# BAD: Poor TelemetryPoller testing
+
+defmodule BadTelemetryPollerTest do
+  use ExUnit.Case
+  
+  # Only basic functionality testing
+  test "poller starts" do
+    assert {:ok, _pid} = :telemetry_poller.start_link([
+      measurements: [{[:vm, :memory], :erlang, :memory, []}],
+      period: 5000
+    ])
+  end
+
+  # No measurement validation
+  # No performance testing
+  # No error handling testing
+  # No dynamic poller testing
+  # No integration testing
+  # No lifecycle testing
+  # No load testing
+  # No custom measurement testing
+  
+  test "measurements work" do
+    # No actual validation
+    assert true
+  end
+end]]></incorrect-example>
+        </example>
+      </examples>
+    </non-negotiable>
+
+    <requirement priority="high">
+      <description>Implement comprehensive testing for TelemetryPoller functionality including measurement validation, poller lifecycle testing, performance verification, and error handling validation.</description>
+      <examples>
+        <example title="TelemetryPoller Testing Patterns">
+          <correct-example title="Comprehensive testing for polling and measurement collection" conditions="Testing TelemetryPoller implementations" expected-result="Thorough test coverage with polling validation and performance verification" correctness-criteria="Measurement testing, lifecycle testing, performance testing, error handling validation"><![CDATA[# Elixir - Comprehensive TelemetryPoller testing
+
+defmodule MyApp.TelemetryPollerTest do
+  use ExUnit.Case, async: false
+  
+  import ExUnit.CaptureLog
+
+  setup do
+    # Ensure clean state before each test
+    :telemetry.detach_many(["test-poller-handler"])
+    
+    # Start test supervision tree
+    {:ok, _pid} = start_supervised({MyApp.TelemetryPoller, []})
+    
+    :ok
+  end
+
+  describe "system metrics polling" do
+    test "collects VM memory metrics correctly" do
+      ref = make_ref()
+      
+      :telemetry.attach(
+        "test-memory-metrics",
+        [:vm, :memory],
+        fn event, measurements, metadata, test_ref ->
+          send(test_ref, {:memory_metric, event, measurements, metadata})
+        end,
+        self()
+      )
+      
+      # Wait for poller to execute
+      assert_receive {:memory_metric, [:vm, :memory], measurements, _metadata}, 6000
+      
+      # Verify memory measurements structure
+      assert is_list(measurements)
+      assert Keyword.has_key?(measurements, :total)
+      assert Keyword.has_key?(measurements, :processes)
+      assert Keyword.has_key?(measurements, :system)
+    end
+
+    test "collects process count metrics" do
+      :telemetry.attach(
+        "test-process-metrics",
+        [:vm, :system_info, :process_count],
+        fn event, measurements, metadata, test_pid ->
+          send(test_pid, {:process_count, measurements})
+        end,
+        self()
+      )
+      
+      assert_receive {:process_count, count}, 6000
+      assert is_integer(count)
+      assert count > 0
+    end
+
+    test "collects scheduler statistics" do
+      :telemetry.attach(
+        "test-scheduler-metrics",
+        [:vm, :statistics, :scheduler_wall_time],
+        fn event, measurements, metadata, test_pid ->
+          send(test_pid, {:scheduler_stats, measurements})
+        end,
+        self()
+      )
+      
+      # Scheduler wall time might be undefined initially
+      receive do
+        {:scheduler_stats, stats} ->
+          assert stats == :undefined or is_list(stats)
+      after
+        6000 -> flunk("Did not receive scheduler stats")
+      end
+    end
+  end
+
+  describe "application metrics polling" do
+    test "collects database connection metrics" do
+      :telemetry.attach(
+        "test-db-metrics",
+        [:my_app, :database, :connections],
+        fn event, measurements, metadata, test_pid ->
+          send(test_pid, {:db_connections, measurements})
+        end,
+        self()
+      )
+      
+      assert_receive {:db_connections, measurements}, 35_000  # 30s period + buffer
+      
+      assert Map.has_key?(measurements, :pool_size)
+      assert Map.has_key?(measurements, :checked_out)
+      assert Map.has_key?(measurements, :checked_in)
+    end
+
+    test "collects cache performance metrics" do
+      :telemetry.attach(
+        "test-cache-metrics",
+        [:my_app, :cache, :performance],
+        fn event, measurements, metadata, test_pid ->
+          send(test_pid, {:cache_performance, measurements, metadata})
+        end,
+        self()
+      )
+      
+      assert_receive {:cache_performance, measurements, metadata}, 35_000
+      
+      assert Map.has_key?(measurements, :hits)
+      assert Map.has_key?(measurements, :misses) 
+      assert Map.has_key?(measurements, :hit_rate)
+      assert Map.has_key?(metadata, :cache_name)
+    end
+
+    test "collects queue size metrics" do
+      :telemetry.attach(
+        "test-queue-metrics",
+        [:my_app, :queues, :sizes],
+        fn event, measurements, metadata, test_pid ->
+          send(test_pid, {:queue_sizes, measurements, metadata})
+        end,
+        self()
+      )
+      
+      assert_receive {:queue_sizes, measurements, metadata}, 35_000
+      
+      assert Map.has_key?(measurements, :pending)
+      assert Map.has_key?(measurements, :processing)
+      assert Map.has_key?(metadata, :queue)
+    end
+  end
+
+  describe "health check polling" do
+    test "monitors external service health" do
+      :telemetry.attach(
+        "test-health-metrics",
+        [:my_app, :health, :external_services],
+        fn event, measurements, metadata, test_pid ->
+          send(test_pid, {:health_check, measurements, metadata})
+        end,
+        self()
+      )
+      
+      assert_receive {:health_check, measurements, metadata}, 305_000  # 5min period + buffer
+      
+      assert Map.has_key?(measurements, :available)
+      assert Map.has_key?(measurements, :response_time)
+      assert Map.has_key?(metadata, :service)
+    end
+  end
+
+  describe "custom measurements" do
+    test "VM custom metrics collection" do
+      :telemetry.attach(
+        "test-vm-custom",
+        [:vm, :custom],
+        fn event, measurements, metadata, test_pid ->
+          send(test_pid, {:vm_custom, measurements})
+        end,
+        self()
+      )
+      
+      # Manually trigger custom VM metrics
+      MyApp.Monitors.VMMonitor.collect_advanced_metrics()
+      
+      assert_receive {:vm_custom, measurements}, 1000
+      
+      assert Map.has_key?(measurements, :scheduler_utilization)
+      assert Map.has_key?(measurements, :memory_fragmentation)
+      assert Map.has_key?(measurements, :process_distribution)
+    end
+
+    test "handles measurement errors gracefully" do
+      # Mock a failing measurement function
+      :meck.new(MyApp.Monitors.VMMonitor, [:non_strict])
+      :meck.expect(MyApp.Monitors.VMMonitor, :collect_advanced_metrics, fn ->
+        raise "Simulated error"
+      end)
+      
+      log_output = capture_log(fn ->
+        MyApp.Monitors.VMMonitor.collect_advanced_metrics()
+        Process.sleep(100)
+      end)
+      
+      assert log_output =~ "Error collecting advanced VM metrics"
+      
+      :meck.unload(MyApp.Monitors.VMMonitor)
+    end
+  end
+
+  describe "dynamic poller management" do
+    test "adds and removes dynamic pollers" do
+      measurements = [
+        {[:test, :dynamic], {MyApp.TelemetryPollerTest, :test_measurement, []}}
+      ]
+      
+      # Add dynamic poller
+      assert {:ok, _pid} = MyApp.TelemetryPoller.Manager.add_poller(
+        :test_poller, 1000, measurements
+      )
+      
+      # Verify poller is listed
+      pollers = MyApp.TelemetryPoller.Manager.list_pollers()
+      assert Enum.find(pollers, &(&1.name == :test_poller))
+      
+      # Remove poller
+      assert :ok = MyApp.TelemetryPoller.Manager.remove_poller(:test_poller)
+      
+      # Verify poller is removed
+      pollers = MyApp.TelemetryPoller.Manager.list_pollers()
+      refute Enum.find(pollers, &(&1.name == :test_poller))
+    end
+
+    test "updates poller periods" do
+      measurements = [
+        {[:test, :period_update], {MyApp.TelemetryPollerTest, :test_measurement, []}}
+      ]
+      
+      # Add poller with initial period
+      {:ok, _pid} = MyApp.TelemetryPoller.Manager.add_poller(
+        :period_test_poller, 5000, measurements
+      )
+      
+      # Update period
+      assert {:ok, _new_pid} = MyApp.TelemetryPoller.Manager.update_poller_period(
+        :period_test_poller, 2000
+      )
+      
+      # Verify period was updated
+      pollers = MyApp.TelemetryPoller.Manager.list_pollers()
+      test_poller = Enum.find(pollers, &(&1.name == :period_test_poller))
+      assert test_poller.period == 2000
+      
+      # Clean up
+      MyApp.TelemetryPoller.Manager.remove_poller(:period_test_poller)
+    end
+
+    test "handles duplicate poller names" do
+      measurements = [
+        {[:test, :duplicate], {MyApp.TelemetryPollerTest, :test_measurement, []}}
+      ]
+      
+      # Add first poller
+      {:ok, _pid} = MyApp.TelemetryPoller.Manager.add_poller(
+        :duplicate_poller, 1000, measurements
+      )
+      
+      # Try to add duplicate
+      assert {:error, :already_exists} = MyApp.TelemetryPoller.Manager.add_poller(
+        :duplicate_poller, 2000, measurements
+      )
+      
+      # Clean up
+      MyApp.TelemetryPoller.Manager.remove_poller(:duplicate_poller)
+    end
+  end
+
+  describe "performance monitoring" do
+    test "tracks measurement performance" do
+      # Reset performance stats
+      MyApp.TelemetryPoller.PerformanceMonitor.reset_stats()
+      
+      # Trigger some measurements
+      Enum.each(1..10, fn _i ->
+        :telemetry.execute([:telemetry_poller, :measurement, :start], %{}, %{name: :test_poller})
+        Process.sleep(1)  # Simulate measurement work
+        :telemetry.execute([:telemetry_poller, :measurement, :stop], %{}, %{name: :test_poller})
+      end)
+      
+      # Wait for processing
+      Process.sleep(100)
+      
+      stats = MyApp.TelemetryPoller.PerformanceMonitor.get_performance_stats()
+      
+      assert stats.total_measurements >= 10
+      assert stats.average_measurement_duration_ms > 0
+      assert length(stats.per_poller_stats) > 0
+    end
+
+    test "detects slow measurements" do
+      log_output = capture_log(fn ->
+        # Simulate slow measurement
+        :telemetry.execute([:telemetry_poller, :measurement, :start], %{}, %{name: :slow_poller})
+        Process.sleep(150)  # More than 100ms threshold
+        :telemetry.execute([:telemetry_poller, :measurement, :stop], %{}, %{name: :slow_poller})
+        
+        Process.sleep(50)  # Allow log processing
+      end)
+      
+      assert log_output =~ "Slow telemetry measurement detected"
+      assert log_output =~ "slow_poller"
+    end
+
+    test "tracks measurement errors" do
+      initial_stats = MyApp.TelemetryPoller.PerformanceMonitor.get_performance_stats()
+      
+      log_output = capture_log(fn ->
+        # Simulate measurement error
+        :telemetry.execute([:telemetry_poller, :measurement, :exception], %{}, %{
+          name: :error_poller,
+          error: "Test error"
+        })
+        
+        Process.sleep(50)
+      end)
+      
+      final_stats = MyApp.TelemetryPoller.PerformanceMonitor.get_performance_stats()
+      
+      assert final_stats.total_errors > initial_stats.total_errors
+      assert log_output =~ "Telemetry measurement error"
+    end
+  end
+
+  describe "integration and lifecycle" do
+    @tag :performance
+    test "polling overhead is minimal" do
+      # Measure system performance before polling
+      initial_memory = :erlang.memory(:total)
+      initial_reductions = :erlang.statistics(:reductions) |> elem(0)
+      
+      # Let pollers run for a while
+      Process.sleep(10_000)  # 10 seconds
+      
+      # Measure system performance after polling
+      final_memory = :erlang.memory(:total)
+      final_reductions = :erlang.statistics(:reductions) |> elem(0)
+      
+      memory_increase = final_memory - initial_memory
+      reduction_increase = final_reductions - initial_reductions
+      
+      # Polling should not consume excessive resources
+      assert memory_increase < 10 * 1024 * 1024  # Less than 10MB
+      assert reduction_increase < 1_000_000  # Reasonable CPU usage
+    end
+
+    test "pollers restart after failure" do
+      # Get initial poller status
+      initial_pollers = MyApp.TelemetryPoller.Manager.list_pollers()
+      initial_count = length(initial_pollers)
+      
+      # Find a running poller and kill it
+      running_poller = Enum.find(initial_pollers, &(&1.status == :running))
+      
+      if running_poller do
+        Process.exit(running_poller.pid, :kill)
+        
+        # Wait for supervisor to restart
+        Process.sleep(1000)
+        
+        # Check that poller was restarted
+        final_pollers = MyApp.TelemetryPoller.Manager.list_pollers()
+        final_count = length(final_pollers)
+        
+        # Should have same number of pollers (or more)
+        assert final_count >= initial_count
+      end
+    end
+
+    test "measurements continue during high load" do
+      # Create load on the system
+      load_tasks = Enum.map(1..100, fn _i ->
+        Task.async(fn ->
+          Enum.each(1..1000, fn _j ->
+            # Simulate CPU intensive work
+            :crypto.hash(:sha256, "load test")
+          end)
+        end)
+      end)
+      
+      # Track measurements during load
+      measurement_count = count_measurements_during(5000, [:vm, :memory])
+      
+      # Clean up load tasks
+      Task.await_many(load_tasks, 10_000)
+      
+      # Should still receive regular measurements
+      assert measurement_count > 0
+    end
+  end
+
+  # Helper functions
+  def test_measurement do
+    %{test_value: :rand.uniform(100)}
+  end
+
+  defp count_measurements_during(duration_ms, event) do
+    ref = make_ref()
+    count = Agent.start_link(fn -> 0 end)
+    
+    :telemetry.attach(
+      "measurement-counter",
+      event,
+      fn _event, _measurements, _metadata, {agent, _ref} ->
+        Agent.update(agent, &(&1 + 1))
+      end,
+      {count, ref}
+    )
+    
+    Process.sleep(duration_ms)
+    
+    :telemetry.detach("measurement-counter")
+    
+    result = Agent.get(count, & &1)
+    Agent.stop(count)
+    
+    result
+  end
+end]]></correct-example>
+          <incorrect-example title="Poor TelemetryPoller testing without comprehensive validation" conditions="Testing polling functionality" expected-result="Comprehensive polling tests" incorrectness-criteria="No measurement validation, missing lifecycle tests, no performance testing, poor error coverage"><![CDATA[# BAD: Poor TelemetryPoller testing
+
+defmodule BadTelemetryPollerTest do
+  use ExUnit.Case
+  
+  # Only basic functionality testing
+  test "poller starts" do
+    assert {:ok, _pid} = :telemetry_poller.start_link([
+      measurements: [{[:vm, :memory], :erlang, :memory, []}],
+      period: 5000
+    ])
+  end
+
+  # No measurement validation
+  # No performance testing
+  # No error handling testing
+  # No dynamic poller testing
+  # No integration testing
+  # No lifecycle testing
+  # No load testing
+  # No custom measurement testing
+  
+  test "measurements work" do
+    # No actual validation
+    assert true
+  end
+end]]></incorrect-example>
+        </example>
+      </examples>
+    </requirement>
+  </requirements>
+  
+  <context description="TelemetryPoller periodic measurement considerations">
+    TelemetryPoller is a library for taking periodic measurements of system and application metrics in Elixir applications. It integrates with the Telemetry ecosystem to provide scheduled metric collection from various sources including the Erlang VM, application code, and external systems.
+
+    Key considerations include:
+    - Efficient periodic measurement collection with minimal system overhead
+    - Proper error handling and recovery for measurement failures
+    - Custom measurement functions for application-specific metrics
+    - Dynamic poller management for runtime configuration changes
+    - Performance monitoring to track polling overhead and detect issues
+    - Integration with TelemetryMetrics for comprehensive observability
+
+    TelemetryPoller is essential for maintaining visibility into system health and performance over time, providing the data foundation for monitoring dashboards, alerting systems, and capacity planning.
+  </context>
+  
+  <references>
+    <reference as="dependency" href=".cursor/rules/000-core/002-cursor-rules-creation.mdc" reason="Follows standard rule format">Base rule format definition</reference>
+    <reference as="context" href="https://hexdocs.pm/telemetry_poller/" reason="Official TelemetryPoller documentation">TelemetryPoller Package Documentation</reference>
+    <reference as="context" href="https://hexdocs.pm/telemetry/" reason="Telemetry library documentation">Telemetry Library Documentation</reference>
+  </references>
+</rule>
+ 

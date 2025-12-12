@@ -1,0 +1,165 @@
+---
+description: Defines an implementation-agnostic rule for a Validation Agent that confirms events identified by the Monitoring Agent and determines tenant impact before handing off to Controller and Summarization Agents.
+globs: ".cursor/rules/validation-agent.mdc"
+alwaysApply: false
+---
+
+<rule>
+  <meta>
+    <title>Validation Agent</title>
+    <description>Agent responsible for confirming that a Monitoring Agent-identified event is real and impacts the tenant; performs multi-source corroboration; upon confirmation, forwards to Controller Agent and Summarization Agent.</description>
+    <created-at utc-timestamp="1750416000">June 20, 2025, 00:00 UTC</created-at>
+    <last-updated-at utc-timestamp="1750416000">June 20, 2025, 00:00 UTC</last-updated-at>
+    <applies-to>
+      <file-matcher glob="**/*">Conceptual guidance; applicable to any implementation of a Validation Agent across services and runtimes.</file-matcher>
+      <action-matcher action="create-validation-agent">Triggered when designing or refactoring validation capabilities.</action-matcher>
+    </applies-to>
+  </meta>
+
+  <!--
+    Assumptions (technology-agnostic):
+    - The Monitoring Agent emits potential risk events (unvalidated). The Validation Agent confirms validity and tenant impact.
+    - "Sources" may include first/third-party APIs, news, ground truth feeds, telemetry, or internal systems; availability is variable.
+    - Confidence combines corroboration strength, source reliability, and recency; thresholds are configurable per tenant and event type.
+    - Time values MUST be timezone-aware and normalized (ISO 8601 recommended) when serialized.
+  -->
+
+  <requirements>
+    <non-negotiable priority="critical">
+      <description>Tenant scope MUST be explicit and enforced for all reads/writes; do not validate or publish across tenants.</description>
+      <examples>
+        <example title="Tenant isolation">
+          <correct-example title="Scoped validation" conditions="Processing candidate event" expected-result="Proceed" correctness-criteria="Event.tenant_id equals agent.tenant_id"><![CDATA[
+if candidate.tenant_id == agent.tenant_id: validate(candidate) else: skip
+]]></correct-example>
+          <incorrect-example title="Cross-tenant leak" conditions="Processing candidate event" expected-result="Skip" incorrectness-criteria="Validates for different tenant"><![CDATA[
+validate(candidate) // regardless of tenant
+]]></incorrect-example>
+        </example>
+      </examples>
+    </non-negotiable>
+
+    <non-negotiable priority="critical">
+      <description>Multi-source corroboration: require at least N independent sources (configurable) or one authoritative source to confirm validity.</description>
+      <examples>
+        <example title="Corroboration policy">
+          <correct-example title="Two independent confirmations" conditions="Standard policy N=2" expected-result="Confirmed" correctness-criteria="Two distinct sources with consistent details"><![CDATA[
+sources = {newswire:A, gov_feed:B} -> consistent -> confirmed
+]]></correct-example>
+          <incorrect-example title="Single unverified blog" conditions="Low-cred source only" expected-result="Not confirmed" incorrectness-criteria="Treats one low-cred source as confirmed"><![CDATA[
+sources = {random_blog:X} -> confirmed // WRONG
+]]></incorrect-example>
+        </example>
+      </examples>
+    </non-negotiable>
+
+    <non-negotiable priority="critical">
+      <description>Impact determination: confirm not only occurrence but actual or likely tenant impact (e.g., location overlap, supplier/shipment linkage).</description>
+      <examples>
+        <example title="Impact check">
+          <correct-example title="Supplier near incident" conditions="Geo overlap" expected-result="Impacts tenant" correctness-criteria="Within configured distance threshold"><![CDATA[
+distance(supplier.location, incident.location) <= impact_radius_km -> impacted=true
+]]></correct-example>
+          <incorrect-example title="Occurrence only" conditions="No impact analysis" expected-result="Insufficient" incorrectness-criteria="Confirms event but ignores tenant impact"><![CDATA[
+confirmed(event); publish -> without checking tenant exposure
+]]></incorrect-example>
+        </example>
+      </examples>
+    </non-negotiable>
+
+    <non-negotiable priority="critical">
+      <description>Validation SLA and backoff: enforce per-tenant timeout windows; on transient failures, retry with bounded exponential backoff; never busy-spin.</description>
+      <examples>
+        <example title="Bounded retries">
+          <correct-example title="Retry then fail" conditions="Source 503" expected-result="Retry limited times" correctness-criteria="Backoff up to max then mark INCONCLUSIVE"><![CDATA[
+try fetch(); on 5xx -> backoff(ms) up to max_attempts; status=INCONCLUSIVE
+]]></correct-example>
+          <incorrect-example title="Tight error loop" conditions="Source down" expected-result="No resource burn" incorrectness-criteria="Immediate infinite retry"><![CDATA[
+while(true) fetch(); // WRONG
+]]></incorrect-example>
+        </example>
+      </examples>
+    </non-negotiable>
+
+    <requirement priority="high">
+      <description>Confidence scoring: compute confidence in [0.0..1.0] from corroboration count, source reliability, and recency; compare to per-type thresholds.</description>
+    </requirement>
+
+    <requirement priority="high">
+      <description>Linkage and idempotency: associate validated records to Monitoring Agent event IDs; do not re-emit duplicates for the same event and tenant.</description>
+    </requirement>
+
+    <requirement priority="high">
+      <description>Output contract: publish validated events with tenant_id, event_id, validation_status, confidence, impact summary, corroborating sources, and timestamps.</description>
+    </requirement>
+
+    <requirement priority="medium">
+      <description>Observability: structured logs and counters for attempts, confirmations, inconclusive outcomes, and per-source error rates; avoid logging sensitive payloads.</description>
+    </requirement>
+
+    <requirement priority="medium">
+      <description>Security & config hygiene: no hardcoded secrets; use environment/config management; apply least-privilege for all external reads.</description>
+    </requirement>
+  </requirements>
+
+  <grammar>
+    <schema title="Validated Event Schema (conceptual)" description="Normalized validation output for downstream agents."><![CDATA[
+ValidatedEvent {
+  id: string // unique validation identifier
+  tenant_id: string // tenant scope
+  event_id: string // Monitoring Agent event identifier
+  status: 'CONFIRMED' | 'REJECTED' | 'INCONCLUSIVE'
+  confidence: number // [0.0 .. 1.0]
+  impact: {
+    affected_shipments?: string[]
+    affected_suppliers?: string[]
+    geographic_overlap?: boolean
+    notes?: string
+  }
+  corroborating_sources: Array<{
+    name: string
+    type: 'GOV' | 'NEWS' | 'VENDOR' | 'INTERNAL' | 'OTHER'
+    reliability: number // [0.0 .. 1.0]
+    observed_at: string // ISO 8601
+  }>
+  validated_at: string // ISO 8601
+}
+]]></schema>
+
+    <grammar-entry title="Core Loop">
+      <pattern description="Validation pipeline">initialize -> fetch candidate -> corroborate -> assess impact -> decide (CONFIRMED/REJECTED/INCONCLUSIVE) -> publish -> repeat</pattern>
+      <example description="Error path">on error: log -> sleep(backoff) -> continue</example>
+    </grammar-entry>
+
+    <grammar-entry title="Confidence Thresholding">
+      <pattern description="Threshold rule">confidence >= threshold[event_type] (or default)</pattern>
+      <example description="Defaulting behavior">If type-specific threshold missing, use global default (e.g., 0.6).</example>
+    </grammar-entry>
+  </grammar>
+
+  <context description="Role, Responsibilities, Requirements">
+    <![CDATA[
+Name: Validation Agent
+Description: Confirms Monitoring Agent-identified events and determines tenant impact before handoff.
+Role:
+  - Corroborate candidate events using multiple sources.
+  - Determine whether the event affects tenant operations (geography, shipments, suppliers).
+  - Emit a validated event with confidence and impact, or mark as INCONCLUSIVE/REJECTED.
+Responsibilities:
+  - Enforce tenant isolation and configuration precedence.
+  - Maintain idempotent linkage to source Monitoring Agent events.
+  - Produce auditable outputs and metrics for reliability.
+Requirements:
+  - Implement configurable corroboration and confidence thresholds per event type.
+  - Support bounded retries and SLA windows for validation.
+  - Avoid sensitive data exfiltration in logs and outputs.
+    ]]>
+  </context>
+
+  <references>
+    <reference as="dependency" href=".cursor/rules/000-core/002-cursor-rules-creation.mdc" reason="Follows standard rule format">Cursor Rule File Format (.mdc)</reference>
+    <reference as="context" href=".cursor/rules/001-application/008-pericles-monitoring-agent-core-standards-auto.mdc" reason="Upstream event identification">Monitoring Agent Standards</reference>
+    <reference as="context" href=".cursor/rules/001-application/009-pericles-impact-assessment-agent-core-standards-auto.mdc" reason="Downstream impact assessment">Impact Assessment Agent Standards</reference>
+  </references>
+</rule>
+

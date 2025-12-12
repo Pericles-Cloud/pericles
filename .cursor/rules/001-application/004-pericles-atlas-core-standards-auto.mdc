@@ -1,0 +1,484 @@
+---
+description: "Pericles Atlas core standards for interactive global map, incidents feed, shipment visualization, agent-driven monitoring, and seamless navigation to Events/Insights/Plans using Admin Portal stack and patterns"
+globs: "*"
+alwaysApply: true
+---
+
+<rule>
+  <meta>
+    <title>Pericles Atlas Core Standards</title>
+    <description>Comprehensive product, technical, and UI/UX standards for the Pericles Atlas feature. Atlas is the default hub: a global map with shipments, suppliers, and incident overlays; a right-side Events Feed; agent-driven real-time monitoring and validation; and top-level filters including an org/global incidents toggle. Built on the same stack and conventions as the Admin Portal core rules.</description>
+    <created-at utc-timestamp="1739145600">February 10, 2025, 00:00 UTC</created-at>
+    <last-updated-at utc-timestamp="1739232000">February 11, 2025, 00:00 UTC</last-updated-at>
+    <applies-to>
+      <file-matcher glob="*">All files related to Pericles Atlas feature (UI, API, data types, agents, tests)</file-matcher>
+      <action-matcher action="atlas-development">All development activities for the Atlas feature</action-matcher>
+      <action-matcher action="atlas-ui">All UI/UX work for the Atlas map, filters, and Events Feed</action-matcher>
+      <action-matcher action="atlas-agents">All agent development for monitoring, validation, and assessment</action-matcher>
+    </applies-to>
+  </meta>
+  <requirements>
+    <non-negotiable priority="critical">
+      <description>Atlas is the default landing experience for authenticated users. It must render an interactive global map with overlays for shipments, suppliers, and incidents, plus a right-side Events Feed and a top filter bar with an incidents toggle ("my organization" ↔ "global"). The map must support both satellite and map view toggles.</description>
+      <examples>
+        <example title="Required layout regions">
+          <correct-example title="Map-dominant layout with right feed and top filters" conditions="Building Atlas page layout" expected-result="Default 3-region layout" correctness-criteria="Top FilterBar, center Map, right EventsFeed; responsive; desktop-optimized"><![CDATA[
+<div className="min-h-screen bg-gray-50 safe-area-top safe-area-bottom">
+  <div className="w-full h-[calc(100vh-56px)] grid grid-cols-[1fr_360px] grid-rows-[56px_1fr] md:grid-cols-[1fr_420px]">
+    <div className="col-span-2 row-[1/2] border-b bg-white">
+      {/* FilterBar with org/global toggle, transit filters, supplier filters */}
+    </div>
+    <div className="col-[1/2] row-[2/3]">
+      {/* AtlasMap with satellite/map toggle, shipment routes, supplier markers */}
+    </div>
+    <aside className="col-[2/3] row-[2/3] border-l bg-white overflow-y-auto">
+      {/* EventsFeed showing incidents with severity badges */}
+    </aside>
+  </div>
+}</div>]]></correct-example>
+          <incorrect-example title="Feed below map or missing filters" conditions="Building Atlas layout" expected-result="3-region layout" incorrectness-criteria="Events feed stacked under map, or filters missing, or map not dominant"><![CDATA[<div>
+  <div>{/* Map only */}</div>
+  <div>{/* Events under map - WRONG */}</div>
+  {/* Missing FilterBar - WRONG */}
+</div>]]></incorrect-example>
+        </example>
+      </examples>
+    </non-negotiable>
+
+    <non-negotiable priority="critical">
+      <description>Implement agent architecture for real-time monitoring and validation. The system must include: Monitoring Agent (identifies risk events), Validation Agent (confirms event validity), Controller Agent (coordinates notifications), Impact Assessment Agent (calculates financial impact), and Summarization Agent (maintains event summaries).</description>
+      <examples>
+        <example title="Agent implementation pattern">
+          <correct-example title="Typed agent interfaces with clear responsibilities" conditions="Implementing agent system" expected-result="Modular agent architecture" correctness-criteria="Each agent has single responsibility, typed interfaces, audit trail"><![CDATA[
+interface MonitoringAgent {
+  monitorDataSources(tenantId: string): AsyncGenerator<PotentialRiskEvent>;
+  checkGeographicExposure(event: PotentialRiskEvent, exposure: GeographicExposure[]): boolean;
+}
+
+interface ValidationAgent {
+  validateEvent(event: PotentialRiskEvent): Promise<ValidatedEvent | null>;
+  checkMultipleSources(event: PotentialRiskEvent): Promise<SourceConfirmation[]>;
+}
+
+interface ControllerAgent {
+  coordinateAgents(event: ValidatedEvent): Promise<void>;
+  notifyUsers(event: ValidatedEvent, users: User[]): Promise<void>;
+  interactWithUser(userId: string, query: string): Promise<AgentResponse>;
+}
+
+interface ImpactAssessmentAgent {
+  calculateFinancialImpact(event: ValidatedEvent, erpData: ERPData): Promise<FinancialImpact>;
+  updateUIData(impact: FinancialImpact): Promise<void>;
+}
+
+interface SummarizationAgent {
+  summarizeEvent(event: ValidatedEvent, sources: DataSource[]): Promise<EventSummary>;
+  periodicUpdate(eventId: string): Promise<EventSummary>;
+  detectEventEnd(eventId: string): Promise<boolean>;
+}]]></correct-example>
+        </example>
+      </examples>
+    </non-negotiable>
+
+    <non-negotiable priority="critical">
+      <description>Follow the Admin Portal stack and standards: TypeScript strict mode, React 19 functional components with hooks, Tailwind CSS design system, Vite build, Prisma for server-side data access, JWT auth, and audit logging. Reuse patterns from the Admin Portal core rules for consistency.</description>
+    </non-negotiable>
+
+    <requirement priority="critical">
+      <description>Interactive Map behavior must mirror Google Maps patterns (pan/zoom, satellite toggle, map style toggle) and maintain 60 FPS interactions. Must display shipment routes with progress indicators showing distance covered and remaining. Use marker clustering and virtualization for large overlays.</description>
+      <examples>
+        <example title="Shipment route visualization">
+          <correct-example title="Route with progress indicator" conditions="Displaying shipment route" expected-result="Visual route with progress" correctness-criteria="Shows origin, destination, current position, distance metrics"><![CDATA[
+interface ShipmentRoute {
+  origin: { lat: number; lng: number; name: string };
+  destination: { lat: number; lng: number; name: string };
+  waypoints: Array<{ lat: number; lng: number; ts: string }>;
+  currentPosition: { lat: number; lng: number; ts: string };
+  progress: {
+    distanceCovered: number; // km
+    distanceRemaining: number; // km
+    percentComplete: number;
+    estimatedArrival: string; // ISO timestamp
+  };
+}
+
+const renderShipmentRoute = (map: google.maps.Map, route: ShipmentRoute) => {
+  // Draw complete route as polyline
+  const routePath = new google.maps.Polyline({
+    path: [route.origin, ...route.waypoints, route.destination],
+    geodesic: true,
+    strokeColor: '#0066CC',
+    strokeOpacity: 0.4,
+    strokeWeight: 2,
+  });
+  
+  // Draw covered portion in solid color
+  const coveredPath = new google.maps.Polyline({
+    path: [route.origin, ...route.waypoints.filter(w => w.ts <= route.currentPosition.ts), route.currentPosition],
+    geodesic: true,
+    strokeColor: '#0066CC',
+    strokeOpacity: 1.0,
+    strokeWeight: 3,
+  });
+  
+  // Add current position marker with progress info
+  const currentMarker = new google.maps.Marker({
+    position: route.currentPosition,
+    map,
+    icon: shipmentIcon,
+    title: `${route.progress.percentComplete}% complete`
+  });
+};]]></correct-example>
+        </example>
+      </examples>
+    </requirement>
+
+    <requirement priority="critical">
+      <description>ERP Integration: Atlas must mirror data from integrated ERPs to ensure consistency. Support manual configuration for organizations without ERP integration, allowing users to define cities, regions, and countries of interest.</description>
+      <examples>
+        <example title="ERP data sync">
+          <correct-example title="ERP integration with fallback" conditions="Loading supply chain data" expected-result="ERP data or manual config" correctness-criteria="Checks for integration, falls back to manual config"><![CDATA[
+interface ERPIntegration {
+  provider: 'SAP' | 'ORACLE' | 'MANUAL';
+  syncFrequency: number; // minutes
+  lastSync: string;
+  dataMapping: {
+    shipments: FieldMapping[];
+    suppliers: FieldMapping[];
+    inventory: FieldMapping[];
+  };
+}
+
+const loadSupplyChainData = async (tenantId: string): Promise<SupplyChainData> => {
+  const integration = await getERPIntegration(tenantId);
+  
+  if (integration.provider !== 'MANUAL') {
+    // Sync with ERP
+    const erpData = await syncWithERP(integration);
+    await audit('ERP_SYNC', { tenantId, provider: integration.provider, recordCount: erpData.count });
+    return mapERPToAtlas(erpData, integration.dataMapping);
+  } else {
+    // Load manual configuration
+    const manualConfig = await getManualConfiguration(tenantId);
+    return {
+      suppliers: manualConfig.suppliers,
+      shipments: manualConfig.shipments,
+      operatingCountries: manualConfig.countriesOfInterest,
+      vulnerabilities: calculateVulnerabilities(manualConfig)
+    };
+  }
+};]]></correct-example>
+        </example>
+      </examples>
+    </requirement>
+
+    <requirement priority="high">
+      <description>Business and Product requirements: show all shipments (including those in warehouse and in transit), suppliers (primary, secondary, tertiary), and incidents relevant to the user's organization by default. Filter out noise - only show incidents that impact the organization's operations. Provide drill-through to Events (incident detail), Insights (country risk), and Plans (mitigation status).</description>
+      <examples>
+        <example title="Relevance filtering">
+          <correct-example title="Organization-specific incident filtering" conditions="Displaying incidents" expected-result="Only relevant incidents shown" correctness-criteria="Checks geographic exposure and supply chain impact"><![CDATA[
+const filterRelevantIncidents = (
+  incidents: Incident[],
+  orgData: OrganizationData
+): Incident[] => {
+  return incidents.filter(incident => {
+    // Check geographic relevance
+    const geoRelevant = orgData.operatingCountries.includes(incident.location?.countryCode) ||
+                       orgData.supplierCountries.includes(incident.location?.countryCode);
+    
+    // Check shipment impact
+    const shipmentImpact = incident.affectedShipmentIds?.some(id => 
+      orgData.activeShipments.includes(id)
+    );
+    
+    // Check supplier impact
+    const supplierImpact = incident.affectedSupplierIds?.some(id =>
+      orgData.suppliers.map(s => s.id).includes(id)
+    );
+    
+    return geoRelevant || shipmentImpact || supplierImpact;
+  });
+};]]></correct-example>
+        </example>
+      </examples>
+    </requirement>
+
+    <non-negotiable priority="critical">
+      <description>Filters across the top must include: transit type (air, maritime, rail, ground), origin, destination, supplier, goods type, supplier tier (primary, secondary, tertiary), timeliness (on-time, delayed, blocked), and an incidents toggle: "my organization" vs "global". The Events Feed lists ongoing incidents with severity level and status, supporting click-through to detailed views.</description>
+      <examples>
+        <example title="Filter implementation">
+          <correct-example title="Comprehensive filter bar" conditions="Implementing filters" expected-result="All required filters present" correctness-criteria="Includes all specified filters with proper types"><![CDATA[
+interface AtlasFilters {
+  transitType: ('AIR' | 'SEA' | 'RAIL' | 'GROUND')[];
+  origin: string[];
+  destination: string[];
+  supplier: string[];
+  goodsType: string[];
+  supplierTier: ('PRIMARY' | 'SECONDARY' | 'TERTIARY')[];
+  timeliness: ('ON_TIME' | 'DELAYED' | 'BLOCKED')[];
+  incidentScope: 'ORGANIZATION' | 'GLOBAL';
+}
+
+const FilterBar: React.FC<{ onFilterChange: (filters: AtlasFilters) => void }> = ({ onFilterChange }) => {
+  const [filters, setFilters] = useState<AtlasFilters>(defaultFilters);
+  const debouncedChange = useMemo(() => debounce(onFilterChange, 300), [onFilterChange]);
+  
+  return (
+    <div className="flex items-center gap-2 px-4 py-2 bg-white border-b">
+      <MultiSelect label="Transit" options={TRANSIT_OPTIONS} value={filters.transitType} />
+      <LocationSelect label="Origin" value={filters.origin} />
+      <LocationSelect label="Destination" value={filters.destination} />
+      <SupplierSelect value={filters.supplier} tierFilter={filters.supplierTier} />
+      <Select label="Goods" options={goodsTypes} value={filters.goodsType} />
+      <Select label="Tier" options={TIER_OPTIONS} value={filters.supplierTier} />
+      <Select label="Status" options={TIMELINESS_OPTIONS} value={filters.timeliness} />
+      <div className="ml-auto flex items-center gap-2">
+        <label className="text-sm font-medium">Incidents:</label>
+        <ToggleSwitch
+          leftLabel="My Organization"
+          rightLabel="Global"
+          value={filters.incidentScope === 'GLOBAL'}
+          onChange={(global) => setFilters({...filters, incidentScope: global ? 'GLOBAL' : 'ORGANIZATION'})}
+        />
+      </div>
+    </div>
+  );
+};]]></correct-example>
+        </example>
+      </examples>
+    </non-negotiable>
+
+    <requirement priority="high">
+      <description>Data freshness: event-related data must be near real-time (15 second refresh); shipment/supplier positions refresh every 30–60 minutes. Maritime and location-specific data can refresh every 30-60 minutes. Implement background polling with exponential backoff and UI timestamps indicating last update.</description>
+      <examples>
+        <example title="Refresh policy">
+          <correct-example title="Differentiated polling intervals" conditions="Configuring data refresh" expected-result="Events faster than positions" correctness-criteria="15s for events, 30-60min for positions, exponential backoff"><![CDATA[
+const REFRESH_INTERVALS = { 
+  events: 15_000, // 15 seconds for near real-time
+  maritimePositions: 45 * 60_000, // 45 minutes
+  supplierData: 60 * 60_000, // 1 hour
+  erpSync: 30 * 60_000 // 30 minutes
+};
+
+const useDataRefresh = () => {
+  const [lastUpdate, setLastUpdate] = useState<Record<string, string>>({});
+  
+  usePollingWithBackoff(fetchEvents, REFRESH_INTERVALS.events, {
+    maxBackoff: 60_000,
+    onSuccess: () => setLastUpdate(prev => ({...prev, events: new Date().toISOString()}))
+  });
+  
+  usePollingWithBackoff(fetchMaritimePositions, REFRESH_INTERVALS.maritimePositions, {
+    maxBackoff: 10 * 60_000,
+    onSuccess: () => setLastUpdate(prev => ({...prev, positions: new Date().toISOString()}))
+  });
+  
+  return lastUpdate;
+};]]></correct-example>
+        </example>
+      </examples>
+    </requirement>
+
+    <requirement priority="high">
+      <description>Co-Pilot Integration: Users should be able to interact with the Co-Pilot to gather additional information about their supply chain, events, and risk assessments. The Co-Pilot should have context awareness of the current map view and selected filters.</description>
+      <examples>
+        <example title="Co-Pilot context">
+          <correct-example title="Context-aware Co-Pilot" conditions="Co-Pilot interaction" expected-result="Contextual responses" correctness-criteria="Includes map state and filters in context"><![CDATA[
+interface CoPilotContext {
+  mapBounds: google.maps.LatLngBounds;
+  currentZoom: number;
+  activeFilters: AtlasFilters;
+  visibleShipments: string[];
+  visibleIncidents: string[];
+  selectedEntity?: { type: 'SHIPMENT' | 'INCIDENT' | 'SUPPLIER'; id: string };
+}
+
+const useCoPilot = () => {
+  const [context, setContext] = useState<CoPilotContext>();
+  
+  const askCoPilot = async (query: string) => {
+    const response = await fetch('/api/copilot/query', {
+      method: 'POST',
+      body: JSON.stringify({
+        query,
+        context: {
+          ...context,
+          timestamp: new Date().toISOString(),
+          tenantId: getCurrentTenant()
+        }
+      })
+    });
+    
+    await audit('COPILOT_QUERY', { query, hasContext: !!context });
+    return response.json();
+  };
+  
+  return { askCoPilot, updateContext: setContext };
+};]]></correct-example>
+        </example>
+      </examples>
+    </requirement>
+
+    <requirement priority="high">
+      <description>Performance: cluster markers for scalability, virtualize feeds for smooth scrolling, debounce filter inputs (≥300ms), and avoid blocking the main thread for large geojson; use Web Workers when needed for heavy computations (e.g., route decoding, impact calculations).</description>
+    </requirement>
+
+    <requirement priority="high">
+      <description>Security and tenancy: only display tenant-scoped data. All backend queries must enforce tenant isolation and audit user actions including filter changes, drill-throughs, exports, and Co-Pilot interactions per Admin Portal standards.</description>
+    </requirement>
+
+    <requirement priority="high">
+      <description>UI/UX design: map occupies majority of viewport, optimized for desktop but must support infrequent users (monthly logins). Provide satellite and map view toggles, Google Maps-like interactions, and keyboard accessibility for feed navigation and filters. Follow Admin Portal Tailwind styling and component conventions.</description>
+    </requirement>
+
+    <requirement priority="medium">
+      <description>Easy navigation between Atlas and other products: Events (incident details), Insights (country risk assessment), Plans (mitigation status). Breadcrumbs and top nav must remain consistent with Admin Portal design. Support deep linking with context preservation.</description>
+    </requirement>
+
+    <requirement priority="medium">
+      <description>Types and domain models: define comprehensive interfaces for `Shipment` (including warehouse and transit states), `Supplier` (with tier classification), `Incident` (with severity and impact assessment), and agent-related types. Ensure strong typing throughout.</description>
+      <examples>
+        <example title="Extended domain types">
+          <correct-example title="Comprehensive typed models" conditions="Defining data contracts" expected-result="Type-safe usage with all requirements" correctness-criteria="Includes all fields from requirements"><![CDATA[
+export interface Shipment {
+  id: string;
+  origin: { lat: number; lng: number; name: string; countryCode: string };
+  destination: { lat: number; lng: number; name: string; countryCode: string };
+  mode: 'AIR' | 'SEA' | 'RAIL' | 'GROUND';
+  status: 'WAREHOUSE' | 'IN_TRANSIT' | 'DELIVERED' | 'BLOCKED';
+  route?: Array<{ lat: number; lng: number; ts?: string }>;
+  currentPosition?: { lat: number; lng: number; ts: string };
+  progress?: { distanceCovered: number; distanceRemaining: number; percentComplete: number };
+  goodsType?: string;
+  supplierId?: string;
+  timeliness: 'ON_TIME' | 'DELAYED' | 'BLOCKED';
+  estimatedArrival?: string;
+  actualArrival?: string;
+}
+
+export interface Supplier {
+  id: string;
+  name: string;
+  tier: 'PRIMARY' | 'SECONDARY' | 'TERTIARY';
+  location: { lat: number; lng: number; countryCode: string; city: string };
+  riskScore?: number;
+  activeShipments?: string[];
+  certifications?: string[];
+  alternativeSuppliers?: string[]; // IDs of backup suppliers
+}
+
+export interface Incident {
+  id: string;
+  title: string;
+  severity: 'LOW' | 'MEDIUM' | 'HIGH' | 'CRITICAL';
+  status: 'OPEN' | 'IN_PROGRESS' | 'RESOLVED';
+  location?: { lat: number; lng: number; countryCode?: string; region?: string };
+  affectedShipmentIds?: string[];
+  affectedSupplierIds?: string[];
+  financialImpact?: {
+    estimated: number;
+    currency: string;
+    lastCalculated: string;
+  };
+  mitigationPlan?: {
+    id: string;
+    status: 'NOT_STARTED' | 'IN_PROGRESS' | 'COMPLETED';
+    actions: MitigationAction[];
+  };
+  validatedBy?: string; // Agent ID
+  summary?: string;
+  lastUpdated: string;
+}
+
+export interface RiskEvent {
+  id: string;
+  potentialIncident: Partial<Incident>;
+  identifiedBy: string; // Monitoring Agent ID
+  identifiedAt: string;
+  validationStatus: 'PENDING' | 'VALIDATED' | 'REJECTED';
+  validationSources?: SourceConfirmation[];
+  geographicExposure: GeographicExposure[];
+}]]></correct-example>
+        </example>
+      </examples>
+    </requirement>
+
+    <requirement priority="medium">
+      <description>Events Feed: virtualized newsfeed-like list with severity badges, status indicators, and infinite scroll. Clicking an item focuses the map on the incident location and can open the detailed Events view. Must update in near real-time as agents identify and validate new incidents.</description>
+      <examples>
+        <example title="Events Feed implementation">
+          <correct-example title="Virtualized feed with real-time updates" conditions="Building Events Feed" expected-result="Performant scrolling feed" correctness-criteria="Virtual scrolling, severity badges, real-time updates"><![CDATA[
+const EventsFeed: React.FC<{ onEventClick: (event: Incident) => void }> = ({ onEventClick }) => {
+  const [events, setEvents] = useState<Incident[]>([]);
+  const [hasMore, setHasMore] = useState(true);
+  
+  // Subscribe to real-time updates from agents
+  useEffect(() => {
+    const subscription = subscribeToIncidents((incident) => {
+      setEvents(prev => [incident, ...prev].sort((a, b) => 
+        b.lastUpdated.localeCompare(a.lastUpdated)
+      ));
+    });
+    return () => subscription.unsubscribe();
+  }, []);
+  
+  const rowRenderer = ({ index, style }: { index: number; style: React.CSSProperties }) => {
+    const event = events[index];
+    return (
+      <div style={style} className="p-3 border-b hover:bg-gray-50 cursor-pointer" onClick={() => onEventClick(event)}>
+        <div className="flex items-start gap-2">
+          <SeverityBadge severity={event.severity} />
+          <div className="flex-1">
+            <h4 className="font-medium text-sm">{event.title}</h4>
+            <p className="text-xs text-gray-600 mt-1">{event.location?.region || event.location?.countryCode}</p>
+            <div className="flex items-center gap-2 mt-2">
+              <StatusBadge status={event.status} />
+              <span className="text-xs text-gray-500">
+                {formatRelativeTime(event.lastUpdated)}
+              </span>
+            </div>
+          </div>
+        </div>
+      </div>
+    );
+  };
+  
+  return (
+    <VirtualList
+      height={window.innerHeight - 112} // Account for header
+      rowCount={events.length}
+      rowHeight={80}
+      rowRenderer={rowRenderer}
+      onScroll={({ scrollTop, scrollHeight, clientHeight }) => {
+        if (scrollTop + clientHeight >= scrollHeight - 100 && hasMore) {
+          loadMoreEvents();
+        }
+      }}
+    />
+  );
+};]]></correct-example>
+        </example>
+      </examples>
+    </requirement>
+
+    <requirement priority="medium">
+      <description>Accessibility: ensure keyboard operability for all interactive elements including filters, feed items, and map controls. Maintain WCAG 2.1 AA compliance with sufficient contrast for map overlays and badges, proper ARIA labels for controls (view toggles, filter apply/reset), and screen reader support for incident notifications.</description>
+    </requirement>
+
+    <requirement priority="low">
+      <description>Support offline capabilities for viewing cached map data and recent incidents when connectivity is limited. Sync changes when connection is restored.</description>
+    </requirement>
+  </requirements>
+  <context description="Atlas product vision and UX">
+    Atlas provides a single global view of an organization's supply chain and ongoing incidents, serving as the primary hub for Pericles. It is tenant-specific by default and mirrors ERP data where integrated. When an incident occurs, Atlas becomes the starting point for risk managers to execute risk plans. The system employs intelligent agents for real-time monitoring, validation, and impact assessment. Atlas must be intuitive enough for infrequent users (monthly logins) while providing powerful capabilities for daily users. The attached UI mock shows the expected layout: top tabs, filter bar, dominant map center, and right-side Events Feed.
+  </context>
+  <references>
+    <reference as="dependency" href=".cursor/rules/000-core/002-cursor-rules-creation.mdc" reason="Follows standard rule format and YAML frontmatter placement">Cursor rule creation standards</reference>
+    <reference as="dependency" href=".cursor/rules/000-core/003-pericles-admin-portal-core-standards-auto.mdc" reason="Reuse stack, security, and design system conventions">Admin Portal core standards</reference>
+    <reference as="dependency" href=".cursor/rules/300-languages/307-typescript-core-standards-auto.mdc" reason="TypeScript strict-mode best practices">TypeScript standards</reference>
+    <reference as="dependency" href=".cursor/rules/400-frameworks/401-next.js-core-standards-auto.mdc" reason="App patterns (if applicable)">Next.js standards</reference>
+    <reference as="dependency" href=".cursor/rules/400-frameworks/402-react-core-standards-auto.mdc" reason="React component patterns">React standards</reference>
+    <reference as="dependency" href=".cursor/rules/403-tailwind-core-standards-auto.mdc" reason="Design system and styling">Tailwind standards</reference>
+    <reference as="dependency" href=".cursor/rules/600-tooling/610-minimist-core-standards-auto.mdc" reason="Filter parsing for URL/query params">CLI/param parsing standards</reference>
+  </references>
+</rule>

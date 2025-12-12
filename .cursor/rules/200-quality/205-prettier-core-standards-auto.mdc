@@ -1,0 +1,478 @@
+---
+description: Prettier code formatter best practices with configuration, integration, and automation for consistent code style
+globs: "*.{js,jsx,ts,tsx,json,css,scss,html,md,yml,yaml}"
+alwaysApply: false
+---
+
+<rule>
+  <meta>
+    <title>Prettier Core Standards Auto</title>
+    <description>Prettier code formatter best practices with configuration, integration, and automation for consistent code style</description>
+    <created-at utc-timestamp="1744165200">July 16, 2025, 5:40 PM</created-at>
+    <last-updated-at utc-timestamp="1744165200">July 16, 2025, 5:40 PM</last-updated-at>
+    <applies-to>
+      <file-matcher glob="*.{js,jsx,ts,tsx,json,css,scss,html,md,yml,yaml}">All code and configuration files that Prettier can format</file-matcher>
+      <action-matcher action="code-formatting">Triggered when setting up or configuring code formatting</action-matcher>
+    </applies-to>
+  </meta>
+  <requirements>
+    <non-negotiable priority="critical">
+      <description>Use Prettier configuration files for consistent formatting across all team members and projects. Always integrate with ESLint to avoid conflicts.</description>
+      <examples>
+        <example title="Prettier Configuration Setup">
+          <correct-example title="Comprehensive Prettier configuration" conditions="Setting up Prettier for a project" expected-result="Consistent code formatting across team" correctness-criteria="Uses configuration file, integrates with ESLint, includes appropriate overrides"><![CDATA[// prettier.config.js (or .prettierrc.js)
+module.exports = {
+  // Core formatting options
+  semi: true,
+  trailingComma: 'es5',
+  singleQuote: true,
+  printWidth: 80,
+  tabWidth: 2,
+  useTabs: false,
+  
+  // Advanced options
+  quoteProps: 'as-needed',
+  jsxSingleQuote: true,
+  bracketSpacing: true,
+  bracketSameLine: false,
+  arrowParens: 'avoid',
+  endOfLine: 'lf',
+  
+  // File-specific overrides
+  overrides: [
+    {
+      files: ['*.json', '*.jsonc'],
+      options: {
+        singleQuote: false,
+        trailingComma: 'none',
+      },
+    },
+    {
+      files: ['*.md', '*.mdx'],
+      options: {
+        printWidth: 100,
+        proseWrap: 'always',
+      },
+    },
+    {
+      files: ['*.yml', '*.yaml'],
+      options: {
+        singleQuote: false,
+        tabWidth: 2,
+      },
+    },
+    {
+      files: ['*.css', '*.scss', '*.less'],
+      options: {
+        singleQuote: false,
+      },
+    },
+  ],
+};
+
+// .prettierignore
+node_modules/
+dist/
+build/
+coverage/
+.next/
+.nuxt/
+.vuepress/dist/
+.cache/
+public/
+*.min.js
+*.min.css
+package-lock.json
+yarn.lock
+pnpm-lock.yaml
+
+// ESLint integration (.eslintrc.js)
+module.exports = {
+  extends: [
+    // Other configs...
+    'prettier', // Must be last to override other configs
+  ],
+  rules: {
+    // Disable ESLint rules that conflict with Prettier
+    'prettier/prettier': 'error',
+  },
+  plugins: ['prettier'],
+};
+
+// package.json scripts
+{
+  "scripts": {
+    "format": "prettier --write .",
+    "format:check": "prettier --check .",
+    "format:staged": "prettier --write",
+    "lint": "eslint . --fix && prettier --write ."
+  },
+  "devDependencies": {
+    "prettier": "^3.1.0",
+    "eslint-config-prettier": "^9.0.0",
+    "eslint-plugin-prettier": "^5.0.0"
+  }
+}]]></correct-example>
+          <incorrect-example title="Poor Prettier setup" conditions="Setting up Prettier for a project" expected-result="Consistent code formatting across team" incorrectness-criteria="No configuration file, conflicts with ESLint, missing overrides"><![CDATA[// Bad: No configuration file, using command line options
+"scripts": {
+  "format": "prettier --write . --semi --single-quote --tab-width 2"
+}
+
+// Bad: No ESLint integration
+// Missing eslint-config-prettier
+
+// Bad: No .prettierignore file
+// Will format unnecessary files
+
+// Bad: No file-specific overrides
+// JSON files will have single quotes (invalid)]]></incorrect-example>
+        </example>
+      </examples>
+    </non-negotiable>
+    <requirement priority="critical">
+      <description>Integrate Prettier with Git hooks using lint-staged for automatic formatting on commit. Ensure consistent formatting in CI/CD pipelines.</description>
+      <examples>
+        <example title="Git Hooks and CI Integration">
+          <correct-example title="Automated formatting with Git hooks" conditions="Setting up pre-commit formatting" expected-result="Automatic formatting on commit with CI validation" correctness-criteria="Uses lint-staged, pre-commit hooks, CI formatting checks"><![CDATA[// package.json
+{
+  "lint-staged": {
+    "*.{js,jsx,ts,tsx,json,css,scss,html,md,yml,yaml}": [
+      "prettier --write",
+      "git add"
+    ],
+    "*.{js,jsx,ts,tsx}": [
+      "eslint --fix",
+      "prettier --write",
+      "git add"
+    ]
+  },
+  "husky": {
+    "hooks": {
+      "pre-commit": "lint-staged"
+    }
+  },
+  "scripts": {
+    "prepare": "husky install",
+    "format": "prettier --write .",
+    "format:check": "prettier --check .",
+    "ci:format": "prettier --check . --no-error-on-unmatched-pattern"
+  }
+}
+
+// .husky/pre-commit
+#!/usr/bin/env sh
+. "$(dirname -- "$0")/_/husky.sh"
+
+npx lint-staged
+
+// GitHub Actions (.github/workflows/ci.yml)
+name: CI
+on: [push, pull_request]
+jobs:
+  format-check:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+      - run: npm ci
+      - run: npm run format:check
+      - run: npm run lint
+
+// VS Code settings (.vscode/settings.json)
+{
+  "editor.formatOnSave": true,
+  "editor.defaultFormatter": "esbenp.prettier-vscode",
+  "editor.codeActionsOnSave": {
+    "source.fixAll.eslint": true
+  },
+  "[javascript]": {
+    "editor.defaultFormatter": "esbenp.prettier-vscode"
+  },
+  "[typescript]": {
+    "editor.defaultFormatter": "esbenp.prettier-vscode"
+  },
+  "[json]": {
+    "editor.defaultFormatter": "esbenp.prettier-vscode"
+  }
+}]]></correct-example>
+          <incorrect-example title="Manual formatting setup" conditions="Setting up pre-commit formatting" expected-result="Automatic formatting on commit with CI validation" incorrectness-criteria="No automation, manual formatting, missing CI checks"><![CDATA[// Bad: Manual formatting only
+{
+  "scripts": {
+    "format": "prettier --write ."
+  }
+}
+
+// Bad: No pre-commit hooks
+// Team members might forget to format
+
+// Bad: No CI formatting checks
+// Inconsistent formatting can reach production
+
+// Bad: No editor integration
+// Inconsistent formatting during development]]></incorrect-example>
+        </example>
+      </examples>
+    </requirement>
+    <requirement priority="high">
+      <description>Configure Prettier plugins for specific file types and frameworks. Use appropriate parser options for different technologies.</description>
+      <examples>
+        <example title="Framework-Specific Configuration">
+          <correct-example title="Prettier with framework plugins" conditions="Using Prettier with specific frameworks" expected-result="Proper formatting for all file types and frameworks" correctness-criteria="Uses appropriate plugins, correct parsers, framework-specific options"><![CDATA[// prettier.config.js for a full-stack project
+module.exports = {
+  // Base configuration
+  semi: true,
+  trailingComma: 'es5',
+  singleQuote: true,
+  printWidth: 80,
+  tabWidth: 2,
+  
+  // Plugin configurations
+  plugins: [
+    '@prettier/plugin-xml',
+    'prettier-plugin-svelte',
+    'prettier-plugin-tailwindcss', // Must be last
+  ],
+  
+  // Framework-specific overrides
+  overrides: [
+    {
+      files: ['*.svelte'],
+      options: {
+        parser: 'svelte',
+        svelteAllowShorthand: true,
+        svelteBracketNewLine: false,
+      },
+    },
+    {
+      files: ['*.xml', '*.svg'],
+      options: {
+        parser: 'xml',
+        xmlWhitespaceSensitivity: 'ignore',
+      },
+    },
+    {
+      files: ['*.html'],
+      options: {
+        parser: 'html',
+        htmlWhitespaceSensitivity: 'ignore',
+        printWidth: 120,
+      },
+    },
+    {
+      files: ['*.vue'],
+      options: {
+        parser: 'vue',
+        vueIndentScriptAndStyle: true,
+      },
+    },
+    {
+      files: ['*.graphql', '*.gql'],
+      options: {
+        parser: 'graphql',
+      },
+    },
+    {
+      files: ['*.php'],
+      options: {
+        parser: 'php',
+        phpVersion: '8.1',
+      },
+    },
+  ],
+};
+
+// package.json with framework plugins
+{
+  "devDependencies": {
+    "prettier": "^3.1.0",
+    "@prettier/plugin-xml": "^3.2.0",
+    "prettier-plugin-svelte": "^3.1.0",
+    "prettier-plugin-tailwindcss": "^0.5.0",
+    "prettier-plugin-organize-imports": "^3.2.0"
+  }
+}
+
+// Next.js specific configuration
+// .prettierrc.js
+module.exports = {
+  semi: true,
+  trailingComma: 'es5',
+  singleQuote: true,
+  printWidth: 80,
+  tabWidth: 2,
+  
+  // Next.js specific overrides
+  overrides: [
+    {
+      files: ['pages/**/*.{js,jsx,ts,tsx}', 'app/**/*.{js,jsx,ts,tsx}'],
+      options: {
+        printWidth: 100, // Slightly wider for page components
+      },
+    },
+    {
+      files: ['*.config.{js,ts}', 'next.config.{js,ts}'],
+      options: {
+        singleQuote: false, // Use double quotes for config files
+      },
+    },
+  ],
+};]]></correct-example>
+          <incorrect-example title="Basic Prettier without plugins" conditions="Using Prettier with specific frameworks" expected-result="Proper formatting for all file types and frameworks" incorrectness-criteria="No plugins, generic configuration, missing framework support"><![CDATA[// Bad: Generic configuration without framework support
+module.exports = {
+  semi: true,
+  singleQuote: true,
+  // No plugins
+  // No overrides for different file types
+  // No framework-specific options
+};
+
+// Bad: Missing plugin dependencies
+// Framework files won't be formatted properly
+
+// Bad: No parser specification
+// May cause formatting errors with special file types]]></incorrect-example>
+        </example>
+      </examples>
+    </requirement>
+    <requirement priority="high">
+      <description>Implement Prettier performance optimization for large codebases. Use caching and parallel processing where appropriate.</description>
+      <examples>
+        <example title="Performance Optimization">
+          <correct-example title="Optimized Prettier for large projects" conditions="Formatting large codebase efficiently" expected-result="Fast formatting with minimal resource usage" correctness-criteria="Uses caching, parallel processing, efficient glob patterns"><![CDATA[// package.json with performance optimizations
+{
+  "scripts": {
+    "format": "prettier --write . --cache --cache-strategy content",
+    "format:check": "prettier --check . --cache --cache-strategy content",
+    "format:changed": "prettier --write $(git diff --name-only --diff-filter=ACM | grep -E '\\.(js|jsx|ts|tsx|json|css|scss|html|md)$' | tr '\\n' ' ')",
+    "format:staged": "lint-staged",
+    "format:parallel": "prettier-parallel --write \"src/**/*.{js,jsx,ts,tsx}\""
+  },
+  "devDependencies": {
+    "prettier": "^3.1.0",
+    "prettier-parallel": "^0.1.2"
+  }
+}
+
+// .prettierignore with performance considerations
+# Large directories
+node_modules/
+dist/
+build/
+coverage/
+.next/
+.nuxt/
+.cache/
+public/
+
+# Generated files
+*.min.js
+*.min.css
+*.map
+*.bundle.js
+
+# Lock files
+package-lock.json
+yarn.lock
+pnpm-lock.yaml
+
+# Large data files
+*.log
+*.tmp
+*.temp
+
+// lint-staged.config.js with chunking
+module.exports = {
+  '*.{js,jsx,ts,tsx,json,css,scss,html,md}': files => {
+    // Process files in chunks for better performance
+    const chunkSize = 20;
+    const chunks = [];
+    
+    for (let i = 0; i < files.length; i += chunkSize) {
+      chunks.push(files.slice(i, i + chunkSize));
+    }
+    
+    return chunks.map(chunk => 
+      `prettier --write ${chunk.join(' ')}`
+    );
+  },
+};
+
+// CI optimization (.github/workflows/format.yml)
+name: Format Check
+on: [push, pull_request]
+jobs:
+  format:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0 # For git diff
+      
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+      
+      - run: npm ci
+      
+      # Only check changed files in PR
+      - name: Check formatting (PR)
+        if: github.event_name == 'pull_request'
+        run: |
+          git diff --name-only origin/${{ github.base_ref }}...HEAD | \
+          grep -E '\.(js|jsx|ts|tsx|json|css|scss|html|md)$' | \
+          xargs -r npx prettier --check
+      
+      # Check all files on main branch
+      - name: Check formatting (main)
+        if: github.ref == 'refs/heads/main'
+        run: npm run format:check]]></correct-example>
+          <incorrect-example title="Inefficient Prettier usage" conditions="Formatting large codebase efficiently" expected-result="Fast formatting with minimal resource usage" incorrectness-criteria="No caching, processes all files, inefficient patterns"><![CDATA[// Bad: No caching or optimization
+{
+  "scripts": {
+    "format": "prettier --write .", // Always processes all files
+    "format:check": "prettier --check ." // No caching
+  }
+}
+
+// Bad: No .prettierignore optimizations
+// Will process unnecessary files
+
+// Bad: No chunking in lint-staged
+{
+  "lint-staged": {
+    "*.{js,jsx,ts,tsx,json,css,scss,html,md}": "prettier --write"
+    // May fail with too many files
+  }
+}
+
+// Bad: No CI optimization
+// Always checks all files even for small changes]]></incorrect-example>
+        </example>
+      </examples>
+    </requirement>
+  </requirements>
+  <context description="Prettier code formatting considerations">
+    Prettier is an opinionated code formatter that supports many languages and integrates with most editors. It removes all original styling and ensures consistent code style by parsing code and reprinting it with its own rules.
+
+    Key advantages of Prettier:
+    - Consistent code style across team and projects
+    - Reduces time spent on code review discussions about formatting
+    - Integrates well with existing tools (ESLint, Git hooks, CI/CD)
+    - Supports many languages and file types
+    - Highly configurable through plugins and overrides
+
+    Best practices include proper configuration management, ESLint integration to avoid conflicts, automated formatting through Git hooks, and performance optimization for large codebases. The tool works best when configured once and automated everywhere.
+
+    Modern development workflows should include Prettier at multiple stages: editor integration for real-time formatting, pre-commit hooks for consistency, and CI checks for enforcement.
+  </context>
+  <references>
+    <reference as="dependency" href=".cursor/rules/000-core/002-cursor-rules-creation.mdc" reason="Follows standard rule format">Base rule format definition</reference>
+    <reference as="context" href=".cursor/rules/200-quality/201-eslint-core-standards-auto.mdc" reason="ESLint integration">ESLint and Prettier integration patterns</reference>
+    <reference as="context" href="https://prettier.io/docs/en/configuration.html" reason="Official documentation">Prettier configuration documentation</reference>
+    <reference as="context" href="https://prettier.io/docs/en/integrating-with-linters.html" reason="Linter integration">Prettier and ESLint integration guide</reference>
+  </references>
+</rule>

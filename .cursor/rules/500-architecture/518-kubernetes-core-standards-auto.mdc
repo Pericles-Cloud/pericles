@@ -1,0 +1,1360 @@
+---
+description: "Comprehensive Kubernetes container orchestration standards with deployment strategies, security policies, networking, storage management, and production operations following cloud-native best practices"
+globs: ["**/*.{yaml,yml}", "**/k8s/**/*", "**/kubernetes/**/*", "**/helm/**/*", "**/manifests/**/*"]
+alwaysApply: false
+---
+
+<rule>
+  <meta>
+    <title>Kubernetes Core Standards</title>
+    <description>Comprehensive Kubernetes container orchestration standards covering deployment strategies, security policies, networking, storage management, monitoring, and production operations following cloud-native best practices and CNCF guidelines</description>
+    <created-at utc-timestamp="1744157700">January 25, 2025, 10:15 AM</created-at>
+    <last-updated-at utc-timestamp="1744157700">January 25, 2025, 10:15 AM</last-updated-at>
+    <applies-to>
+      <file-matcher glob="**/*.{yaml,yml}">Kubernetes manifest files and configurations</file-matcher>
+      <file-matcher glob="**/k8s/**/*">Kubernetes-specific directories and files</file-matcher>
+      <file-matcher glob="**/kubernetes/**/*">Kubernetes configuration and deployment files</file-matcher>
+      <file-matcher glob="**/manifests/**/*">Kubernetes manifest directories</file-matcher>
+      <file-matcher glob="**/helm/**/*">Helm chart files and configurations</file-matcher>
+      <file-matcher glob="**/kustomize/**/*">Kustomize configuration files</file-matcher>
+      <action-matcher action="kubernetes">Triggered when working with Kubernetes orchestration</action-matcher>
+    </applies-to>
+  </meta>
+  <requirements>
+    <non-negotiable priority="critical">
+      <description>Use secure-by-default Kubernetes configurations with RBAC, Pod Security Standards, Network Policies, resource quotas, and proper secrets management. Implement comprehensive security contexts, admission controllers, and vulnerability scanning with production-ready deployment strategies.</description>
+      <examples>
+        <example title="Secure Production Deployment">
+          <correct-example title="Complete secure deployment with all security measures" conditions="Deploying application to production Kubernetes" expected-result="Secure, scalable deployment with proper security controls" correctness-criteria="RBAC, security contexts, network policies, secrets management, resource limits, health checks"><![CDATA[# namespace.yaml - Secure namespace configuration
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: myapp-production
+  labels:
+    name: myapp-production
+    environment: production
+    security.policy: enforced
+  annotations:
+    scheduler.alpha.kubernetes.io/preferred-duplication-index: "1"
+---
+# serviceaccount.yaml - Dedicated service account
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: myapp-sa
+  namespace: myapp-production
+  labels:
+    app: myapp
+    component: backend
+automountServiceAccountToken: false
+---
+# rbac.yaml - Minimal RBAC permissions
+apiVersion: rbac.authorization.k8s.io/v1
+kind: Role
+metadata:
+  namespace: myapp-production
+  name: myapp-role
+rules:
+- apiGroups: [""]
+  resources: ["pods", "configmaps", "secrets"]
+  verbs: ["get", "list"]
+- apiGroups: ["apps"]
+  resources: ["deployments"]
+  verbs: ["get", "list"]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata:
+  name: myapp-rolebinding
+  namespace: myapp-production
+subjects:
+- kind: ServiceAccount
+  name: myapp-sa
+  namespace: myapp-production
+roleRef:
+  kind: Role
+  name: myapp-role
+  apiGroup: rbac.authorization.k8s.io
+---
+# secrets.yaml - Secure secrets management
+apiVersion: v1
+kind: Secret
+metadata:
+  name: myapp-secrets
+  namespace: myapp-production
+  labels:
+    app: myapp
+type: Opaque
+data:
+  database-password: <base64-encoded-password>
+  jwt-secret: <base64-encoded-secret>
+  api-key: <base64-encoded-key>
+---
+# configmap.yaml - Application configuration
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: myapp-config
+  namespace: myapp-production
+  labels:
+    app: myapp
+data:
+  app.properties: |
+    server.port=8080
+    logging.level.root=INFO
+    spring.profiles.active=production
+  nginx.conf: |
+    upstream backend {
+        server localhost:8080;
+    }
+    server {
+        listen 80;
+        location / {
+            proxy_pass http://backend;
+            proxy_set_header Host $host;
+            proxy_set_header X-Real-IP $remote_addr;
+        }
+    }
+---
+# deployment.yaml - Secure deployment
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: myapp-deployment
+  namespace: myapp-production
+  labels:
+    app: myapp
+    version: v1.0.0
+spec:
+  replicas: 3
+  strategy:
+    type: RollingUpdate
+    rollingUpdate:
+      maxUnavailable: 1
+      maxSurge: 1
+  selector:
+    matchLabels:
+      app: myapp
+  template:
+    metadata:
+      labels:
+        app: myapp
+        version: v1.0.0
+      annotations:
+        prometheus.io/scrape: "true"
+        prometheus.io/port: "8080"
+        prometheus.io/path: "/metrics"
+    spec:
+      serviceAccountName: myapp-sa
+      automountServiceAccountToken: false
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 1001
+        runAsGroup: 3000
+        fsGroup: 2000
+        seccompProfile:
+          type: RuntimeDefault
+      containers:
+      - name: myapp
+        image: myapp:v1.0.0
+        imagePullPolicy: Always
+        ports:
+        - containerPort: 8080
+          name: http
+          protocol: TCP
+        env:
+        - name: DATABASE_PASSWORD
+          valueFrom:
+            secretKeyRef:
+              name: myapp-secrets
+              key: database-password
+        - name: JWT_SECRET
+          valueFrom:
+            secretKeyRef:
+              name: myapp-secrets
+              key: jwt-secret
+        envFrom:
+        - configMapRef:
+            name: myapp-config
+        securityContext:
+          allowPrivilegeEscalation: false
+          readOnlyRootFilesystem: true
+          runAsNonRoot: true
+          runAsUser: 1001
+          runAsGroup: 3000
+          capabilities:
+            drop:
+            - ALL
+        resources:
+          requests:
+            memory: "256Mi"
+            cpu: "250m"
+          limits:
+            memory: "512Mi"
+            cpu: "500m"
+        livenessProbe:
+          httpGet:
+            path: /health
+            port: 8080
+            scheme: HTTP
+          initialDelaySeconds: 30
+          periodSeconds: 10
+          timeoutSeconds: 5
+          failureThreshold: 3
+        readinessProbe:
+          httpGet:
+            path: /ready
+            port: 8080
+            scheme: HTTP
+          initialDelaySeconds: 5
+          periodSeconds: 5
+          timeoutSeconds: 3
+          failureThreshold: 3
+        volumeMounts:
+        - name: tmp-volume
+          mountPath: /tmp
+        - name: cache-volume
+          mountPath: /app/cache
+      volumes:
+      - name: tmp-volume
+        emptyDir: {}
+      - name: cache-volume
+        emptyDir:
+          sizeLimit: 1Gi
+      nodeSelector:
+        kubernetes.io/os: linux
+      tolerations:
+      - key: "node-role.kubernetes.io/worker"
+        operator: "Equal"
+        value: "true"
+        effect: "NoSchedule"
+      affinity:
+        podAntiAffinity:
+          preferredDuringSchedulingIgnoredDuringExecution:
+          - weight: 100
+            podAffinityTerm:
+              labelSelector:
+                matchExpressions:
+                - key: app
+                  operator: In
+                  values:
+                  - myapp
+              topologyKey: kubernetes.io/hostname
+---
+# service.yaml - Internal service
+apiVersion: v1
+kind: Service
+metadata:
+  name: myapp-service
+  namespace: myapp-production
+  labels:
+    app: myapp
+spec:
+  type: ClusterIP
+  ports:
+  - port: 80
+    targetPort: 8080
+    protocol: TCP
+    name: http
+  selector:
+    app: myapp
+---
+# network-policy.yaml - Network security
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: myapp-network-policy
+  namespace: myapp-production
+spec:
+  podSelector:
+    matchLabels:
+      app: myapp
+  policyTypes:
+  - Ingress
+  - Egress
+  ingress:
+  - from:
+    - namespaceSelector:
+        matchLabels:
+          name: ingress-nginx
+    - namespaceSelector:
+        matchLabels:
+          name: monitoring
+    ports:
+    - protocol: TCP
+      port: 8080
+  egress:
+  - to:
+    - namespaceSelector:
+        matchLabels:
+          name: database
+    ports:
+    - protocol: TCP
+      port: 5432
+  - to: []
+    ports:
+    - protocol: TCP
+      port: 53
+    - protocol: UDP
+      port: 53
+---
+# pod-security-policy.yaml - Pod security constraints
+apiVersion: policy/v1beta1
+kind: PodSecurityPolicy
+metadata:
+  name: myapp-psp
+  namespace: myapp-production
+spec:
+  privileged: false
+  allowPrivilegeEscalation: false
+  requiredDropCapabilities:
+    - ALL
+  volumes:
+    - 'configMap'
+    - 'emptyDir'
+    - 'projected'
+    - 'secret'
+    - 'downwardAPI'
+    - 'persistentVolumeClaim'
+  runAsUser:
+    rule: 'MustRunAsNonRoot'
+  seLinux:
+    rule: 'RunAsAny'
+  fsGroup:
+    rule: 'RunAsAny'
+---
+# hpa.yaml - Horizontal Pod Autoscaler
+apiVersion: autoscaling/v2
+kind: HorizontalPodAutoscaler
+metadata:
+  name: myapp-hpa
+  namespace: myapp-production
+spec:
+  scaleTargetRef:
+    apiVersion: apps/v1
+    kind: Deployment
+    name: myapp-deployment
+  minReplicas: 3
+  maxReplicas: 10
+  metrics:
+  - type: Resource
+    resource:
+      name: cpu
+      target:
+        type: Utilization
+        averageUtilization: 70
+  - type: Resource
+    resource:
+      name: memory
+      target:
+        type: Utilization
+        averageUtilization: 80
+  behavior:
+    scaleDown:
+      stabilizationWindowSeconds: 300
+      policies:
+      - type: Percent
+        value: 10
+        periodSeconds: 60
+    scaleUp:
+      stabilizationWindowSeconds: 0
+      policies:
+      - type: Percent
+        value: 100
+        periodSeconds: 15
+      - type: Pods
+        value: 4
+        periodSeconds: 15
+      selectPolicy: Max]]></correct-example>
+          <incorrect-example title="Basic deployment without security measures" conditions="Deploying to Kubernetes without security considerations" expected-result="Secure deployment with proper controls" incorrectness-criteria="No RBAC, running as root, no network policies, exposed secrets, no resource limits"><![CDATA[apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: myapp
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: myapp
+  template:
+    metadata:
+      labels:
+        app: myapp
+    spec:
+      containers:
+      - name: myapp
+        image: myapp:latest
+        ports:
+        - containerPort: 8080
+        env:
+        - name: DB_PASSWORD
+          value: "password123"  # Bad: Exposed secret
+        # Bad: No security context
+        # Bad: Running as root
+        # Bad: No resource limits
+        # Bad: No health checks
+
+# Bad: No RBAC
+# Bad: No network policies
+# Bad: No secrets management
+# Bad: No security contexts
+# Bad: No resource quotas]]></incorrect-example>
+        </example>
+      </examples>
+    </non-negotiable>
+
+    <requirement priority="critical">
+      <description>Implement production-ready deployment strategies with rolling updates, blue-green deployments, canary releases, and proper traffic management using ingress controllers and service mesh integration.</description>
+      <examples>
+        <example title="Advanced Deployment Strategies">
+          <correct-example title="Canary deployment with traffic splitting" conditions="Implementing canary deployment strategy" expected-result="Safe, controlled deployment with traffic management" correctness-criteria="Traffic splitting, monitoring integration, automated rollback, health checks"><![CDATA># canary-deployment.yaml - Canary deployment strategy
+apiVersion: argoproj.io/v1alpha1
+kind: Rollout
+metadata:
+  name: myapp-rollout
+  namespace: myapp-production
+spec:
+  replicas: 5
+  strategy:
+    canary:
+      canaryService: myapp-canary
+      stableService: myapp-stable
+      trafficRouting:
+        nginx:
+          stableIngress: myapp-ingress
+          annotationPrefix: nginx.ingress.kubernetes.io
+          additionalIngressAnnotations:
+            canary-by-header: X-Canary
+            canary-by-header-value: "true"
+      steps:
+      - setWeight: 20
+      - pause: {duration: 10s}
+      - setWeight: 40
+      - pause: {duration: 10s}
+      - setWeight: 60
+      - pause: {duration: 10s}
+      - setWeight: 80
+      - pause: {duration: 10s}
+      analysis:
+        templates:
+        - templateName: success-rate
+        startingStep: 2
+        args:
+        - name: service-name
+          value: myapp-canary
+      scaleDownDelaySeconds: 30
+      scaleDownDelayRevisionLimit: 2
+  selector:
+    matchLabels:
+      app: myapp
+  template:
+    metadata:
+      labels:
+        app: myapp
+    spec:
+      containers:
+      - name: myapp
+        image: myapp:v2.0.0
+        ports:
+        - containerPort: 8080
+        resources:
+          requests:
+            memory: "256Mi"
+            cpu: "250m"
+          limits:
+            memory: "512Mi"
+            cpu: "500m"
+        livenessProbe:
+          httpGet:
+            path: /health
+            port: 8080
+          initialDelaySeconds: 30
+          periodSeconds: 10
+        readinessProbe:
+          httpGet:
+            path: /ready
+            port: 8080
+          initialDelaySeconds: 5
+          periodSeconds: 5
+---
+# analysis-template.yaml - Canary analysis
+apiVersion: argoproj.io/v1alpha1
+kind: AnalysisTemplate
+metadata:
+  name: success-rate
+  namespace: myapp-production
+spec:
+  args:
+  - name: service-name
+  metrics:
+  - name: success-rate
+    interval: 10s
+    successCondition: result[0] >= 0.95
+    failureLimit: 3
+    provider:
+      prometheus:
+        address: http://prometheus:9090
+        query: |
+          sum(irate(
+            http_requests_total{job="{{args.service-name}}",status=~"2.."}[2m]
+          )) / 
+          sum(irate(
+            http_requests_total{job="{{args.service-name}}"}[2m]
+          ))
+  - name: avg-response-time
+    interval: 10s
+    successCondition: result[0] <= 0.5
+    failureLimit: 3
+    provider:
+      prometheus:
+        address: http://prometheus:9090
+        query: |
+          histogram_quantile(0.95,
+            sum(rate(http_request_duration_seconds_bucket{job="{{args.service-name}}"}[2m])) by (le)
+          )
+---
+# services.yaml - Canary and stable services
+apiVersion: v1
+kind: Service
+metadata:
+  name: myapp-stable
+  namespace: myapp-production
+spec:
+  type: ClusterIP
+  ports:
+  - port: 80
+    targetPort: 8080
+    protocol: TCP
+    name: http
+  selector:
+    app: myapp
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: myapp-canary
+  namespace: myapp-production
+spec:
+  type: ClusterIP
+  ports:
+  - port: 80
+    targetPort: 8080
+    protocol: TCP
+    name: http
+  selector:
+    app: myapp
+---
+# ingress.yaml - Traffic routing
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: myapp-ingress
+  namespace: myapp-production
+  annotations:
+    kubernetes.io/ingress.class: nginx
+    nginx.ingress.kubernetes.io/rewrite-target: /
+    nginx.ingress.kubernetes.io/ssl-redirect: "true"
+    cert-manager.io/cluster-issuer: letsencrypt-prod
+    nginx.ingress.kubernetes.io/rate-limit: "100"
+    nginx.ingress.kubernetes.io/rate-limit-window: "1m"
+spec:
+  tls:
+  - hosts:
+    - myapp.example.com
+    secretName: myapp-tls
+  rules:
+  - host: myapp.example.com
+    http:
+      paths:
+      - path: /
+        pathType: Prefix
+        backend:
+          service:
+            name: myapp-stable
+            port:
+              number: 80
+---
+# blue-green-deployment.yaml - Blue-Green strategy
+apiVersion: argoproj.io/v1alpha1
+kind: Rollout
+metadata:
+  name: myapp-blue-green
+  namespace: myapp-production
+spec:
+  replicas: 5
+  strategy:
+    blueGreen:
+      activeService: myapp-active
+      previewService: myapp-preview
+      autoPromotionEnabled: false
+      scaleDownDelaySeconds: 30
+      prePromotionAnalysis:
+        templates:
+        - templateName: success-rate
+        args:
+        - name: service-name
+          value: myapp-preview
+      postPromotionAnalysis:
+        templates:
+        - templateName: success-rate
+        args:
+        - name: service-name
+          value: myapp-active
+  selector:
+    matchLabels:
+      app: myapp
+  template:
+    metadata:
+      labels:
+        app: myapp
+    spec:
+      containers:
+      - name: myapp
+        image: myapp:v2.0.0
+        ports:
+        - containerPort: 8080]]></correct-example>
+          <incorrect-example title="Basic deployment without strategy" conditions="Deploying updates to Kubernetes" expected-result="Controlled deployment with proper strategy" incorrectness-criteria="No deployment strategy, no traffic management, no rollback capability, no monitoring"><![CDATA[apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: myapp
+spec:
+  replicas: 3
+  selector:
+    matchLabels:
+      app: myapp
+  template:
+    metadata:
+      labels:
+        app: myapp
+    spec:
+      containers:
+      - name: myapp
+        image: myapp:latest  # Bad: No version pinning
+        ports:
+        - containerPort: 8080
+
+# Bad: No deployment strategy
+# Bad: No traffic management
+# Bad: No canary or blue-green
+# Bad: No analysis or monitoring
+# Bad: No rollback mechanism]]></incorrect-example>
+        </example>
+      </examples>
+    </requirement>
+
+    <requirement priority="high">
+      <description>Configure comprehensive monitoring, logging, and observability with Prometheus metrics, centralized logging, distributed tracing, and alerting for Kubernetes clusters and applications.</description>
+      <examples>
+        <example title="Kubernetes Observability Stack">
+          <correct-example title="Complete monitoring and observability setup" conditions="Implementing Kubernetes monitoring and observability" expected-result="Comprehensive observability with metrics, logs, and traces" correctness-criteria="Prometheus monitoring, centralized logging, distributed tracing, alerting, dashboards"><![CDATA># monitoring-namespace.yaml - Monitoring namespace
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: monitoring
+  labels:
+    name: monitoring
+---
+# prometheus-deployment.yaml - Prometheus deployment
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: prometheus
+  namespace: monitoring
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: prometheus
+  template:
+    metadata:
+      labels:
+        app: prometheus
+    spec:
+      serviceAccountName: prometheus
+      containers:
+      - name: prometheus
+        image: prom/prometheus:latest
+        args:
+          - '--config.file=/etc/prometheus/prometheus.yml'
+          - '--storage.tsdb.path=/prometheus/'
+          - '--web.console.libraries=/etc/prometheus/console_libraries'
+          - '--web.console.templates=/etc/prometheus/consoles'
+          - '--storage.tsdb.retention.time=200h'
+          - '--web.enable-lifecycle'
+        ports:
+        - containerPort: 9090
+        resources:
+          requests:
+            memory: "512Mi"
+            cpu: "250m"
+          limits:
+            memory: "1Gi"
+            cpu: "500m"
+        volumeMounts:
+        - name: prometheus-config-volume
+          mountPath: /etc/prometheus/
+        - name: prometheus-storage-volume
+          mountPath: /prometheus/
+      volumes:
+      - name: prometheus-config-volume
+        configMap:
+          defaultMode: 420
+          name: prometheus-config
+      - name: prometheus-storage-volume
+        persistentVolumeClaim:
+          claimName: prometheus-pvc
+---
+# prometheus-config.yaml - Prometheus configuration
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: prometheus-config
+  namespace: monitoring
+data:
+  prometheus.yml: |
+    global:
+      scrape_interval: 15s
+      evaluation_interval: 15s
+
+    rule_files:
+      - "kubernetes.rules"
+      - "application.rules"
+
+    alerting:
+      alertmanagers:
+      - static_configs:
+        - targets:
+          - alertmanager:9093
+
+    scrape_configs:
+    - job_name: 'kubernetes-apiservers'
+      kubernetes_sd_configs:
+      - role: endpoints
+      scheme: https
+      tls_config:
+        ca_file: /var/run/secrets/kubernetes.io/serviceaccount/ca.crt
+      bearer_token_file: /var/run/secrets/kubernetes.io/serviceaccount/token
+      relabel_configs:
+      - source_labels: [__meta_kubernetes_namespace, __meta_kubernetes_service_name, __meta_kubernetes_endpoint_port_name]
+        action: keep
+        regex: default;kubernetes;https
+
+    - job_name: 'kubernetes-nodes'
+      kubernetes_sd_configs:
+      - role: node
+      scheme: https
+      tls_config:
+        ca_file: /var/run/secrets/kubernetes.io/serviceaccount/ca.crt
+      bearer_token_file: /var/run/secrets/kubernetes.io/serviceaccount/token
+      relabel_configs:
+      - action: labelmap
+        regex: __meta_kubernetes_node_label_(.+)
+
+    - job_name: 'kubernetes-pods'
+      kubernetes_sd_configs:
+      - role: pod
+      relabel_configs:
+      - source_labels: [__meta_kubernetes_pod_annotation_prometheus_io_scrape]
+        action: keep
+        regex: true
+      - source_labels: [__meta_kubernetes_pod_annotation_prometheus_io_path]
+        action: replace
+        target_label: __metrics_path__
+        regex: (.+)
+      - source_labels: [__address__, __meta_kubernetes_pod_annotation_prometheus_io_port]
+        action: replace
+        regex: ([^:]+)(?::\d+)?;(\d+)
+        replacement: $1:$2
+        target_label: __address__
+      - action: labelmap
+        regex: __meta_kubernetes_pod_label_(.+)
+      - source_labels: [__meta_kubernetes_namespace]
+        action: replace
+        target_label: kubernetes_namespace
+      - source_labels: [__meta_kubernetes_pod_name]
+        action: replace
+        target_label: kubernetes_pod_name
+
+  kubernetes.rules: |
+    groups:
+    - name: kubernetes.rules
+      rules:
+      - alert: KubernetesNodeReady
+        expr: kube_node_status_condition{condition="Ready",status="true"} == 0
+        for: 10m
+        labels:
+          severity: critical
+        annotations:
+          summary: Kubernetes Node not ready (instance {{ $labels.instance }})
+          description: "Node {{ $labels.node }} has been unready for a long time"
+
+      - alert: KubernetesMemoryPressure
+        expr: kube_node_status_condition{condition="MemoryPressure",status="true"} == 1
+        for: 2m
+        labels:
+          severity: critical
+        annotations:
+          summary: Kubernetes memory pressure (instance {{ $labels.instance }})
+          description: "Node {{ $labels.node }} has MemoryPressure condition"
+
+      - alert: KubernetesPodCrashLooping
+        expr: increase(kube_pod_container_status_restarts_total[1h]) > 5
+        for: 2m
+        labels:
+          severity: warning
+        annotations:
+          summary: Kubernetes pod crash looping (instance {{ $labels.instance }})
+          description: "Pod {{ $labels.pod }} is crash looping"
+
+  application.rules: |
+    groups:
+    - name: application.rules
+      rules:
+      - alert: HighErrorRate
+        expr: |
+          (
+            sum(rate(http_requests_total{status=~"5.."}[5m])) by (service)
+            /
+            sum(rate(http_requests_total[5m])) by (service)
+          ) > 0.05
+        for: 5m
+        labels:
+          severity: critical
+        annotations:
+          summary: High error rate detected
+          description: "Service {{ $labels.service }} has error rate above 5%"
+
+      - alert: HighResponseTime
+        expr: |
+          histogram_quantile(0.95,
+            sum(rate(http_request_duration_seconds_bucket[5m])) by (le, service)
+          ) > 0.5
+        for: 5m
+        labels:
+          severity: warning
+        annotations:
+          summary: High response time detected
+          description: "Service {{ $labels.service }} 95th percentile response time is above 500ms"
+---
+# grafana-deployment.yaml - Grafana deployment
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: grafana
+  namespace: monitoring
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: grafana
+  template:
+    metadata:
+      labels:
+        app: grafana
+    spec:
+      containers:
+      - name: grafana
+        image: grafana/grafana:latest
+        ports:
+        - containerPort: 3000
+        env:
+        - name: GF_SECURITY_ADMIN_PASSWORD
+          valueFrom:
+            secretKeyRef:
+              name: grafana-secret
+              key: admin-password
+        volumeMounts:
+        - name: grafana-storage
+          mountPath: /var/lib/grafana
+        - name: grafana-datasources
+          mountPath: /etc/grafana/provisioning/datasources
+        - name: grafana-dashboards
+          mountPath: /etc/grafana/provisioning/dashboards
+        resources:
+          requests:
+            memory: "256Mi"
+            cpu: "100m"
+          limits:
+            memory: "512Mi"
+            cpu: "200m"
+      volumes:
+      - name: grafana-storage
+        persistentVolumeClaim:
+          claimName: grafana-pvc
+      - name: grafana-datasources
+        configMap:
+          name: grafana-datasources
+      - name: grafana-dashboards
+        configMap:
+          name: grafana-dashboards
+---
+# fluentd-daemonset.yaml - Centralized logging
+apiVersion: apps/v1
+kind: DaemonSet
+metadata:
+  name: fluentd
+  namespace: monitoring
+spec:
+  selector:
+    matchLabels:
+      name: fluentd
+  template:
+    metadata:
+      labels:
+        name: fluentd
+    spec:
+      serviceAccount: fluentd
+      containers:
+      - name: fluentd
+        image: fluent/fluentd-kubernetes-daemonset:v1-debian-elasticsearch
+        env:
+        - name: FLUENT_ELASTICSEARCH_HOST
+          value: "elasticsearch.monitoring.svc.cluster.local"
+        - name: FLUENT_ELASTICSEARCH_PORT
+          value: "9200"
+        - name: FLUENT_ELASTICSEARCH_SCHEME
+          value: "http"
+        resources:
+          requests:
+            memory: "200Mi"
+            cpu: "100m"
+          limits:
+            memory: "400Mi"
+            cpu: "200m"
+        volumeMounts:
+        - name: varlog
+          mountPath: /var/log
+        - name: varlibdockercontainers
+          mountPath: /var/lib/docker/containers
+          readOnly: true
+        - name: fluentd-config
+          mountPath: /fluentd/etc
+      volumes:
+      - name: varlog
+        hostPath:
+          path: /var/log
+      - name: varlibdockercontainers
+        hostPath:
+          path: /var/lib/docker/containers
+      - name: fluentd-config
+        configMap:
+          name: fluentd-config
+---
+# jaeger-deployment.yaml - Distributed tracing
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: jaeger
+  namespace: monitoring
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: jaeger
+  template:
+    metadata:
+      labels:
+        app: jaeger
+    spec:
+      containers:
+      - name: jaeger
+        image: jaegertracing/all-in-one:latest
+        env:
+        - name: COLLECTOR_OTLP_ENABLED
+          value: "true"
+        ports:
+        - containerPort: 16686
+        - containerPort: 14268
+        resources:
+          requests:
+            memory: "256Mi"
+            cpu: "100m"
+          limits:
+            memory: "512Mi"
+            cpu: "200m"]]></correct-example>
+          <incorrect-example title="Basic monitoring without comprehensive observability" conditions="Setting up basic Kubernetes monitoring" expected-result="Comprehensive observability stack" incorrectness-criteria="No centralized logging, limited metrics, no tracing, no alerting, poor observability"><![CDATA[apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: prometheus
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: prometheus
+  template:
+    metadata:
+      labels:
+        app: prometheus
+    spec:
+      containers:
+      - name: prometheus
+        image: prom/prometheus
+        ports:
+        - containerPort: 9090
+
+# Bad: No configuration
+# Bad: No persistent storage
+# Bad: No alerting rules
+# Bad: No centralized logging
+# Bad: No distributed tracing
+# Bad: No dashboards
+# Bad: Basic setup only]]></incorrect-example>
+        </example>
+      </examples>
+    </requirement>
+
+    <requirement priority="high">
+      <description>Implement proper storage management with persistent volumes, storage classes, backup strategies, and data protection for stateful applications in Kubernetes clusters.</description>
+      <examples>
+        <example title="Kubernetes Storage Management">
+          <correct-example title="Comprehensive storage configuration with backup and data protection" conditions="Managing persistent storage for stateful applications" expected-result="Reliable, backed-up storage with proper data protection" correctness-criteria="Storage classes, persistent volumes, backup strategies, data encryption, monitoring"><![CDATA[# storage-class.yaml - Performance storage classes
+apiVersion: storage.k8s.io/v1
+kind: StorageClass
+metadata:
+  name: fast-ssd
+  annotations:
+    storageclass.kubernetes.io/is-default-class: "false"
+provisioner: kubernetes.io/aws-ebs
+parameters:
+  type: gp3
+  iops: "3000"
+  throughput: "125"
+  encrypted: "true"
+allowVolumeExpansion: true
+volumeBindingMode: WaitForFirstConsumer
+reclaimPolicy: Retain
+---
+apiVersion: storage.k8s.io/v1
+kind: StorageClass
+metadata:
+  name: standard-storage
+  annotations:
+    storageclass.kubernetes.io/is-default-class: "true"
+provisioner: kubernetes.io/aws-ebs
+parameters:
+  type: gp3
+  encrypted: "true"
+allowVolumeExpansion: true
+volumeBindingMode: WaitForFirstConsumer
+reclaimPolicy: Delete
+---
+# postgres-statefulset.yaml - Database with persistent storage
+apiVersion: apps/v1
+kind: StatefulSet
+metadata:
+  name: postgres
+  namespace: database
+spec:
+  serviceName: postgres-headless
+  replicas: 3
+  selector:
+    matchLabels:
+      app: postgres
+  template:
+    metadata:
+      labels:
+        app: postgres
+    spec:
+      securityContext:
+        runAsUser: 999
+        runAsGroup: 999
+        fsGroup: 999
+      containers:
+      - name: postgres
+        image: postgres:15-alpine
+        env:
+        - name: POSTGRES_DB
+          value: myapp
+        - name: POSTGRES_USER
+          valueFrom:
+            secretKeyRef:
+              name: postgres-secret
+              key: username
+        - name: POSTGRES_PASSWORD
+          valueFrom:
+            secretKeyRef:
+              name: postgres-secret
+              key: password
+        - name: POSTGRES_REPLICATION_USER
+          valueFrom:
+            secretKeyRef:
+              name: postgres-secret
+              key: replication-username
+        - name: POSTGRES_REPLICATION_PASSWORD
+          valueFrom:
+            secretKeyRef:
+              name: postgres-secret
+              key: replication-password
+        ports:
+        - containerPort: 5432
+          name: postgres
+        volumeMounts:
+        - name: postgres-storage
+          mountPath: /var/lib/postgresql/data
+          subPath: postgres
+        - name: postgres-config
+          mountPath: /etc/postgresql/postgresql.conf
+          subPath: postgresql.conf
+        - name: backup-storage
+          mountPath: /backup
+        resources:
+          requests:
+            memory: "512Mi"
+            cpu: "250m"
+          limits:
+            memory: "1Gi"
+            cpu: "500m"
+        livenessProbe:
+          exec:
+            command:
+            - /bin/sh
+            - -c
+            - exec pg_isready -U "$POSTGRES_USER" -d "$POSTGRES_DB" -h 127.0.0.1 -p 5432
+          initialDelaySeconds: 30
+          periodSeconds: 10
+          timeoutSeconds: 5
+          successThreshold: 1
+          failureThreshold: 6
+        readinessProbe:
+          exec:
+            command:
+            - /bin/sh
+            - -c
+            - exec pg_isready -U "$POSTGRES_USER" -d "$POSTGRES_DB" -h 127.0.0.1 -p 5432
+          initialDelaySeconds: 5
+          periodSeconds: 10
+          timeoutSeconds: 5
+          successThreshold: 1
+          failureThreshold: 3
+      - name: backup-sidecar
+        image: postgres:15-alpine
+        command:
+        - /bin/bash
+        - -c
+        - |
+          while true; do
+            echo "Starting backup at $(date)"
+            pg_dump -h localhost -U $POSTGRES_USER -d $POSTGRES_DB > /backup/backup-$(date +%Y%m%d-%H%M%S).sql
+            echo "Backup completed at $(date)"
+            # Keep only last 7 days of backups
+            find /backup -name "backup-*.sql" -mtime +7 -delete
+            sleep 3600  # Run every hour
+          done
+        env:
+        - name: POSTGRES_USER
+          valueFrom:
+            secretKeyRef:
+              name: postgres-secret
+              key: username
+        - name: POSTGRES_DB
+          value: myapp
+        - name: PGPASSWORD
+          valueFrom:
+            secretKeyRef:
+              name: postgres-secret
+              key: password
+        volumeMounts:
+        - name: backup-storage
+          mountPath: /backup
+        resources:
+          requests:
+            memory: "128Mi"
+            cpu: "50m"
+          limits:
+            memory: "256Mi"
+            cpu: "100m"
+      volumes:
+      - name: postgres-config
+        configMap:
+          name: postgres-config
+  volumeClaimTemplates:
+  - metadata:
+      name: postgres-storage
+    spec:
+      accessModes: ["ReadWriteOnce"]
+      storageClassName: fast-ssd
+      resources:
+        requests:
+          storage: 50Gi
+  - metadata:
+      name: backup-storage
+    spec:
+      accessModes: ["ReadWriteOnce"]
+      storageClassName: standard-storage
+      resources:
+        requests:
+          storage: 100Gi
+---
+# velero-backup.yaml - Cluster backup configuration
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: velero
+---
+apiVersion: velero.io/v1
+kind: BackupStorageLocation
+metadata:
+  name: aws-s3
+  namespace: velero
+spec:
+  provider: aws
+  objectStorage:
+    bucket: myapp-k8s-backups
+    prefix: cluster-backups
+  config:
+    region: us-west-2
+    s3ForcePathStyle: "false"
+---
+apiVersion: velero.io/v1
+kind: Schedule
+metadata:
+  name: daily-backup
+  namespace: velero
+spec:
+  schedule: "0 2 * * *"  # Daily at 2 AM
+  template:
+    includedNamespaces:
+    - myapp-production
+    - database
+    excludedResources:
+    - events
+    - events.events.k8s.io
+    ttl: 720h0m0s  # 30 days
+    storageLocation: aws-s3
+    snapshotVolumes: true
+    defaultVolumesToRestic: true
+---
+# volume-snapshot-class.yaml - Volume snapshots
+apiVersion: snapshot.storage.k8s.io/v1
+kind: VolumeSnapshotClass
+metadata:
+  name: csi-aws-vsc
+  annotations:
+    snapshot.storage.kubernetes.io/is-default-class: "true"
+driver: ebs.csi.aws.com
+deletionPolicy: Retain
+---
+# volume-snapshot.yaml - Database snapshot
+apiVersion: snapshot.storage.k8s.io/v1
+kind: VolumeSnapshot
+metadata:
+  name: postgres-snapshot
+  namespace: database
+spec:
+  volumeSnapshotClassName: csi-aws-vsc
+  source:
+    persistentVolumeClaimName: postgres-storage-postgres-0
+---
+# storage-monitoring.yaml - Storage monitoring
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: storage-monitoring
+  namespace: monitoring
+data:
+  storage-alerts.yml: |
+    groups:
+    - name: storage.rules
+      rules:
+      - alert: PersistentVolumeUsageHigh
+        expr: |
+          (
+            kubelet_volume_stats_used_bytes
+            /
+            kubelet_volume_stats_capacity_bytes
+          ) * 100 > 85
+        for: 5m
+        labels:
+          severity: warning
+        annotations:
+          summary: Persistent Volume usage high
+          description: "PV {{ $labels.persistentvolumeclaim }} in namespace {{ $labels.namespace }} is {{ $value }}% full"
+
+      - alert: PersistentVolumeUsageCritical
+        expr: |
+          (
+            kubelet_volume_stats_used_bytes
+            /
+            kubelet_volume_stats_capacity_bytes
+          ) * 100 > 95
+        for: 2m
+        labels:
+          severity: critical
+        annotations:
+          summary: Persistent Volume usage critical
+          description: "PV {{ $labels.persistentvolumeclaim }} in namespace {{ $labels.namespace }} is {{ $value }}% full"
+
+      - alert: PersistentVolumeErrors
+        expr: increase(kubelet_volume_stats_inodes_used[5m]) == 0 and kubelet_volume_stats_inodes_used > 0
+        for: 5m
+        labels:
+          severity: warning
+        annotations:
+          summary: Persistent Volume has errors
+          description: "PV {{ $labels.persistentvolumeclaim }} in namespace {{ $labels.namespace }} may have filesystem errors"]]></correct-example>
+          <incorrect-example title="Basic storage without backup or protection" conditions="Setting up storage for stateful applications" expected-result="Reliable storage with backup and protection" incorrectness-criteria="No backup strategy, no monitoring, no snapshots, basic storage only"><![CDATA[apiVersion: apps/v1
+kind: StatefulSet
+metadata:
+  name: postgres
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: postgres
+  template:
+    metadata:
+      labels:
+        app: postgres
+    spec:
+      containers:
+      - name: postgres
+        image: postgres
+        env:
+        - name: POSTGRES_PASSWORD
+          value: password
+        volumeMounts:
+        - name: postgres-storage
+          mountPath: /var/lib/postgresql/data
+  volumeClaimTemplates:
+  - metadata:
+      name: postgres-storage
+    spec:
+      accessModes: ["ReadWriteOnce"]
+      resources:
+        requests:
+          storage: 10Gi
+
+# Bad: No backup strategy
+# Bad: No storage class specified
+# Bad: No monitoring
+# Bad: No snapshots
+# Bad: No data protection
+# Bad: No resource limits]]></incorrect-example>
+        </example>
+      </examples>
+    </requirement>
+  </requirements>
+  <context description="Kubernetes container orchestration best practices and patterns">
+    Kubernetes is the leading container orchestration platform that automates deployment, scaling, and management of containerized applications. Modern Kubernetes development emphasizes security-first approaches, declarative configurations, and comprehensive observability for production environments.
+
+    Key principles for Kubernetes implementation include:
+    - Security by default with RBAC, Pod Security Standards, and Network Policies
+    - Infrastructure as Code with declarative YAML manifests and GitOps workflows
+    - Production readiness with proper deployment strategies, monitoring, and disaster recovery
+    - Resource management with quotas, limits, and horizontal pod autoscaling
+    - Service mesh integration for advanced traffic management and security
+
+    Kubernetes security is paramount and includes RBAC for access control, Pod Security Standards for workload security, Network Policies for traffic isolation, secrets management, and regular security scanning. All pods should run with security contexts, non-root users, and minimal privileges.
+
+    Production deployments require advanced deployment strategies like canary releases and blue-green deployments using tools like Argo Rollouts, comprehensive monitoring with Prometheus and Grafana, centralized logging with Fluentd or similar tools, and distributed tracing for microservices architectures.
+
+    Storage management involves proper persistent volume configurations, storage classes for different performance requirements, backup strategies with tools like Velero, and monitoring for storage utilization and performance.
+
+    Modern Kubernetes workflows integrate with CI/CD pipelines for GitOps deployments, automated testing, security scanning, and progressive delivery, ensuring reliable and secure containerized applications from development to production.
+  </context>
+  <references>
+    <reference as="dependency" href=".cursor/rules/000-core/002-cursor-rules-creation.mdc" reason="Follows standard rule format">Base rule format definition</reference>
+    <reference as="context" href="https://kubernetes.io/docs/concepts/security/" reason="Security best practices">Kubernetes Security Documentation</reference>
+    <reference as="context" href="https://kubernetes.io/docs/tasks/run-application/run-stateless-application-deployment/" reason="Deployment strategies">Kubernetes Deployment Guide</reference>
+    <reference as="context" href="https://kubernetes.io/docs/concepts/storage/" reason="Storage management">Kubernetes Storage Documentation</reference>
+  </references>
+</rule>

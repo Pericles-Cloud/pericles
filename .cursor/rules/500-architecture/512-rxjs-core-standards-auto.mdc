@@ -1,0 +1,1180 @@
+---
+description: "Comprehensive RxJS reactive programming standards with observables, operators, error handling, testing patterns, and TypeScript integration following expert RxJS community standards"
+globs: ["**/*.{ts,tsx,js,jsx}", "**/observables/**/*", "**/streams/**/*", "**/*rx*"]
+alwaysApply: false
+---
+
+<rule>
+  <meta>
+    <title>RxJS Core Standards</title>
+    <description>Comprehensive RxJS reactive programming standards with observables, operators, error handling, testing patterns, and TypeScript integration following expert RxJS community standards</description>
+    <created-at utc-timestamp="1744157700">January 25, 2025, 10:15 AM</created-at>
+    <last-updated-at utc-timestamp="1744157700">January 25, 2025, 10:15 AM</last-updated-at>
+    <applies-to>
+      <file-matcher glob="**/*.{ts,tsx,js,jsx}">TypeScript and JavaScript files using RxJS</file-matcher>
+      <file-matcher glob="**/observables/**/*">Observable implementation files</file-matcher>
+      <file-matcher glob="**/streams/**/*">Stream processing files</file-matcher>
+      <file-matcher glob="**/*rx*">RxJS-related files</file-matcher>
+      <action-matcher action="reactive-programming">Triggered when working with reactive programming patterns</action-matcher>
+    </applies-to>
+  </meta>
+  <requirements>
+    <non-negotiable priority="critical">
+      <description>Use proper observable creation patterns, comprehensive error handling with retry strategies, and memory leak prevention through proper subscription management and unsubscription.</description>
+      <examples>
+        <example title="Observable Creation and Subscription Management">
+          <correct-example title="Proper observable creation with comprehensive error handling and cleanup" conditions="Creating and managing RxJS observables" expected-result="Memory-safe reactive programming with error resilience" correctness-criteria="Proper observable creation, error handling, automatic unsubscription, retry strategies"><![CDATA[// TypeScript - Comprehensive RxJS observable patterns
+import { 
+  Observable, 
+  Subject, 
+  BehaviorSubject, 
+  ReplaySubject,
+  from, 
+  of, 
+  interval,
+  timer,
+  fromEvent,
+  combineLatest,
+  merge,
+  EMPTY,
+  throwError
+} from 'rxjs';
+import { 
+  map, 
+  filter, 
+  catchError, 
+  retry, 
+  retryWhen, 
+  delay,
+  take, 
+  takeUntil, 
+  takeWhile,
+  switchMap, 
+  mergeMap, 
+  concatMap,
+  exhaustMap,
+  debounceTime,
+  distinctUntilChanged,
+  share,
+  shareReplay,
+  finalize
+} from 'rxjs/operators';
+
+// Service with proper observable patterns
+export class UserService {
+  private destroy$ = new Subject<void>();
+  private userCache$ = new BehaviorSubject<User[]>([]);
+  
+  constructor(private http: HttpClient) {}
+
+  // Proper observable creation with error handling
+  getUsers(): Observable<User[]> {
+    return this.http.get<User[]>('/api/users').pipe(
+      // Retry with exponential backoff
+      retryWhen(errors => 
+        errors.pipe(
+          take(3),
+          delay(1000),
+          map((error, index) => {
+            if (index >= 2) {
+              throw error;
+            }
+            return error;
+          })
+        )
+      ),
+      
+      // Comprehensive error handling
+      catchError(error => {
+        console.error('Failed to fetch users:', error);
+        
+        // Return cached data or empty array
+        if (this.userCache$.value.length > 0) {
+          return of(this.userCache$.value);
+        }
+        
+        return of([]);
+      }),
+      
+      // Cache successful results
+      map(users => {
+        this.userCache$.next(users);
+        return users;
+      }),
+      
+      // Share subscription to prevent multiple HTTP calls
+      shareReplay(1),
+      
+      // Automatic cleanup
+      takeUntil(this.destroy$)
+    );
+  }
+
+  // Search with debouncing and proper operator chaining
+  searchUsers(searchTerm$: Observable<string>): Observable<User[]> {
+    return searchTerm$.pipe(
+      // Debounce user input
+      debounceTime(300),
+      
+      // Only search when term changes
+      distinctUntilChanged(),
+      
+      // Ignore empty searches
+      filter(term => term.trim().length > 0),
+      
+      // Switch to new search, canceling previous
+      switchMap(term => 
+        this.http.get<User[]>(`/api/users/search`, { 
+          params: { q: term } 
+        }).pipe(
+          // Handle search-specific errors
+          catchError(error => {
+            console.error('Search failed:', error);
+            return of([]);
+          })
+        )
+      ),
+      
+      // Automatic cleanup
+      takeUntil(this.destroy$)
+    );
+  }
+
+  // Real-time updates with proper connection management
+  getUserUpdates(): Observable<UserUpdate> {
+    return new Observable<UserUpdate>(subscriber => {
+      const websocket = new WebSocket('ws://localhost:8080/users');
+      
+      websocket.onmessage = (event) => {
+        try {
+          const update = JSON.parse(event.data);
+          subscriber.next(update);
+        } catch (error) {
+          subscriber.error(new Error('Invalid message format'));
+        }
+      };
+      
+      websocket.onerror = (error) => {
+        subscriber.error(error);
+      };
+      
+      websocket.onclose = () => {
+        subscriber.complete();
+      };
+      
+      // Cleanup function
+      return () => {
+        if (websocket.readyState === WebSocket.OPEN) {
+          websocket.close();
+        }
+      };
+    }).pipe(
+      // Automatic reconnection on error
+      retryWhen(errors =>
+        errors.pipe(
+          delay(5000),
+          take(10)
+        )
+      ),
+      
+      // Share connection among multiple subscribers
+      shareReplay(1),
+      
+      // Automatic cleanup
+      takeUntil(this.destroy$)
+    );
+  }
+
+  // Proper cleanup method
+  destroy(): void {
+    this.destroy$.next();
+    this.destroy$.complete();
+  }
+}
+
+// Component with proper subscription management
+@Component({
+  selector: 'app-user-list',
+  template: `
+    <div>
+      <input 
+        #searchInput 
+        placeholder="Search users..."
+        (input)="onSearch(searchInput.value)"
+      >
+      <div *ngFor="let user of users$ | async">
+        {{ user.name }}
+      </div>
+    </div>
+  `
+})
+export class UserListComponent implements OnInit, OnDestroy {
+  private destroy$ = new Subject<void>();
+  private searchSubject = new Subject<string>();
+  
+  users$: Observable<User[]>;
+  
+  constructor(private userService: UserService) {}
+
+  ngOnInit(): void {
+    // Combine multiple data streams
+    this.users$ = combineLatest([
+      this.userService.getUsers(),
+      this.userService.searchUsers(this.searchSubject.asObservable())
+    ]).pipe(
+      map(([allUsers, searchResults]) => 
+        searchResults.length > 0 ? searchResults : allUsers
+      ),
+      
+      // Automatic unsubscription
+      takeUntil(this.destroy$)
+    );
+
+    // Handle real-time updates
+    this.userService.getUserUpdates().pipe(
+      takeUntil(this.destroy$)
+    ).subscribe({
+      next: (update) => {
+        console.log('User updated:', update);
+        // Handle user update
+      },
+      error: (error) => {
+        console.error('Update stream error:', error);
+      }
+    });
+  }
+
+  onSearch(term: string): void {
+    this.searchSubject.next(term);
+  }
+
+  ngOnDestroy(): void {
+    this.destroy$.next();
+    this.destroy$.complete();
+  }
+}
+
+// Custom operators for reusable logic
+export const handleError = <T>(fallbackValue: T) => 
+  catchError<T, Observable<T>>((error) => {
+    console.error('Observable error:', error);
+    return of(fallbackValue);
+  });
+
+export const retryWithBackoff = (maxRetries = 3, delayMs = 1000) =>
+  retryWhen(errors => 
+    errors.pipe(
+      take(maxRetries),
+      delay(delayMs)
+    )
+  );]]></correct-example>
+          <incorrect-example title="Poor observable management causing memory leaks" conditions="Using RxJS observables" expected-result="Memory-safe reactive programming" incorrectness-criteria="No unsubscription, poor error handling, memory leaks, incorrect operators"><![CDATA[// BAD: Memory leaks and poor error handling
+export class BadUserService {
+  
+  // No proper observable creation
+  getUsers() {
+    return this.http.get('/api/users');
+    // No error handling
+    // No retry logic
+    // No caching
+  }
+
+  // Poor search implementation
+  searchUsers(searchTerm: string) {
+    // No debouncing
+    return this.http.get(`/api/users/search?q=${searchTerm}`);
+    // Immediate HTTP call on every keystroke
+  }
+}
+
+// Component with memory leaks
+export class BadUserListComponent implements OnInit {
+  users: User[] = [];
+  
+  ngOnInit(): void {
+    // Memory leak - no unsubscription
+    this.userService.getUsers().subscribe(users => {
+      this.users = users;
+    });
+    
+    // Another memory leak
+    interval(1000).subscribe(() => {
+      // This will run forever
+      console.log('Polling...');
+    });
+    
+    // No error handling
+    this.userService.getUserUpdates().subscribe(update => {
+      // Will break on first error
+    });
+  }
+  
+  // No ngOnDestroy - subscriptions never cleaned up
+}]]></incorrect-example>
+        </example>
+      </examples>
+    </non-negotiable>
+
+    <requirement priority="critical">
+      <description>Use appropriate RxJS operators for different use cases: switchMap for cancellable operations, mergeMap for parallel execution, concatMap for sequential processing, and exhaustMap for ignoring new emissions.</description>
+      <examples>
+        <example title="Proper Operator Selection">
+          <correct-example title="Strategic operator usage for different scenarios" conditions="Implementing complex reactive flows" expected-result="Optimal performance and correct behavior" correctness-criteria="Correct operator selection, proper use cases, performance optimization"><![CDATA[// TypeScript - Strategic RxJS operator usage
+import { 
+  switchMap, 
+  mergeMap, 
+  concatMap, 
+  exhaustMap,
+  map,
+  filter,
+  scan,
+  startWith,
+  pairwise,
+  buffer,
+  bufferTime,
+  groupBy,
+  partition
+} from 'rxjs/operators';
+
+export class AdvancedRxJSPatterns {
+  
+  // SwitchMap: Cancel previous, switch to new (search, navigation)
+  implementTypeaheadSearch(searchInput$: Observable<string>): Observable<SearchResult[]> {
+    return searchInput$.pipe(
+      debounceTime(300),
+      distinctUntilChanged(),
+      filter(term => term.length > 2),
+      
+      // switchMap cancels previous search when new term arrives
+      switchMap(term => 
+        this.searchService.search(term).pipe(
+          catchError(() => of([])),
+          startWith([]) // Show empty results immediately
+        )
+      )
+    );
+  }
+
+  // MergeMap: Execute in parallel (file uploads, analytics events)
+  uploadMultipleFiles(files$: Observable<File[]>): Observable<UploadResult> {
+    return files$.pipe(
+      // mergeMap processes all files in parallel
+      mergeMap(files => 
+        from(files).pipe(
+          mergeMap(file => 
+            this.uploadService.uploadFile(file).pipe(
+              map(result => ({ file: file.name, result })),
+              catchError(error => of({ file: file.name, error: error.message }))
+            ),
+            4 // Limit concurrency to 4 parallel uploads
+          )
+        )
+      )
+    );
+  }
+
+  // ConcatMap: Sequential processing (database transactions, ordered operations)
+  processOrderedQueue(tasks$: Observable<Task[]>): Observable<TaskResult> {
+    return tasks$.pipe(
+      // concatMap ensures tasks are processed in order
+      concatMap(tasks => 
+        from(tasks).pipe(
+          concatMap(task => 
+            this.taskService.processTask(task).pipe(
+              map(result => ({ task: task.id, result })),
+              catchError(error => of({ task: task.id, error: error.message }))
+            )
+          )
+        )
+      )
+    );
+  }
+
+  // ExhaustMap: Ignore new emissions while processing (form submissions, API calls)
+  handleFormSubmission(submitClicks$: Observable<FormData>): Observable<SubmissionResult> {
+    return submitClicks$.pipe(
+      // exhaustMap ignores clicks while submission is in progress
+      exhaustMap(formData => 
+        this.apiService.submitForm(formData).pipe(
+          map(result => ({ success: true, data: result })),
+          catchError(error => of({ success: false, error: error.message }))
+        )
+      )
+    );
+  }
+
+  // Complex data transformation patterns
+  implementAdvancedDataProcessing(rawData$: Observable<RawDataPoint>): Observable<ProcessedData> {
+    return rawData$.pipe(
+      // Group data by category
+      groupBy(data => data.category),
+      
+      // Process each group separately
+      mergeMap(group$ => 
+        group$.pipe(
+          // Buffer data points for batch processing
+          bufferTime(1000),
+          filter(buffer => buffer.length > 0),
+          
+          // Transform buffered data
+          map(dataPoints => ({
+            category: dataPoints[0].category,
+            count: dataPoints.length,
+            average: dataPoints.reduce((sum, dp) => sum + dp.value, 0) / dataPoints.length,
+            timestamp: new Date()
+          }))
+        )
+      )
+    );
+  }
+
+  // State management with scan operator
+  implementStateManagement(actions$: Observable<Action>): Observable<AppState> {
+    const initialState: AppState = {
+      users: [],
+      loading: false,
+      error: null
+    };
+
+    return actions$.pipe(
+      scan((state: AppState, action: Action) => {
+        switch (action.type) {
+          case 'LOAD_USERS_START':
+            return { ...state, loading: true, error: null };
+            
+          case 'LOAD_USERS_SUCCESS':
+            return { 
+              ...state, 
+              loading: false, 
+              users: action.payload,
+              error: null 
+            };
+            
+          case 'LOAD_USERS_ERROR':
+            return { 
+              ...state, 
+              loading: false, 
+              error: action.payload 
+            };
+            
+          default:
+            return state;
+        }
+      }, initialState),
+      
+      // Share state among multiple subscribers
+      shareReplay(1)
+    );
+  }
+
+  // Real-time data synchronization
+  synchronizeRealTimeData(
+    localData$: Observable<LocalData[]>,
+    remoteUpdates$: Observable<RemoteUpdate>
+  ): Observable<SyncedData[]> {
+    return combineLatest([localData$, remoteUpdates$]).pipe(
+      // Use pairwise to detect changes
+      pairwise(),
+      
+      // Merge local and remote data intelligently
+      map(([[prevLocal, prevRemote], [currentLocal, currentRemote]]) => {
+        // Implement conflict resolution logic
+        return this.mergeDataSources(currentLocal, currentRemote, prevLocal);
+      }),
+      
+      // Dedupe consecutive identical states
+      distinctUntilChanged((a, b) => this.deepEqual(a, b))
+    );
+  }
+
+  // Error recovery patterns
+  implementRobustErrorRecovery<T>(
+    operation$: Observable<T>
+  ): Observable<T> {
+    return operation$.pipe(
+      retryWhen(errors => 
+        errors.pipe(
+          // Categorize errors
+          map(error => ({ error, retryable: this.isRetryableError(error) })),
+          
+          // Only retry retryable errors
+          filter(({ retryable }) => retryable),
+          
+          // Exponential backoff
+          scan((retryCount, { error }) => {
+            if (retryCount >= 3) {
+              throw error;
+            }
+            return retryCount + 1;
+          }, 0),
+          
+          // Delay between retries
+          delay(1000)
+        )
+      ),
+      
+      // Final error handling
+      catchError(error => {
+        console.error('Operation failed after retries:', error);
+        return EMPTY; // or return fallback value
+      })
+    );
+  }
+
+  private isRetryableError(error: any): boolean {
+    // Define which errors are worth retrying
+    return error.status >= 500 || error.code === 'NETWORK_ERROR';
+  }
+
+  private mergeDataSources(local: any[], remote: any, previous: any[]): any[] {
+    // Implement intelligent data merging logic
+    return local; // Simplified for example
+  }
+
+  private deepEqual(a: any, b: any): boolean {
+    return JSON.stringify(a) === JSON.stringify(b);
+  }
+}]]></correct-example>
+          <incorrect-example title="Wrong operator usage causing performance issues" conditions="Implementing reactive flows" expected-result="Optimal operator usage" incorrectness-criteria="Wrong operators, performance problems, incorrect behavior"><![CDATA[// BAD: Wrong operator usage
+export class BadRxJSPatterns {
+  
+  // Wrong: Using mergeMap for search (doesn't cancel previous)
+  badSearch(searchInput$: Observable<string>): Observable<SearchResult[]> {
+    return searchInput$.pipe(
+      // mergeMap doesn't cancel - multiple parallel requests
+      mergeMap(term => this.searchService.search(term))
+      // Results can arrive out of order
+    );
+  }
+
+  // Wrong: Using switchMap for uploads (cancels ongoing uploads)
+  badFileUpload(files$: Observable<File[]>): Observable<UploadResult> {
+    return files$.pipe(
+      // switchMap cancels previous uploads when new files added
+      switchMap(files => 
+        from(files).pipe(
+          map(file => this.uploadService.uploadFile(file))
+        )
+      )
+      // Previous uploads get cancelled
+    );
+  }
+
+  // Wrong: Using concatMap for form submission (allows multiple submissions)
+  badFormSubmission(clicks$: Observable<FormData>): Observable<SubmissionResult> {
+    return clicks$.pipe(
+      // concatMap queues all clicks - multiple submissions
+      concatMap(formData => this.submitForm(formData))
+    );
+  }
+
+  // Wrong: No proper error handling or state management
+  badStateManagement(actions$: Observable<Action>): Observable<any> {
+    return actions$.pipe(
+      map(action => {
+        // Direct mutation, no proper state management
+        globalState.update(action);
+        return globalState;
+      })
+    );
+  }
+}]]></incorrect-example>
+        </example>
+      </examples>
+    </requirement>
+
+    <requirement priority="high">
+      <description>Implement comprehensive testing strategies for RxJS observables including marble testing, subscription testing, and integration testing with proper mocking of asynchronous operations.</description>
+      <examples>
+        <example title="RxJS Testing Patterns">
+          <correct-example title="Comprehensive RxJS testing with marble tests and mocking" conditions="Testing RxJS observables and operators" expected-result="Thorough test coverage with proper async testing" correctness-criteria="Marble testing, subscription testing, proper mocking, timing verification"><![CDATA[// TypeScript - Comprehensive RxJS testing
+import { TestScheduler } from 'rxjs/testing';
+import { Observable, of, throwError, timer } from 'rxjs';
+import { map, delay, retry, catchError } from 'rxjs/operators';
+
+describe('RxJS Testing Patterns', () => {
+  let testScheduler: TestScheduler;
+
+  beforeEach(() => {
+    testScheduler = new TestScheduler((actual, expected) => {
+      expect(actual).toEqual(expected);
+    });
+  });
+
+  // Marble testing for operator behavior
+  describe('Search Service', () => {
+    it('should debounce search input correctly', () => {
+      testScheduler.run(({ cold, expectObservable }) => {
+        const input$ = cold('a-b-c--|', {
+          a: 'te',
+          b: 'tes',
+          c: 'test'
+        });
+
+        const expected = '   ----c--|';
+        const result$ = input$.pipe(debounceTime(3));
+
+        expectObservable(result$).toBe(expected, {
+          c: 'test'
+        });
+      });
+    });
+
+    it('should handle search errors gracefully', () => {
+      testScheduler.run(({ cold, expectObservable }) => {
+        const searchService = {
+          search: jest.fn().mockReturnValue(cold('#', {}, new Error('API Error')))
+        };
+
+        const input$ = cold('a|', { a: 'test' });
+        const expected = '   (b|)';
+
+        const result$ = input$.pipe(
+          switchMap(term => 
+            searchService.search(term).pipe(
+              catchError(() => of([]))
+            )
+          )
+        );
+
+        expectObservable(result$).toBe(expected, { b: [] });
+      });
+    });
+  });
+
+  // Testing subscription management
+  describe('Subscription Management', () => {
+    it('should properly unsubscribe on component destroy', () => {
+      const mockService = {
+        getData: jest.fn().mockReturnValue(timer(1000).pipe(map(() => 'data')))
+      };
+
+      const component = new UserListComponent(mockService);
+      const subscription = component.ngOnInit();
+
+      // Verify subscription is active
+      expect(subscription.closed).toBe(false);
+
+      // Trigger destroy
+      component.ngOnDestroy();
+
+      // Verify subscription is closed
+      expect(subscription.closed).toBe(true);
+    });
+
+    it('should handle multiple subscription cleanup', () => {
+      testScheduler.run(({ cold, expectSubscriptions }) => {
+        const source1$ = cold('a-b-c|');
+        const source2$ = cold('x-y-z|');
+        
+        const subs1 = '      ^----!';
+        const subs2 = '      ^----!';
+
+        const component = new TestComponent();
+        
+        // Subscribe to multiple sources
+        component.subscribeToSources(source1$, source2$);
+        
+        // Verify both subscriptions
+        expectSubscriptions(source1$.subscriptions).toBe([subs1]);
+        expectSubscriptions(source2$.subscriptions).toBe([subs2]);
+        
+        // Trigger cleanup
+        component.destroy();
+      });
+    });
+  });
+
+  // Testing complex operator chains
+  describe('Complex Observable Chains', () => {
+    it('should retry with exponential backoff', () => {
+      testScheduler.run(({ cold, expectObservable }) => {
+        let callCount = 0;
+        const mockHttp = {
+          get: jest.fn().mockImplementation(() => {
+            callCount++;
+            if (callCount < 3) {
+              return cold('#', {}, new Error('Network Error'));
+            }
+            return cold('(a|)', { a: 'success' });
+          })
+        };
+
+        const result$ = mockHttp.get('/api/data').pipe(
+          retryWhen(errors => 
+            errors.pipe(
+              delay(1000),
+              take(2)
+            )
+          )
+        );
+
+        const expected = '3001ms (a|)';
+        expectObservable(result$).toBe(expected, { a: 'success' });
+      });
+    });
+
+    it('should combine multiple data sources correctly', () => {
+      testScheduler.run(({ cold, expectObservable }) => {
+        const users$ = cold('a---b---|', {
+          a: [{ id: 1, name: 'John' }],
+          b: [{ id: 1, name: 'John' }, { id: 2, name: 'Jane' }]
+        });
+
+        const permissions$ = cold('-x---y--|', {
+          x: { 1: ['read'] },
+          y: { 1: ['read'], 2: ['read', 'write'] }
+        });
+
+        const expected = '     -z---w--|';
+        
+        const result$ = combineLatest([users$, permissions$]).pipe(
+          map(([users, permissions]) => 
+            users.map(user => ({
+              ...user,
+              permissions: permissions[user.id] || []
+            }))
+          )
+        );
+
+        expectObservable(result$).toBe(expected, {
+          z: [{ id: 1, name: 'John', permissions: ['read'] }],
+          w: [
+            { id: 1, name: 'John', permissions: ['read'] },
+            { id: 2, name: 'Jane', permissions: ['read', 'write'] }
+          ]
+        });
+      });
+    });
+  });
+
+  // Integration testing with real async operations
+  describe('Integration Tests', () => {
+    it('should handle real HTTP requests with proper timing', async () => {
+      const httpClient = {
+        get: jest.fn().mockResolvedValue({ data: 'test' })
+      };
+
+      const service = new UserService(httpClient);
+      const result$ = service.getUsers();
+
+      // Test actual subscription behavior
+      let receivedData: any;
+      let errorOccurred = false;
+      let completed = false;
+
+      const subscription = result$.subscribe({
+        next: data => receivedData = data,
+        error: () => errorOccurred = true,
+        complete: () => completed = true
+      });
+
+      // Wait for async operation
+      await new Promise(resolve => setTimeout(resolve, 100));
+
+      expect(httpClient.get).toHaveBeenCalledWith('/api/users');
+      expect(receivedData).toEqual({ data: 'test' });
+      expect(errorOccurred).toBe(false);
+      expect(completed).toBe(true);
+
+      subscription.unsubscribe();
+    });
+
+    it('should handle WebSocket connections properly', (done) => {
+      const mockWebSocket = {
+        send: jest.fn(),
+        close: jest.fn(),
+        onmessage: null,
+        onerror: null,
+        onclose: null,
+        readyState: WebSocket.OPEN
+      };
+
+      // Mock WebSocket constructor
+      (global as any).WebSocket = jest.fn(() => mockWebSocket);
+
+      const service = new RealtimeService();
+      const updates$ = service.getUpdates();
+
+      let receivedUpdates: any[] = [];
+      const subscription = updates$.subscribe(update => {
+        receivedUpdates.push(update);
+        
+        if (receivedUpdates.length === 2) {
+          expect(receivedUpdates).toEqual(['update1', 'update2']);
+          subscription.unsubscribe();
+          done();
+        }
+      });
+
+      // Simulate WebSocket messages
+      setTimeout(() => {
+        mockWebSocket.onmessage({ data: JSON.stringify('update1') });
+      }, 10);
+
+      setTimeout(() => {
+        mockWebSocket.onmessage({ data: JSON.stringify('update2') });
+      }, 20);
+    });
+  });
+
+  // Performance testing
+  describe('Performance Tests', () => {
+    it('should not create memory leaks with long-running observables', () => {
+      const service = new UserService();
+      const subscriptions: any[] = [];
+
+      // Create multiple subscriptions
+      for (let i = 0; i < 100; i++) {
+        const subscription = service.getLongRunningData().subscribe();
+        subscriptions.push(subscription);
+      }
+
+      // Verify all subscriptions are active
+      expect(subscriptions.every(sub => !sub.closed)).toBe(true);
+
+      // Clean up
+      subscriptions.forEach(sub => sub.unsubscribe());
+
+      // Verify all subscriptions are closed
+      expect(subscriptions.every(sub => sub.closed)).toBe(true);
+    });
+  });
+});]]></correct-example>
+          <incorrect-example title="Poor RxJS testing without proper async handling" conditions="Testing RxJS code" expected-result="Comprehensive RxJS testing" incorrectness-criteria="No marble testing, poor async handling, no subscription testing"><![CDATA[// BAD: Poor RxJS testing
+describe('Bad RxJS Tests', () => {
+  
+  // No marble testing - can't verify timing
+  it('should test observable', () => {
+    const service = new UserService();
+    const result = service.getUsers();
+    
+    expect(result).toBeDefined();
+    // No actual testing of observable behavior
+  });
+
+  // No proper async testing
+  it('should handle async data', () => {
+    const service = new UserService();
+    let data: any;
+    
+    service.getUsers().subscribe(result => {
+      data = result;
+    });
+    
+    // This assertion might run before data arrives
+    expect(data).toBeDefined();
+  });
+
+  // No subscription management testing
+  it('should clean up subscriptions', () => {
+    const component = new UserComponent();
+    component.ngOnInit();
+    
+    // No verification of actual subscription cleanup
+    expect(true).toBe(true);
+  });
+
+  // No error handling testing
+  it('should handle errors', () => {
+    const service = new UserService();
+    service.getUsers().subscribe();
+    
+    // No error simulation or verification
+  });
+});]]></incorrect-example>
+        </example>
+      </examples>
+    </requirement>
+
+    <requirement priority="medium">
+      <description>Implement performance optimization techniques including proper use of share operators, cold vs hot observable understanding, and efficient observable composition patterns.</description>
+      <examples>
+        <example title="RxJS Performance Optimization">
+          <correct-example title="Optimized observable patterns with sharing and efficient composition" conditions="Optimizing RxJS performance" expected-result="Efficient reactive programming with minimal resource usage" correctness-criteria="Proper sharing, hot/cold understanding, optimized composition, resource efficiency"><![CDATA[// TypeScript - RxJS Performance optimization patterns
+import { 
+  share, 
+  shareReplay, 
+  publishReplay, 
+  refCount,
+  multicast,
+  Subject,
+  ConnectableObservable
+} from 'rxjs';
+
+export class OptimizedRxJSService {
+  
+  // Efficient data caching with shareReplay
+  private readonly userCache$ = this.http.get<User[]>('/api/users').pipe(
+    shareReplay({
+      bufferSize: 1,
+      refCount: true // Automatically unsubscribe when no subscribers
+    })
+  );
+
+  // Hot observable for real-time events
+  private readonly eventSubject = new Subject<AppEvent>();
+  public readonly events$ = this.eventSubject.asObservable().pipe(
+    share() // Share among multiple subscribers
+  );
+
+  // Efficient search with proper sharing
+  createOptimizedSearch(searchInput$: Observable<string>): Observable<SearchResult[]> {
+    return searchInput$.pipe(
+      debounceTime(300),
+      distinctUntilChanged(),
+      filter(term => term.length > 2),
+      
+      // Share the search input processing
+      share(),
+      
+      switchMap(term => {
+        // Cache search results for repeated searches
+        return this.searchCache.get(term) || 
+          this.http.get<SearchResult[]>(`/api/search?q=${term}`).pipe(
+            tap(results => this.searchCache.set(term, results)),
+            shareReplay({
+              bufferSize: 1,
+              refCount: true
+            })
+          );
+      })
+    );
+  }
+
+  // Efficient data combination with proper sharing
+  getCombinedUserData(): Observable<EnrichedUser[]> {
+    // These will be shared among all subscribers
+    const users$ = this.userCache$;
+    const profiles$ = this.getProfiles().pipe(shareReplay(1));
+    const permissions$ = this.getPermissions().pipe(shareReplay(1));
+
+    return combineLatest([users$, profiles$, permissions$]).pipe(
+      map(([users, profiles, permissions]) => 
+        users.map(user => ({
+          ...user,
+          profile: profiles.find(p => p.userId === user.id),
+          permissions: permissions[user.id] || []
+        }))
+      ),
+      // Share the expensive computation
+      shareReplay({
+        bufferSize: 1,
+        refCount: true
+      })
+    );
+  }
+
+  // Multicast for expensive operations
+  createMulticastObservable(): Observable<ProcessedData> {
+    const source$ = this.getExpensiveData().pipe(
+      map(data => this.performExpensiveTransformation(data)),
+      // Use multicast for manual control
+      multicast(new ReplaySubject(1))
+    ) as ConnectableObservable<ProcessedData>;
+
+    // Connect only when first subscriber subscribes
+    return source$.pipe(refCount());
+  }
+
+  // Efficient observable composition
+  createEfficientPipeline(input$: Observable<RawData>): Observable<FinalResult> {
+    return input$.pipe(
+      // Share early in the pipeline to avoid duplicate processing
+      share(),
+      
+      // Efficient filtering
+      filter(data => this.isValidData(data)),
+      
+      // Batch processing for efficiency
+      bufferTime(1000),
+      filter(batch => batch.length > 0),
+      
+      // Process batches efficiently
+      mergeMap(batch => 
+        this.processBatch(batch).pipe(
+          catchError(error => {
+            console.error('Batch processing error:', error);
+            return of([]);
+          })
+        ),
+        // Limit concurrency to prevent overwhelming the system
+        2
+      ),
+      
+      // Flatten results
+      mergeMap(results => from(results)),
+      
+      // Share final results
+      shareReplay({
+        bufferSize: 50, // Keep last 50 results
+        refCount: true
+      })
+    );
+  }
+
+  // Memory-efficient infinite scroll
+  createInfiniteScroll(
+    trigger$: Observable<void>
+  ): Observable<PaginatedData[]> {
+    return trigger$.pipe(
+      startWith(null), // Initial load
+      scan((acc: { page: number; allData: any[] }, _) => ({
+        page: acc.page + 1,
+        allData: acc.allData
+      }), { page: 0, allData: [] }),
+      
+      switchMap(({ page, allData }) => 
+        this.http.get<any[]>(`/api/data?page=${page}`).pipe(
+          map(newData => [...allData, ...newData]),
+          catchError(() => of(allData)) // Keep existing data on error
+        )
+      ),
+      
+      // Efficient sharing for multiple UI components
+      shareReplay({
+        bufferSize: 1,
+        refCount: true
+      })
+    );
+  }
+
+  // Resource-aware observable cleanup
+  createResourceAwareObservable(): Observable<any> {
+    return new Observable(subscriber => {
+      const resources: any[] = [];
+      
+      // Set up resources
+      const timer = setInterval(() => {
+        subscriber.next(new Date());
+      }, 1000);
+      resources.push(timer);
+
+      const websocket = new WebSocket('ws://localhost:8080');
+      resources.push(websocket);
+
+      // Cleanup function
+      return () => {
+        resources.forEach(resource => {
+          if (resource instanceof WebSocket) {
+            resource.close();
+          } else {
+            clearInterval(resource);
+          }
+        });
+      };
+    }).pipe(
+      // Share with automatic cleanup
+      shareReplay({
+        bufferSize: 1,
+        refCount: true
+      })
+    );
+  }
+
+  // Performance monitoring
+  monitorPerformance<T>(
+    source$: Observable<T>,
+    operationName: string
+  ): Observable<T> {
+    return source$.pipe(
+      finalize(() => {
+        const endTime = performance.now();
+        console.log(`${operationName} completed in ${endTime - startTime}ms`);
+      }),
+      tap(() => {
+        const startTime = performance.now();
+      })
+    );
+  }
+
+  private isValidData(data: any): boolean {
+    return data && typeof data === 'object';
+  }
+
+  private performExpensiveTransformation(data: any): any {
+    // Simulate expensive operation
+    return data;
+  }
+
+  private processBatch(batch: any[]): Observable<any[]> {
+    return of(batch.map(item => ({ ...item, processed: true })));
+  }
+}]]></correct-example>
+          <incorrect-example title="Poor performance with unnecessary subscriptions and no sharing" conditions="RxJS performance optimization" expected-result="Efficient observable usage" incorrectness-criteria="No sharing, duplicate HTTP calls, memory leaks, poor composition"><![CDATA[// BAD: Poor performance patterns
+export class BadPerformanceService {
+  
+  // Creates new HTTP call for every subscriber
+  getUsers(): Observable<User[]> {
+    return this.http.get<User[]>('/api/users');
+    // No sharing - each subscription creates new HTTP request
+  }
+
+  // Memory leak with no proper cleanup
+  getLiveData(): Observable<any> {
+    return interval(1000).pipe(
+      switchMap(() => this.http.get('/api/live-data'))
+      // No share, no cleanup, creates multiple intervals
+    );
+  }
+
+  // Inefficient data combination
+  getCombinedData(): Observable<any> {
+    // Each subscriber triggers all HTTP calls
+    return combineLatest([
+      this.http.get('/api/users'),
+      this.http.get('/api/profiles'),
+      this.http.get('/api/permissions')
+    ]).pipe(
+      map(([users, profiles, permissions]) => {
+        // Expensive computation repeated for each subscriber
+        return this.expensiveTransformation(users, profiles, permissions);
+      })
+      // No sharing of results
+    );
+  }
+
+  // No resource management
+  createUnmanagedObservable(): Observable<any> {
+    return new Observable(subscriber => {
+      const websocket = new WebSocket('ws://localhost:8080');
+      const timer = setInterval(() => {
+        subscriber.next(Date.now());
+      }, 1000);
+      
+      // No cleanup function - resources leak
+    });
+  }
+
+  // Inefficient search without caching
+  searchWithoutOptimization(term: string): Observable<any[]> {
+    // No debouncing, no caching, immediate HTTP call
+    return this.http.get(`/api/search?q=${term}`);
+  }
+}]]></incorrect-example>
+        </example>
+      </examples>
+    </requirement>
+  </requirements>
+  
+  <context description="RxJS reactive programming considerations">
+    RxJS is a library for reactive programming using observables that makes it easier to compose asynchronous or callback-based code. Modern RxJS development emphasizes proper subscription management, strategic operator selection, and performance optimization through sharing and caching.
+
+    Key considerations include:
+    - Proper subscription lifecycle management to prevent memory leaks
+    - Strategic selection of operators based on use case requirements
+    - Understanding of hot vs cold observables and appropriate sharing strategies
+    - Comprehensive error handling and retry patterns
+    - Performance optimization through batching, caching, and resource management
+    - Thorough testing including marble testing for timing verification
+
+    RxJS integrates particularly well with TypeScript for type safety and is commonly used in Angular applications, Node.js backends, and any JavaScript application requiring reactive programming patterns.
+  </context>
+  
+  <references>
+    <reference as="dependency" href=".cursor/rules/000-core/002-cursor-rules-creation.mdc" reason="Follows standard rule format">Base rule format definition</reference>
+    <reference as="context" href="https://rxjs.dev/guide/overview" reason="Official RxJS documentation">RxJS Official Guide</reference>
+    <reference as="context" href="https://rxjs.dev/guide/testing" reason="RxJS testing documentation">RxJS Testing Guide</reference>
+  </references>
+</rule>
+ 

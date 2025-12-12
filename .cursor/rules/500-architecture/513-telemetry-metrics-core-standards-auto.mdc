@@ -1,0 +1,1390 @@
+---
+description: "Comprehensive TelemetryMetrics standards for Elixir observability with metrics collection, aggregation, reporting, and monitoring integration following modern observability best practices"
+globs: ["*.{ex,exs}", "**/telemetry/**/*", "**/metrics/**/*", "**/monitoring/**/*"]
+alwaysApply: false
+---
+
+<rule>
+  <meta>
+    <title>TelemetryMetrics Core Standards</title>
+    <description>Comprehensive TelemetryMetrics standards for Elixir observability with metrics collection, aggregation, reporting, and monitoring integration following modern observability best practices</description>
+    <created-at utc-timestamp="1744157700">January 25, 2025, 10:15 AM</created-at>
+    <last-updated-at utc-timestamp="1744157700">January 25, 2025, 10:15 AM</last-updated-at>
+    <applies-to>
+      <file-matcher glob="*.{ex,exs}">Elixir source files using TelemetryMetrics for observability</file-matcher>
+      <file-matcher glob="**/telemetry/**/*">Telemetry and metrics-related files</file-matcher>
+      <file-matcher glob="**/metrics/**/*">Metrics collection and reporting modules</file-matcher>
+      <file-matcher glob="**/monitoring/**/*">Monitoring and observability configuration</file-matcher>
+      <action-matcher action="observability">Triggered when working with application monitoring and metrics</action-matcher>
+    </applies-to>
+  </meta>
+  <requirements>
+    <non-negotiable priority="critical">
+      <description>Use TelemetryMetrics for comprehensive application observability with proper metric collection, aggregation, reporting, and integration with monitoring systems. Implement performance monitoring, error tracking, business metrics, and operational dashboards with proper alerting and SLA tracking.</description>
+      <examples>
+        <example title="Comprehensive TelemetryMetrics Implementation">
+          <correct-example title="Production-ready observability setup with metrics collection and monitoring integration" conditions="Implementing application observability and monitoring" expected-result="Comprehensive metrics collection with proper alerting and dashboards" correctness-criteria="Metric collection, aggregation, reporting, monitoring integration, alerting, SLA tracking"><![CDATA[# Elixir - Comprehensive TelemetryMetrics implementation
+
+# Dependencies in mix.exs
+defp deps do
+  [
+    {:telemetry, "~> 1.2"},
+    {:telemetry_metrics, "~> 0.6"},
+    {:telemetry_poller, "~> 1.0"},
+    {:telemetry_metrics_prometheus, "~> 1.1"},
+    {:plug_cowboy, "~> 2.5"},
+    {:jason, "~> 1.4"}
+  ]
+end
+
+# Configuration (config/config.exs)
+import Config
+
+config :my_app, MyApp.Telemetry,
+  # Metrics export configuration
+  prometheus: [
+    port: 9090,
+    path: "/metrics",
+    format: :text,
+    registry: :default
+  ],
+  
+  # StatsD configuration
+  statsd: [
+    host: "localhost",
+    port: 8125,
+    prefix: "myapp"
+  ],
+  
+  # Custom metrics reporters
+  reporters: [
+    {MyApp.Metrics.PrometheusReporter, []},
+    {MyApp.Metrics.StatsDReporter, []},
+    {MyApp.Metrics.LogReporter, []}
+  ],
+  
+  # Polling intervals for system metrics
+  poll_measurements: [
+    # VM metrics every 5 seconds
+    {[:vm, :memory], 5_000},
+    {[:vm, :total_run_queue_lengths], 5_000},
+    {[:vm, :system_counts], 10_000}
+  ]
+
+# Main telemetry supervision module
+defmodule MyApp.Telemetry do
+  @moduledoc """
+  Comprehensive telemetry setup for application observability including
+  metrics collection, aggregation, and integration with monitoring systems.
+  """
+
+  use Supervisor
+  import Telemetry.Metrics
+
+  # Metric definitions organized by category
+  def metrics do
+    [
+      # System and VM metrics
+      last_value("vm.memory.total", unit: {:byte, :kilobyte}),
+      last_value("vm.total_run_queue_lengths.total"),
+      last_value("vm.total_run_queue_lengths.cpu"),
+      last_value("vm.total_run_queue_lengths.io"),
+      last_value("vm.system_counts.process_count"),
+      last_value("vm.system_counts.atom_count"),
+      last_value("vm.system_counts.port_count"),
+
+      # HTTP and web metrics
+      counter("phoenix.endpoint.stop.duration",
+        tags: [:method, :status],
+        unit: {:native, :millisecond}
+      ),
+      distribution("phoenix.endpoint.stop.duration",
+        tags: [:method, :status],
+        unit: {:native, :millisecond},
+        buckets: [10, 25, 50, 100, 250, 500, 1000, 2500, 5000, 10000]
+      ),
+      counter("phoenix.endpoint.start.system_time",
+        tags: [:method],
+        unit: {:native, :millisecond}
+      ),
+      
+      # LiveView metrics
+      counter("phoenix.live_view.mount.stop.duration",
+        tags: [:view],
+        unit: {:native, :millisecond}
+      ),
+      counter("phoenix.live_view.handle_event.stop.duration",
+        tags: [:view, :event],
+        unit: {:native, :millisecond}
+      ),
+      
+      # Database metrics
+      counter("my_app.repo.query.total_time",
+        tags: [:source, :command],
+        unit: {:native, :millisecond}
+      ),
+      distribution("my_app.repo.query.total_time",
+        tags: [:source, :command],
+        unit: {:native, :millisecond},
+        buckets: [1, 5, 10, 25, 50, 100, 250, 500, 1000]
+      ),
+      counter("my_app.repo.query.decode_time",
+        tags: [:source, :command],
+        unit: {:native, :millisecond}
+      ),
+      counter("my_app.repo.query.queue_time",
+        tags: [:source, :command],
+        unit: {:native, :millisecond}
+      ),
+      last_value("my_app.repo.pool.checked_out_connections"),
+      last_value("my_app.repo.pool.checked_in_connections"),
+      
+      # Application-specific business metrics
+      counter("my_app.users.registration.count", tags: [:source]),
+      counter("my_app.users.login.count", tags: [:source, :result]),
+      counter("my_app.orders.created.count", tags: [:status]),
+      sum("my_app.orders.revenue.total", tags: [:currency]),
+      last_value("my_app.cache.hit_rate", tags: [:cache_name]),
+      
+      # Error and exception metrics
+      counter("my_app.errors.total", tags: [:type, :module]),
+      counter("my_app.exceptions.total", tags: [:kind, :reason]),
+      
+      # Custom application metrics
+      counter("my_app.jobs.processed.total", tags: [:queue, :status]),
+      distribution("my_app.jobs.execution_time",
+        tags: [:queue, :job_type],
+        unit: {:native, :millisecond},
+        buckets: [100, 500, 1000, 5000, 10000, 30000]
+      ),
+      last_value("my_app.queues.pending_jobs", tags: [:queue]),
+      
+      # External service metrics
+      counter("my_app.external_api.requests.total", 
+        tags: [:service, :endpoint, :status]),
+      distribution("my_app.external_api.request_duration",
+        tags: [:service, :endpoint],
+        unit: {:native, :millisecond},
+        buckets: [50, 100, 250, 500, 1000, 2500, 5000]
+      ),
+      
+      # Feature flag metrics
+      counter("my_app.feature_flags.evaluated.total", tags: [:flag, :result])
+    ]
+  end
+
+  # Start telemetry supervision tree
+  def start_link(opts) do
+    Supervisor.start_link(__MODULE__, opts, name: __MODULE__)
+  end
+
+  @impl true
+  def init(_opts) do
+    children = [
+      # Telemetry metrics reporters
+      {TelemetryMetricsPrometheus, [metrics: metrics(), port: 9090]},
+      
+      # Custom metrics reporters
+      MyApp.Metrics.StatsDReporter,
+      MyApp.Metrics.LogReporter,
+      MyApp.Metrics.AlertManager,
+      
+      # System metrics poller
+      {:telemetry_poller, measurements: periodic_measurements(), period: :timer.seconds(5)},
+      
+      # Application metrics collector
+      MyApp.Metrics.ApplicationCollector,
+      
+      # SLA monitor
+      MyApp.Metrics.SLAMonitor
+    ]
+
+    Supervisor.init(children, strategy: :one_for_one)
+  end
+
+  # Define periodic measurements for system monitoring
+  defp periodic_measurements do
+    [
+      # VM measurements
+      {MyApp.Metrics.VMCollector, :collect_vm_metrics, []},
+      {MyApp.Metrics.ApplicationCollector, :collect_app_metrics, []},
+      {MyApp.Metrics.ExternalServiceCollector, :collect_service_metrics, []}
+    ]
+  end
+end
+
+# VM and system metrics collector
+defmodule MyApp.Metrics.VMCollector do
+  @moduledoc """
+  Collector for Erlang VM and system-level metrics.
+  """
+
+  def collect_vm_metrics do
+    # Memory metrics
+    memory = :erlang.memory()
+    Enum.each(memory, fn {type, bytes} ->
+      :telemetry.execute([:vm, :memory], %{type => bytes}, %{})
+    end)
+
+    # Process and port counts
+    process_count = :erlang.system_info(:process_count)
+    port_count = :erlang.system_info(:port_count)
+    atom_count = :erlang.system_info(:atom_count)
+
+    :telemetry.execute([:vm, :system_counts], %{
+      process_count: process_count,
+      port_count: port_count,
+      atom_count: atom_count
+    }, %{})
+
+    # Run queue lengths
+    total_run_queue = :erlang.statistics(:total_run_queue_lengths)
+    cpu_run_queue = :erlang.statistics(:run_queue_lengths)
+    io_run_queue = :erlang.statistics(:total_run_queue_lengths) - 
+                   :erlang.statistics(:run_queue_lengths)
+
+    :telemetry.execute([:vm, :total_run_queue_lengths], %{
+      total: total_run_queue,
+      cpu: cpu_run_queue,
+      io: io_run_queue
+    }, %{})
+
+    # Scheduler utilization
+    scheduler_wall_time = :scheduler.sample()
+    if scheduler_wall_time do
+      utilization = :scheduler.utilization(scheduler_wall_time)
+      total_utilization = Enum.reduce(utilization, 0, fn {_id, util, _}, acc -> 
+        acc + util 
+      end) / length(utilization)
+
+      :telemetry.execute([:vm, :scheduler_utilization], %{
+        total: total_utilization
+      }, %{})
+    end
+  end
+end
+
+# Application-specific metrics collector
+defmodule MyApp.Metrics.ApplicationCollector do
+  @moduledoc """
+  Collector for application-specific business and operational metrics.
+  """
+
+  def collect_app_metrics do
+    # Database connection pool metrics
+    collect_db_pool_metrics()
+    
+    # Cache metrics
+    collect_cache_metrics()
+    
+    # Queue metrics
+    collect_queue_metrics()
+    
+    # Feature flag metrics
+    collect_feature_flag_metrics()
+  end
+
+  defp collect_db_pool_metrics do
+    pool_status = MyApp.Repo.checkout_status()
+    
+    :telemetry.execute([:my_app, :repo, :pool], %{
+      checked_out_connections: pool_status.checked_out,
+      checked_in_connections: pool_status.checked_in,
+      pool_size: pool_status.size
+    }, %{})
+  end
+
+  defp collect_cache_metrics do
+    # Collect cache hit rates for different caches
+    caches = [:users, :sessions, :products]
+    
+    Enum.each(caches, fn cache_name ->
+      {hits, misses} = MyApp.Cache.stats(cache_name)
+      total = hits + misses
+      hit_rate = if total > 0, do: hits / total, else: 0.0
+
+      :telemetry.execute([:my_app, :cache], %{
+        hit_rate: hit_rate,
+        hits: hits,
+        misses: misses
+      }, %{cache_name: cache_name})
+    end)
+  end
+
+  defp collect_queue_metrics do
+    # Collect metrics for background job queues
+    queues = [:default, :emails, :reports, :analytics]
+    
+    Enum.each(queues, fn queue ->
+      pending_jobs = MyApp.Jobs.queue_size(queue)
+      
+      :telemetry.execute([:my_app, :queues], %{
+        pending_jobs: pending_jobs
+      }, %{queue: queue})
+    end)
+  end
+
+  defp collect_feature_flag_metrics do
+    # This would integrate with your feature flag system
+    # Simplified example
+    flags = [:new_ui, :advanced_search, :beta_features]
+    
+    Enum.each(flags, fn flag ->
+      evaluations = MyApp.FeatureFlags.get_evaluation_stats(flag)
+      
+      :telemetry.execute([:my_app, :feature_flags], %{
+        evaluations: evaluations
+      }, %{flag: flag})
+    end)
+  end
+end
+
+# External service monitoring
+defmodule MyApp.Metrics.ExternalServiceCollector do
+  @moduledoc """
+  Monitors external service availability and performance.
+  """
+
+  def collect_service_metrics do
+    services = [
+      {:payment_gateway, "https://api.payment.com/health"},
+      {:notification_service, "https://api.notifications.com/status"},
+      {:analytics_service, "https://analytics.service.com/ping"}
+    ]
+
+    Enum.each(services, fn {service_name, health_url} ->
+      check_service_health(service_name, health_url)
+    end)
+  end
+
+  defp check_service_health(service_name, health_url) do
+    start_time = System.monotonic_time(:millisecond)
+    
+    case HTTPoison.get(health_url, [], timeout: 5000, recv_timeout: 5000) do
+      {:ok, %{status_code: status}} when status in 200..299 ->
+        response_time = System.monotonic_time(:millisecond) - start_time
+        
+        :telemetry.execute([:my_app, :external_service], %{
+          available: 1,
+          response_time: response_time
+        }, %{service: service_name})
+        
+      {:ok, %{status_code: status}} ->
+        :telemetry.execute([:my_app, :external_service], %{
+          available: 0,
+          status_code: status
+        }, %{service: service_name})
+        
+      {:error, reason} ->
+        :telemetry.execute([:my_app, :external_service], %{
+          available: 0,
+          error: reason
+        }, %{service: service_name})
+    end
+  end
+end
+
+# StatsD reporter for integration with monitoring systems
+defmodule MyApp.Metrics.StatsDReporter do
+  @moduledoc """
+  Reports metrics to StatsD for integration with monitoring systems like DataDog.
+  """
+
+  use GenServer
+  require Logger
+
+  @statsd_config Application.compile_env(:my_app, [MyApp.Telemetry, :statsd], [])
+
+  def start_link(opts \\ []) do
+    GenServer.start_link(__MODULE__, opts, name: __MODULE__)
+  end
+
+  @impl true
+  def init(_opts) do
+    # Attach to all relevant telemetry events
+    :telemetry.attach_many(
+      "statsd-reporter",
+      [
+        [:phoenix, :endpoint, :stop],
+        [:my_app, :repo, :query],
+        [:my_app, :users, :registration],
+        [:my_app, :orders, :created],
+        [:vm, :memory],
+        [:vm, :system_counts]
+      ],
+      &handle_event/4,
+      %{}
+    )
+
+    # Setup UDP socket for StatsD
+    {:ok, socket} = :gen_udp.open(0, [:binary])
+    
+    state = %{
+      socket: socket,
+      host: Keyword.get(@statsd_config, :host, "localhost"),
+      port: Keyword.get(@statsd_config, :port, 8125),
+      prefix: Keyword.get(@statsd_config, :prefix, "myapp")
+    }
+
+    {:ok, state}
+  end
+
+  @impl true
+  def handle_event(event_name, measurements, metadata, state) do
+    metric_name = format_metric_name(event_name, state.prefix)
+    
+    case event_name do
+      [:phoenix, :endpoint, :stop] ->
+        duration_ms = System.convert_time_unit(measurements.duration, :native, :millisecond)
+        tags = format_tags(metadata)
+        
+        send_metric(state, "#{metric_name}.duration", duration_ms, :timer, tags)
+        send_metric(state, "#{metric_name}.count", 1, :counter, tags)
+        
+      [:my_app, :repo, :query] ->
+        duration_ms = System.convert_time_unit(measurements.total_time, :native, :millisecond)
+        tags = format_tags(metadata)
+        
+        send_metric(state, "#{metric_name}.duration", duration_ms, :timer, tags)
+        send_metric(state, "#{metric_name}.count", 1, :counter, tags)
+        
+      [:vm, :memory] ->
+        Enum.each(measurements, fn {type, bytes} ->
+          send_metric(state, "#{metric_name}.#{type}", bytes, :gauge, [])
+        end)
+        
+      [:vm, :system_counts] ->
+        Enum.each(measurements, fn {type, count} ->
+          send_metric(state, "#{metric_name}.#{type}", count, :gauge, [])
+        end)
+        
+      _ ->
+        # Handle other metrics generically
+        Enum.each(measurements, fn {key, value} ->
+          send_metric(state, "#{metric_name}.#{key}", value, :gauge, format_tags(metadata))
+        end)
+    end
+
+    :ok
+  end
+
+  defp send_metric(state, name, value, type, tags) do
+    metric_string = format_statsd_metric(name, value, type, tags)
+    
+    :gen_udp.send(state.socket, 
+                  String.to_charlist(state.host), 
+                  state.port, 
+                  metric_string)
+  end
+
+  defp format_metric_name(event_name, prefix) do
+    metric_parts = [prefix | event_name]
+    metric_parts
+    |> Enum.map(&to_string/1)
+    |> Enum.join(".")
+  end
+
+  defp format_tags(metadata) do
+    metadata
+    |> Enum.filter(fn {_k, v} -> is_binary(v) or is_atom(v) end)
+    |> Enum.map(fn {k, v} -> "#{k}:#{v}" end)
+  end
+
+  defp format_statsd_metric(name, value, type, tags) do
+    type_suffix = case type do
+      :counter -> "c"
+      :gauge -> "g"
+      :timer -> "ms"
+      :histogram -> "h"
+      :set -> "s"
+    end
+
+    tag_string = if Enum.empty?(tags), do: "", else: "|##{Enum.join(tags, ",")}"
+    
+    "#{name}:#{value}|#{type_suffix}#{tag_string}\n"
+  end
+end
+
+# Log-based metrics reporter
+defmodule MyApp.Metrics.LogReporter do
+  @moduledoc """
+  Reports metrics to structured logs for centralized log aggregation systems.
+  """
+
+  use GenServer
+  require Logger
+
+  def start_link(opts \\ []) do
+    GenServer.start_link(__MODULE__, opts, name: __MODULE__)
+  end
+
+  @impl true
+  def init(_opts) do
+    :telemetry.attach_many(
+      "log-metrics-reporter",
+      [
+        [:phoenix, :endpoint, :stop],
+        [:my_app, :errors, :total],
+        [:my_app, :jobs, :processed],
+        [:my_app, :external_api, :requests]
+      ],
+      &handle_event/4,
+      %{}
+    )
+
+    {:ok, %{}}
+  end
+
+  @impl true
+  def handle_event(event_name, measurements, metadata, _state) do
+    Logger.info("Telemetry metric",
+      event: event_name,
+      measurements: measurements,
+      metadata: metadata,
+      timestamp: DateTime.utc_now()
+    )
+
+    :ok
+  end
+end
+
+# SLA monitoring and alerting
+defmodule MyApp.Metrics.SLAMonitor do
+  @moduledoc """
+  Monitors SLA compliance and triggers alerts for violations.
+  """
+
+  use GenServer
+  require Logger
+
+  # SLA thresholds
+  @sla_thresholds %{
+    response_time_p95: 500,  # 95th percentile response time < 500ms
+    error_rate: 0.01,        # Error rate < 1%
+    availability: 0.999      # 99.9% availability
+  }
+
+  def start_link(opts \\ []) do
+    GenServer.start_link(__MODULE__, opts, name: __MODULE__)
+  end
+
+  @impl true
+  def init(_opts) do
+    # Initialize SLA tracking state
+    state = %{
+      response_times: :queue.new(),
+      total_requests: 0,
+      error_count: 0,
+      downtime_start: nil,
+      sla_violations: []
+    }
+
+    # Attach to relevant events
+    :telemetry.attach_many(
+      "sla-monitor",
+      [
+        [:phoenix, :endpoint, :stop],
+        [:my_app, :errors, :total],
+        [:my_app, :external_service]
+      ],
+      &handle_event/4,
+      self()
+    )
+
+    # Schedule periodic SLA checks
+    :timer.send_interval(60_000, :check_sla)  # Check every minute
+
+    {:ok, state}
+  end
+
+  @impl true
+  def handle_event([:phoenix, :endpoint, :stop], measurements, metadata, monitor_pid) do
+    duration_ms = System.convert_time_unit(measurements.duration, :native, :millisecond)
+    is_error = metadata[:status] >= 500
+
+    GenServer.cast(monitor_pid, {:record_request, duration_ms, is_error})
+  end
+
+  def handle_event([:my_app, :errors, :total], _measurements, _metadata, monitor_pid) do
+    GenServer.cast(monitor_pid, :record_error)
+  end
+
+  def handle_event([:my_app, :external_service], measurements, metadata, monitor_pid) do
+    is_available = Map.get(measurements, :available, 0) == 1
+    GenServer.cast(monitor_pid, {:record_service_status, metadata.service, is_available})
+  end
+
+  def handle_event(_, _, _, _), do: :ok
+
+  @impl true
+  def handle_cast({:record_request, duration_ms, is_error}, state) do
+    # Update response times (keep last 1000 requests)
+    response_times = :queue.in(duration_ms, state.response_times)
+    response_times = if :queue.len(response_times) > 1000 do
+      {_, new_queue} = :queue.out(response_times)
+      new_queue
+    else
+      response_times
+    end
+
+    new_state = %{state |
+      response_times: response_times,
+      total_requests: state.total_requests + 1,
+      error_count: if(is_error, do: state.error_count + 1, else: state.error_count)
+    }
+
+    {:noreply, new_state}
+  end
+
+  def handle_cast(:record_error, state) do
+    {:noreply, %{state | error_count: state.error_count + 1}}
+  end
+
+  def handle_cast({:record_service_status, service, is_available}, state) do
+    if not is_available and state.downtime_start == nil do
+      # Service went down
+      new_state = %{state | downtime_start: DateTime.utc_now()}
+      {:noreply, new_state}
+    else
+      {:noreply, state}
+    end
+  end
+
+  @impl true
+  def handle_info(:check_sla, state) do
+    violations = check_sla_compliance(state)
+    
+    if not Enum.empty?(violations) do
+      Enum.each(violations, &send_sla_alert/1)
+    end
+
+    # Reset counters for next period
+    reset_state = %{state |
+      total_requests: 0,
+      error_count: 0,
+      sla_violations: violations
+    }
+
+    {:noreply, reset_state}
+  end
+
+  defp check_sla_compliance(state) do
+    violations = []
+
+    # Check response time SLA
+    if :queue.len(state.response_times) > 0 do
+      response_list = :queue.to_list(state.response_times)
+      p95_response_time = calculate_percentile(response_list, 95)
+      
+      violations = if p95_response_time > @sla_thresholds.response_time_p95 do
+        [%{
+          type: :response_time_p95,
+          threshold: @sla_thresholds.response_time_p95,
+          actual: p95_response_time,
+          timestamp: DateTime.utc_now()
+        } | violations]
+      else
+        violations
+      end
+    end
+
+    # Check error rate SLA
+    if state.total_requests > 0 do
+      error_rate = state.error_count / state.total_requests
+      
+      violations = if error_rate > @sla_thresholds.error_rate do
+        [%{
+          type: :error_rate,
+          threshold: @sla_thresholds.error_rate,
+          actual: error_rate,
+          timestamp: DateTime.utc_now()
+        } | violations]
+      else
+        violations
+      end
+    end
+
+    violations
+  end
+
+  defp calculate_percentile(list, percentile) do
+    sorted = Enum.sort(list)
+    index = round(length(sorted) * percentile / 100) - 1
+    index = max(0, min(index, length(sorted) - 1))
+    Enum.at(sorted, index)
+  end
+
+  defp send_sla_alert(violation) do
+    Logger.error("SLA Violation Detected",
+      type: violation.type,
+      threshold: violation.threshold,
+      actual: violation.actual,
+      timestamp: violation.timestamp
+    )
+
+    # Here you would integrate with your alerting system
+    # e.g., PagerDuty, Slack, email notifications
+    MyApp.Alerting.send_alert(:sla_violation, violation)
+  end
+end
+
+# Alert management system
+defmodule MyApp.Metrics.AlertManager do
+  @moduledoc """
+  Manages alerting rules and notifications for metric-based alerts.
+  """
+
+  use GenServer
+  require Logger
+
+  def start_link(opts \\ []) do
+    GenServer.start_link(__MODULE__, opts, name: __MODULE__)
+  end
+
+  @impl true
+  def init(_opts) do
+    # Define alerting rules
+    rules = [
+      %{
+        name: "High Error Rate",
+        event: [:my_app, :errors, :total],
+        condition: fn measurements, _metadata -> 
+          measurements.error_rate > 0.05  # 5% error rate
+        end,
+        severity: :critical,
+        cooldown: 300_000  # 5 minutes
+      },
+      %{
+        name: "Database Slow Queries",
+        event: [:my_app, :repo, :query],
+        condition: fn measurements, _metadata ->
+          duration_ms = System.convert_time_unit(measurements.total_time, :native, :millisecond)
+          duration_ms > 1000  # Queries taking more than 1 second
+        end,
+        severity: :warning,
+        cooldown: 60_000  # 1 minute
+      },
+      %{
+        name: "High Memory Usage",
+        event: [:vm, :memory],
+        condition: fn measurements, _metadata ->
+          total_mb = measurements.total / (1024 * 1024)
+          total_mb > 1024  # More than 1GB memory usage
+        end,
+        severity: :warning,
+        cooldown: 600_000  # 10 minutes
+      }
+    ]
+
+    # Attach event handlers for each rule
+    Enum.each(rules, fn rule ->
+      :telemetry.attach(
+        "alert-#{rule.name}",
+        rule.event,
+        &handle_metric_event/4,
+        {rule, self()}
+      )
+    end)
+
+    state = %{
+      rules: rules,
+      last_alerts: %{}
+    }
+
+    {:ok, state}
+  end
+
+  def handle_metric_event(event_name, measurements, metadata, {rule, manager_pid}) do
+    if rule.condition.(measurements, metadata) do
+      GenServer.cast(manager_pid, {:trigger_alert, rule, measurements, metadata})
+    end
+  end
+
+  @impl true
+  def handle_cast({:trigger_alert, rule, measurements, metadata}, state) do
+    now = DateTime.utc_now()
+    last_alert_time = Map.get(state.last_alerts, rule.name)
+
+    # Check if we're within cooldown period
+    should_alert = case last_alert_time do
+      nil -> true
+      last_time ->
+        DateTime.diff(now, last_time, :millisecond) > rule.cooldown
+    end
+
+    if should_alert do
+      send_alert(rule, measurements, metadata)
+      
+      new_state = %{state |
+        last_alerts: Map.put(state.last_alerts, rule.name, now)
+      }
+      
+      {:noreply, new_state}
+    else
+      {:noreply, state}
+    end
+  end
+
+  defp send_alert(rule, measurements, metadata) do
+    alert_data = %{
+      rule_name: rule.name,
+      severity: rule.severity,
+      measurements: measurements,
+      metadata: metadata,
+      timestamp: DateTime.utc_now()
+    }
+
+    Logger.warn("Metric Alert Triggered",
+      rule: rule.name,
+      severity: rule.severity,
+      measurements: measurements,
+      metadata: metadata
+    )
+
+    # Integration with external alerting systems
+    case rule.severity do
+      :critical ->
+        MyApp.Alerting.send_pagerduty_alert(alert_data)
+        MyApp.Alerting.send_slack_alert(alert_data)
+        
+      :warning ->
+        MyApp.Alerting.send_slack_alert(alert_data)
+        
+      _ ->
+        # Log only for info level
+        :ok
+    end
+  end
+end
+
+# Custom telemetry events for business metrics
+defmodule MyApp.Telemetry.Events do
+  @moduledoc """
+  Helper functions for emitting custom telemetry events throughout the application.
+  """
+
+  # User events
+  def user_registered(user_id, source) do
+    :telemetry.execute([:my_app, :users, :registration], %{count: 1}, %{
+      user_id: user_id,
+      source: source
+    })
+  end
+
+  def user_login(user_id, source, success) do
+    result = if success, do: "success", else: "failure"
+    
+    :telemetry.execute([:my_app, :users, :login], %{count: 1}, %{
+      user_id: user_id,
+      source: source,
+      result: result
+    })
+  end
+
+  # Order events
+  def order_created(order_id, amount, currency) do
+    :telemetry.execute([:my_app, :orders, :created], %{count: 1}, %{
+      order_id: order_id,
+      status: "created"
+    })
+    
+    :telemetry.execute([:my_app, :orders, :revenue], %{amount: amount}, %{
+      currency: currency
+    })
+  end
+
+  # Error events
+  def error_occurred(error_type, module, details \\ %{}) do
+    :telemetry.execute([:my_app, :errors], %{count: 1}, %{
+      type: error_type,
+      module: module
+    } |> Map.merge(details))
+  end
+
+  # Job events
+  def job_processed(queue, job_type, duration_ms, success) do
+    status = if success, do: "success", else: "failure"
+    
+    :telemetry.execute([:my_app, :jobs, :processed], %{count: 1}, %{
+      queue: queue,
+      status: status
+    })
+    
+    :telemetry.execute([:my_app, :jobs, :execution_time], %{duration: duration_ms}, %{
+      queue: queue,
+      job_type: job_type
+    })
+  end
+
+  # External API events
+  def api_request_completed(service, endpoint, duration_ms, status_code) do
+    :telemetry.execute([:my_app, :external_api, :requests], %{count: 1}, %{
+      service: service,
+      endpoint: endpoint,
+      status: status_code
+    })
+    
+    :telemetry.execute([:my_app, :external_api, :request_duration], %{duration: duration_ms}, %{
+      service: service,
+      endpoint: endpoint
+    })
+  end
+
+  # Feature flag events
+  def feature_flag_evaluated(flag, user_id, result) do
+    :telemetry.execute([:my_app, :feature_flags, :evaluated], %{count: 1}, %{
+      flag: flag,
+      result: result,
+      user_id: user_id
+    })
+  end
+end]]></correct-example>
+          <incorrect-example title="Poor TelemetryMetrics usage without proper observability practices" conditions="Implementing application monitoring" expected-result="Comprehensive observability setup" incorrectness-criteria="No metric organization, missing monitoring integration, poor alerting, no SLA tracking"><![CDATA[# BAD: Poor TelemetryMetrics implementation
+
+# Basic configuration without proper organization
+config :telemetry_metrics,
+  reporters: [TelemetryMetricsPrometheus]
+
+# Simple metrics without proper categorization
+defmodule BadTelemetry do
+  use Supervisor
+  
+  def metrics do
+    [
+      # Only basic HTTP metrics, no categorization
+      Telemetry.Metrics.counter("phoenix.endpoint.stop.duration"),
+      Telemetry.Metrics.last_value("vm.memory.total")
+    ]
+  end
+
+  def start_link(_) do
+    Supervisor.start_link(__MODULE__, [], name: __MODULE__)
+  end
+
+  def init(_) do
+    children = [
+      {TelemetryMetricsPrometheus, [metrics: metrics()]}
+    ]
+    
+    Supervisor.init(children, strategy: :one_for_one)
+  end
+end
+
+# No custom metrics collection
+# No error tracking
+# No business metrics
+# No SLA monitoring
+# No alerting system
+# No external service monitoring
+# No performance tracking
+# No proper metric organization
+# No integration with monitoring systems]]></incorrect-example>
+        </example>
+      </examples>
+    </non-negotiable>
+
+    <requirement priority="high">
+      <description>Implement comprehensive testing for TelemetryMetrics functionality including metrics collection validation, reporter testing, alert simulation, and monitoring integration verification.</description>
+      <examples>
+        <example title="TelemetryMetrics Testing Patterns">
+          <correct-example title="Comprehensive testing for observability and metrics collection" conditions="Testing TelemetryMetrics implementations" expected-result="Thorough test coverage with metrics validation and monitoring verification" correctness-criteria="Metrics testing, reporter testing, alert testing, integration validation"><![CDATA[# Elixir - Comprehensive TelemetryMetrics testing
+
+defmodule MyApp.TelemetryTest do
+  use ExUnit.Case, async: false
+  
+  import ExUnit.CaptureLog
+
+  setup do
+    # Reset telemetry state before each test
+    :telemetry.detach_many(["test-handler"])
+    
+    # Start test metrics collection
+    {:ok, _pid} = start_supervised({MyApp.Telemetry, []})
+    
+    :ok
+  end
+
+  describe "metrics collection" do
+    test "collects VM metrics correctly" do
+      ref = make_ref()
+      
+      :telemetry.attach(
+        "test-vm-metrics",
+        [:vm, :memory],
+        fn event, measurements, metadata, test_ref ->
+          send(test_ref, {:metric_received, event, measurements, metadata})
+        end,
+        self()
+      )
+      
+      MyApp.Metrics.VMCollector.collect_vm_metrics()
+      
+      assert_receive {:metric_received, [:vm, :memory], measurements, _metadata}, 1000
+      assert Map.has_key?(measurements, :total)
+      assert Map.has_key?(measurements, :processes)
+      assert Map.has_key?(measurements, :system)
+    end
+
+    test "collects application metrics correctly" do
+      :telemetry.attach(
+        "test-app-metrics",
+        [:my_app, :cache],
+        fn event, measurements, metadata, test_pid ->
+          send(test_pid, {:cache_metric, event, measurements, metadata})
+        end,
+        self()
+      )
+      
+      MyApp.Metrics.ApplicationCollector.collect_app_metrics()
+      
+      assert_receive {:cache_metric, [:my_app, :cache], measurements, metadata}, 1000
+      assert Map.has_key?(measurements, :hit_rate)
+      assert Map.has_key?(metadata, :cache_name)
+    end
+
+    test "tracks custom business events" do
+      :telemetry.attach(
+        "test-user-registration",
+        [:my_app, :users, :registration],
+        fn event, measurements, metadata, test_pid ->
+          send(test_pid, {:user_registered, event, measurements, metadata})
+        end,
+        self()
+      )
+      
+      MyApp.Telemetry.Events.user_registered("user123", "web")
+      
+      assert_receive {:user_registered, [:my_app, :users, :registration], 
+                      %{count: 1}, %{user_id: "user123", source: "web"}}, 1000
+    end
+  end
+
+  describe "metrics reporters" do
+    test "StatsD reporter formats metrics correctly" do
+      # Test metric formatting
+      metric_name = "my_app.test.metric"
+      value = 42
+      type = :counter
+      tags = ["environment:test", "service:my_app"]
+      
+      expected_format = "my_app.test.metric:42|c|#environment:test,service:my_app\n"
+      
+      # This would require exposing the formatting function or using a test double
+      assert format_statsd_metric(metric_name, value, type, tags) == expected_format
+    end
+
+    test "log reporter captures metrics in structured format" do
+      log_output = capture_log(fn ->
+        MyApp.Telemetry.Events.error_occurred("timeout", "MyApp.Service")
+      end)
+      
+      assert log_output =~ "Telemetry metric"
+      assert log_output =~ "my_app.errors"
+      assert log_output =~ "timeout"
+    end
+
+    test "Prometheus reporter exposes metrics endpoint" do
+      # Make HTTP request to metrics endpoint
+      {:ok, response} = HTTPoison.get("http://localhost:9090/metrics")
+      
+      assert response.status_code == 200
+      assert response.body =~ "# HELP"
+      assert response.body =~ "# TYPE"
+      
+      # Check for specific metrics
+      assert response.body =~ "phoenix_endpoint_stop_duration"
+      assert response.body =~ "vm_memory_total"
+    end
+  end
+
+  describe "SLA monitoring" do
+    test "detects response time SLA violations" do
+      # Simulate slow requests
+      Enum.each(1..10, fn _i ->
+        :telemetry.execute([:phoenix, :endpoint, :stop], %{
+          duration: System.convert_time_unit(600, :millisecond, :native)
+        }, %{status: 200})
+      end)
+      
+      # Trigger SLA check
+      send(MyApp.Metrics.SLAMonitor, :check_sla)
+      
+      # Should log SLA violation
+      log_output = capture_log(fn ->
+        Process.sleep(100)  # Allow time for processing
+      end)
+      
+      assert log_output =~ "SLA Violation Detected"
+      assert log_output =~ "response_time_p95"
+    end
+
+    test "tracks error rate SLA compliance" do
+      # Generate requests with errors
+      Enum.each(1..100, fn i ->
+        status = if rem(i, 10) == 0, do: 500, else: 200
+        
+        :telemetry.execute([:phoenix, :endpoint, :stop], %{
+          duration: System.convert_time_unit(100, :millisecond, :native)
+        }, %{status: status})
+      end)
+      
+      # Check SLA compliance
+      send(MyApp.Metrics.SLAMonitor, :check_sla)
+      
+      # Should detect high error rate (10%)
+      log_output = capture_log(fn ->
+        Process.sleep(100)
+      end)
+      
+      assert log_output =~ "SLA Violation Detected"
+      assert log_output =~ "error_rate"
+    end
+  end
+
+  describe "alerting system" do
+    test "triggers alerts for high error rates" do
+      # Simulate high error rate
+      :telemetry.execute([:my_app, :errors, :total], %{
+        error_rate: 0.1  # 10% error rate
+      }, %{})
+      
+      log_output = capture_log(fn ->
+        Process.sleep(100)
+      end)
+      
+      assert log_output =~ "Metric Alert Triggered"
+      assert log_output =~ "High Error Rate"
+      assert log_output =~ "critical"
+    end
+
+    test "respects alert cooldown periods" do
+      # Trigger same alert multiple times
+      Enum.each(1..3, fn _i ->
+        :telemetry.execute([:my_app, :errors, :total], %{
+          error_rate: 0.1
+        }, %{})
+      end)
+      
+      log_output = capture_log(fn ->
+        Process.sleep(100)
+      end)
+      
+      # Should only alert once due to cooldown
+      alert_count = log_output
+                   |> String.split("\n")
+                   |> Enum.count(&String.contains?(&1, "Metric Alert Triggered"))
+      
+      assert alert_count == 1
+    end
+
+    test "categorizes alerts by severity" do
+      # Trigger warning-level alert
+      :telemetry.execute([:my_app, :repo, :query], %{
+        total_time: System.convert_time_unit(2000, :millisecond, :native)
+      }, %{})
+      
+      log_output = capture_log(fn ->
+        Process.sleep(100)
+      end)
+      
+      assert log_output =~ "Database Slow Queries"
+      assert log_output =~ "warning"
+    end
+  end
+
+  describe "external service monitoring" do
+    test "tracks service availability" do
+      # Mock external service response
+      expect(HTTPoisonMock, :get, fn url, _headers, _opts ->
+        cond do
+          url =~ "payment" -> {:ok, %{status_code: 200}}
+          url =~ "notification" -> {:ok, %{status_code: 503}}
+          true -> {:error, :timeout}
+        end
+      end)
+      
+      :telemetry.attach(
+        "test-service-monitoring",
+        [:my_app, :external_service],
+        fn event, measurements, metadata, test_pid ->
+          send(test_pid, {:service_metric, metadata.service, measurements.available})
+        end,
+        self()
+      )
+      
+      MyApp.Metrics.ExternalServiceCollector.collect_service_metrics()
+      
+      assert_receive {:service_metric, :payment_gateway, 1}, 1000
+      assert_receive {:service_metric, :notification_service, 0}, 1000
+      assert_receive {:service_metric, :analytics_service, 0}, 1000
+    end
+
+    test "measures service response times" do
+      expect(HTTPoisonMock, :get, fn _url, _headers, _opts ->
+        Process.sleep(100)  # Simulate 100ms response time
+        {:ok, %{status_code: 200}}
+      end)
+      
+      :telemetry.attach(
+        "test-response-time",
+        [:my_app, :external_service],
+        fn event, measurements, metadata, test_pid ->
+          send(test_pid, {:response_time, metadata.service, measurements.response_time})
+        end,
+        self()
+      )
+      
+      MyApp.Metrics.ExternalServiceCollector.collect_service_metrics()
+      
+      assert_receive {:response_time, :payment_gateway, response_time}, 1000
+      assert response_time >= 100
+    end
+  end
+
+  describe "performance and load testing" do
+    @tag :performance
+    test "metrics collection performance under load" do
+      # Generate high volume of metrics
+      start_time = System.monotonic_time(:millisecond)
+      
+      Enum.each(1..10_000, fn i ->
+        :telemetry.execute([:test, :performance], %{
+          value: i,
+          timestamp: System.system_time(:millisecond)
+        }, %{batch: div(i, 1000)})
+      end)
+      
+      end_time = System.monotonic_time(:millisecond)
+      duration = end_time - start_time
+      
+      # Should process 10k metrics quickly
+      assert duration < 1000  # Under 1 second
+    end
+
+    @tag :performance
+    test "memory usage remains stable under load" do
+      initial_memory = :erlang.memory(:total)
+      
+      # Generate metrics continuously
+      Enum.each(1..50_000, fn i ->
+        :telemetry.execute([:test, :memory], %{value: i}, %{})
+      end)
+      
+      # Force garbage collection
+      :erlang.garbage_collect()
+      
+      final_memory = :erlang.memory(:total)
+      memory_increase = final_memory - initial_memory
+      
+      # Memory increase should be reasonable
+      assert memory_increase < 10 * 1024 * 1024  # Less than 10MB
+    end
+  end
+
+  describe "integration testing" do
+    test "end-to-end metrics flow" do
+      # Start all components
+      {:ok, _} = start_supervised({MyApp.Metrics.StatsDReporter, []})
+      {:ok, _} = start_supervised({MyApp.Metrics.LogReporter, []})
+      
+      # Generate application event
+      MyApp.Telemetry.Events.user_login("user123", "mobile", true)
+      
+      # Verify metrics are collected and reported
+      Process.sleep(100)
+      
+      # Check Prometheus metrics
+      {:ok, response} = HTTPoison.get("http://localhost:9090/metrics")
+      assert response.body =~ "my_app_users_login_count"
+      
+      # Check logs
+      log_output = capture_log(fn ->
+        Process.sleep(50)
+      end)
+      assert log_output =~ "my_app.users.login"
+    end
+
+    test "metrics survive process restarts" do
+      # Record initial metrics
+      MyApp.Telemetry.Events.order_created("order123", 99.99, "USD")
+      
+      # Get initial metrics state
+      initial_metrics = MyApp.BanditMetrics.get_metrics()
+      
+      # Restart telemetry supervisor
+      Supervisor.terminate_child(MyApp.Supervisor, MyApp.Telemetry)
+      {:ok, _} = Supervisor.restart_child(MyApp.Supervisor, MyApp.Telemetry)
+      
+      # Verify metrics persistence/recovery
+      Process.sleep(100)
+      final_metrics = MyApp.BanditMetrics.get_metrics()
+      
+      # Metrics should be restored or gracefully reset
+      assert is_integer(final_metrics.total_requests)
+    end
+  end
+
+  # Test helper functions
+  defp format_statsd_metric(name, value, type, tags) do
+    # This would be extracted from the actual implementation
+    type_suffix = case type do
+      :counter -> "c"
+      :gauge -> "g"
+      :timer -> "ms"
+    end
+
+    tag_string = if Enum.empty?(tags), do: "", else: "|##{Enum.join(tags, ",")}"
+    
+    "#{name}:#{value}|#{type_suffix}#{tag_string}\n"
+  end
+end]]></correct-example>
+          <incorrect-example title="Poor TelemetryMetrics testing without comprehensive validation" conditions="Testing observability implementation" expected-result="Comprehensive metrics testing" incorrectness-criteria="No metrics validation, missing integration tests, no alert testing, poor performance coverage"><![CDATA[# BAD: Poor TelemetryMetrics testing
+
+defmodule BadTelemetryTest do
+  use ExUnit.Case
+  
+  # Only basic functionality testing
+  test "telemetry starts" do
+    assert {:ok, _pid} = MyApp.Telemetry.start_link([])
+  end
+
+  # No metrics collection testing
+  # No reporter testing
+  # No alert testing
+  # No SLA monitoring testing
+  # No integration testing
+  # No performance testing
+  # No error case testing
+  # No external service monitoring testing
+  
+  test "metrics work" do
+    # No actual validation
+    assert true
+  end
+end]]></incorrect-example>
+        </example>
+      </examples>
+    </requirement>
+  </requirements>
+  
+  <context description="TelemetryMetrics observability considerations">
+    TelemetryMetrics is a library for defining and reporting metrics in Elixir applications, providing a standardized way to collect, aggregate, and export metrics to various monitoring systems. It integrates with the Telemetry library to provide comprehensive observability for production applications.
+
+    Key considerations include:
+    - Comprehensive metric collection covering system, application, and business metrics
+    - Integration with monitoring systems like Prometheus, StatsD, and custom reporters
+    - SLA monitoring and alerting for proactive issue detection
+    - Performance optimization to minimize overhead of metrics collection
+    - Proper metric organization and labeling for effective monitoring dashboards
+    - Error tracking and anomaly detection for operational visibility
+
+    TelemetryMetrics is essential for production Elixir applications requiring operational visibility, performance monitoring, and proactive alerting to maintain service reliability and user experience.
+  </context>
+  
+  <references>
+    <reference as="dependency" href=".cursor/rules/000-core/002-cursor-rules-creation.mdc" reason="Follows standard rule format">Base rule format definition</reference>
+    <reference as="context" href="https://hexdocs.pm/telemetry_metrics/" reason="Official TelemetryMetrics documentation">TelemetryMetrics Package Documentation</reference>
+    <reference as="context" href="https://hexdocs.pm/telemetry/" reason="Telemetry library documentation">Telemetry Library Documentation</reference>
+  </references>
+</rule>
+ 

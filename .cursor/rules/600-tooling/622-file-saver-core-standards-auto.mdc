@@ -1,0 +1,82 @@
+---
+description: File Saver utility best practices for browser file downloads with TypeScript and error handling
+globs: "*.{ts,tsx,js,jsx}"
+alwaysApply: false
+---
+<rule>
+  <meta>
+    <title>File Saver Core Standards Auto</title>
+    <description>File Saver utility best practices for browser file downloads with TypeScript and error handling</description>
+    <created-at utc-timestamp="1752701607">July 16, 2025, 05:33 PM</created-at>
+    <last-updated-at utc-timestamp="1752701607">July 16, 2025, 05:33 PM</last-updated-at>
+    <applies-to>
+      <file-matcher glob="*.{ts,tsx,js,jsx}">TypeScript and JavaScript files using file-saver</file-matcher>
+      <action-matcher action="file-saver-development">Triggered when developing with file-saver</action-matcher>
+    </applies-to>
+  </meta>
+  <requirements>
+    <non-negotiable priority="critical">
+      <description>Use TypeScript for type safety and proper integration patterns with file-saver. Follow modern best practices for performance and maintainability.</description>
+      <examples>
+        <example title="Basic File-Saver Usage">
+          <correct-example title="Proper file-saver implementation" conditions="Using file-saver in TypeScript project" expected-result="Type-safe and performant implementation" correctness-criteria="Uses TypeScript interfaces, proper error handling, follows best practices"><![CDATA[// Example usage with TypeScript
+import { /* relevant imports */ } from 'file-saver';
+
+// Type-safe implementation
+interface ExampleConfig {
+  // Configuration interface
+}
+
+export const useExample = (config: ExampleConfig) => {
+  // Implementation with proper typing and error handling
+  return {
+    // Return type-safe results
+  };
+};]]></correct-example>
+          <incorrect-example title="Poor file-saver implementation" conditions="Using file-saver without proper setup" expected-result="Type-safe and performant implementation" incorrectness-criteria="Missing TypeScript types, no error handling, poor performance"><![CDATA[// Bad: No TypeScript, poor error handling
+const example = require('file-saver'); // CommonJS import
+// Missing type definitions
+// No error handling
+// Performance issues]]></incorrect-example>
+        </example>
+      </examples>
+    </non-negotiable>
+    <requirement priority="high">
+      <description>Implement proper error handling and performance optimization when using file-saver. Follow library-specific best practices and recommendations.</description>
+      <examples>
+        <example title="Error Handling and Performance">
+          <correct-example title="Robust implementation with error handling" conditions="Production usage of file-saver" expected-result="Reliable and performant code" correctness-criteria="Proper error boundaries, performance optimization, monitoring"><![CDATA[// Production-ready implementation
+try {
+  // Safe usage with error handling
+  const result = await performOperation();
+  return result;
+} catch (error) {
+  // Proper error handling
+  console.error('File-Saver error:', error);
+  throw new Error('Operation failed');
+}]]></correct-example>
+          <incorrect-example title="Poor error handling" conditions="Production usage of file-saver" expected-result="Reliable and performant code" incorrectness-criteria="No error handling, performance issues, missing monitoring"><![CDATA[// Bad: No error handling
+const result = performOperation(); // May throw
+// No error recovery
+// No performance monitoring]]></incorrect-example>
+        </example>
+      </examples>
+    </requirement>
+  </requirements>
+  <context description="File-Saver development considerations">
+    File-Saver is a file download browser utilities library that provides file saver utility best practices for browser file downloads with typescript and error handling.
+
+    Key considerations:
+    - TypeScript integration for type safety
+    - Performance optimization and best practices
+    - Error handling and edge cases
+    - Modern development patterns
+    - Testing and maintainability
+
+    Follow the official documentation and community best practices for optimal results.
+  </context>
+  <references>
+    <reference as="dependency" href=".cursor/rules/000-core/002-cursor-rules-creation.mdc" reason="Follows standard rule format">Base rule format definition</reference>
+    <reference as="context" href="https://www.npmjs.com/package/file-saver" reason="Package documentation">Official file-saver package documentation</reference>
+  </references>
+</rule>

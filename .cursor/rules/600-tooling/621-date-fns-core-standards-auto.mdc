@@ -1,0 +1,652 @@
+---
+description: "Date-fns standards for TypeScript projects with tree-shaking, i18n, timezone, and testing best practices"
+globs: ["**/*.{ts,tsx,js,jsx}"]
+alwaysApply: false
+---
+
+<rule>
+  <meta>
+    <title>Date-fns Core Standards</title>
+    <description>Date-fns utility library best practices with TypeScript, internationalization, tree shaking, and performance optimization following modern date manipulation standards</description>
+    <created-at utc-timestamp="1744157700">January 25, 2025, 10:15 AM</created-at>
+    <last-updated-at utc-timestamp="1744157700">January 25, 2025, 10:15 AM</last-updated-at>
+    <applies-to>
+      <file-matcher glob="**/*.{ts,tsx,js,jsx}">TypeScript and JavaScript files using date-fns</file-matcher>
+      <file-matcher glob="**/utils/date*">Date utility modules</file-matcher>
+      <file-matcher glob="**/*date*">Date-related files</file-matcher>
+      <action-matcher action="date-manipulation">Triggered when working with date operations</action-matcher>
+    </applies-to>
+  </meta>
+  <requirements>
+    <non-negotiable priority="critical">
+      <description>Use tree-shakable imports from date-fns with proper TypeScript integration. Import only specific functions needed to minimize bundle size and ensure type safety.</description>
+      <examples>
+        <example title="Tree-shakable Imports and TypeScript Integration">
+          <correct-example title="Proper date-fns imports with TypeScript" conditions="Using date-fns functions" expected-result="Optimized bundle with type safety" correctness-criteria="Tree-shakable imports, proper TypeScript types, efficient bundle size"><![CDATA[// TypeScript - Proper date-fns usage with tree-shakable imports
+import { 
+  format, 
+  parseISO, 
+  isValid, 
+  addDays, 
+  subDays, 
+  differenceInDays,
+  startOfDay,
+  endOfDay,
+  isAfter,
+  isBefore,
+  compareAsc
+} from 'date-fns';
+import { enUS, es, fr, de } from 'date-fns/locale';
+
+// Type-safe date utility functions
+export class DateUtils {
+  private static readonly DEFAULT_FORMAT = 'yyyy-MM-dd';
+  private static readonly DISPLAY_FORMAT = 'MMM dd, yyyy';
+  
+  // Safe date formatting with validation
+  static formatDate(
+    date: Date | string | number, 
+    formatString: string = DateUtils.DEFAULT_FORMAT,
+    locale?: Locale
+  ): string {
+    try {
+      const dateObj = DateUtils.toDate(date);
+      if (!DateUtils.isValidDate(dateObj)) {
+        throw new Error('Invalid date provided');
+      }
+      
+      return format(dateObj, formatString, { locale });
+    } catch (error) {
+      console.error('Date formatting error:', error);
+      return 'Invalid Date';
+    }
+  }
+
+  // Safe date parsing with validation
+  static parseDate(dateString: string): Date | null {
+    try {
+      if (!dateString || typeof dateString !== 'string') {
+        return null;
+      }
+
+      // Handle ISO strings
+      if (dateString.includes('T') || dateString.includes('Z')) {
+        const parsed = parseISO(dateString);
+        return DateUtils.isValidDate(parsed) ? parsed : null;
+      }
+
+      // Handle other formats
+      const parsed = new Date(dateString);
+      return DateUtils.isValidDate(parsed) ? parsed : null;
+    } catch (error) {
+      console.error('Date parsing error:', error);
+      return null;
+    }
+  }
+
+  // Type-safe date validation
+  static isValidDate(date: any): date is Date {
+    return date instanceof Date && isValid(date);
+  }
+
+  // Convert various input types to Date
+  static toDate(input: Date | string | number): Date {
+    if (input instanceof Date) {
+      return input;
+    }
+    
+    if (typeof input === 'string') {
+      return parseISO(input);
+    }
+    
+    if (typeof input === 'number') {
+      return new Date(input);
+    }
+    
+    throw new Error('Invalid date input type');
+  }
+
+  // Date range operations
+  static createDateRange(start: Date, end: Date): Date[] {
+    if (!DateUtils.isValidDate(start) || !DateUtils.isValidDate(end)) {
+      throw new Error('Invalid date range');
+    }
+
+    if (isAfter(start, end)) {
+      throw new Error('Start date must be before end date');
+    }
+
+    const dates: Date[] = [];
+    let currentDate = startOfDay(start);
+    const endDate = startOfDay(end);
+
+    while (!isAfter(currentDate, endDate)) {
+      dates.push(new Date(currentDate));
+      currentDate = addDays(currentDate, 1);
+    }
+
+    return dates;
+  }
+
+  // Business day calculations
+  static addBusinessDays(date: Date, days: number): Date {
+    if (!DateUtils.isValidDate(date)) {
+      throw new Error('Invalid date provided');
+    }
+
+    let result = new Date(date);
+    let remainingDays = Math.abs(days);
+    const direction = days >= 0 ? 1 : -1;
+
+    while (remainingDays > 0) {
+      result = addDays(result, direction);
+      
+      // Skip weekends (0 = Sunday, 6 = Saturday)
+      const dayOfWeek = result.getDay();
+      if (dayOfWeek !== 0 && dayOfWeek !== 6) {
+        remainingDays--;
+      }
+    }
+
+    return result;
+  }
+
+  // Relative time formatting
+  static getRelativeTime(date: Date, baseDate: Date = new Date()): string {
+    if (!DateUtils.isValidDate(date) || !DateUtils.isValidDate(baseDate)) {
+      return 'Invalid date';
+    }
+
+    const daysDiff = differenceInDays(date, baseDate);
+
+    if (daysDiff === 0) return 'Today';
+    if (daysDiff === 1) return 'Tomorrow';
+    if (daysDiff === -1) return 'Yesterday';
+    if (daysDiff > 1 && daysDiff <= 7) return `In ${daysDiff} days`;
+    if (daysDiff < -1 && daysDiff >= -7) return `${Math.abs(daysDiff)} days ago`;
+    
+    return DateUtils.formatDate(date, DateUtils.DISPLAY_FORMAT);
+  }
+}
+
+// Internationalization support
+export class InternationalDateUtils {
+  private static readonly SUPPORTED_LOCALES = {
+    'en-US': enUS,
+    'es': es,
+    'fr': fr,
+    'de': de
+  } as const;
+
+  static formatWithLocale(
+    date: Date, 
+    formatString: string, 
+    localeCode: keyof typeof InternationalDateUtils.SUPPORTED_LOCALES = 'en-US'
+  ): string {
+    const locale = InternationalDateUtils.SUPPORTED_LOCALES[localeCode];
+    return DateUtils.formatDate(date, formatString, locale);
+  }
+
+  static getLocalizedMonthNames(localeCode: keyof typeof InternationalDateUtils.SUPPORTED_LOCALES = 'en-US'): string[] {
+    const locale = InternationalDateUtils.SUPPORTED_LOCALES[localeCode];
+    const months: string[] = [];
+    
+    for (let i = 0; i < 12; i++) {
+      const date = new Date(2023, i, 1);
+      months.push(format(date, 'MMMM', { locale }));
+    }
+    
+    return months;
+  }
+}
+
+    <requirement priority="high">
+      <description>Implement proper timezone handling and calendar operations. Use date-fns-tz for timezone-aware operations and ensure consistent behavior across different environments.</description>
+      <examples>
+        <example title="Timezone and Calendar Operations">
+          <correct-example title="Proper timezone handling with date-fns-tz" conditions="Working with timezones and calendar operations" expected-result="Timezone-aware date operations" correctness-criteria="Uses date-fns-tz, proper timezone conversion, calendar arithmetic"><![CDATA[// TypeScript - Timezone-aware date operations
+import { 
+  format, 
+  addMonths, 
+  subMonths, 
+  startOfMonth, 
+  endOfMonth, 
+  eachDayOfInterval,
+  getWeek,
+  startOfWeek,
+  endOfWeek
+} from 'date-fns';
+import { 
+  zonedTimeToUtc, 
+  utcToZonedTime, 
+  formatInTimeZone 
+} from 'date-fns-tz';
+
+export class TimezoneUtils {
+  // Convert local time to UTC
+  static toUTC(date: Date, timezone: string): Date {
+    try {
+      return zonedTimeToUtc(date, timezone);
+    } catch (error) {
+      console.error('Timezone conversion error:', error);
+      throw new Error(`Invalid timezone: ${timezone}`);
+    }
+  }
+
+  // Convert UTC to specific timezone
+  static toTimezone(utcDate: Date, timezone: string): Date {
+    try {
+      return utcToZonedTime(utcDate, timezone);
+    } catch (error) {
+      console.error('Timezone conversion error:', error);
+      throw new Error(`Invalid timezone: ${timezone}`);
+    }
+  }
+
+  // Format date in specific timezone
+  static formatInTimezone(
+    date: Date, 
+    formatString: string, 
+    timezone: string
+  ): string {
+    try {
+      return formatInTimeZone(date, timezone, formatString);
+    } catch (error) {
+      console.error('Timezone formatting error:', error);
+      return 'Invalid Date';
+    }
+  }
+
+  // Get user's timezone
+  static getUserTimezone(): string {
+    return Intl.DateTimeFormat().resolvedOptions().timeZone;
+  }
+}
+
+export class CalendarUtils {
+  // Generate calendar month view
+  static generateCalendarMonth(date: Date, weekStartsOn: 0 | 1 = 1): Date[][] {
+    if (!DateUtils.isValidDate(date)) {
+      throw new Error('Invalid date provided');
+    }
+
+    const monthStart = startOfMonth(date);
+    const monthEnd = endOfMonth(date);
+    const calendarStart = startOfWeek(monthStart, { weekStartsOn });
+    const calendarEnd = endOfWeek(monthEnd, { weekStartsOn });
+
+    const days = eachDayOfInterval({
+      start: calendarStart,
+      end: calendarEnd
+    });
+
+    // Group days into weeks
+    const weeks: Date[][] = [];
+    for (let i = 0; i < days.length; i += 7) {
+      weeks.push(days.slice(i, i + 7));
+    }
+
+    return weeks;
+  }
+
+  // Get week information
+  static getWeekInfo(date: Date): {
+    weekNumber: number;
+    weekStart: Date;
+    weekEnd: Date;
+    daysInWeek: Date[];
+  } {
+    if (!DateUtils.isValidDate(date)) {
+      throw new Error('Invalid date provided');
+    }
+
+    const weekNumber = getWeek(date);
+    const weekStart = startOfWeek(date, { weekStartsOn: 1 });
+    const weekEnd = endOfWeek(date, { weekStartsOn: 1 });
+    const daysInWeek = eachDayOfInterval({ start: weekStart, end: weekEnd });
+
+    return {
+      weekNumber,
+      weekStart,
+      weekEnd,
+      daysInWeek
+    };
+  }
+
+  // Navigation helpers
+  static navigateMonth(date: Date, direction: 'next' | 'previous'): Date {
+    if (!DateUtils.isValidDate(date)) {
+      throw new Error('Invalid date provided');
+    }
+
+    return direction === 'next' 
+      ? addMonths(date, 1) 
+      : subMonths(date, 1);
+  }
+}
+
+// Date picker utilities
+export class DatePickerUtils {
+  static isDateInRange(date: Date, minDate?: Date, maxDate?: Date): boolean {
+    if (!DateUtils.isValidDate(date)) {
+      return false;
+    }
+
+    if (minDate && DateUtils.isValidDate(minDate) && isBefore(date, minDate)) {
+      return false;
+    }
+
+    if (maxDate && DateUtils.isValidDate(maxDate) && isAfter(date, maxDate)) {
+      return false;
+    }
+
+    return true;
+  }
+
+  static isDateDisabled(
+    date: Date, 
+    disabledDates: Date[] = [], 
+    disabledDays: number[] = []
+  ): boolean {
+    if (!DateUtils.isValidDate(date)) {
+      return true;
+    }
+
+    // Check disabled specific dates
+    const isSpecificDateDisabled = disabledDates.some(disabledDate => 
+      DateUtils.isValidDate(disabledDate) && 
+      differenceInDays(date, disabledDate) === 0
+    );
+
+    // Check disabled days of week
+    const isDayOfWeekDisabled = disabledDays.includes(date.getDay());
+
+    return isSpecificDateDisabled || isDayOfWeekDisabled;
+  }
+}]]></correct-example>
+          <incorrect-example title="Poor timezone handling without proper tools" conditions="Working with timezones" expected-result="Proper timezone-aware operations" incorrectness-criteria="Manual timezone calculation, no date-fns-tz usage, timezone bugs, inconsistent behavior"><![CDATA[// BAD: Poor timezone handling
+function toUTC(date) {
+  // Manual timezone offset calculation - error prone
+  const offset = date.getTimezoneOffset();
+  return new Date(date.getTime() + offset * 60000);
+  // Doesn't handle DST correctly
+  // No validation
+}
+
+function formatInTimezone(date, timezone) {
+  // No proper timezone conversion
+  return date.toLocaleDateString();
+  // Ignores specified timezone
+  // Inconsistent across environments
+}
+
+// No calendar utilities
+// No proper date range validation
+// Manual date arithmetic prone to errors]]></incorrect-example>
+        </example>
+      </examples>
+    </requirement>
+
+    <requirement priority="high">
+      <description>Implement comprehensive testing for date operations including edge cases, timezone scenarios, and leap year handling with proper mocking strategies.</description>
+      <examples>
+        <example title="Date-fns Testing Strategies">
+          <correct-example title="Comprehensive date testing with mocking" conditions="Testing date operations" expected-result="Reliable date tests with proper mocking" correctness-criteria="Mocks system time, tests edge cases, timezone testing, leap year scenarios"><![CDATA[// TypeScript - Comprehensive date-fns testing
+import { DateUtils, TimezoneUtils, CalendarUtils } from '../DateUtils';
+
+// Mock current date for consistent testing
+const MOCK_DATE = new Date('2023-06-15T12:00:00Z');
+
+beforeAll(() => {
+  jest.useFakeTimers();
+  jest.setSystemTime(MOCK_DATE);
+});
+
+afterAll(() => {
+  jest.useRealTimers();
+});
+
+describe('DateUtils', () => {
+  describe('formatDate', () => {
+    test('should format valid dates correctly', () => {
+      const date = new Date('2023-06-15');
+      expect(DateUtils.formatDate(date)).toBe('2023-06-15');
+      expect(DateUtils.formatDate(date, 'MMM dd, yyyy')).toBe('Jun 15, 2023');
+    });
+
+    test('should handle invalid dates gracefully', () => {
+      expect(DateUtils.formatDate(new Date('invalid'))).toBe('Invalid Date');
+      expect(DateUtils.formatDate(null as any)).toBe('Invalid Date');
+      expect(DateUtils.formatDate(undefined as any)).toBe('Invalid Date');
+    });
+
+    test('should format with different locales', () => {
+      const date = new Date('2023-06-15');
+      const result = DateUtils.formatDate(date, 'MMMM dd, yyyy', es);
+      expect(result).toContain('junio'); // Spanish month name
+    });
+  });
+
+  describe('parseDate', () => {
+    test('should parse valid ISO strings', () => {
+      const result = DateUtils.parseDate('2023-06-15T12:00:00Z');
+      expect(result).toBeInstanceOf(Date);
+      expect(DateUtils.isValidDate(result)).toBe(true);
+    });
+
+    test('should return null for invalid strings', () => {
+      expect(DateUtils.parseDate('invalid-date')).toBeNull();
+      expect(DateUtils.parseDate('')).toBeNull();
+      expect(DateUtils.parseDate(null as any)).toBeNull();
+    });
+
+    test('should handle various date formats', () => {
+      expect(DateUtils.parseDate('2023-06-15')).toBeInstanceOf(Date);
+      expect(DateUtils.parseDate('06/15/2023')).toBeInstanceOf(Date);
+    });
+  });
+
+  describe('createDateRange', () => {
+    test('should create valid date range', () => {
+      const start = new Date('2023-06-01');
+      const end = new Date('2023-06-03');
+      const range = DateUtils.createDateRange(start, end);
+      
+      expect(range).toHaveLength(3);
+      expect(range[0]).toEqual(new Date('2023-06-01'));
+      expect(range[2]).toEqual(new Date('2023-06-03'));
+    });
+
+    test('should throw error for invalid range', () => {
+      const start = new Date('2023-06-15');
+      const end = new Date('2023-06-10');
+      
+      expect(() => DateUtils.createDateRange(start, end))
+        .toThrow('Start date must be before end date');
+    });
+
+    test('should handle same start and end date', () => {
+      const date = new Date('2023-06-15');
+      const range = DateUtils.createDateRange(date, date);
+      
+      expect(range).toHaveLength(1);
+      expect(range[0]).toEqual(date);
+    });
+  });
+
+  describe('addBusinessDays', () => {
+    test('should add business days correctly', () => {
+      // Friday
+      const friday = new Date('2023-06-16');
+      // Adding 1 business day should skip weekend
+      const result = DateUtils.addBusinessDays(friday, 1);
+      
+      expect(result.getDay()).toBe(1); // Monday
+    });
+
+    test('should subtract business days correctly', () => {
+      // Monday
+      const monday = new Date('2023-06-19');
+      // Subtracting 1 business day should skip weekend
+      const result = DateUtils.addBusinessDays(monday, -1);
+      
+      expect(result.getDay()).toBe(5); // Friday
+    });
+
+    test('should handle zero days', () => {
+      const date = new Date('2023-06-15');
+      const result = DateUtils.addBusinessDays(date, 0);
+      
+      expect(result).toEqual(date);
+    });
+  });
+});
+
+describe('TimezoneUtils', () => {
+  describe('timezone conversion', () => {
+    test('should convert to UTC correctly', () => {
+      const localDate = new Date('2023-06-15T12:00:00');
+      const utcDate = TimezoneUtils.toUTC(localDate, 'America/New_York');
+      
+      expect(utcDate).toBeInstanceOf(Date);
+      // Verify UTC conversion (EDT is UTC-4)
+      expect(utcDate.getUTCHours()).toBe(16);
+    });
+
+    test('should convert from UTC to timezone', () => {
+      const utcDate = new Date('2023-06-15T16:00:00Z');
+      const localDate = TimezoneUtils.toTimezone(utcDate, 'America/New_York');
+      
+      expect(localDate.getHours()).toBe(12); // EDT is UTC-4
+    });
+
+    test('should handle invalid timezones', () => {
+      const date = new Date('2023-06-15T12:00:00');
+      
+      expect(() => TimezoneUtils.toUTC(date, 'Invalid/Timezone'))
+        .toThrow('Invalid timezone: Invalid/Timezone');
+    });
+  });
+
+  describe('formatInTimezone', () => {
+    test('should format date in specific timezone', () => {
+      const utcDate = new Date('2023-06-15T16:00:00Z');
+      const formatted = TimezoneUtils.formatInTimezone(
+        utcDate, 
+        'yyyy-MM-dd HH:mm', 
+        'America/New_York'
+      );
+      
+      expect(formatted).toBe('2023-06-15 12:00');
+    });
+  });
+});
+
+describe('CalendarUtils', () => {
+  describe('generateCalendarMonth', () => {
+    test('should generate calendar month correctly', () => {
+      const date = new Date('2023-06-15');
+      const calendar = CalendarUtils.generateCalendarMonth(date);
+      
+      expect(calendar).toHaveLength(5); // 5 weeks in June 2023
+      expect(calendar[0]).toHaveLength(7); // 7 days per week
+    });
+
+    test('should handle different week start days', () => {
+      const date = new Date('2023-06-15');
+      const sundayStart = CalendarUtils.generateCalendarMonth(date, 0);
+      const mondayStart = CalendarUtils.generateCalendarMonth(date, 1);
+      
+      expect(sundayStart[0][0].getDay()).toBe(0); // Sunday
+      expect(mondayStart[0][0].getDay()).toBe(1); // Monday
+    });
+  });
+
+  describe('leap year handling', () => {
+    test('should handle leap year February correctly', () => {
+      const leapYear = new Date('2024-02-15');
+      const calendar = CalendarUtils.generateCalendarMonth(leapYear);
+      
+      // Find February 29th in the calendar
+      const feb29 = calendar.flat().find(date => 
+        date.getMonth() === 1 && date.getDate() === 29
+      );
+      
+      expect(feb29).toBeDefined();
+    });
+
+    test('should handle non-leap year February', () => {
+      const nonLeapYear = new Date('2023-02-15');
+      const calendar = CalendarUtils.generateCalendarMonth(nonLeapYear);
+      
+      // February 29th should not exist
+      const feb29 = calendar.flat().find(date => 
+        date.getMonth() === 1 && date.getDate() === 29
+      );
+      
+      expect(feb29).toBeUndefined();
+    });
+  });
+});
+
+// Performance testing
+describe('Performance tests', () => {
+  test('should handle large date ranges efficiently', () => {
+    const start = new Date('2020-01-01');
+    const end = new Date('2023-12-31');
+    
+    const startTime = performance.now();
+    const range = DateUtils.createDateRange(start, end);
+    const endTime = performance.now();
+    
+    expect(range.length).toBeGreaterThan(1000);
+    expect(endTime - startTime).toBeLessThan(100); // Should complete in < 100ms
+  });
+});]]></correct-example>
+          <incorrect-example title="Poor date testing without proper setup" conditions="Testing date operations" expected-result="Reliable date testing" incorrectness-criteria="No time mocking, inconsistent tests, missing edge cases, no timezone testing"><![CDATA[// BAD: Poor date testing
+describe('DateUtils', () => {
+  test('should format dates', () => {
+    // Using real current time - inconsistent
+    const now = new Date();
+    const result = DateUtils.formatDate(now);
+    
+    // Test will fail on different days
+    expect(result).toBe('2023-06-15');
+    
+    // No edge case testing
+    // No timezone consideration
+    // No error handling testing
+  });
+
+  // No mocking of system time
+  // No invalid input testing
+  // No leap year testing
+  // No performance testing
+  // No timezone testing
+});]]></incorrect-example>
+        </example>
+      </examples>
+    </requirement>
+  </requirements>
+  
+  <context description="Date-fns library considerations">
+    Date-fns is a modern JavaScript date utility library that provides the most comprehensive, yet simple and consistent toolset for manipulating JavaScript dates in a browser and Node.js. It's modular, immutable, and tree-shakable.
+
+    Key considerations include:
+    - Tree-shakable imports to minimize bundle size
+    - Immutable operations that don't modify original dates
+    - TypeScript support for type safety
+    - Comprehensive internationalization with locale support
+    - Timezone handling with date-fns-tz companion library
+    - Performance optimization through selective imports
+    - Consistent API design across all functions
+
+    Date-fns is particularly suitable for applications requiring extensive date manipulation, calendar interfaces, and internationalization support.
+  </context>
+  
+  <references>
+    <reference as="dependency" href=".cursor/rules/000-core/002-cursor-rules-creation.mdc" reason="Follows standard rule format">Base rule format definition</reference>
+    <reference as="context" href="https://date-fns.org/" reason="Official date-fns documentation">Date-fns Documentation</reference>
+    <reference as="context" href="https://github.com/date-fns/date-fns-tz" reason="Timezone handling">Date-fns-tz Package</reference>
+  </references>
+</rule>

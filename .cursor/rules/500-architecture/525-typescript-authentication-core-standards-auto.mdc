@@ -1,0 +1,1707 @@
+---
+description: "Comprehensive TypeScript authentication standards with email/password and Google OAuth 2.0 integration, security best practices, JWT token management, and compliance following expert TypeScript community standards"
+globs: "*.{ts,tsx,js,jsx}"
+alwaysApply: false
+---
+
+<rule>
+  <meta>
+    <title>TypeScript Authentication Core Standards</title>
+    <description>Comprehensive TypeScript authentication standards with email/password and Google OAuth 2.0 integration, security best practices, JWT token management, and compliance following expert TypeScript community standards</description>
+    <created-at utc-timestamp="1738620000">February 4, 2025, 5:00 PM UTC</created-at>
+    <last-updated-at utc-timestamp="1738620000">February 4, 2025, 5:00 PM UTC</last-updated-at>
+    <applies-to>
+      <file-matcher glob="*.{ts,tsx}">TypeScript authentication implementation files</file-matcher>
+      <file-matcher glob="**/auth/**/*">Authentication service files</file-matcher>
+      <file-matcher glob="**/api/auth/**/*">Authentication API endpoint files</file-matcher>
+      <action-matcher action="authentication">Authentication system implementation</action-matcher>
+    </applies-to>
+  </meta>
+  <requirements>
+    <!-- Section 1: Password Security and Hashing -->
+    <non-negotiable priority="critical">
+      <description>Use bcrypt with minimum 12 rounds for password hashing. Never store plain text passwords or use weak hashing algorithms like MD5 or SHA1.</description>
+      <examples>
+        <example title="Password Hashing Implementation">
+          <correct-example title="Secure bcrypt password hashing with TypeScript" conditions="Implementing password hashing in authentication system" expected-result="Securely hashed passwords with proper salt generation" correctness-criteria="Uses bcrypt with 12+ rounds, proper error handling, and TypeScript types"><![CDATA[import bcrypt from 'bcrypt';
+
+interface PasswordHashResult {
+  hash: string;
+  salt: string;
+}
+
+const SALT_ROUNDS = 12; // Minimum recommended for 2025
+
+export const hashPassword = async (password: string): Promise<PasswordHashResult> => {
+  try {
+    const salt = await bcrypt.genSalt(SALT_ROUNDS);
+    const hash = await bcrypt.hash(password, salt);
+    
+    return { hash, salt };
+  } catch (error) {
+    throw new Error(`Password hashing failed: ${error instanceof Error ? error.message : 'Unknown error'}`);
+  }
+};
+
+export const verifyPassword = async (
+  password: string, 
+  hash: string
+): Promise<boolean> => {
+  try {
+    return await bcrypt.compare(password, hash);
+  } catch (error) {
+    console.error('Password verification error:', error);
+    return false; // Fail securely
+  }
+};]]></correct-example>
+          <incorrect-example title="Insecure password handling" conditions="Implementing password hashing" expected-result="Secure password hashing" incorrectness-criteria="Uses weak hashing, plain text storage, or insufficient salt rounds"><![CDATA[// WRONG - Multiple security issues
+import crypto from 'crypto';
+
+// Using weak SHA256 instead of bcrypt
+const hashPassword = (password: string): string => {
+  return crypto.createHash('sha256').update(password).digest('hex'); // No salt!
+};
+
+// Storing plain text password - NEVER DO THIS
+const user = {
+  email: 'user@example.com',
+  password: 'plainTextPassword123' // CRITICAL SECURITY VIOLATION
+};
+
+// Using insufficient salt rounds
+const weakBcrypt = bcrypt.hashSync(password, 4); // Too low for 2025]]></incorrect-example>
+        </example>
+      </examples>
+    </non-negotiable>
+
+    <!-- Section 2: JWT Token Management -->
+    <non-negotiable priority="critical">
+      <description>Implement secure JWT token management with short-lived access tokens (15 minutes max), refresh tokens, proper secret management, and token verification. Use TypeScript interfaces for token payloads.</description>
+      <examples>
+        <example title="JWT Token Implementation">
+          <correct-example title="Secure JWT implementation with TypeScript types" conditions="Implementing JWT authentication system" expected-result="Type-safe JWT system with proper token lifecycle management" correctness-criteria="Uses short-lived tokens, proper secret management, TypeScript interfaces, and secure verification"><![CDATA[import jwt from 'jsonwebtoken';
+import type { JwtPayload } from 'jsonwebtoken';
+
+interface AccessTokenPayload extends JwtPayload {
+  userId: string;
+  email: string;
+  role: 'OWNER' | 'ADMIN' | 'MEMBER' | 'GUEST';
+  type: 'access';
+}
+
+interface RefreshTokenPayload extends JwtPayload {
+  userId: string;
+  email: string;
+  type: 'refresh';
+  jwtSecureCode: string; // Rotating secret for additional security
+}
+
+interface TokenPair {
+  accessToken: string;
+  refreshToken: string;
+}
+
+export class JWTService {
+  private readonly accessTokenSecret: string;
+  private readonly refreshTokenSecret: string;
+  private readonly accessTokenExpiry = '15m'; // Short-lived
+  private readonly refreshTokenExpiry = '7d';
+
+  constructor() {
+    this.accessTokenSecret = process.env.JWT_SECRET!;
+    this.refreshTokenSecret = process.env.JWT_REFRESH_SECRET!;
+    
+    if (!this.accessTokenSecret || !this.refreshTokenSecret) {
+      throw new Error('JWT secrets must be configured');
+    }
+  }
+
+  generateTokenPair(payload: {
+    userId: string;
+    email: string;
+    role: AccessTokenPayload['role'];
+    jwtSecureCode: string;
+  }): TokenPair {
+    const accessToken = jwt.sign(
+      {
+        userId: payload.userId,
+        email: payload.email,
+        role: payload.role,
+        type: 'access'
+      } as AccessTokenPayload,
+      this.accessTokenSecret,
+      { expiresIn: this.accessTokenExpiry }
+    );
+
+    const refreshToken = jwt.sign(
+      {
+        userId: payload.userId,
+        email: payload.email,
+        type: 'refresh',
+        jwtSecureCode: payload.jwtSecureCode
+      } as RefreshTokenPayload,
+      this.refreshTokenSecret,
+      { expiresIn: this.refreshTokenExpiry }
+    );
+
+    return { accessToken, refreshToken };
+  }
+
+  verifyAccessToken(token: string): AccessTokenPayload | null {
+    try {
+      const decoded = jwt.verify(token, this.accessTokenSecret) as AccessTokenPayload;
+      return decoded.type === 'access' ? decoded : null;
+    } catch (error) {
+      return null; // Token invalid or expired
+    }
+  }
+
+  verifyRefreshToken(token: string): RefreshTokenPayload | null {
+    try {
+      const decoded = jwt.verify(token, this.refreshTokenSecret) as RefreshTokenPayload;
+      return decoded.type === 'refresh' ? decoded : null;
+    } catch (error) {
+      return null;
+    }
+  }
+}]]></correct-example>
+          <incorrect-example title="Insecure JWT implementation" conditions="Implementing JWT authentication" expected-result="Secure JWT system" incorrectness-criteria="Uses long-lived tokens, hardcoded secrets, missing TypeScript types, or improper verification"><![CDATA[// WRONG - Multiple security vulnerabilities
+import jwt from 'jsonwebtoken';
+
+// Hardcoded secret - CRITICAL SECURITY ISSUE
+const SECRET = 'my-secret-key';
+
+// Long-lived tokens - SECURITY RISK
+const generateToken = (userId: any) => { // No TypeScript types
+  return jwt.sign(
+    { userId }, // Missing role, email, type validation
+    SECRET, // Hardcoded secret
+    { expiresIn: '30d' } // Too long-lived
+  );
+};
+
+// No proper verification or error handling
+const verifyToken = (token: string) => {
+  return jwt.verify(token, SECRET); // Can throw unhandled errors
+};
+
+// Missing refresh token mechanism
+// No token type differentiation
+// No secure code rotation]]></incorrect-example>
+        </example>
+      </examples>
+    </non-negotiable>
+
+    <!-- Section 3: Google OAuth 2.0 Integration -->
+    <non-negotiable priority="critical">
+      <description>Implement Google OAuth 2.0 following Google's official documentation with proper TypeScript types, security validation, and error handling. Use official Google libraries and validate ID tokens server-side.</description>
+      <examples>
+        <example title="Google OAuth 2.0 Implementation">
+          <correct-example title="Secure Google OAuth 2.0 with TypeScript using Passport.js" conditions="Implementing Google OAuth authentication" expected-result="Type-safe Google OAuth integration with proper security validation" correctness-criteria="Uses official Google libraries, validates ID tokens, implements proper TypeScript types, and follows Google best practices"><![CDATA[import passport from 'passport';
+import { Strategy as GoogleStrategy, Profile, VerifyCallback } from 'passport-google-oauth20';
+import { OAuth2Client } from 'google-auth-library';
+import type { Request, Response } from 'express';
+
+interface GoogleProfile {
+  googleId: string;
+  email: string;
+  name: string;
+  picture?: string;
+  verified_email: boolean;
+}
+
+interface GoogleOAuthUser {
+  id: string;
+  googleId: string;
+  email: string;
+  fullName: string;
+  role: 'OWNER' | 'ADMIN' | 'MEMBER' | 'GUEST';
+  accountStatus: 'ACTIVE' | 'PENDING' | 'SUSPENDED';
+  jwtSecureCode: string;
+}
+
+class GoogleOAuthService {
+  private readonly client: OAuth2Client;
+  private readonly clientId: string;
+  private readonly clientSecret: string;
+
+  constructor() {
+    this.clientId = process.env.GOOGLE_CLIENT_ID!;
+    this.clientSecret = process.env.GOOGLE_CLIENT_SECRET!;
+    
+    if (!this.clientId || !this.clientSecret) {
+      throw new Error('Google OAuth credentials must be configured');
+    }
+    
+    this.client = new OAuth2Client(this.clientId);
+  }
+
+  // Passport.js strategy configuration
+  createStrategy(): GoogleStrategy {
+    return new GoogleStrategy(
+      {
+        clientID: this.clientId,
+        clientSecret: this.clientSecret,
+        callbackURL: `${process.env.BE_BASE_URL}/api/auth/google/callback`,
+        scope: ['profile', 'email']
+      },
+      this.verifyCallback.bind(this)
+    );
+  }
+
+  private async verifyCallback(
+    accessToken: string,
+    refreshToken: string,
+    profile: Profile,
+    done: VerifyCallback
+  ): Promise<void> {
+    try {
+      // Validate the profile data
+      if (!profile.emails?.[0]?.value || !profile.emails[0].verified) {
+        return done(new Error('Email not verified'));
+      }
+
+      const email = profile.emails[0].value;
+      const googleProfile: GoogleProfile = {
+        googleId: profile.id,
+        email,
+        name: profile.displayName,
+        picture: profile.photos?.[0]?.value,
+        verified_email: profile.emails[0].verified
+      };
+
+      // Check if user exists or create new user
+      let user = await this.findUserByGoogleId(profile.id);
+      
+      if (!user) {
+        user = await this.createGoogleUser(googleProfile);
+      }
+
+      return done(null, user);
+    } catch (error) {
+      return done(error instanceof Error ? error : new Error('Google OAuth verification failed'));
+    }
+  }
+
+  // Server-side ID token verification
+  async verifyIdToken(idToken: string): Promise<GoogleProfile | null> {
+    try {
+      const ticket = await this.client.verifyIdToken({
+        idToken,
+        audience: this.clientId
+      });
+
+      const payload = ticket.getPayload();
+      if (!payload || !payload.email_verified) {
+        return null;
+      }
+
+      return {
+        googleId: payload.sub,
+        email: payload.email!,
+        name: payload.name!,
+        picture: payload.picture,
+        verified_email: payload.email_verified
+      };
+    } catch (error) {
+      console.error('ID token verification failed:', error);
+      return null;
+    }
+  }
+
+  private async findUserByGoogleId(googleId: string): Promise<GoogleOAuthUser | null> {
+    // Implementation depends on your database layer
+    // This should return typed user object or null
+    return null; // Placeholder
+  }
+
+  private async createGoogleUser(profile: GoogleProfile): Promise<GoogleOAuthUser> {
+    // Implementation depends on your database layer
+    // This should create and return typed user object
+    throw new Error('Not implemented'); // Placeholder
+  }
+}
+
+// Express route handlers with proper TypeScript types
+export const handleGoogleAuth = passport.authenticate('google', {
+  scope: ['profile', 'email']
+});
+
+export const handleGoogleCallback = (req: Request, res: Response): void => {
+  passport.authenticate('google', { session: false }, (err: Error, user: GoogleOAuthUser) => {
+    if (err || !user) {
+      return res.redirect(`${process.env.FE_BASE_URL}/auth/error`);
+    }
+
+    // Generate JWT tokens and redirect with access token
+    const jwtService = new JWTService();
+    const { accessToken } = jwtService.generateTokenPair({
+      userId: user.id,
+      email: user.email,
+      role: user.role,
+      jwtSecureCode: user.jwtSecureCode
+    });
+
+    res.redirect(`${process.env.FE_BASE_URL}/auth/success?token=${accessToken}`);
+  })(req, res);
+};]]></correct-example>
+          <incorrect-example title="Insecure Google OAuth implementation" conditions="Implementing Google OAuth" expected-result="Secure Google OAuth integration" incorrectness-criteria="Missing ID token verification, improper error handling, no TypeScript types, or security validation gaps"><![CDATA[// WRONG - Multiple security and implementation issues
+import passport from 'passport';
+
+// Missing TypeScript types
+const googleStrategy = new GoogleStrategy({
+  clientID: 'hardcoded-client-id', // Hardcoded credentials - WRONG
+  clientSecret: 'hardcoded-secret', // Security violation
+  callbackURL: '/auth/google/callback' // Missing domain validation
+}, (accessToken, refreshToken, profile, done) => {
+  // No email verification check - SECURITY RISK
+  // No input validation
+  const user = {
+    googleId: profile.id,
+    email: profile.emails[0].value // Can be undefined - runtime error
+  };
+  
+  // No proper error handling
+  done(null, user);
+});
+
+// No server-side ID token verification
+// Missing CSRF protection
+// No proper TypeScript interfaces
+// No secure token generation
+
+// Insecure callback handler
+app.get('/auth/google/callback', (req, res) => {
+  // No authentication check
+  // No error handling
+  // Direct redirect without validation
+  res.redirect('/dashboard'); // Missing token generation
+});]]></incorrect-example>
+        </example>
+      </examples>
+    </non-negotiable>
+
+    <!-- Section 4: Input Validation and Sanitization -->
+    <non-negotiable priority="critical">
+      <description>Implement comprehensive input validation and sanitization for all authentication inputs using TypeScript schemas and validation libraries. Validate email formats, password complexity, and sanitize user inputs to prevent injection attacks.</description>
+      <examples>
+        <example title="Input Validation Implementation">
+          <correct-example title="Comprehensive input validation with TypeScript schemas" conditions="Validating authentication inputs" expected-result="Type-safe input validation with proper sanitization and error handling" correctness-criteria="Uses validation schemas, TypeScript types, email validation, password complexity checks, and input sanitization"><![CDATA[import * as z from 'zod';
+import validator from 'validator';
+
+// TypeScript schemas for authentication inputs
+const emailSchema = z
+  .string()
+  .email('Invalid email format')
+  .max(254, 'Email too long') // RFC 5321 limit
+  .refine(email => validator.isEmail(email), 'Invalid email format');
+
+const passwordSchema = z
+  .string()
+  .min(8, 'Password must be at least 8 characters')
+  .max(128, 'Password too long')
+  .refine(password => /[A-Z]/.test(password), 'Password must contain uppercase letter')
+  .refine(password => /[a-z]/.test(password), 'Password must contain lowercase letter')
+  .refine(password => /\d/.test(password), 'Password must contain number')
+  .refine(password => /[!@#$%^&*(),.?":{}|<>]/.test(password), 'Password must contain special character');
+
+const registerSchema = z.object({
+  email: emailSchema,
+  password: passwordSchema,
+  firstName: z
+    .string()
+    .min(1, 'First name required')
+    .max(50, 'First name too long')
+    .refine(name => validator.isAlpha(name.replace(/\s/g, ''), 'en-US'), 'Invalid first name'),
+  lastName: z
+    .string()
+    .min(1, 'Last name required')
+    .max(50, 'Last name too long')
+    .refine(name => validator.isAlpha(name.replace(/\s/g, ''), 'en-US'), 'Invalid last name')
+});
+
+const loginSchema = z.object({
+  email: emailSchema,
+  password: z.string().min(1, 'Password required')
+});
+
+interface ValidationResult<T> {
+  success: boolean;
+  data?: T;
+  errors?: string[];
+}
+
+interface RegisterInput {
+  email: string;
+  password: string;
+  firstName: string;
+  lastName: string;
+}
+
+interface LoginInput {
+  email: string;
+  password: string;
+}
+
+export class AuthValidationService {
+  static validateRegistration(input: unknown): ValidationResult<RegisterInput> {
+    try {
+      const sanitizedInput = this.sanitizeInput(input);
+      const validated = registerSchema.parse(sanitizedInput);
+      
+      return {
+        success: true,
+        data: {
+          email: validator.normalizeEmail(validated.email) || validated.email,
+          password: validated.password,
+          firstName: validator.escape(validated.firstName.trim()),
+          lastName: validator.escape(validated.lastName.trim())
+        }
+      };
+    } catch (error) {
+      const errors = error instanceof z.ZodError 
+        ? error.errors.map(e => e.message)
+        : ['Validation failed'];
+        
+      return { success: false, errors };
+    }
+  }
+
+  static validateLogin(input: unknown): ValidationResult<LoginInput> {
+    try {
+      const sanitizedInput = this.sanitizeInput(input);
+      const validated = loginSchema.parse(sanitizedInput);
+      
+      return {
+        success: true,
+        data: {
+          email: validator.normalizeEmail(validated.email) || validated.email,
+          password: validated.password
+        }
+      };
+    } catch (error) {
+      const errors = error instanceof z.ZodError 
+        ? error.errors.map(e => e.message)
+        : ['Validation failed'];
+        
+      return { success: false, errors };
+    }
+  }
+
+  private static sanitizeInput(input: unknown): any {
+    if (typeof input !== 'object' || input === null) {
+      throw new Error('Invalid input format');
+    }
+
+    const sanitized: any = {};
+    for (const [key, value] of Object.entries(input)) {
+      if (typeof value === 'string') {
+        // Remove null bytes and normalize whitespace
+        sanitized[key] = value.replace(/\0/g, '').trim();
+      } else {
+        sanitized[key] = value;
+      }
+    }
+
+    return sanitized;
+  }
+
+  static isPasswordCompromised(password: string): boolean {
+    // Check against common password lists
+    const commonPasswords = [
+      'password', '123456', 'password123', 'admin', 'qwerty',
+      'letmein', 'welcome', 'monkey', '1234567890'
+    ];
+    
+    return commonPasswords.includes(password.toLowerCase());
+  }
+}]]></correct-example>
+          <incorrect-example title="Insufficient input validation" conditions="Validating authentication inputs" expected-result="Comprehensive input validation" incorrectness-criteria="Missing validation schemas, no TypeScript types, weak password requirements, or lack of input sanitization"><![CDATA[// WRONG - Insufficient validation and security issues
+interface User {
+  email: any; // No proper typing
+  password: any; // No proper typing
+}
+
+// Weak validation
+const validateUser = (input: any): boolean => {
+  return input.email && input.password; // No format validation
+};
+
+// No password complexity requirements
+const isValidPassword = (password: string): boolean => {
+  return password.length > 6; // Too weak for 2025
+};
+
+// No input sanitization - XSS/Injection risk
+const registerUser = (userData: any) => {
+  const user = {
+    email: userData.email, // No sanitization
+    password: userData.password, // No hashing
+    name: userData.name // No XSS protection
+  };
+  
+  // Direct database insertion without validation
+  return database.insert(user);
+};
+
+// Missing email format validation
+// No protection against common passwords
+// No length limits
+// No special character requirements]]></incorrect-example>
+        </example>
+      </examples>
+    </non-negotiable>
+
+    <!-- Section 5: Session Management and Security -->
+    <requirement priority="critical">
+      <description>Implement secure session management with proper token storage, CSRF protection, rate limiting, and secure HTTP headers. Use TypeScript interfaces for session data and implement proper logout mechanisms.</description>
+      <examples>
+        <example title="Secure Session Management">
+          <correct-example title="Comprehensive session security with TypeScript" conditions="Implementing session management system" expected-result="Secure session handling with proper TypeScript types and security measures" correctness-criteria="Includes CSRF protection, rate limiting, secure headers, TypeScript interfaces, and proper token lifecycle management"><![CDATA[import rateLimit from 'express-rate-limit';
+import helmet from 'helmet';
+import type { Request, Response, NextFunction } from 'express';
+
+interface AuthenticatedRequest extends Request {
+  user?: {
+    id: string;
+    email: string;
+    role: 'OWNER' | 'ADMIN' | 'MEMBER' | 'GUEST';
+  };
+}
+
+interface SessionData {
+  userId: string;
+  email: string;
+  role: string;
+  loginTime: Date;
+  lastActivity: Date;
+  ipAddress: string;
+  userAgent: string;
+}
+
+interface SecurityHeaders {
+  'X-Content-Type-Options': 'nosniff';
+  'X-Frame-Options': 'DENY';
+  'X-XSS-Protection': '1; mode=block';
+  'Strict-Transport-Security': 'max-age=31536000; includeSubDomains';
+  'Content-Security-Policy': string;
+}
+
+export class SecurityMiddleware {
+  // Rate limiting for authentication endpoints
+  static authRateLimit = rateLimit({
+    windowMs: 15 * 60 * 1000, // 15 minutes
+    max: 5, // 5 attempts per window
+    message: {
+      error: 'TOO_MANY_ATTEMPTS',
+      message: 'Too many authentication attempts, please try again later'
+    },
+    standardHeaders: true,
+    legacyHeaders: false,
+    keyGenerator: (req: Request): string => {
+      return req.ip + ':' + (req.headers['user-agent'] || 'unknown');
+    }
+  });
+
+  // CSRF protection
+  static csrfProtection = (req: Request, res: Response, next: NextFunction): void => {
+    const token = req.headers['x-csrf-token'] as string;
+    const sessionToken = req.session?.csrfToken;
+
+    if (req.method !== 'GET' && token !== sessionToken) {
+      res.status(403).json({ error: 'CSRF_TOKEN_INVALID' });
+      return;
+    }
+
+    next();
+  };
+
+  // Secure headers
+  static securityHeaders = helmet({
+    contentSecurityPolicy: {
+      directives: {
+        defaultSrc: ["'self'"],
+        styleSrc: ["'self'", "'unsafe-inline'"],
+        scriptSrc: ["'self'"],
+        imgSrc: ["'self'", "data:", "https:"],
+        connectSrc: ["'self'"],
+        fontSrc: ["'self'"],
+        objectSrc: ["'none'"],
+        mediaSrc: ["'self'"],
+        frameSrc: ["'none'"]
+      }
+    },
+    hsts: {
+      maxAge: 31536000,
+      includeSubDomains: true,
+      preload: true
+    }
+  });
+
+  // JWT authentication middleware
+  static authenticateJWT = (req: AuthenticatedRequest, res: Response, next: NextFunction): void => {
+    const authHeader = req.headers.authorization;
+    
+    if (!authHeader || !authHeader.startsWith('Bearer ')) {
+      res.status(401).json({ error: 'MISSING_AUTH_TOKEN' });
+      return;
+    }
+
+    try {
+      const token = authHeader.substring(7);
+      const jwtService = new JWTService();
+      const decoded = jwtService.verifyAccessToken(token);
+
+      if (!decoded) {
+        res.status(401).json({ error: 'INVALID_TOKEN' });
+        return;
+      }
+
+      // Update last activity
+      this.updateLastActivity(decoded.userId, req.ip, req.headers['user-agent'] || 'unknown');
+
+      req.user = {
+        id: decoded.userId,
+        email: decoded.email,
+        role: decoded.role
+      };
+
+      next();
+    } catch (error) {
+      res.status(401).json({ error: 'TOKEN_VERIFICATION_FAILED' });
+    }
+  };
+
+  private static async updateLastActivity(userId: string, ipAddress: string, userAgent: string): Promise<void> {
+    // Update session tracking in database
+    // Implementation depends on your session store
+  }
+
+  // Secure logout
+  static logout = async (req: AuthenticatedRequest, res: Response): Promise<void> => {
+    try {
+      if (req.user) {
+        // Invalidate refresh tokens
+        await this.invalidateRefreshTokens(req.user.id);
+        
+        // Log security event
+        await this.logSecurityEvent({
+          userId: req.user.id,
+          action: 'USER_LOGOUT',
+          ipAddress: req.ip,
+          userAgent: req.headers['user-agent'] || 'unknown',
+          timestamp: new Date()
+        });
+      }
+
+      res.status(200).json({ 
+        success: true, 
+        message: 'Logged out successfully' 
+      });
+    } catch (error) {
+      res.status(500).json({ error: 'LOGOUT_FAILED' });
+    }
+  };
+
+  private static async invalidateRefreshTokens(userId: string): Promise<void> {
+    // Implementation depends on your token storage strategy
+  }
+
+  private static async logSecurityEvent(event: {
+    userId: string;
+    action: string;
+    ipAddress: string;
+    userAgent: string;
+    timestamp: Date;
+  }): Promise<void> {
+    // Implementation depends on your audit logging system
+  }
+}]]></correct-example>
+          <incorrect-example title="Insecure session management" conditions="Implementing session management" expected-result="Secure session handling" incorrectness-criteria="Missing CSRF protection, no rate limiting, insecure headers, poor token management, or inadequate logout process"><![CDATA[// WRONG - Multiple security vulnerabilities
+import express from 'express';
+
+// No rate limiting - DDoS vulnerability
+// No CSRF protection
+// No secure headers
+
+const authenticateUser = (req: any, res: any, next: any) => {
+  const token = req.headers.authorization; // No Bearer prefix check
+  
+  if (token) {
+    // No proper validation
+    req.user = jwt.decode(token); // Decode without verification - CRITICAL FLAW
+    next();
+  } else {
+    res.status(401).send('Unauthorized'); // Information leakage
+  }
+};
+
+// Insecure logout
+const logout = (req: any, res: any) => {
+  // No token invalidation
+  // No security logging
+  res.send('Logged out'); // No proper response structure
+};
+
+// Missing security headers
+// No session tracking
+// No input validation
+// No TypeScript types
+// No audit logging]]></incorrect-example>
+        </example>
+      </examples>
+    </requirement>
+
+    <!-- Section 6: Error Handling and Security Logging -->
+    <requirement priority="high">
+      <description>Implement comprehensive error handling with security-conscious error messages and detailed audit logging. Use TypeScript for error types and ensure no sensitive information is leaked in error responses.</description>
+      <examples>
+        <example title="Security-Conscious Error Handling">
+          <correct-example title="Secure error handling with audit logging" conditions="Implementing error handling for authentication system" expected-result="Security-focused error handling with proper logging and TypeScript types" correctness-criteria="Uses TypeScript error interfaces, logs security events, prevents information leakage, and provides appropriate user feedback"><![CDATA[interface AuthError {
+  code: string;
+  message: string;
+  statusCode: number;
+  isOperational: boolean;
+}
+
+interface AuditLogEntry {
+  userId?: string;
+  action: string;
+  resource: string;
+  success: boolean;
+  ipAddress: string;
+  userAgent: string;
+  timestamp: Date;
+  details?: Record<string, any>;
+}
+
+export class AuthErrorHandler {
+  private static readonly GENERIC_ERROR = 'An error occurred during authentication';
+  
+  // Predefined secure error responses
+  private static readonly ERROR_RESPONSES: Record<string, AuthError> = {
+    INVALID_CREDENTIALS: {
+      code: 'INVALID_CREDENTIALS',
+      message: 'Invalid email or password',
+      statusCode: 401,
+      isOperational: true
+    },
+    ACCOUNT_LOCKED: {
+      code: 'ACCOUNT_LOCKED',
+      message: 'Account temporarily locked due to multiple failed attempts',
+      statusCode: 423,
+      isOperational: true
+    },
+    TOKEN_EXPIRED: {
+      code: 'TOKEN_EXPIRED',
+      message: 'Authentication token has expired',
+      statusCode: 401,
+      isOperational: true
+    },
+    INSUFFICIENT_PERMISSIONS: {
+      code: 'INSUFFICIENT_PERMISSIONS',
+      message: 'Insufficient permissions for this operation',
+      statusCode: 403,
+      isOperational: true
+    }
+  };
+
+  static handleAuthError(error: Error, req: Request, res: Response): void {
+    const correlationId = this.generateCorrelationId();
+    
+    // Log detailed error for debugging (server-side only)
+    this.logError(error, req, correlationId);
+    
+    // Return sanitized error to client
+    const clientError = this.sanitizeError(error);
+    
+    res.status(clientError.statusCode).json({
+      success: false,
+      error: clientError.code,
+      message: clientError.message,
+      correlationId
+    });
+  }
+
+  private static sanitizeError(error: Error): AuthError {
+    // Map known errors to safe responses
+    for (const [code, response] of Object.entries(this.ERROR_RESPONSES)) {
+      if (error.message.includes(code)) {
+        return response;
+      }
+    }
+
+    // Default safe response for unknown errors
+    return {
+      code: 'AUTHENTICATION_ERROR',
+      message: this.GENERIC_ERROR,
+      statusCode: 500,
+      isOperational: false
+    };
+  }
+
+  private static logError(error: Error, req: Request, correlationId: string): void {
+    const logEntry = {
+      correlationId,
+      error: {
+        message: error.message,
+        stack: error.stack,
+        name: error.name
+      },
+      request: {
+        method: req.method,
+        url: req.url,
+        ip: req.ip,
+        userAgent: req.headers['user-agent']
+      },
+      timestamp: new Date()
+    };
+
+    console.error('Authentication Error:', JSON.stringify(logEntry, null, 2));
+  }
+
+  private static generateCorrelationId(): string {
+    return `auth_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`;
+  }
+}
+
+export class AuditLogger {
+  static async logAuthEvent(entry: Partial<AuditLogEntry>): Promise<void> {
+    try {
+      const fullEntry: AuditLogEntry = {
+        action: entry.action || 'UNKNOWN',
+        resource: entry.resource || 'authentication',
+        success: entry.success ?? false,
+        ipAddress: entry.ipAddress || 'unknown',
+        userAgent: entry.userAgent || 'unknown',
+        timestamp: entry.timestamp || new Date(),
+        userId: entry.userId,
+        details: entry.details
+      };
+
+      // Store in audit log database/service
+      await this.persistAuditLog(fullEntry);
+      
+      // Also log to console for immediate visibility
+      console.log('AUDIT:', JSON.stringify(fullEntry));
+      
+    } catch (error) {
+      // Never let audit logging failure break the main flow
+      console.error('Audit logging failed:', error);
+    }
+  }
+
+  private static async persistAuditLog(entry: AuditLogEntry): Promise<void> {
+    // Implementation depends on your audit storage system
+    // Should be highly available and tamper-proof
+  }
+
+  // Specific audit log helpers
+  static logLoginAttempt(userId: string | null, success: boolean, req: Request): void {
+    this.logAuthEvent({
+      userId,
+      action: success ? 'LOGIN_SUCCESS' : 'LOGIN_FAILURE',
+      success,
+      ipAddress: req.ip,
+      userAgent: req.headers['user-agent'],
+      details: { email: req.body?.email?.substring(0, 3) + '***' } // Partial email only
+    });
+  }
+
+  static logPasswordChange(userId: string, req: Request): void {
+    this.logAuthEvent({
+      userId,
+      action: 'PASSWORD_CHANGE',
+      success: true,
+      ipAddress: req.ip,
+      userAgent: req.headers['user-agent']
+    });
+  }
+}]]></correct-example>
+          <incorrect-example title="Insecure error handling" conditions="Implementing error handling" expected-result="Secure error handling" incorrectness-criteria="Leaks sensitive information, poor logging, missing TypeScript types, or inadequate audit trails"><![CDATA[// WRONG - Security vulnerabilities in error handling
+const handleAuthError = (error: any, req: any, res: any) => {
+  // Information leakage - exposes internal details
+  res.status(500).json({
+    error: error.message, // Could expose sensitive info
+    stack: error.stack,   // Exposes code structure - SECURITY RISK
+    details: {
+      userId: req.user?.id,     // PII leakage
+      password: req.body.password, // CRITICAL - password exposure
+      database: process.env.DATABASE_URL // Infrastructure exposure
+    }
+  });
+};
+
+// No audit logging
+// No correlation IDs for tracking
+// No rate limiting on error responses
+// Inconsistent error messages help attackers
+// No distinction between operational and system errors
+
+// Bad error responses that help attackers
+const login = async (req: any, res: any) => {
+  try {
+    const user = await User.findByEmail(req.body.email);
+    if (!user) {
+      return res.status(404).json({ error: 'User not found' }); // Reveals email existence
+    }
+    
+    if (!bcrypt.compare(req.body.password, user.password)) {
+      return res.status(401).json({ error: 'Wrong password' }); // Confirms valid email
+    }
+  } catch (error) {
+    res.status(500).json({ error: error.message }); // Internal error exposure
+  }
+};]]></incorrect-example>
+        </example>
+      </examples>
+    </requirement>
+
+    <!-- Section 7: Environment Configuration and Secrets Management -->
+    <non-negotiable priority="critical">
+      <description>Implement secure environment configuration with proper secrets management, validation, and TypeScript interfaces. Never hardcode secrets and use secure defaults for all authentication settings.</description>
+      <examples>
+        <example title="Secure Environment Configuration">
+          <correct-example title="Type-safe environment configuration with secrets validation" conditions="Configuring authentication environment variables" expected-result="Secure configuration management with proper validation and TypeScript types" correctness-criteria="Uses TypeScript interfaces, validates all secrets, implements secure defaults, and provides clear error messages for missing configuration"><![CDATA[import * as z from 'zod';
+
+interface AuthEnvironmentConfig {
+  // JWT Configuration
+  jwtSecret: string;
+  jwtRefreshSecret: string;
+  jwtAccessExpiry: string;
+  jwtRefreshExpiry: string;
+  
+  // Google OAuth Configuration  
+  googleClientId: string;
+  googleClientSecret: string;
+  googleOAuthRedirectUri: string;
+  
+  // Database Configuration
+  databaseUrl: string;
+  
+  // Security Configuration
+  bcryptRounds: number;
+  sessionTimeout: number;
+  maxLoginAttempts: number;
+  lockoutDuration: number;
+  
+  // Email Configuration (for verification)
+  smtpHost: string;
+  smtpPort: number;
+  smtpUser: string;
+  smtpPassword: string;
+  fromEmail: string;
+  
+  // Application URLs
+  frontendUrl: string;
+  backendUrl: string;
+  
+  // Security Headers
+  corsOrigins: string[];
+  trustedProxies: string[];
+}
+
+const environmentSchema = z.object({
+  // JWT secrets validation
+  JWT_SECRET: z
+    .string()
+    .min(32, 'JWT_SECRET must be at least 32 characters')
+    .refine(secret => !/^(secret|password|123|test)/.test(secret.toLowerCase()), 
+      'JWT_SECRET must not use common weak patterns'),
+  
+  JWT_REFRESH_SECRET: z
+    .string()
+    .min(32, 'JWT_REFRESH_SECRET must be at least 32 characters')
+    .refine(secret => !/^(secret|password|123|test)/.test(secret.toLowerCase()), 
+      'JWT_REFRESH_SECRET must not use common weak patterns'),
+  
+  JWT_ACCESS_EXPIRY: z.string().default('15m'),
+  JWT_REFRESH_EXPIRY: z.string().default('7d'),
+  
+  // Google OAuth validation
+  GOOGLE_CLIENT_ID: z
+    .string()
+    .min(1, 'GOOGLE_CLIENT_ID is required')
+    .refine(id => id.endsWith('.apps.googleusercontent.com'), 
+      'GOOGLE_CLIENT_ID must be a valid Google OAuth client ID'),
+  
+  GOOGLE_CLIENT_SECRET: z
+    .string()
+    .min(24, 'GOOGLE_CLIENT_SECRET must be at least 24 characters'),
+  
+  GOOGLE_OAUTH_REDIRECT_URI: z
+    .string()
+    .url('GOOGLE_OAUTH_REDIRECT_URI must be a valid URL'),
+  
+  // Database validation
+  DATABASE_URL: z
+    .string()
+    .url('DATABASE_URL must be a valid URL')
+    .refine(url => url.startsWith('postgresql://'), 
+      'DATABASE_URL must be a PostgreSQL connection string'),
+  
+  // Security settings
+  BCRYPT_ROUNDS: z
+    .string()
+    .transform(val => parseInt(val, 10))
+    .refine(rounds => rounds >= 12, 'BCRYPT_ROUNDS must be at least 12')
+    .default('12'),
+  
+  SESSION_TIMEOUT: z
+    .string()
+    .transform(val => parseInt(val, 10))
+    .default('900000'), // 15 minutes in milliseconds
+  
+  MAX_LOGIN_ATTEMPTS: z
+    .string()
+    .transform(val => parseInt(val, 10))
+    .default('5'),
+  
+  LOCKOUT_DURATION: z
+    .string()
+    .transform(val => parseInt(val, 10))
+    .default('900000'), // 15 minutes in milliseconds
+  
+  // Email configuration
+  SMTP_HOST: z.string().min(1, 'SMTP_HOST is required'),
+  SMTP_PORT: z
+    .string()
+    .transform(val => parseInt(val, 10))
+    .refine(port => port > 0 && port <= 65535, 'SMTP_PORT must be valid')
+    .default('587'),
+  
+  SMTP_USER: z.string().min(1, 'SMTP_USER is required'),
+  SMTP_PASSWORD: z.string().min(1, 'SMTP_PASSWORD is required'),
+  FROM_EMAIL: z.string().email('FROM_EMAIL must be a valid email'),
+  
+  // Application URLs
+  FRONTEND_URL: z.string().url('FRONTEND_URL must be a valid URL'),
+  BACKEND_URL: z.string().url('BACKEND_URL must be a valid URL'),
+  
+  // Security
+  CORS_ORIGINS: z
+    .string()
+    .transform(origins => origins.split(',').map(origin => origin.trim()))
+    .default(''),
+  
+  TRUSTED_PROXIES: z
+    .string()
+    .transform(proxies => proxies.split(',').map(proxy => proxy.trim()))
+    .default('')
+});
+
+export class EnvironmentConfig {
+  private static _instance: AuthEnvironmentConfig | null = null;
+  
+  static getInstance(): AuthEnvironmentConfig {
+    if (!this._instance) {
+      this._instance = this.validateAndLoad();
+    }
+    return this._instance;
+  }
+  
+  private static validateAndLoad(): AuthEnvironmentConfig {
+    try {
+      const env = environmentSchema.parse(process.env);
+      
+      return {
+        jwtSecret: env.JWT_SECRET,
+        jwtRefreshSecret: env.JWT_REFRESH_SECRET,
+        jwtAccessExpiry: env.JWT_ACCESS_EXPIRY,
+        jwtRefreshExpiry: env.JWT_REFRESH_EXPIRY,
+        
+        googleClientId: env.GOOGLE_CLIENT_ID,
+        googleClientSecret: env.GOOGLE_CLIENT_SECRET,
+        googleOAuthRedirectUri: env.GOOGLE_OAUTH_REDIRECT_URI,
+        
+        databaseUrl: env.DATABASE_URL,
+        
+        bcryptRounds: env.BCRYPT_ROUNDS,
+        sessionTimeout: env.SESSION_TIMEOUT,
+        maxLoginAttempts: env.MAX_LOGIN_ATTEMPTS,
+        lockoutDuration: env.LOCKOUT_DURATION,
+        
+        smtpHost: env.SMTP_HOST,
+        smtpPort: env.SMTP_PORT,
+        smtpUser: env.SMTP_USER,
+        smtpPassword: env.SMTP_PASSWORD,
+        fromEmail: env.FROM_EMAIL,
+        
+        frontendUrl: env.FRONTEND_URL,
+        backendUrl: env.BACKEND_URL,
+        
+        corsOrigins: env.CORS_ORIGINS,
+        trustedProxies: env.TRUSTED_PROXIES
+      };
+    } catch (error) {
+      if (error instanceof z.ZodError) {
+        const missingFields = error.errors.map(err => `${err.path.join('.')}: ${err.message}`);
+        throw new Error(`Environment configuration validation failed:\n${missingFields.join('\n')}`);
+      }
+      throw new Error('Failed to load environment configuration');
+    }
+  }
+  
+  static validateSecrets(): void {
+    const config = this.getInstance();
+    
+    // Additional runtime security checks
+    if (config.jwtSecret === config.jwtRefreshSecret) {
+      throw new Error('JWT_SECRET and JWT_REFRESH_SECRET must be different');
+    }
+    
+    if (process.env.NODE_ENV === 'production') {
+      if (config.frontendUrl.includes('localhost') || config.backendUrl.includes('localhost')) {
+        throw new Error('Localhost URLs not allowed in production');
+      }
+      
+      if (!config.frontendUrl.startsWith('https://') || !config.backendUrl.startsWith('https://')) {
+        throw new Error('HTTPS required in production');
+      }
+    }
+  }
+}
+
+// Environment configuration file template
+export const generateEnvTemplate = (): string => {
+  return `# Authentication Environment Variables Template
+# Copy this to .env.local and fill in your actual values
+
+# JWT Configuration (use strong, unique secrets)
+JWT_SECRET=your_jwt_secret_minimum_32_characters_long
+JWT_REFRESH_SECRET=your_different_jwt_refresh_secret_minimum_32_characters_long
+JWT_ACCESS_EXPIRY=15m
+JWT_REFRESH_EXPIRY=7d
+
+# Google OAuth Configuration
+GOOGLE_CLIENT_ID=your_client_id.apps.googleusercontent.com
+GOOGLE_CLIENT_SECRET=your_google_client_secret
+GOOGLE_OAUTH_REDIRECT_URI=http://localhost:3000/api/auth/google/callback
+
+# Database Configuration
+DATABASE_URL=postgresql://username:password@localhost:5432/database_name
+
+# Security Configuration
+BCRYPT_ROUNDS=12
+SESSION_TIMEOUT=900000
+MAX_LOGIN_ATTEMPTS=5
+LOCKOUT_DURATION=900000
+
+# Email Configuration
+SMTP_HOST=smtp.gmail.com
+SMTP_PORT=587
+SMTP_USER=your_smtp_user
+SMTP_PASSWORD=your_smtp_password
+FROM_EMAIL=noreply@yourapp.com
+
+# Application URLs
+FRONTEND_URL=http://localhost:3000
+BACKEND_URL=http://localhost:3001
+
+# Security Settings
+CORS_ORIGINS=http://localhost:3000,https://yourapp.com
+TRUSTED_PROXIES=127.0.0.1,::1
+`;
+};]]></correct-example>
+          <incorrect-example title="Insecure environment configuration" conditions="Configuring authentication environment" expected-result="Secure configuration management" incorrectness-criteria="Hardcoded secrets, missing validation, weak defaults, or poor error handling"><![CDATA[// WRONG - Multiple configuration security issues
+// Hardcoded secrets - CRITICAL SECURITY VIOLATION
+const JWT_SECRET = 'mysecret123'; // Hardcoded and weak
+const GOOGLE_CLIENT_SECRET = 'hardcoded-secret'; // Exposed in code
+
+// No validation or TypeScript types
+const config = {
+  jwtSecret: process.env.JWT_SECRET || 'default-secret', // Weak default
+  bcryptRounds: 1, // Too low for security
+  sessionTimeout: undefined, // No default
+  corsOrigins: '*' // Overly permissive
+};
+
+// No environment validation
+const databaseUrl = process.env.DATABASE_URL; // Could be undefined
+const smtpPassword = process.env.SMTP_PASSWORD; // No validation
+
+// Insecure defaults
+const googleConfig = {
+  clientId: process.env.GOOGLE_CLIENT_ID || 'test-client-id', // Invalid default
+  clientSecret: process.env.GOOGLE_CLIENT_SECRET || 'test-secret', // Insecure
+  redirectUri: 'http://localhost:3000/callback' // Hardcoded, no flexibility
+};
+
+// No production vs development distinction
+// No secret strength validation
+// No URL validation
+// Missing required environment variables silently fail]]></incorrect-example>
+        </example>
+      </examples>
+    </non-negotiable>
+
+    <!-- Section 8: API Documentation and TypeScript Integration -->
+    <requirement priority="medium">
+      <description>Provide comprehensive TypeScript interfaces and documentation for all authentication APIs. Use JSDoc comments and export clear type definitions for integration with other parts of the application.</description>
+      <examples>
+        <example title="TypeScript API Documentation">
+          <correct-example title="Comprehensive TypeScript interfaces with JSDoc documentation" conditions="Documenting authentication API interfaces" expected-result="Well-documented TypeScript interfaces for all authentication components" correctness-criteria="Includes JSDoc comments, comprehensive type definitions, clear interface exports, and usage examples"><![CDATA[/**
+ * @fileoverview TypeScript interfaces and types for authentication system
+ * @version 1.0.0
+ * @author Authentication Team
+ */
+
+/**
+ * User roles with hierarchical permissions
+ * OWNER > ADMIN > MEMBER > GUEST
+ */
+export type UserRole = 'OWNER' | 'ADMIN' | 'MEMBER' | 'GUEST';
+
+/**
+ * Account status for user management
+ */
+export type AccountStatus = 'ACTIVE' | 'PENDING' | 'SUSPENDED' | 'DELETED';
+
+/**
+ * Email verification status
+ */
+export type EmailStatus = 'VERIFIED' | 'UNVERIFIED' | 'PENDING';
+
+/**
+ * Authentication provider types
+ */
+export type AuthProvider = 'local' | 'google' | 'github' | 'apple';
+
+/**
+ * Core user interface for authentication system
+ * @interface User
+ * @since 1.0.0
+ */
+export interface User {
+  /** Unique user identifier */
+  readonly id: string;
+  
+  /** User's email address (unique across system) */
+  email: string;
+  
+  /** User's first name */
+  firstName: string;
+  
+  /** User's last name */
+  lastName: string;
+  
+  /** User's role determining permissions */
+  role: UserRole;
+  
+  /** Current account status */
+  accountStatus: AccountStatus;
+  
+  /** Email verification status */
+  emailStatus: EmailStatus;
+  
+  /** Authentication provider used for account creation */
+  provider: AuthProvider;
+  
+  /** Google OAuth ID (if applicable) */
+  googleId?: string;
+  
+  /** Account creation timestamp */
+  readonly createdAt: Date;
+  
+  /** Last account update timestamp */
+  readonly updatedAt: Date;
+  
+  /** Last login timestamp */
+  lastLoginAt?: Date;
+  
+  /** JWT secure code for token validation (internal use) */
+  readonly jwtSecureCode: string;
+}
+
+/**
+ * Authentication request payload for login
+ * @interface LoginRequest
+ * @since 1.0.0
+ */
+export interface LoginRequest {
+  /** User's email address */
+  email: string;
+  
+  /** User's password */
+  password: string;
+  
+  /** Optional remember me flag for extended session */
+  rememberMe?: boolean;
+}
+
+/**
+ * Authentication request payload for registration
+ * @interface RegisterRequest
+ * @since 1.0.0
+ */
+export interface RegisterRequest {
+  /** User's email address */
+  email: string;
+  
+  /** User's password */
+  password: string;
+  
+  /** User's first name */
+  firstName: string;
+  
+  /** User's last name */
+  lastName: string;
+  
+  /** Optional initial role (defaults to GUEST) */
+  role?: UserRole;
+}
+
+/**
+ * Successful authentication response
+ * @interface AuthResponse
+ * @since 1.0.0
+ */
+export interface AuthResponse {
+  /** Success indicator */
+  success: true;
+  
+  /** Authenticated user data (excluding sensitive fields) */
+  user: Omit<User, 'jwtSecureCode'>;
+  
+  /** JWT access token (short-lived) */
+  accessToken: string;
+  
+  /** JWT refresh token (long-lived) */
+  refreshToken: string;
+  
+  /** Human-readable success message */
+  message: string;
+  
+  /** Token expiration timestamp */
+  expiresAt: Date;
+}
+
+/**
+ * Authentication error response
+ * @interface AuthErrorResponse
+ * @since 1.0.0
+ */
+export interface AuthErrorResponse {
+  /** Success indicator */
+  success: false;
+  
+  /** Error code for programmatic handling */
+  error: string;
+  
+  /** Human-readable error message */
+  message: string;
+  
+  /** Optional additional error details */
+  details?: Record<string, any>;
+  
+  /** Request correlation ID for support */
+  correlationId?: string;
+}
+
+/**
+ * JWT token payload structure
+ * @interface JWTPayload
+ * @since 1.0.0
+ */
+export interface JWTPayload {
+  /** User identifier */
+  userId: string;
+  
+  /** User's email address */
+  email: string;
+  
+  /** User's role */
+  role: UserRole;
+  
+  /** Token type ('access' or 'refresh') */
+  type: 'access' | 'refresh';
+  
+  /** Token issued at timestamp */
+  iat: number;
+  
+  /** Token expiration timestamp */
+  exp: number;
+  
+  /** Token issuer */
+  iss: string;
+  
+  /** Token audience */
+  aud: string;
+}
+
+/**
+ * Password reset request payload
+ * @interface PasswordResetRequest
+ * @since 1.0.0
+ */
+export interface PasswordResetRequest {
+  /** User's email address */
+  email: string;
+}
+
+/**
+ * Password reset confirmation payload
+ * @interface PasswordResetConfirm
+ * @since 1.0.0
+ */
+export interface PasswordResetConfirm {
+  /** Password reset token */
+  token: string;
+  
+  /** New password */
+  newPassword: string;
+}
+
+/**
+ * Session information for authenticated users
+ * @interface SessionInfo
+ * @since 1.0.0
+ */
+export interface SessionInfo {
+  /** Session identifier */
+  sessionId: string;
+  
+  /** Associated user */
+  user: Omit<User, 'jwtSecureCode'>;
+  
+  /** Session creation time */
+  createdAt: Date;
+  
+  /** Last activity time */
+  lastActivity: Date;
+  
+  /** IP address of session */
+  ipAddress: string;
+  
+  /** User agent string */
+  userAgent: string;
+  
+  /** Session expiration time */
+  expiresAt: Date;
+}
+
+/**
+ * Google OAuth user profile from Google APIs
+ * @interface GoogleUserProfile
+ * @since 1.0.0
+ */
+export interface GoogleUserProfile {
+  /** Google user ID */
+  id: string;
+  
+  /** User's email address */
+  email: string;
+  
+  /** Email verification status */
+  verified_email: boolean;
+  
+  /** User's display name */
+  name: string;
+  
+  /** User's given name */
+  given_name: string;
+  
+  /** User's family name */
+  family_name: string;
+  
+  /** Profile picture URL */
+  picture?: string;
+  
+  /** User's locale */
+  locale?: string;
+}
+
+/**
+ * Authentication service interface for dependency injection
+ * @interface IAuthService
+ * @since 1.0.0
+ */
+export interface IAuthService {
+  /**
+   * Authenticate user with email and password
+   * @param credentials - Login credentials
+   * @returns Promise resolving to authentication response
+   * @throws {AuthError} When authentication fails
+   */
+  login(credentials: LoginRequest): Promise<AuthResponse>;
+  
+  /**
+   * Register new user account
+   * @param userData - Registration data
+   * @returns Promise resolving to authentication response
+   * @throws {AuthError} When registration fails
+   */
+  register(userData: RegisterRequest): Promise<AuthResponse>;
+  
+  /**
+   * Refresh access token using refresh token
+   * @param refreshToken - Valid refresh token
+   * @returns Promise resolving to new authentication response
+   * @throws {AuthError} When refresh fails
+   */
+  refreshToken(refreshToken: string): Promise<AuthResponse>;
+  
+  /**
+   * Logout user and invalidate tokens
+   * @param userId - User identifier
+   * @param refreshToken - User's refresh token
+   * @returns Promise resolving to success confirmation
+   */
+  logout(userId: string, refreshToken: string): Promise<{ success: boolean }>;
+  
+  /**
+   * Initiate password reset process
+   * @param request - Password reset request
+   * @returns Promise resolving to success confirmation
+   */
+  requestPasswordReset(request: PasswordResetRequest): Promise<{ success: boolean }>;
+  
+  /**
+   * Complete password reset with token
+   * @param request - Password reset confirmation
+   * @returns Promise resolving to success confirmation
+   */
+  confirmPasswordReset(request: PasswordResetConfirm): Promise<{ success: boolean }>;
+}
+
+/**
+ * Type guard to check if response is successful authentication
+ * @param response - Authentication response to check
+ * @returns True if response is successful
+ * @example
+ * ```typescript
+ * const response = await authService.login(credentials);
+ * if (isAuthSuccess(response)) {
+ *   // response is typed as AuthResponse
+ *   console.log(response.user.email);
+ * } else {
+ *   // response is typed as AuthErrorResponse
+ *   console.error(response.error);
+ * }
+ * ```
+ */
+export function isAuthSuccess(
+  response: AuthResponse | AuthErrorResponse
+): response is AuthResponse {
+  return response.success === true;
+}
+
+/**
+ * Type guard to check user role permissions
+ * @param userRole - Role to check
+ * @param requiredRole - Minimum required role
+ * @returns True if user has sufficient permissions
+ * @example
+ * ```typescript
+ * if (hasRole(user.role, 'ADMIN')) {
+ *   // User has admin permissions or higher
+ * }
+ * ```
+ */
+export function hasRole(userRole: UserRole, requiredRole: UserRole): boolean {
+  const roleHierarchy: Record<UserRole, number> = {
+    GUEST: 0,
+    MEMBER: 1,
+    ADMIN: 2,
+    OWNER: 3
+  };
+  
+  return roleHierarchy[userRole] >= roleHierarchy[requiredRole];
+}
+
+/**
+ * Utility type for API responses
+ * @template T - Success response data type
+ */
+export type APIResponse<T = any> = 
+  | (T & { success: true })
+  | AuthErrorResponse;
+
+/**
+ * Express.js request interface with authenticated user
+ * @interface AuthenticatedRequest
+ * @extends Request
+ */
+export interface AuthenticatedRequest extends Request {
+  /** Authenticated user information */
+  user?: {
+    id: string;
+    email: string;
+    role: UserRole;
+  };
+}]]></correct-example>
+          <incorrect-example title="Poor TypeScript documentation" conditions="Documenting authentication API interfaces" expected-result="Well-documented TypeScript interfaces" incorrectness-criteria="Missing JSDoc comments, incomplete type definitions, poor interface organization, or lack of usage examples"><![CDATA[// WRONG - Poor TypeScript documentation and interfaces
+// No JSDoc comments
+interface User {
+  id: any; // Using 'any' defeats TypeScript purpose
+  email; // Missing type annotation
+  role: string; // Should be specific union type
+  // Missing other important fields
+}
+
+// Inconsistent naming and structure
+interface loginResponse {
+  user?: User; // Inconsistent casing
+  token: string; // Missing access/refresh distinction
+  success: boolean;
+  // Missing error handling structure
+}
+
+// No type guards or utility functions
+const login = (data: any): any => { // No proper typing
+  // Implementation without types
+};
+
+// No interface exports
+// No role hierarchy or permission checking
+// Missing error types
+// No documentation for integration]]></incorrect-example>
+        </example>
+      </examples>
+    </requirement>
+  </requirements>
+  <context description="TypeScript Authentication Implementation Context">
+    This rule provides comprehensive standards for implementing authentication systems in TypeScript applications, combining email/password authentication with Google OAuth 2.0 integration. The standards are based on industry best practices, OWASP security guidelines, Google's official OAuth 2.0 documentation, and TypeScript community standards.
+
+    Key security principles addressed:
+    - Defense in depth with multiple security layers
+    - Principle of least privilege for user permissions
+    - Secure by default configuration
+    - Input validation and output sanitization
+    - Comprehensive audit logging and monitoring
+    - JWT token security with short-lived access tokens
+    - Proper password hashing with bcrypt (12+ rounds)
+    - CSRF protection and rate limiting
+    - Secure session management
+
+    The implementation leverages modern TypeScript features including:
+    - Strict type checking and interfaces
+    - Generic types for API responses
+    - Type guards for runtime validation
+    - Utility types for enhanced type safety
+    - Comprehensive JSDoc documentation
+    - Integration with popular libraries (Passport.js, bcrypt, jsonwebtoken)
+
+    Google OAuth 2.0 integration follows Google's official best practices:
+    - Server-side ID token verification
+    - Proper scope management ('profile', 'email')
+    - Secure credential handling with environment variables
+    - PKCE (Proof Key for Code Exchange) where applicable
+    - Proper error handling for OAuth flows
+
+    These standards ensure compliance with:
+    - OWASP Top 10 security guidelines
+    - OAuth 2.0 and OpenID Connect specifications
+    - GDPR and privacy requirements
+    - Industry authentication best practices
+    - TypeScript coding standards and conventions
+  </context>
+  <references>
+    <reference as="dependency" href=".cursor/rules/000-core/002-cursor-rules-creation.mdc" reason="Follows standard rule format">Base rule format definition</reference>
+    <reference as="context" href=".cursor/rules/300-languages/307-typescript-core-standards-auto.mdc" reason="TypeScript foundation standards">Core TypeScript best practices and coding standards</reference>
+    <reference as="context" href="https://developers.google.com/identity/protocols/oauth2/web-server" reason="Google OAuth 2.0 official documentation">Google's official OAuth 2.0 implementation guide for web server applications</reference>
+    <reference as="context" href="https://developers.google.com/identity/sign-in/web/sign-in" reason="Google Sign-In integration guide">Official Google Sign-In integration documentation</reference>
+    <reference as="context" href="https://firebase.google.com/docs/auth/web/google-signin" reason="Firebase Google authentication">Google authentication implementation with Firebase and TypeScript</reference>
+    <reference as="examples" href="https://dev.to/fatihguzel/integrating-google-oauth-20-with-jwt-in-a-nodejs-typescript-app-using-passportjs-3ij" reason="TypeScript OAuth implementation example">Expert implementation example of Google OAuth 2.0 with JWT in TypeScript</reference>
+  </references>
+</rule>

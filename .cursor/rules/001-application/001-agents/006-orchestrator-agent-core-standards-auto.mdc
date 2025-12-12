@@ -1,0 +1,148 @@
+---
+description: Defines an implementation-agnostic rule for an Orchestrator Agent that routes activities to the appropriate agents or end-users and sits atop the chat UI across Pericles.
+globs: ".cursor/rules/orchestrator-agent.mdc"
+alwaysApply: false
+---
+
+<rule>
+  <meta>
+    <title>Orchestrator Agent</title>
+    <description>Agent responsible for routing activities to the right agent or user, providing a chat-first orchestration layer across Pericles; integrates with Monitoring, Validation, Impact Assessment, Summarization, and Controller agents.</description>
+    <created-at utc-timestamp="1761004800">October 21, 2025, 00:00 UTC</created-at>
+    <last-updated-at utc-timestamp="1761004800">October 21, 2025, 00:00 UTC</last-updated-at>
+    <applies-to>
+      <file-matcher glob="**/*">Conceptual guidance; applicable to any implementation of an Orchestrator Agent across services and runtimes.</file-matcher>
+      <action-matcher action="create-orchestrator-agent">Triggered when designing or refactoring orchestration and routing capabilities.</action-matcher>
+    </applies-to>
+  </meta>
+
+  <!--
+    Assumptions (technology-agnostic):
+    - The Orchestrator sits on top of the chat UI and processes user or system intents to route to downstream agents or human users.
+    - Agent graph includes Monitoring, Validation, Impact Assessment, Summarization, and Controller.
+    - All operations are tenant-scoped; the Orchestrator must not leak data across tenants.
+    - All timestamps MUST be timezone-aware and normalized (ISO 8601 recommended).
+  -->
+
+  <requirements>
+    <non-negotiable priority="critical">
+      <description>Tenant isolation and authorization: enforce tenant scope on all intents, routes, and data reads; authorize user commands and record audit logs for routed actions.</description>
+      <examples>
+        <example title="Tenant-scoped routing">
+          <correct-example title="Scoped route" conditions="User asks to notify" expected-result="Allowed" correctness-criteria="intent.tenant_id == user.tenant_id"><![CDATA[
+if intent.tenant_id == user.tenant_id: route(intent) else: deny
+]]></correct-example>
+          <incorrect-example title="Cross-tenant route" conditions="User asks to notify" expected-result="Denied" incorrectness-criteria="No tenant validation"><![CDATA[
+route(intent) // regardless of tenant
+]]></incorrect-example>
+        </example>
+      </examples>
+    </non-negotiable>
+
+    <non-negotiable priority="critical">
+      <description>Deterministic routing policy: map intents to target agents or user roles via a transparent, versioned policy with idempotent command dispatch.</description>
+      <examples>
+        <example title="Intent mapping">
+          <correct-example title="Versioned policy" conditions="Classify intent" expected-result="Consistent target" correctness-criteria="Policy v1.2 resolves to VALIDATION:RECHECK"><![CDATA[
+route = policy_v1_2(intent='confirm event', context) -> VALIDATION.RECHECK
+]]></correct-example>
+          <incorrect-example title="Ad-hoc mapping" conditions="Classify intent" expected-result="Stable mapping" incorrectness-criteria="No policy/version"><![CDATA[
+route = random_choice(['VALIDATION','IMPACT'])
+]]></incorrect-example>
+        </example>
+      </examples>
+    </non-negotiable>
+
+    <non-negotiable priority="critical">
+      <description>Chat UI integration: expose conversational endpoints, maintain conversation state, and surface routed results/responses while masking sensitive information as required.</description>
+      <examples>
+        <example title="Conversation state">
+          <correct-example title="Thread context" conditions="Follow-up query" expected-result="Context-aware route" correctness-criteria="Uses prior event_id and tenant context"><![CDATA[
+user: "Re-check yesterday's port strike"
+state: { event_id:'evt_123', tenant_id:'acme' } -> VALIDATION.RECHECK(evt_123)
+]]></correct-example>
+          <incorrect-example title="Stateless follow-up" conditions="Follow-up query" expected-result="Contextual response" incorrectness-criteria="Drops prior context"><![CDATA[
+user: "Re-check yesterday's port strike" -> "Which event?" // lost context
+]]></incorrect-example>
+        </example>
+      </examples>
+    </non-negotiable>
+
+    <requirement priority="high">
+      <description>Observability and audit: log intents, routes, outcomes, and errors with non-sensitive metadata; emit metrics for intent latency, route success rate, and escalations.</description>
+    </requirement>
+
+    <requirement priority="high">
+      <description>Idempotent command dispatch: deduplicate repeated user/system intents using idempotency keys to prevent duplicate downstream actions.</description>
+    </requirement>
+
+    <requirement priority="high">
+      <description>Human-in-the-loop: support escalation to users (by role/team) when automation is insufficient; capture user decisions back into the conversation thread.</description>
+    </requirement>
+
+    <requirement priority="medium">
+      <description>Security & privacy: redact sensitive fields in chat responses; apply least-privilege to downstream agent calls.</description>
+    </requirement>
+  </requirements>
+
+  <grammar>
+    <schema title="Orchestrator Intent Schema (conceptual)" description="Normalized intent representation for routing."><![CDATA[
+OrchestratorIntent {
+  id: string
+  tenant_id: string
+  actor: { type: 'USER' | 'SYSTEM'; id: string }
+  text?: string
+  type: 'CONFIRM_EVENT' | 'RECALC_IMPACT' | 'SUMMARIZE' | 'NOTIFY' | 'ROUTE_TO_USER' | 'LOOKUP' | 'OTHER'
+  context?: { event_id?: string; filters?: Record<string, any> }
+  idempotency_key?: string
+  created_at: string // ISO 8601
+}
+]]></schema>
+
+    <schema title="Orchestrator Route Schema (conceptual)" description="Resolved routing target for the intent."><![CDATA[
+OrchestratorRoute {
+  id: string
+  intent_id: string
+  tenant_id: string
+  target: { agent?: 'MONITORING' | 'VALIDATION' | 'IMPACT' | 'SUMMARIZATION' | 'CONTROLLER'; user_role?: string }
+  action?: string // e.g., 'RECHECK', 'RESUMMARIZE', 'RECALCULATE', 'NOTIFY'
+  policy_version: string
+  created_at: string // ISO 8601
+}
+]]></schema>
+
+    <grammar-entry title="Routing Pipeline">
+      <pattern description="Core loop">initialize -> parse intent -> authorize -> resolve route (policy) -> dispatch (idempotent) -> present result -> repeat</pattern>
+      <example description="Error path">on error: log -> present friendly error -> continue</example>
+    </grammar-entry>
+  </grammar>
+
+  <context description="Role, Responsibilities, Requirements">
+    <![CDATA[
+Name: Orchestrator Agent
+Description: Chat-first orchestration layer that routes activities to appropriate agents or human users while enforcing tenant isolation and auditability.
+Role:
+  - Parse and classify intents from chat UI and system triggers.
+  - Route to Monitoring, Validation, Impact, Summarization, or Controller agents, or escalate to users.
+  - Present routed outcomes back in the chat context.
+Responsibilities:
+  - Enforce tenant isolation and authorization; maintain audit trails and metrics.
+  - Apply transparent, versioned routing policies with idempotent dispatch.
+  - Preserve conversation context and protect sensitive information.
+Requirements:
+  - Provide human-in-the-loop escalation with role-based targeting.
+  - Integrate with downstream agent APIs using least-privilege credentials.
+  - Support localization and accessibility in chat UI responses.
+    ]]>
+  </context>
+
+  <references>
+    <reference as="dependency" href=".cursor/rules/000-core/002-cursor-rules-creation.mdc" reason="Follows standard rule format">Cursor Rule File Format (.mdc)</reference>
+    <reference as="context" href=".cursor/rules/001-application-pericles/001-agents/001-monitoring-agent-core-standards-auto.mdc" reason="Upstream monitoring">Monitoring Agent Standards</reference>
+    <reference as="context" href=".cursor/rules/001-application-pericles/001-agents/004-validation-agent-core-standards-auto.mdc" reason="Event confirmation and impact">Validation Agent Standards</reference>
+    <reference as="context" href=".cursor/rules/001-application-pericles/001-agents/002-impact-assessment-agent-core-standards-auto.mdc" reason="Financial impact updates">Impact Assessment Agent Standards</reference>
+    <reference as="context" href=".cursor/rules/001-application-pericles/001-agents/003-summarization-agent-core-standards-auto.mdc" reason="Event summary updates">Summarization Agent Standards</reference>
+    <reference as="context" href=".cursor/rules/001-application-pericles/001-agents/005-controller-agent-core-standards-auto.mdc" reason="Notifications & coordination">Controller Agent Standards</reference>
+  </references>
+</rule>
+

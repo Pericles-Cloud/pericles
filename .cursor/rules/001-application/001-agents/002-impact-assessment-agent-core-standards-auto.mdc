@@ -1,0 +1,232 @@
+---
+description: Defines an implementation-agnostic rule for an Impact Assessment Agent, including role, responsibilities, and constraints.
+globs: ".cursor/rules/impact-assessment-agent.mdc"
+alwaysApply: false
+---
+
+<rule>
+  <meta>
+    <title>Impact Assessment Agent</title>
+    <description>Agent responsible for calculating the financial impact of an event using ERP data, event effects (e.g., blocked shipment transit), and event duration; triggers UI updates in Atlas, Events, and Insights.</description>
+    <created-at utc-timestamp="1735689600">Jan 1, 2025, 00:00 UTC</created-at>
+    <last-updated-at utc-timestamp="1735689600">Jan 1, 2025, 00:00 UTC</last-updated-at>
+    <applies-to>
+      <file-matcher glob="**/*">Conceptual guidance; applicable to any implementation of an Impact Assessment Agent.</file-matcher>
+      <action-matcher action="create-impact-assessment-agent">Triggered when designing or refactoring impact assessment capabilities.</action-matcher>
+    </applies-to>
+  </meta>
+
+  <!--
+    Assumptions (technology-agnostic):
+    - "Tenant" denotes any scoping entity (e.g., customer, account) that constrains data access, criteria, and outputs.
+    - "Message bus" denotes any event transport mechanism used to consume pending assessments and publish results.
+    - "Assessment engine" can be any deterministic or probabilistic component; its output MUST be validated before use.
+    - Time values MUST be timezone-aware and normalized (ISO 8601 recommended) when serialized.
+    - "Significance" means meeting configured thresholds to warrant storage/publication of assessments.
+  -->
+
+  <requirements>
+    <non-negotiable priority="critical">
+      <description>Tenant context must be explicit, validated at initialization, and enforced at ingestion and publishing.</description>
+      <examples>
+        <example title="Tenant-scoped processing">
+          <correct-example title="Filter by tenant" conditions="Consume event" expected-result="Queue accepted" correctness-criteria="Event tenant matches agent tenant"><![CDATA[
+if event.tenant_id == agent.tenant_id: enqueue(event) else: skip
+]]></correct-example>
+          <incorrect-example title="Cross-tenant processing" conditions="Consume event" expected-result="Skip" incorrectness-criteria="Process for wrong tenant"><![CDATA[
+enqueue(event) // regardless of tenant_id
+]]></incorrect-example>
+        </example>
+      </examples>
+    </non-negotiable>
+
+    <non-negotiable priority="critical">
+      <description>Configuration precedence: runtime/environment values override file/defaults; do not overwrite unique identifiers (e.g., tenant_id).</description>
+      <examples>
+        <example title="Merge precedence">
+          <correct-example title="Runtime wins" conditions="Merge configs" expected-result="Identifier preserved" correctness-criteria="No downgrade from runtime"><![CDATA[
+merge(runtime={tenant_id:"acme-123", timeout:120}, file={timeout:60}) => {tenant_id:"acme-123", timeout:120}
+]]></correct-example>
+          <incorrect-example title="Overwrite identifier" conditions="Merge configs" expected-result="Preserve id" incorrectness-criteria="File overrides tenant"><![CDATA[
+merge(runtime={tenant_id:"acme-123"}, file={tenant_id:"default"}) => {tenant_id:"default"}
+]]></incorrect-example>
+        </example>
+      </examples>
+    </non-negotiable>
+
+    <non-negotiable priority="critical">
+      <description>Assessment output must conform to a declared schema; validate before persisting or publishing. Invalid outputs must be rejected with diagnostics.</description>
+      <examples>
+        <example title="Schema validation">
+          <correct-example title="Validate then use" conditions="Engine returns output" expected-result="Valid assessment" correctness-criteria="All required fields present and typed"><![CDATA[
+validate(output) -> ok -> store/publish
+]]></correct-example>
+          <incorrect-example title="Use without validation" conditions="Engine returns output" expected-result="Reject invalid" incorrectness-criteria="Blindly store/publish"><![CDATA[
+store(output) // even if missing severity_score
+]]></incorrect-example>
+        </example>
+      </examples>
+    </non-negotiable>
+
+    <non-negotiable priority="critical">
+      <description>Resilience: run continuously with bounded backoff on errors; failures must not cause unbounded tight loops or crash without retries.</description>
+      <examples>
+        <example title="Bounded backoff">
+          <correct-example title="Sleep then continue" conditions="Error path" expected-result="Recovery" correctness-criteria="Wait before retry"><![CDATA[
+try step(); on error: log -> wait(backoff_ms) -> continue
+]]></correct-example>
+          <incorrect-example title="Busy spin" conditions="Error path" expected-result="No resource burn" incorrectness-criteria="Immediate infinite retry"><![CDATA[
+while(true) step(); // retries instantly on failure
+]]></incorrect-example>
+        </example>
+      </examples>
+    </non-negotiable>
+
+    <non-negotiable priority="critical">
+      <description>Financial impact calculation: compute monetary impact using ERP data, event effect (e.g., shipment blockage, supplier downtime), and duration; include currency and method traceability.</description>
+      <examples>
+        <example title="ERP-backed calculation">
+          <correct-example title="Uses ERP quantities and prices with duration" conditions="Blocked shipment 48h" expected-result="Impact computed" correctness-criteria="References ERP line items and duration"><![CDATA[
+impact.estimated = sum(ERP.items[value_at_risk]) * (duration_hours/24) * factor
+impact.currency = ERP.currency
+method = 'ERP+Duration:blocked_transit'
+]]></correct-example>
+          <incorrect-example title="Guesswork without ERP" conditions="Blocked shipment" expected-result="Reject" incorrectness-criteria="No ERP reference, no duration factor"><![CDATA[
+impact.estimated = 100000 // hardcoded, no source
+]]></incorrect-example>
+        </example>
+      </examples>
+    </non-negotiable>
+
+    <non-negotiable priority="critical">
+      <description>Tenant contextualization: incorporate customer context from ERP and business documents (annual plans, strategy docs) to tailor impact factors and affected domains.</description>
+      <examples>
+        <example title="Context inputs">
+          <correct-example title="ERP + documents" conditions="Industry-specific factor" expected-result="Adjusted impact" correctness-criteria="Cites ERP fields and document references"><![CDATA[
+context = { erp:{plant:'CN-01', sku:'A12'}, docs:['2025-annual-plan','supply-risk-policy'] }
+factor = deriveFactor(context)
+]]></correct-example>
+          <incorrect-example title="No context" conditions="Generic application" expected-result="Insufficient" incorrectness-criteria="Ignores tenant ERP and documents"><![CDATA[
+factor = 1.0 // applies to all tenants
+]]></incorrect-example>
+        </example>
+      </examples>
+    </non-negotiable>
+
+    <requirement priority="high">
+      <description>UI updates: on impact changes, publish updates to Atlas, Events, and Insights so the UI reflects the latest financial impact and last-calculated time.</description>
+    </requirement>
+
+    <requirement priority="high">
+      <description>Event-driven ingestion: decouple consumption from processing via a queue; processing awaits items and acknowledges completion.</description>
+      <examples>
+        <example title="Queue-based ingestion">
+          <correct-example title="Await event" conditions="No events" expected-result="Idle efficiently" correctness-criteria="Blocks on queue"><![CDATA[
+event = await queue.get(); process(event); queue.task_done()
+]]></correct-example>
+          <incorrect-example title="Polling loop" conditions="No events" expected-result="Efficient wait" incorrectness-criteria="Busy polling"><![CDATA[
+while(true) { if queue.empty(): continue }
+]]></incorrect-example>
+        </example>
+      </examples>
+    </requirement>
+
+    <requirement priority="high">
+      <description>Tenant risk criteria extraction: derive thresholds, domains, and context from tenant profile; support overrides via configuration.</description>
+    </requirement>
+
+    <requirement priority="high">
+      <description>Assessment content: produce summary, severity, confidence, impact areas, recommended actions, and a brief justification; handle missing/partial fields gracefully.</description>
+    </requirement>
+
+    <requirement priority="high">
+      <description>Significance gating: persist and publish assessments only when severity meets tenant-specific thresholds; default thresholds MUST be defined.</description>
+      <examples>
+        <example title="Per-type thresholds">
+          <correct-example title="Meets threshold" conditions="risk_type X" expected-result="Persist & publish" correctness-criteria=">= threshold"><![CDATA[
+thresholds[X]=0.7; assessment.severity=0.75 -> store+publish
+]]></correct-example>
+          <incorrect-example title="Ignores threshold" conditions="risk_type X" expected-result="Do not publish" incorrectness-criteria="Publish below threshold"><![CDATA[
+thresholds[X]=0.7; assessment.severity=0.4 -> publish
+]]></incorrect-example>
+        </example>
+      </examples>
+    </requirement>
+
+    <requirement priority="high">
+      <description>Persistence workflow: upsert or get/create the source event; persist assessment with unique identifier and stable linkage to the event.</description>
+    </requirement>
+
+    <requirement priority="high">
+      <description>Publishing: emit assessed events with tenant_id, event_id, assessment_id, summary, severity, confidence, impact areas, and recommendations; ensure idempotency.</description>
+    </requirement>
+
+    <requirement priority="medium">
+      <description>Observability: structured logs that include state transitions, validation errors, counts, and representative samples; avoid sensitive payload logging.</description>
+    </requirement>
+
+    <requirement priority="medium">
+      <description>Security & config hygiene: no hardcoded secrets; use environment/config management; apply least-privilege for data and message bus access.</description>
+    </requirement>
+
+    <requirement priority="medium">
+      <description>Performance controls: support timeouts for external calls, backpressure via queue sizing, batching when appropriate, and configurable rate limits.</description>
+    </requirement>
+  </requirements>
+
+  <grammar>
+    <schema title="Impact Assessment Schema (conceptual)" description="Normalized financial impact record; types/transports are implementation-agnostic."><![CDATA[
+ImpactAssessment {
+  id: string // unique impact assessment identifier
+  event_id: string // source event
+  tenant_id: string // required tenant scope
+  estimated: number // monetary amount
+  currency: string // ISO 4217
+  components?: {
+    erp_reference?: string // e.g., ERP doc numbers
+    affected_shipments?: string[]
+    affected_suppliers?: string[]
+    duration_hours?: number
+    method?: string // calculation method identifier
+  }
+  confidence: number // [0.0 .. 1.0]
+  last_calculated: string // ISO 8601
+  notes?: string
+}
+]]></schema>
+
+    <grammar-entry title="Impact Calculation Pipeline">
+      <pattern description="Core loop">initialize -> consume (validated event, context) -> compute financial impact -> validate -> (store & publish if changed) -> repeat</pattern>
+      <example description="Error path">on error: log -> wait(backoff) -> continue</example>
+    </grammar-entry>
+
+    <grammar-entry title="UI Update Trigger">
+      <pattern description="Publish condition">if estimated or components change -> publish updates to Atlas, Events, Insights</pattern>
+      <example description="No-op when unchanged">if no change in impact fields -> do not publish, update last_checked only</example>
+    </grammar-entry>
+  </grammar>
+
+  <context description="Role, Responsibilities, Requirements">
+    <![CDATA[
+Name: Impact Assessment Agent
+Description: Calculates the financial impact of events using ERP data, event effects (e.g., blocked shipment transit), and event duration; publishes updates to Atlas, Events, and Insights.
+Role:
+  - Ingest validated events and tenant context (ERP + business documents).
+  - Compute monetary impact with currency and method traceability.
+  - Publish UI updates when impact changes and record last-calculated time.
+Responsibilities:
+  - Enforce tenant scope and configuration precedence.
+  - Use ERP-backed data and contextual documents to tailor factors.
+  - Maintain idempotency; avoid duplicate publishes for unchanged impact.
+Requirements:
+  - Accept context inputs from ERP and business documents.
+  - Include duration in impact computations when applicable.
+  - Ensure linkages to affected shipments/suppliers for drill-throughs.
+    ]]>
+  </context>
+
+  <references>
+    <reference as="dependency" href=".cursor/rules/002-cursor-rules-creation.mdc" reason="Adhere to Cursor .mdc structure">Cursor Rule File Format (.mdc)</reference>
+  </references>
+</rule>
+

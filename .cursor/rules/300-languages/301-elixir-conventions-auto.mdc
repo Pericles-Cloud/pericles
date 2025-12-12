@@ -1,0 +1,738 @@
+---
+description: Comprehensive Elixir coding best practices and conventions including GenServer, OTP, and Phoenix patterns following community standards
+globs: ["*.{ex,exs}"]
+alwaysApply: false
+---
+
+<rule>
+  <meta>
+    <title>Elixir Coding Conventions and Best Practices</title>
+    <description>Comprehensive Elixir coding best practices and conventions including GenServer, OTP, and Phoenix patterns following community standards</description>
+    <created-at utc-timestamp="1744244820">January 27, 2025, 11:27 AM</created-at>
+    <last-updated-at utc-timestamp="1744244820">January 27, 2025, 11:27 AM</last-updated-at>
+    <applies-to>
+      <file-matcher glob="*.{ex,exs}">All Elixir source files</file-matcher>
+      <action-matcher action="coding">Triggered when writing or maintaining Elixir code</action-matcher>
+    </applies-to>
+  </meta>
+  <requirements>
+    <non-negotiable priority="critical">
+      <description>Use proper module naming conventions with PascalCase for modules and snake_case for functions, variables, and atoms.</description>
+      <examples>
+        <example title="Naming Conventions">
+          <correct-example title="Proper naming conventions" conditions="Defining modules and functions" expected-result="Consistent naming throughout codebase" correctness-criteria="Uses PascalCase for modules, snake_case for functions and variables"><![CDATA[defmodule MyApp.UserService do
+  @moduledoc """
+  Service module for user-related operations.
+  """
+
+  alias MyApp.{User, Repo}
+
+  def create_user(user_attrs) do
+    %User{}
+    |> User.changeset(user_attrs)
+    |> Repo.insert()
+  end
+
+  def get_user_by_email(email) when is_binary(email) do
+    User
+    |> where([u], u.email == ^email)
+    |> Repo.one()
+  end
+
+  defp validate_email_format(email) do
+    # Private function uses snake_case
+    email
+    |> String.contains?("@")
+    |> case do
+      true -> {:ok, email}
+      false -> {:error, :invalid_email}
+    end
+  end
+end]]></correct-example>
+          <incorrect-example title="Inconsistent naming" conditions="Defining modules and functions" expected-result="Consistent naming throughout codebase" incorrectness-criteria="Inconsistent use of naming conventions"><![CDATA[defmodule myapp_userservice do  # Wrong: should be PascalCase
+  def CreateUser(userAttrs) do    # Wrong: should be snake_case
+    # Implementation
+  end
+
+  def getUserByEmail(Email) do    # Wrong: should be snake_case
+    # Implementation
+  end
+
+  defp ValidateEmailFormat(Email) do  # Wrong: should be snake_case
+    # Implementation
+  end
+end]]></incorrect-example>
+        </example>
+      </examples>
+    </non-negotiable>
+
+    <non-negotiable priority="critical">
+      <description>Use pattern matching and guard clauses effectively for function definitions and control flow.</description>
+      <examples>
+        <example title="Pattern Matching and Guards">
+          <correct-example title="Effective pattern matching" conditions="Defining functions with different inputs" expected-result="Clean, readable function definitions" correctness-criteria="Uses pattern matching and guards for control flow"><![CDATA[defmodule MyApp.Calculator do
+  def divide(a, b) when is_number(a) and is_number(b) and b != 0 do
+    {:ok, a / b}
+  end
+
+  def divide(_, 0), do: {:error, :division_by_zero}
+  def divide(_, _), do: {:error, :invalid_input}
+
+  def process_user(%User{active: true} = user) do
+    {:ok, user}
+  end
+
+  def process_user(%User{active: false}) do
+    {:error, :inactive_user}
+  end
+
+  def process_user(_), do: {:error, :invalid_user}
+
+  def handle_response({:ok, %{status: 200, body: body}}) do
+    {:ok, Jason.decode!(body)}
+  end
+
+  def handle_response({:ok, %{status: status}}) when status in 400..499 do
+    {:error, :client_error}
+  end
+
+  def handle_response({:ok, %{status: status}}) when status in 500..599 do
+    {:error, :server_error}
+  end
+
+  def handle_response({:error, reason}) do
+    {:error, reason}
+  end
+end]]></correct-example>
+          <incorrect-example title="Poor pattern matching usage" conditions="Defining functions with different inputs" expected-result="Clean, readable function definitions" incorrectness-criteria="Uses if/else instead of pattern matching"><![CDATA[defmodule MyApp.Calculator do
+  def divide(a, b) do
+    if is_number(a) and is_number(b) do
+      if b != 0 do
+        {:ok, a / b}
+      else
+        {:error, :division_by_zero}
+      end
+    else
+      {:error, :invalid_input}
+    end
+  end
+
+  def process_user(user) do
+    if user.__struct__ == User do
+      if user.active do
+        {:ok, user}
+      else
+        {:error, :inactive_user}
+      end
+    else
+      {:error, :invalid_user}
+    end
+  end
+end]]></incorrect-example>
+        </example>
+      </examples>
+    </non-negotiable>
+
+    <non-negotiable priority="critical">
+      <description>Use proper GenServer implementation with all required callbacks and proper state management.</description>
+      <examples>
+        <example title="GenServer Implementation">
+          <correct-example title="Proper GenServer structure" conditions="Creating a GenServer" expected-result="Well-structured GenServer with proper callbacks" correctness-criteria="Uses all required callbacks, proper state management, and error handling"><![CDATA[defmodule MyApp.UserCache do
+  use GenServer
+
+  @moduledoc """
+  GenServer for caching user data with TTL support.
+  """
+
+  # Client API
+  def start_link(opts \\ []) do
+    GenServer.start_link(__MODULE__, opts, name: __MODULE__)
+  end
+
+  def get_user(user_id) do
+    GenServer.call(__MODULE__, {:get_user, user_id})
+  end
+
+  def put_user(user_id, user_data) do
+    GenServer.cast(__MODULE__, {:put_user, user_id, user_data})
+  end
+
+  def clear_cache do
+    GenServer.cast(__MODULE__, :clear_cache)
+  end
+
+  # Server Callbacks
+  @impl true
+  def init(opts) do
+    ttl = Keyword.get(opts, :ttl, 3600)
+    state = %{
+      cache: %{},
+      ttl: ttl,
+      timers: %{}
+    }
+    {:ok, state}
+  end
+
+  @impl true
+  def handle_call({:get_user, user_id}, _from, state) do
+    case Map.get(state.cache, user_id) do
+      nil -> {:reply, {:error, :not_found}, state}
+      user_data -> {:reply, {:ok, user_data}, state}
+    end
+  end
+
+  @impl true
+  def handle_cast({:put_user, user_id, user_data}, state) do
+    # Cancel existing timer
+    case Map.get(state.timers, user_id) do
+      nil -> :ok
+      timer_ref -> Process.cancel_timer(timer_ref)
+    end
+
+    # Set new timer
+    timer_ref = Process.send_after(self(), {:expire, user_id}, state.ttl * 1000)
+
+    new_state = %{
+      state |
+      cache: Map.put(state.cache, user_id, user_data),
+      timers: Map.put(state.timers, user_id, timer_ref)
+    }
+
+    {:noreply, new_state}
+  end
+
+  @impl true
+  def handle_cast(:clear_cache, state) do
+    # Cancel all timers
+    Enum.each(state.timers, fn {_, timer_ref} ->
+      Process.cancel_timer(timer_ref)
+    end)
+
+    new_state = %{state | cache: %{}, timers: %{}}
+    {:noreply, new_state}
+  end
+
+  @impl true
+  def handle_info({:expire, user_id}, state) do
+    new_state = %{
+      state |
+      cache: Map.delete(state.cache, user_id),
+      timers: Map.delete(state.timers, user_id)
+    }
+    {:noreply, new_state}
+  end
+
+  @impl true
+  def terminate(reason, state) do
+    # Cleanup timers
+    Enum.each(state.timers, fn {_, timer_ref} ->
+      Process.cancel_timer(timer_ref)
+    end)
+    :ok
+  end
+end]]></correct-example>
+          <incorrect-example title="Poor GenServer implementation" conditions="Creating a GenServer" expected-result="Well-structured GenServer with proper callbacks" incorrectness-criteria="Missing required callbacks, poor state management, no error handling"><![CDATA[defmodule MyApp.UserCache do
+  use GenServer
+
+  def start_link do
+    GenServer.start_link(__MODULE__, [], name: __MODULE__)
+  end
+
+  def get_user(user_id) do
+    GenServer.call(__MODULE__, user_id)
+  end
+
+  def init(_) do
+    {:ok, %{}}
+  end
+
+  def handle_call(user_id, _from, state) do
+    user = Map.get(state, user_id)
+    {:reply, user, state}
+  end
+
+  # Missing @impl attributes
+  # Missing handle_cast implementation
+  # Missing handle_info implementation
+  # Missing terminate implementation
+  # No error handling
+  # Poor state management
+end]]></incorrect-example>
+        </example>
+      </examples>
+    </non-negotiable>
+
+    <requirement priority="critical">
+      <description>Use proper OTP supervision trees with child specifications and restart strategies.</description>
+      <examples>
+        <example title="OTP Supervision Trees">
+          <correct-example title="Proper supervision tree" conditions="Setting up application supervision" expected-result="Robust supervision hierarchy" correctness-criteria="Uses proper child specifications and restart strategies"><![CDATA[defmodule MyApp.Application do
+  use Application
+
+  @impl true
+  def start(_type, _args) do
+    children = [
+      # Database
+      MyApp.Repo,
+      
+      # PubSub
+      {Phoenix.PubSub, name: MyApp.PubSub},
+      
+      # Cache supervisor
+      {DynamicSupervisor, strategy: :one_for_one, name: MyApp.CacheSupervisor},
+      
+      # Application services
+      {MyApp.UserCache, [ttl: 3600]},
+      {MyApp.SessionStore, []},
+      
+      # Background job processor
+      {MyApp.JobProcessor, pool_size: 5},
+      
+      # Web endpoint
+      MyAppWeb.Endpoint
+    ]
+
+    opts = [strategy: :one_for_one, name: MyApp.Supervisor]
+    Supervisor.start_link(children, opts)
+  end
+
+  @impl true
+  def config_change(changed, _new, removed) do
+    MyAppWeb.Endpoint.config_change(changed, removed)
+    :ok
+  end
+end
+
+defmodule MyApp.CacheWorker do
+  use GenServer
+
+  def child_spec(cache_name) do
+    %{
+      id: {__MODULE__, cache_name},
+      start: {__MODULE__, :start_link, [cache_name]},
+      restart: :permanent,
+      shutdown: 5000,
+      type: :worker,
+      modules: [__MODULE__]
+    }
+  end
+
+  def start_link(cache_name) do
+    GenServer.start_link(__MODULE__, cache_name, name: via_tuple(cache_name))
+  end
+
+  defp via_tuple(cache_name) do
+    {:via, Registry, {MyApp.CacheRegistry, cache_name}}
+  end
+
+  @impl true
+  def init(cache_name) do
+    {:ok, %{name: cache_name, data: %{}}}
+  end
+end]]></correct-example>
+          <incorrect-example title="Poor supervision setup" conditions="Setting up application supervision" expected-result="Robust supervision hierarchy" incorrectness-criteria="Missing proper child specifications and restart strategies"><![CDATA[defmodule MyApp.Application do
+  use Application
+
+  def start(_type, _args) do
+    # Starting processes without proper supervision
+    MyApp.UserCache.start_link()
+    MyApp.SessionStore.start_link()
+    MyAppWeb.Endpoint.start_link()
+    
+    # No supervisor
+    {:ok, self()}
+  end
+end
+
+defmodule MyApp.CacheWorker do
+  use GenServer
+
+  def start_link(cache_name) do
+    GenServer.start_link(__MODULE__, cache_name)
+  end
+
+  # Missing child_spec
+  # No restart strategy
+  # No proper process registration
+end]]></incorrect-example>
+        </example>
+      </examples>
+    </requirement>
+
+    <requirement priority="critical">
+      <description>Use Phoenix controller best practices with proper action patterns, plug usage, and error handling.</description>
+      <examples>
+        <example title="Phoenix Controller Best Practices">
+          <correct-example title="Proper Phoenix controller" conditions="Creating Phoenix controllers" expected-result="Well-structured controller with proper error handling" correctness-criteria="Uses proper action patterns, plugs, and error handling"><![CDATA[defmodule MyAppWeb.UserController do
+  use MyAppWeb, :controller
+
+  alias MyApp.{User, UserService}
+  alias MyAppWeb.ErrorView
+
+  plug :authenticate_user when action in [:show, :update, :delete]
+  plug :authorize_user when action in [:update, :delete]
+
+  def index(conn, params) do
+    with {:ok, page} <- validate_page_params(params),
+         {:ok, users} <- UserService.list_users(page) do
+      render(conn, "index.json", users: users)
+    else
+      {:error, :invalid_params} ->
+        conn
+        |> put_status(:bad_request)
+        |> put_view(ErrorView)
+        |> render("400.json", error: "Invalid parameters")
+        
+      {:error, reason} ->
+        conn
+        |> put_status(:internal_server_error)
+        |> put_view(ErrorView)
+        |> render("500.json", error: reason)
+    end
+  end
+
+  def show(conn, %{"id" => id}) do
+    with {:ok, user_id} <- parse_integer(id),
+         {:ok, user} <- UserService.get_user(user_id) do
+      render(conn, "show.json", user: user)
+    else
+      {:error, :invalid_id} ->
+        conn
+        |> put_status(:bad_request)
+        |> put_view(ErrorView)
+        |> render("400.json", error: "Invalid user ID")
+        
+      {:error, :not_found} ->
+        conn
+        |> put_status(:not_found)
+        |> put_view(ErrorView)
+        |> render("404.json", error: "User not found")
+    end
+  end
+
+  def create(conn, %{"user" => user_params}) do
+    with {:ok, user} <- UserService.create_user(user_params) do
+      conn
+      |> put_status(:created)
+      |> put_resp_header("location", ~p"/api/users/#{user.id}")
+      |> render("show.json", user: user)
+    else
+      {:error, %Ecto.Changeset{} = changeset} ->
+        conn
+        |> put_status(:unprocessable_entity)
+        |> put_view(ErrorView)
+        |> render("422.json", changeset: changeset)
+        
+      {:error, reason} ->
+        conn
+        |> put_status(:internal_server_error)
+        |> put_view(ErrorView)
+        |> render("500.json", error: reason)
+    end
+  end
+
+  defp validate_page_params(params) do
+    case Map.get(params, "page", "1") do
+      page when is_binary(page) ->
+        case Integer.parse(page) do
+          {num, ""} when num > 0 -> {:ok, num}
+          _ -> {:error, :invalid_params}
+        end
+      _ -> {:error, :invalid_params}
+    end
+  end
+
+  defp parse_integer(string) when is_binary(string) do
+    case Integer.parse(string) do
+      {num, ""} -> {:ok, num}
+      _ -> {:error, :invalid_id}
+    end
+  end
+end]]></correct-example>
+          <incorrect-example title="Poor Phoenix controller" conditions="Creating Phoenix controllers" expected-result="Well-structured controller with proper error handling" incorrectness-criteria="Missing error handling, no plugs, poor action patterns"><![CDATA[defmodule MyAppWeb.UserController do
+  use MyAppWeb, :controller
+
+  def index(conn, _params) do
+    users = UserService.list_users()
+    render(conn, "index.json", users: users)
+  end
+
+  def show(conn, %{"id" => id}) do
+    user = UserService.get_user(id)
+    render(conn, "show.json", user: user)
+  end
+
+  def create(conn, %{"user" => user_params}) do
+    user = UserService.create_user(user_params)
+    render(conn, "show.json", user: user)
+  end
+
+  # No error handling
+  # No plugs for authentication/authorization
+  # No proper status codes
+  # No input validation
+  # No with statements for error handling
+end]]></incorrect-example>
+        </example>
+      </examples>
+    </requirement>
+
+    <requirement priority="high">
+      <description>Use proper error handling with tagged tuples, custom exceptions, and comprehensive error messages.</description>
+      <examples>
+        <example title="Error Handling Patterns">
+          <correct-example title="Proper error handling" conditions="Handling errors in application" expected-result="Comprehensive error handling" correctness-criteria="Uses tagged tuples, custom exceptions, and proper error propagation"><![CDATA[defmodule MyApp.UserService do
+  @moduledoc """
+  Service for user-related operations with comprehensive error handling.
+  """
+
+  alias MyApp.{User, Repo}
+  alias MyApp.UserService.{ValidationError, NotFoundError}
+
+  def create_user(attrs) do
+    with {:ok, validated_attrs} <- validate_user_attrs(attrs),
+         {:ok, user} <- insert_user(validated_attrs) do
+      {:ok, user}
+    else
+      {:error, :validation_failed, errors} ->
+        {:error, %ValidationError{message: "Validation failed", errors: errors}}
+        
+      {:error, :email_taken} ->
+        {:error, %ValidationError{message: "Email already exists"}}
+        
+      {:error, %Ecto.Changeset{} = changeset} ->
+        {:error, changeset}
+        
+      {:error, reason} ->
+        {:error, reason}
+    end
+  end
+
+  def get_user(id) when is_integer(id) do
+    case Repo.get(User, id) do
+      nil -> {:error, %NotFoundError{message: "User not found", id: id}}
+      user -> {:ok, user}
+    end
+  end
+
+  def get_user(_), do: {:error, :invalid_id}
+
+  def authenticate_user(email, password) do
+    with {:ok, user} <- get_user_by_email(email),
+         true <- User.valid_password?(user, password) do
+      {:ok, user}
+    else
+      {:error, %NotFoundError{}} ->
+        # Prevent timing attacks
+        User.valid_password?(%User{}, "dummy")
+        {:error, :invalid_credentials}
+        
+      false ->
+        {:error, :invalid_credentials}
+        
+      {:error, reason} ->
+        {:error, reason}
+    end
+  end
+
+  defp validate_user_attrs(attrs) do
+    errors = []
+
+    errors = 
+      case Map.get(attrs, :email) do
+        nil -> [{:email, "is required"} | errors]
+        email when is_binary(email) ->
+          if String.contains?(email, "@") do
+            errors
+          else
+            [{:email, "must be a valid email"} | errors]
+          end
+        _ -> [{:email, "must be a string"} | errors]
+      end
+
+    case errors do
+      [] -> {:ok, attrs}
+      _ -> {:error, :validation_failed, errors}
+    end
+  end
+
+  defp insert_user(attrs) do
+    %User{}
+    |> User.changeset(attrs)
+    |> Repo.insert()
+  end
+
+  defp get_user_by_email(email) do
+    case Repo.get_by(User, email: email) do
+      nil -> {:error, %NotFoundError{message: "User not found", email: email}}
+      user -> {:ok, user}
+    end
+  end
+end]]></correct-example>
+          <incorrect-example title="Poor error handling" conditions="Handling errors in application" expected-result="Comprehensive error handling" incorrectness-criteria="No error handling, raises exceptions, unclear error messages"><![CDATA[defmodule MyApp.UserService do
+  def create_user(attrs) do
+    # No error handling
+    user = Repo.insert!(%User{email: attrs["email"], name: attrs["name"]})
+    user
+  end
+
+  def get_user(id) do
+    # Raises exception instead of returning error tuple
+    Repo.get!(User, id)
+  end
+
+  def authenticate_user(email, password) do
+    user = Repo.get_by!(User, email: email)
+    if user.password == password do
+      user
+    else
+      # Raises exception
+      raise "Invalid password"
+    end
+  end
+
+  # No error handling
+  # Raises exceptions instead of returning error tuples
+  # No validation
+  # No comprehensive error messages
+end]]></incorrect-example>
+        </example>
+      </examples>
+    </requirement>
+
+    <requirement priority="high">
+      <description>Use proper module documentation with @moduledoc and @doc attributes for all public functions.</description>
+      <examples>
+        <example title="Module Documentation">
+          <correct-example title="Proper module documentation" conditions="Documenting modules and functions" expected-result="Well-documented code" correctness-criteria="Uses @moduledoc and @doc with examples"><![CDATA[defmodule MyApp.UserService do
+  @moduledoc """
+  Service module for user-related operations.
+
+  This module provides functions for creating, updating, retrieving, and deleting
+  users in the system. It handles validation, authentication, and business logic
+  related to user management.
+
+  ## Examples
+
+      iex> MyApp.UserService.create_user(%{name: "John", email: "john@example.com"})
+      {:ok, %User{name: "John", email: "john@example.com"}}
+
+      iex> MyApp.UserService.get_user(1)
+      {:ok, %User{id: 1, name: "John"}}
+
+      iex> MyApp.UserService.get_user(999)
+      {:error, :not_found}
+  """
+
+  alias MyApp.{User, Repo}
+
+  @doc """
+  Creates a new user with the given attributes.
+
+  ## Parameters
+    - `attrs`: A map containing user attributes (name, email, password, etc.)
+
+  ## Returns
+    - `{:ok, %User{}}` on success
+    - `{:error, %Ecto.Changeset{}}` on validation failure
+    - `{:error, reason}` on other errors
+
+  ## Examples
+
+      iex> MyApp.UserService.create_user(%{name: "John", email: "john@example.com"})
+      {:ok, %User{name: "John", email: "john@example.com"}}
+
+      iex> MyApp.UserService.create_user(%{name: "", email: "invalid"})
+      {:error, %Ecto.Changeset{}}
+  """
+  @spec create_user(map()) :: {:ok, User.t()} | {:error, Ecto.Changeset.t() | atom()}
+  def create_user(attrs) do
+    %User{}
+    |> User.changeset(attrs)
+    |> Repo.insert()
+  end
+
+  @doc """
+  Retrieves a user by ID.
+
+  ## Parameters
+    - `id`: The user ID (integer)
+
+  ## Returns
+    - `{:ok, %User{}}` if user is found
+    - `{:error, :not_found}` if user doesn't exist
+
+  ## Examples
+
+      iex> MyApp.UserService.get_user(1)
+      {:ok, %User{id: 1}}
+
+      iex> MyApp.UserService.get_user(999)
+      {:error, :not_found}
+  """
+  @spec get_user(integer()) :: {:ok, User.t()} | {:error, :not_found}
+  def get_user(id) when is_integer(id) do
+    case Repo.get(User, id) do
+      nil -> {:error, :not_found}
+      user -> {:ok, user}
+    end
+  end
+
+  @doc false
+  defp internal_helper_function do
+    # Private functions don't need @doc
+    :ok
+  end
+end]]></correct-example>
+          <incorrect-example title="Poor or missing documentation" conditions="Documenting modules and functions" expected-result="Well-documented code" incorrectness-criteria="Missing @moduledoc and @doc, no examples or type specs"><![CDATA[defmodule MyApp.UserService do
+  # Missing @moduledoc
+
+  def create_user(attrs) do
+    # Missing @doc
+    %User{}
+    |> User.changeset(attrs)
+    |> Repo.insert()
+  end
+
+  def get_user(id) do
+    # Missing @doc, no type specs
+    case Repo.get(User, id) do
+      nil -> {:error, :not_found}
+      user -> {:ok, user}
+    end
+  end
+
+  # No documentation
+  # No examples
+  # No type specifications
+end]]></incorrect-example>
+        </example>
+      </examples>
+    </requirement>
+  </requirements>
+
+  <context description="Elixir ecosystem and best practices">
+    Elixir is a dynamic, functional programming language designed for building maintainable and scalable applications. Built on the Erlang Virtual Machine (BEAM), it leverages the Actor model through lightweight processes to achieve massive concurrency and fault tolerance.
+
+    Key principles in Elixir development include:
+    - Immutability: Data structures are immutable by default, reducing bugs and enabling safe concurrency
+    - Pattern matching: Powerful pattern matching for control flow and data extraction
+    - "Let it crash" philosophy: Use supervisors to handle failures gracefully
+    - OTP (Open Telecom Platform): Battle-tested patterns for building concurrent, distributed systems
+    - Process isolation: Each process has its own memory space and communicates via message passing
+
+    The Phoenix framework builds on these principles to provide a productive web development experience with real-time features via Phoenix Channels and LiveView.
+
+    GenServer is the most common OTP behavior for stateful processes, providing a standardized way to build servers that handle synchronous and asynchronous requests while maintaining state.
+
+    Elixir's community emphasizes comprehensive documentation, testing, and following established conventions for maximum code clarity and maintainability.
+  </context>
+
+  <references>
+    <reference as="dependency" href=".cursor/rules/000-core/002-cursor-rules-creation.mdc" reason="Follows standard rule format">Base rule format definition</reference>
+    <reference as="context" href="https://elixir-lang.org/docs.html" reason="Official Elixir documentation">Elixir language documentation</reference>
+    <reference as="context" href="https://hexdocs.pm/elixir/GenServer.html" reason="GenServer documentation">GenServer OTP behavior</reference>
+    <reference as="context" href="https://phoenixframework.org/docs/overview" reason="Phoenix framework documentation">Phoenix framework guide</reference>
+    <reference as="context" href="https://hexdocs.pm/ecto/Ecto.html" reason="Ecto database library">Ecto database wrapper and query generator</reference>
+  </references>
+</rule>

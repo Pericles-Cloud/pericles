@@ -1,0 +1,1868 @@
+---
+description: Comprehensive Vitest testing standards with modern testing patterns, performance optimization, and TypeScript integration following expert best practices
+globs: ["**/*.{test,spec}.{js,ts,jsx,tsx,mjs,cjs}"]
+alwaysApply: false
+---
+
+<rule>
+  <meta>
+    <title>Vitest Core Testing Standards</title>
+    <description>Comprehensive Vitest testing framework standards with modern testing patterns, performance optimization, TypeScript integration, and CI/CD best practices following expert recommendations</description>
+    <created-at utc-timestamp="1744398000">January 29, 2025, 2:20 PM</created-at>
+    <last-updated-at utc-timestamp="1744398000">January 29, 2025, 2:20 PM</last-updated-at>
+    <applies-to>
+      <file-matcher glob="**/*.{test,spec}.{js,ts,jsx,tsx,mjs,cjs}">Vitest test files with various extensions</file-matcher>
+      <file-matcher glob="**/vitest.config.{js,ts,mjs,mts}">Vitest configuration files</file-matcher>
+      <file-matcher glob="**/setup-tests.{js,ts}">Test setup and configuration files</file-matcher>
+      <action-matcher action="testing">Triggered when writing or configuring tests with Vitest</action-matcher>
+    </applies-to>
+  </meta>
+
+  <requirements>
+    <non-negotiable priority="critical">
+      <description>Use Vitest's modern configuration with workspace support, TypeScript integration, and optimized performance settings including watch mode and parallel execution.</description>
+      <examples>
+        <example title="Modern Vitest Configuration">
+          <correct-example title="Comprehensive vitest.config.ts with workspace support" conditions="Setting up Vitest configuration" expected-result="Optimized Vitest setup with TypeScript and performance features" correctness-criteria="Uses defineConfig, includes TypeScript support, workspace configuration, and performance optimizations"><![CDATA[// vitest.config.ts
+import { defineConfig } from 'vitest/config'
+import { resolve } from 'path'
+
+export default defineConfig({
+  test: {
+    // Global test configuration
+    globals: true,
+    environment: 'jsdom', // or 'node', 'happy-dom'
+    setupFiles: ['./src/test/setup.ts'],
+    
+    // Performance optimizations
+    pool: 'threads',
+    poolOptions: {
+      threads: {
+        singleThread: false,
+        useAtomics: true,
+        isolate: true,
+      },
+    },
+    
+    // File patterns
+    include: ['**/*.{test,spec}.{js,mjs,cjs,ts,mts,cts,jsx,tsx}'],
+    exclude: [
+      '**/node_modules/**',
+      '**/dist/**',
+      '**/cypress/**',
+      '**/.{idea,git,cache,output,temp}/**',
+      '**/{karma,rollup,webpack,vite,vitest,jest,ava,babel,nyc,cypress,tsup,build}.config.*',
+    ],
+    
+    // Watch mode configuration
+    watchExclude: ['**/node_modules/**', '**/dist/**'],
+    
+    // Coverage configuration
+    coverage: {
+      provider: 'v8', // or 'c8', 'istanbul'
+      reporter: ['text', 'json', 'html', 'lcov'],
+      exclude: [
+        'coverage/**',
+        'dist/**',
+        'packages/*/test{,s}/**',
+        '**/*.d.ts',
+        'cypress/**',
+        'test{,s}/**',
+        'test{,-*}.{js,cjs,mjs,ts,tsx,jsx}',
+        '**/*{.,-}test.{js,cjs,mjs,ts,tsx,jsx}',
+        '**/*{.,-}spec.{js,cjs,mjs,ts,tsx,jsx}',
+        '**/__tests__/**',
+        '**/{karma,rollup,webpack,vite,vitest,jest,ava,babel,nyc,cypress,tsup,build}.config.*',
+        '**/.{eslint,mocha,prettier}rc.{js,cjs,yml}',
+      ],
+      thresholds: {
+        global: {
+          branches: 80,
+          functions: 80,
+          lines: 80,
+          statements: 80,
+        },
+      },
+    },
+    
+    // TypeScript configuration
+    typecheck: {
+      enabled: true,
+      tsconfig: './tsconfig.json',
+      include: ['**/*.{test,spec}.{ts,tsx}'],
+    },
+    
+    // UI and reporting
+    ui: true,
+    reporter: ['verbose', 'json', 'html'],
+    outputFile: {
+      json: './test-results/results.json',
+      html: './test-results/index.html',
+    },
+    
+    // Timeout configuration
+    testTimeout: 10000,
+    hookTimeout: 10000,
+    
+    // Retry configuration
+    retry: process.env.CI ? 3 : 0,
+    
+    // Browser testing (optional)
+    browser: {
+      enabled: false, // Enable for browser testing
+      name: 'chrome', // or 'firefox', 'safari'
+      provider: 'webdriverio', // or 'playwright'
+      headless: true,
+    },
+  },
+  
+  // Vite configuration for test environment
+  resolve: {
+    alias: {
+      '@': resolve(__dirname, './src'),
+      '@test': resolve(__dirname, './test'),
+    },
+  },
+  
+  // Define for test environment
+  define: {
+    __TEST__: true,
+  },
+  
+  // Workspace configuration for monorepos
+  test: {
+    workspace: [
+      './packages/*/vitest.config.{js,ts,mjs,mts}',
+    ],
+  },
+})
+
+// Alternative workspace configuration file: vitest.workspace.ts
+export default [
+  {
+    test: {
+      name: 'unit',
+      include: ['src/**/*.{test,spec}.{js,ts}'],
+      environment: 'node',
+    },
+  },
+  {
+    test: {
+      name: 'integration',
+      include: ['tests/integration/**/*.{test,spec}.{js,ts}'],
+      environment: 'jsdom',
+    },
+  },
+  {
+    test: {
+      name: 'browser',
+      include: ['tests/browser/**/*.{test,spec}.{js,ts}'],
+      browser: {
+        enabled: true,
+        name: 'chrome',
+        headless: true,
+      },
+    },
+  },
+]]]></correct-example>
+          <incorrect-example title="Basic configuration without optimization" conditions="Setting up Vitest configuration" expected-result="Optimized Vitest setup" incorrectness-criteria="Missing TypeScript support, no coverage configuration, no performance optimizations"><![CDATA[// vitest.config.js - Basic configuration
+export default {
+  test: {
+    globals: true,
+  },
+}]]></incorrect-example>
+        </example>
+      </examples>
+    </non-negotiable>
+
+    <non-negotiable priority="critical">
+      <description>Implement comprehensive test setup with proper mocking, testing utilities, and environment configuration for consistent test execution across different environments.</description>
+      <examples>
+        <example title="Test Setup and Utilities">
+          <correct-example title="Comprehensive test setup with utilities" conditions="Setting up test environment" expected-result="Robust test setup with mocking and utilities" correctness-criteria="Includes DOM setup, mock configuration, utility functions, and environment consistency"><![CDATA[// src/test/setup.ts
+import { beforeAll, afterAll, afterEach, vi } from 'vitest'
+import { cleanup } from '@testing-library/react'
+import '@testing-library/jest-dom'
+
+// Extend Vitest matchers
+import 'vitest-dom/extend-expect'
+
+// Mock global objects
+Object.defineProperty(window, 'matchMedia', {
+  writable: true,
+  value: vi.fn().mockImplementation(query => ({
+    matches: false,
+    media: query,
+    onchange: null,
+    addListener: vi.fn(), // deprecated
+    removeListener: vi.fn(), // deprecated
+    addEventListener: vi.fn(),
+    removeEventListener: vi.fn(),
+    dispatchEvent: vi.fn(),
+  })),
+})
+
+// Mock IntersectionObserver
+global.IntersectionObserver = vi.fn().mockImplementation(() => ({
+  observe: vi.fn(),
+  unobserve: vi.fn(),
+  disconnect: vi.fn(),
+}))
+
+// Mock ResizeObserver
+global.ResizeObserver = vi.fn().mockImplementation(() => ({
+  observe: vi.fn(),
+  unobserve: vi.fn(),
+  disconnect: vi.fn(),
+}))
+
+// Mock fetch globally
+global.fetch = vi.fn()
+
+// Mock console methods to avoid noise in tests
+vi.stubGlobal('console', {
+  ...console,
+  warn: vi.fn(),
+  error: vi.fn(),
+})
+
+// Setup and teardown
+beforeAll(() => {
+  // Global setup
+})
+
+afterEach(() => {
+  // Clean up after each test
+  cleanup()
+  vi.clearAllMocks()
+  vi.resetAllMocks()
+})
+
+afterAll(() => {
+  // Global cleanup
+  vi.restoreAllMocks()
+})
+
+// Test utilities
+export const createMockComponent = (name: string) => {
+  const MockComponent = vi.fn().mockImplementation(({ children, ...props }) => {
+    return React.createElement('div', {
+      'data-testid': `mock-${name.toLowerCase()}`,
+      ...props,
+    }, children)
+  })
+  MockComponent.displayName = `Mock${name}`
+  return MockComponent
+}
+
+export const createMockModule = <T extends Record<string, any>>(
+  moduleExports: T
+): T => {
+  const mock = {} as T
+  for (const [key, value] of Object.entries(moduleExports)) {
+    if (typeof value === 'function') {
+      mock[key as keyof T] = vi.fn(value) as T[keyof T]
+    } else {
+      mock[key as keyof T] = value
+    }
+  }
+  return mock
+}
+
+export const waitForNextTick = () => new Promise(resolve => setTimeout(resolve, 0))
+
+// Custom matchers
+expect.extend({
+  toHaveBeenCalledWithPartialObject(received, expected) {
+    const pass = received.mock.calls.some((call: any[]) => {
+      return call.some(arg => {
+        if (typeof arg === 'object' && arg !== null) {
+          return Object.keys(expected).every(key => {
+            return arg[key] === expected[key]
+          })
+        }
+        return false
+      })
+    })
+
+    return {
+      message: () =>
+        pass
+          ? `Expected ${received} not to have been called with partial object ${JSON.stringify(expected)}`
+          : `Expected ${received} to have been called with partial object ${JSON.stringify(expected)}`,
+      pass,
+    }
+  },
+})
+
+// src/test/test-utils.tsx
+import React, { ReactElement } from 'react'
+import { render, RenderOptions } from '@testing-library/react'
+import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
+import { BrowserRouter } from 'react-router-dom'
+
+// Custom render function with providers
+const AllTheProviders = ({ children }: { children: React.ReactNode }) => {
+  const queryClient = new QueryClient({
+    defaultOptions: {
+      queries: {
+        retry: false,
+        cacheTime: 0,
+      },
+      mutations: {
+        retry: false,
+      },
+    },
+  })
+
+  return (
+    <QueryClientProvider client={queryClient}>
+      <BrowserRouter>
+        {children}
+      </BrowserRouter>
+    </QueryClientProvider>
+  )
+}
+
+const customRender = (
+  ui: ReactElement,
+  options?: Omit<RenderOptions, 'wrapper'>
+) => render(ui, { wrapper: AllTheProviders, ...options })
+
+export * from '@testing-library/react'
+export { customRender as render }
+
+// Mock data factories
+export const createMockUser = (overrides: Partial<User> = {}): User => ({
+  id: '1',
+  email: 'test@example.com',
+  name: 'Test User',
+  role: 'user',
+  createdAt: new Date().toISOString(),
+  ...overrides,
+})
+
+export const createMockPost = (overrides: Partial<Post> = {}): Post => ({
+  id: '1',
+  title: 'Test Post',
+  content: 'Test content',
+  authorId: '1',
+  createdAt: new Date().toISOString(),
+  updatedAt: new Date().toISOString(),
+  ...overrides,
+})]]></correct-example>
+          <incorrect-example title="Minimal setup without proper mocking" conditions="Setting up test environment" expected-result="Robust test setup" incorrectness-criteria="Missing global mocks, no utility functions, incomplete environment setup"><![CDATA[// setup.ts - Minimal setup
+import '@testing-library/jest-dom'
+
+// Missing global mocks, utilities, and comprehensive setup]]></incorrect-example>
+        </example>
+      </examples>
+    </non-negotiable>
+
+    <non-negotiable priority="critical">
+      <description>Write comprehensive unit tests with proper test structure, descriptive test names, and comprehensive coverage including edge cases, error conditions, and async operations.</description>
+      <examples>
+        <example title="Comprehensive Unit Testing">
+          <correct-example title="Well-structured unit tests with comprehensive coverage" conditions="Writing unit tests for components and functions" expected-result="Thorough test coverage with clear structure" correctness-criteria="Uses describe blocks, clear test names, setup/teardown, mocking, and covers multiple scenarios"><![CDATA[// src/components/UserCard.test.tsx
+import { describe, it, expect, vi, beforeEach } from 'vitest'
+import { render, screen, fireEvent, waitFor } from '@/test/test-utils'
+import { UserCard } from './UserCard'
+import { createMockUser } from '@/test/test-utils'
+import * as userService from '@/services/userService'
+
+// Mock the user service
+vi.mock('@/services/userService', () => ({
+  updateUser: vi.fn(),
+  deleteUser: vi.fn(),
+}))
+
+const mockUserService = vi.mocked(userService)
+
+describe('UserCard', () => {
+  const mockUser = createMockUser({
+    id: '1',
+    name: 'John Doe',
+    email: 'john@example.com',
+    role: 'admin',
+  })
+
+  const defaultProps = {
+    user: mockUser,
+    onUpdate: vi.fn(),
+    onDelete: vi.fn(),
+  }
+
+  beforeEach(() => {
+    vi.clearAllMocks()
+  })
+
+  describe('Rendering', () => {
+    it('should render user information correctly', () => {
+      render(<UserCard {...defaultProps} />)
+      
+      expect(screen.getByText('John Doe')).toBeInTheDocument()
+      expect(screen.getByText('john@example.com')).toBeInTheDocument()
+      expect(screen.getByText('admin')).toBeInTheDocument()
+    })
+
+    it('should render avatar with correct alt text', () => {
+      render(<UserCard {...defaultProps} />)
+      
+      const avatar = screen.getByRole('img', { name: /john doe/i })
+      expect(avatar).toBeInTheDocument()
+      expect(avatar).toHaveAttribute('alt', 'John Doe')
+    })
+
+    it('should show loading state when user data is being updated', () => {
+      render(<UserCard {...defaultProps} isLoading={true} />)
+      
+      expect(screen.getByTestId('user-card-loading')).toBeInTheDocument()
+      expect(screen.getByRole('button', { name: /update/i })).toBeDisabled()
+    })
+  })
+
+  describe('User Interactions', () => {
+    it('should call onUpdate when edit button is clicked', async () => {
+      render(<UserCard {...defaultProps} />)
+      
+      const editButton = screen.getByRole('button', { name: /edit/i })
+      fireEvent.click(editButton)
+      
+      await waitFor(() => {
+        expect(defaultProps.onUpdate).toHaveBeenCalledWith(mockUser)
+      })
+    })
+
+    it('should show confirmation dialog before deletion', async () => {
+      render(<UserCard {...defaultProps} />)
+      
+      const deleteButton = screen.getByRole('button', { name: /delete/i })
+      fireEvent.click(deleteButton)
+      
+      expect(screen.getByText(/are you sure you want to delete/i)).toBeInTheDocument()
+      
+      const confirmButton = screen.getByRole('button', { name: /confirm/i })
+      fireEvent.click(confirmButton)
+      
+      await waitFor(() => {
+        expect(defaultProps.onDelete).toHaveBeenCalledWith(mockUser.id)
+      })
+    })
+
+    it('should not delete user when confirmation is cancelled', async () => {
+      render(<UserCard {...defaultProps} />)
+      
+      const deleteButton = screen.getByRole('button', { name: /delete/i })
+      fireEvent.click(deleteButton)
+      
+      const cancelButton = screen.getByRole('button', { name: /cancel/i })
+      fireEvent.click(cancelButton)
+      
+      await waitFor(() => {
+        expect(defaultProps.onDelete).not.toHaveBeenCalled()
+      })
+    })
+  })
+
+  describe('API Integration', () => {
+    it('should handle successful user update', async () => {
+      mockUserService.updateUser.mockResolvedValue({
+        ...mockUser,
+        name: 'Updated Name',
+      })
+
+      render(<UserCard {...defaultProps} />)
+      
+      const editButton = screen.getByRole('button', { name: /edit/i })
+      fireEvent.click(editButton)
+      
+      const nameInput = screen.getByLabelText(/name/i)
+      fireEvent.change(nameInput, { target: { value: 'Updated Name' } })
+      
+      const saveButton = screen.getByRole('button', { name: /save/i })
+      fireEvent.click(saveButton)
+      
+      await waitFor(() => {
+        expect(mockUserService.updateUser).toHaveBeenCalledWith(mockUser.id, {
+          name: 'Updated Name',
+        })
+        expect(defaultProps.onUpdate).toHaveBeenCalled()
+      })
+    })
+
+    it('should handle API errors gracefully', async () => {
+      const consoleError = vi.spyOn(console, 'error').mockImplementation(() => {})
+      mockUserService.updateUser.mockRejectedValue(new Error('API Error'))
+
+      render(<UserCard {...defaultProps} />)
+      
+      const editButton = screen.getByRole('button', { name: /edit/i })
+      fireEvent.click(editButton)
+      
+      const saveButton = screen.getByRole('button', { name: /save/i })
+      fireEvent.click(saveButton)
+      
+      await waitFor(() => {
+        expect(screen.getByText(/failed to update user/i)).toBeInTheDocument()
+      })
+      
+      consoleError.mockRestore()
+    })
+  })
+
+  describe('Edge Cases', () => {
+    it('should handle user without email', () => {
+      const userWithoutEmail = createMockUser({ email: undefined })
+      render(<UserCard {...defaultProps} user={userWithoutEmail} />)
+      
+      expect(screen.getByText('No email provided')).toBeInTheDocument()
+    })
+
+    it('should handle very long user names', () => {
+      const userWithLongName = createMockUser({
+        name: 'A'.repeat(100),
+      })
+      
+      render(<UserCard {...defaultProps} user={userWithLongName} />)
+      
+      const nameElement = screen.getByTestId('user-name')
+      expect(nameElement).toHaveClass('truncate')
+    })
+
+    it('should be accessible with keyboard navigation', () => {
+      render(<UserCard {...defaultProps} />)
+      
+      const editButton = screen.getByRole('button', { name: /edit/i })
+      editButton.focus()
+      
+      expect(editButton).toHaveFocus()
+      
+      fireEvent.keyDown(editButton, { key: 'Enter' })
+      expect(defaultProps.onUpdate).toHaveBeenCalled()
+    })
+  })
+
+  describe('Performance', () => {
+    it('should not re-render unnecessarily', () => {
+      const renderSpy = vi.fn()
+      const TestComponent = ({ user }: { user: User }) => {
+        renderSpy()
+        return <UserCard {...defaultProps} user={user} />
+      }
+
+      const { rerender } = render(<TestComponent user={mockUser} />)
+      
+      expect(renderSpy).toHaveBeenCalledTimes(1)
+      
+      // Re-render with same props
+      rerender(<TestComponent user={mockUser} />)
+      
+      expect(renderSpy).toHaveBeenCalledTimes(1) // Should not re-render
+    })
+  })
+})
+
+// src/utils/formatters.test.ts
+import { describe, it, expect } from 'vitest'
+import { formatCurrency, formatDate, formatFileSize } from './formatters'
+
+describe('formatters', () => {
+  describe('formatCurrency', () => {
+    it('should format currency with default locale and currency', () => {
+      expect(formatCurrency(1234.56)).toBe('$1,234.56')
+    })
+
+    it('should format currency with custom locale', () => {
+      expect(formatCurrency(1234.56, 'EUR', 'de-DE')).toBe('1.234,56 €')
+    })
+
+    it('should handle zero values', () => {
+      expect(formatCurrency(0)).toBe('$0.00')
+    })
+
+    it('should handle negative values', () => {
+      expect(formatCurrency(-1234.56)).toBe('-$1,234.56')
+    })
+
+    it('should handle very large numbers', () => {
+      expect(formatCurrency(1234567890.12)).toBe('$1,234,567,890.12')
+    })
+  })
+
+  describe('formatDate', () => {
+    it('should format date with default options', () => {
+      const date = new Date('2023-12-25T10:30:00Z')
+      expect(formatDate(date)).toMatch(/Dec 25, 2023/)
+    })
+
+    it('should handle invalid dates', () => {
+      expect(formatDate(new Date('invalid'))).toBe('Invalid Date')
+    })
+
+    it('should format with custom options', () => {
+      const date = new Date('2023-12-25T10:30:00Z')
+      const result = formatDate(date, {
+        year: 'numeric',
+        month: 'long',
+        day: 'numeric',
+      })
+      expect(result).toMatch(/December 25, 2023/)
+    })
+  })
+
+  describe('formatFileSize', () => {
+    it('should format bytes correctly', () => {
+      expect(formatFileSize(0)).toBe('0 B')
+      expect(formatFileSize(512)).toBe('512 B')
+      expect(formatFileSize(1023)).toBe('1023 B')
+    })
+
+    it('should format kilobytes correctly', () => {
+      expect(formatFileSize(1024)).toBe('1.0 KB')
+      expect(formatFileSize(1536)).toBe('1.5 KB')
+    })
+
+    it('should format megabytes correctly', () => {
+      expect(formatFileSize(1048576)).toBe('1.0 MB')
+      expect(formatFileSize(1572864)).toBe('1.5 MB')
+    })
+
+    it('should format gigabytes correctly', () => {
+      expect(formatFileSize(1073741824)).toBe('1.0 GB')
+    })
+
+    it('should handle negative values', () => {
+      expect(formatFileSize(-1024)).toBe('0 B')
+    })
+  })
+})]]></correct-example>
+          <incorrect-example title="Basic tests without comprehensive coverage" conditions="Writing unit tests" expected-result="Thorough test coverage" incorrectness-criteria="Missing edge cases, no error handling tests, poor test structure, minimal assertions"><![CDATA[// UserCard.test.tsx - Basic tests
+import { render, screen } from '@testing-library/react'
+import { UserCard } from './UserCard'
+
+test('renders user name', () => {
+  const user = { id: '1', name: 'John', email: 'john@test.com' }
+  render(<UserCard user={user} />)
+  expect(screen.getByText('John')).toBeInTheDocument()
+})
+
+test('edit button works', () => {
+  const user = { id: '1', name: 'John', email: 'john@test.com' }
+  render(<UserCard user={user} />)
+  // Missing implementation and assertions
+})]]></incorrect-example>
+        </example>
+      </examples>
+    </non-negotiable>
+
+    <requirement priority="high">
+      <description>Implement comprehensive integration tests that test component interactions, API integrations, and data flow between multiple components using modern testing patterns.</description>
+      <examples>
+        <example title="Integration Testing Patterns">
+          <correct-example title="Comprehensive integration tests" conditions="Testing component interactions and API integration" expected-result="Thorough integration test coverage" correctness-criteria="Tests data flow, API integration, component communication, and user workflows"><![CDATA[// src/features/users/UserManagement.integration.test.tsx
+import { describe, it, expect, vi, beforeEach } from 'vitest'
+import { render, screen, fireEvent, waitFor } from '@/test/test-utils'
+import { UserManagement } from './UserManagement'
+import { createMockUser } from '@/test/test-utils'
+import { server } from '@/test/mocks/server'
+import { http, HttpResponse } from 'msw'
+
+describe('UserManagement Integration', () => {
+  const mockUsers = [
+    createMockUser({ id: '1', name: 'John Doe', role: 'admin' }),
+    createMockUser({ id: '2', name: 'Jane Smith', role: 'user' }),
+  ]
+
+  beforeEach(() => {
+    // Setup MSW handlers for API mocking
+    server.use(
+      http.get('/api/users', () => {
+        return HttpResponse.json(mockUsers)
+      })
+    )
+  })
+
+  describe('User List Integration', () => {
+    it('should load and display users from API', async () => {
+      render(<UserManagement />)
+      
+      expect(screen.getByTestId('loading-spinner')).toBeInTheDocument()
+      
+      await waitFor(() => {
+        expect(screen.getByText('John Doe')).toBeInTheDocument()
+        expect(screen.getByText('Jane Smith')).toBeInTheDocument()
+      })
+      
+      expect(screen.queryByTestId('loading-spinner')).not.toBeInTheDocument()
+    })
+
+    it('should handle API errors gracefully', async () => {
+      server.use(
+        http.get('/api/users', () => {
+          return new HttpResponse(null, { status: 500 })
+        })
+      )
+
+      render(<UserManagement />)
+      
+      await waitFor(() => {
+        expect(screen.getByText(/failed to load users/i)).toBeInTheDocument()
+      })
+    })
+
+    it('should filter users based on search input', async () => {
+      render(<UserManagement />)
+      
+      await waitFor(() => {
+        expect(screen.getByText('John Doe')).toBeInTheDocument()
+      })
+      
+      const searchInput = screen.getByPlaceholderText(/search users/i)
+      fireEvent.change(searchInput, { target: { value: 'John' } })
+      
+      expect(screen.getByText('John Doe')).toBeInTheDocument()
+      expect(screen.queryByText('Jane Smith')).not.toBeInTheDocument()
+    })
+  })
+
+  describe('User CRUD Operations', () => {
+    it('should create a new user successfully', async () => {
+      const newUser = createMockUser({ id: '3', name: 'Bob Wilson' })
+      
+      server.use(
+        http.post('/api/users', async ({ request }) => {
+          const body = await request.json()
+          return HttpResponse.json({ ...newUser, ...body })
+        })
+      )
+
+      render(<UserManagement />)
+      
+      await waitFor(() => {
+        expect(screen.getByText('John Doe')).toBeInTheDocument()
+      })
+      
+      const addButton = screen.getByRole('button', { name: /add user/i })
+      fireEvent.click(addButton)
+      
+      const nameInput = screen.getByLabelText(/name/i)
+      const emailInput = screen.getByLabelText(/email/i)
+      
+      fireEvent.change(nameInput, { target: { value: 'Bob Wilson' } })
+      fireEvent.change(emailInput, { target: { value: 'bob@example.com' } })
+      
+      const saveButton = screen.getByRole('button', { name: /save/i })
+      fireEvent.click(saveButton)
+      
+      await waitFor(() => {
+        expect(screen.getByText('Bob Wilson')).toBeInTheDocument()
+      })
+    })
+
+    it('should update an existing user', async () => {
+      server.use(
+        http.patch('/api/users/:id', async ({ params, request }) => {
+          const body = await request.json()
+          const updatedUser = { ...mockUsers[0], ...body }
+          return HttpResponse.json(updatedUser)
+        })
+      )
+
+      render(<UserManagement />)
+      
+      await waitFor(() => {
+        expect(screen.getByText('John Doe')).toBeInTheDocument()
+      })
+      
+      const editButton = screen.getAllByRole('button', { name: /edit/i })[0]
+      fireEvent.click(editButton)
+      
+      const nameInput = screen.getByDisplayValue('John Doe')
+      fireEvent.change(nameInput, { target: { value: 'John Updated' } })
+      
+      const saveButton = screen.getByRole('button', { name: /save/i })
+      fireEvent.click(saveButton)
+      
+      await waitFor(() => {
+        expect(screen.getByText('John Updated')).toBeInTheDocument()
+        expect(screen.queryByText('John Doe')).not.toBeInTheDocument()
+      })
+    })
+
+    it('should delete a user with confirmation', async () => {
+      server.use(
+        http.delete('/api/users/:id', () => {
+          return new HttpResponse(null, { status: 204 })
+        })
+      )
+
+      render(<UserManagement />)
+      
+      await waitFor(() => {
+        expect(screen.getByText('John Doe')).toBeInTheDocument()
+      })
+      
+      const deleteButton = screen.getAllByRole('button', { name: /delete/i })[0]
+      fireEvent.click(deleteButton)
+      
+      const confirmButton = screen.getByRole('button', { name: /confirm/i })
+      fireEvent.click(confirmButton)
+      
+      await waitFor(() => {
+        expect(screen.queryByText('John Doe')).not.toBeInTheDocument()
+      })
+    })
+  })
+
+  describe('User Role Management', () => {
+    it('should change user role and update permissions', async () => {
+      server.use(
+        http.patch('/api/users/:id/role', async ({ request }) => {
+          const body = await request.json()
+          return HttpResponse.json({ success: true, role: body.role })
+        })
+      )
+
+      render(<UserManagement />)
+      
+      await waitFor(() => {
+        expect(screen.getByText('John Doe')).toBeInTheDocument()
+      })
+      
+      const roleSelect = screen.getAllByLabelText(/role/i)[0]
+      fireEvent.change(roleSelect, { target: { value: 'moderator' } })
+      
+      await waitFor(() => {
+        expect(screen.getByDisplayValue('moderator')).toBeInTheDocument()
+      })
+    })
+
+    it('should show appropriate actions based on user permissions', async () => {
+      const currentUser = createMockUser({ role: 'user' })
+      
+      render(<UserManagement currentUser={currentUser} />)
+      
+      await waitFor(() => {
+        expect(screen.getByText('John Doe')).toBeInTheDocument()
+      })
+      
+      // Regular users should not see admin actions
+      expect(screen.queryByRole('button', { name: /delete/i })).not.toBeInTheDocument()
+      expect(screen.queryByLabelText(/role/i)).not.toBeInTheDocument()
+    })
+  })
+
+  describe('Real-time Updates', () => {
+    it('should handle real-time user updates via WebSocket', async () => {
+      const mockWebSocket = {
+        addEventListener: vi.fn(),
+        removeEventListener: vi.fn(),
+        close: vi.fn(),
+      }
+      
+      global.WebSocket = vi.fn(() => mockWebSocket) as any
+
+      render(<UserManagement />)
+      
+      await waitFor(() => {
+        expect(screen.getByText('John Doe')).toBeInTheDocument()
+      })
+      
+      // Simulate WebSocket message
+      const wsListener = mockWebSocket.addEventListener.mock.calls
+        .find(call => call[0] === 'message')?.[1]
+      
+      if (wsListener) {
+        wsListener({
+          data: JSON.stringify({
+            type: 'USER_UPDATED',
+            payload: { ...mockUsers[0], name: 'John Updated via WS' }
+          })
+        })
+      }
+      
+      await waitFor(() => {
+        expect(screen.getByText('John Updated via WS')).toBeInTheDocument()
+      })
+    })
+  })
+
+  describe('Performance and Optimization', () => {
+    it('should handle large user lists efficiently', async () => {
+      const largeUserList = Array.from({ length: 1000 }, (_, i) =>
+        createMockUser({ id: `${i}`, name: `User ${i}` })
+      )
+      
+      server.use(
+        http.get('/api/users', () => {
+          return HttpResponse.json(largeUserList)
+        })
+      )
+
+      const start = performance.now()
+      render(<UserManagement />)
+      
+      await waitFor(() => {
+        expect(screen.getByText('User 0')).toBeInTheDocument()
+      })
+      
+      const end = performance.now()
+      expect(end - start).toBeLessThan(1000) // Should render within 1 second
+      
+      // Should implement virtualization for large lists
+      const visibleUsers = screen.getAllByTestId(/user-card/)
+      expect(visibleUsers.length).toBeLessThan(100) // Only visible items rendered
+    })
+  })
+})]]></correct-example>
+          <incorrect-example title="Basic integration tests without comprehensive coverage" conditions="Testing integration scenarios" expected-result="Thorough integration testing" incorrectness-criteria="Missing API mocking, no error handling, limited user workflows tested"><![CDATA[// UserManagement.integration.test.tsx - Basic integration test
+import { render, screen } from '@testing-library/react'
+import { UserManagement } from './UserManagement'
+
+test('renders user management page', () => {
+  render(<UserManagement />)
+  expect(screen.getByText('Users')).toBeInTheDocument()
+})
+
+// Missing API integration, user workflows, error handling]]></incorrect-example>
+        </example>
+      </examples>
+    </requirement>
+
+    <requirement priority="high">
+      <description>Implement effective mocking strategies using Vitest's built-in mocking capabilities, MSW for API mocking, and proper mock management for external dependencies.</description>
+      <examples>
+        <example title="Comprehensive Mocking Strategies">
+          <correct-example title="Advanced mocking with Vitest and MSW" conditions="Setting up mocks for testing" expected-result="Effective mock implementation" correctness-criteria="Uses Vitest mocks, MSW for API mocking, proper mock cleanup, and realistic mock data"><![CDATA[// src/test/mocks/handlers.ts
+import { http, HttpResponse } from 'msw'
+import { createMockUser, createMockPost } from '../test-utils'
+
+export const handlers = [
+  // User API handlers
+  http.get('/api/users', ({ request }) => {
+    const url = new URL(request.url)
+    const page = url.searchParams.get('page') || '1'
+    const limit = url.searchParams.get('limit') || '10'
+    
+    const users = Array.from({ length: parseInt(limit) }, (_, i) =>
+      createMockUser({ id: `${i + 1}`, name: `User ${i + 1}` })
+    )
+    
+    return HttpResponse.json({
+      data: users,
+      meta: {
+        page: parseInt(page),
+        limit: parseInt(limit),
+        total: 100,
+      },
+    })
+  }),
+
+  http.get('/api/users/:id', ({ params }) => {
+    const user = createMockUser({ id: params.id as string })
+    return HttpResponse.json(user)
+  }),
+
+  http.post('/api/users', async ({ request }) => {
+    const body = await request.json()
+    const newUser = createMockUser({ ...body, id: Date.now().toString() })
+    return HttpResponse.json(newUser, { status: 201 })
+  }),
+
+  http.patch('/api/users/:id', async ({ params, request }) => {
+    const body = await request.json()
+    const updatedUser = createMockUser({ ...body, id: params.id as string })
+    return HttpResponse.json(updatedUser)
+  }),
+
+  http.delete('/api/users/:id', () => {
+    return new HttpResponse(null, { status: 204 })
+  }),
+
+  // Posts API handlers
+  http.get('/api/posts', () => {
+    const posts = Array.from({ length: 5 }, (_, i) =>
+      createMockPost({ id: `${i + 1}`, title: `Post ${i + 1}` })
+    )
+    return HttpResponse.json(posts)
+  }),
+
+  // Error scenarios
+  http.get('/api/users/error', () => {
+    return new HttpResponse(null, { status: 500 })
+  }),
+]
+
+// src/test/mocks/server.ts
+import { setupServer } from 'msw/node'
+import { handlers } from './handlers'
+
+export const server = setupServer(...handlers)
+
+// src/test/mocks/browser.ts
+import { setupWorker } from 'msw/browser'
+import { handlers } from './handlers'
+
+export const worker = setupWorker(...handlers)
+
+// src/test/setup.ts (MSW integration)
+import { beforeAll, afterEach, afterAll } from 'vitest'
+import { server } from './mocks/server'
+
+beforeAll(() => {
+  server.listen({ onUnhandledRequest: 'error' })
+})
+
+afterEach(() => {
+  server.resetHandlers()
+})
+
+afterAll(() => {
+  server.close()
+})
+
+// Module mocking examples
+// src/services/__mocks__/userService.ts
+export const userService = {
+  getUsers: vi.fn(),
+  getUser: vi.fn(),
+  createUser: vi.fn(),
+  updateUser: vi.fn(),
+  deleteUser: vi.fn(),
+}
+
+// src/hooks/__mocks__/useAuth.ts
+export const useAuth = vi.fn(() => ({
+  user: null,
+  isLoading: false,
+  login: vi.fn(),
+  logout: vi.fn(),
+  register: vi.fn(),
+}))
+
+// Component-level mocking
+// src/components/__mocks__/UserAvatar.tsx
+import { vi } from 'vitest'
+
+export const UserAvatar = vi.fn(({ user, size = 'md' }) => (
+  <div data-testid="mock-user-avatar" data-user-id={user.id} data-size={size}>
+    {user.name}
+  </div>
+))
+
+// Advanced mocking patterns
+// src/test/mocks/mockFactories.ts
+export class MockUserFactory {
+  private static idCounter = 1
+
+  static create(overrides: Partial<User> = {}): User {
+    return {
+      id: `user-${this.idCounter++}`,
+      email: `user${this.idCounter}@example.com`,
+      name: `User ${this.idCounter}`,
+      role: 'user',
+      createdAt: new Date().toISOString(),
+      updatedAt: new Date().toISOString(),
+      isActive: true,
+      lastLoginAt: new Date().toISOString(),
+      ...overrides,
+    }
+  }
+
+  static createMany(count: number, overrides: Partial<User> = {}): User[] {
+    return Array.from({ length: count }, () => this.create(overrides))
+  }
+
+  static createAdmin(overrides: Partial<User> = {}): User {
+    return this.create({ role: 'admin', ...overrides })
+  }
+
+  static reset() {
+    this.idCounter = 1
+  }
+}
+
+// API response mocking
+export class MockAPIResponse {
+  static success<T>(data: T, meta?: any) {
+    return {
+      success: true,
+      data,
+      meta,
+      timestamp: new Date().toISOString(),
+    }
+  }
+
+  static error(message: string, code = 'GENERIC_ERROR', status = 400) {
+    return {
+      success: false,
+      error: {
+        message,
+        code,
+        timestamp: new Date().toISOString(),
+      },
+    }
+  }
+
+  static paginated<T>(items: T[], page = 1, limit = 10, total?: number) {
+    const startIndex = (page - 1) * limit
+    const endIndex = startIndex + limit
+    const paginatedItems = items.slice(startIndex, endIndex)
+    
+    return this.success(paginatedItems, {
+      pagination: {
+        page,
+        limit,
+        total: total || items.length,
+        totalPages: Math.ceil((total || items.length) / limit),
+        hasNext: endIndex < (total || items.length),
+        hasPrev: page > 1,
+      },
+    })
+  }
+}
+
+// Timer and async mocking
+// src/test/mocks/timeMocks.ts
+export const createTimeMocks = () => {
+  const originalDate = Date
+  const mockDate = vi.fn(() => new Date('2023-01-01T00:00:00.000Z'))
+  
+  return {
+    mockCurrentTime: (date: string | Date) => {
+      const mockTime = new Date(date).getTime()
+      vi.setSystemTime(mockTime)
+    },
+    
+    restoreTime: () => {
+      vi.useRealTimers()
+    },
+    
+    fastForward: (ms: number) => {
+      vi.advanceTimersByTime(ms)
+    },
+    
+    runAllTimers: () => {
+      vi.runAllTimers()
+    },
+  }
+}
+
+// WebSocket mocking
+export const createWebSocketMock = () => {
+  const mockWebSocket = {
+    send: vi.fn(),
+    close: vi.fn(),
+    addEventListener: vi.fn(),
+    removeEventListener: vi.fn(),
+    readyState: WebSocket.OPEN,
+  }
+
+  global.WebSocket = vi.fn(() => mockWebSocket) as any
+
+  return {
+    mockWebSocket,
+    simulateMessage: (data: any) => {
+      const messageHandler = mockWebSocket.addEventListener.mock.calls
+        .find(call => call[0] === 'message')?.[1]
+      
+      if (messageHandler) {
+        messageHandler({ data: JSON.stringify(data) })
+      }
+    },
+    simulateError: (error: Error) => {
+      const errorHandler = mockWebSocket.addEventListener.mock.calls
+        .find(call => call[0] === 'error')?.[1]
+      
+      if (errorHandler) {
+        errorHandler(error)
+      }
+    },
+  }
+}]]></correct-example>
+          <incorrect-example title="Basic mocking without proper structure" conditions="Setting up mocks for testing" expected-result="Effective mock implementation" incorrectness-criteria="Uses global mocks without cleanup, no MSW setup, unrealistic mock data"><![CDATA[// Basic mocking - inadequate
+vi.mock('@/services/userService', () => ({
+  getUsers: vi.fn().mockResolvedValue([]),
+}))
+
+// Missing MSW setup, no mock factories, no cleanup]]></incorrect-example>
+        </example>
+      </examples>
+    </requirement>
+
+    <requirement priority="high">
+      <description>Implement performance testing and benchmarking using Vitest's built-in performance testing capabilities and custom performance monitoring.</description>
+      <examples>
+        <example title="Performance Testing Implementation">
+          <correct-example title="Comprehensive performance testing" conditions="Testing application performance" expected-result="Effective performance monitoring and benchmarking" correctness-criteria="Uses Vitest bench, monitors render performance, tests memory usage, and includes performance assertions"><![CDATA[// src/performance/components.bench.ts
+import { bench, describe } from 'vitest'
+import { render } from '@testing-library/react'
+import { UserCard } from '@/components/UserCard'
+import { UserList } from '@/components/UserList'
+import { MockUserFactory } from '@/test/mocks/mockFactories'
+
+describe('Component Performance Benchmarks', () => {
+  const singleUser = MockUserFactory.create()
+  const smallUserList = MockUserFactory.createMany(10)
+  const largeUserList = MockUserFactory.createMany(1000)
+
+  bench('UserCard render performance', () => {
+    render(<UserCard user={singleUser} />)
+  }, {
+    iterations: 1000,
+    time: 5000,
+  })
+
+  bench('UserList with 10 users', () => {
+    render(<UserList users={smallUserList} />)
+  }, {
+    iterations: 100,
+    time: 5000,
+  })
+
+  bench('UserList with 1000 users (virtualized)', () => {
+    render(<UserList users={largeUserList} virtualized />)
+  }, {
+    iterations: 10,
+    time: 5000,
+  })
+
+  bench('UserList filtering performance', () => {
+    const { rerender } = render(<UserList users={largeUserList} filter="" />)
+    rerender(<UserList users={largeUserList} filter="user1" />)
+  }, {
+    iterations: 50,
+    time: 3000,
+  })
+})
+
+// src/performance/utils.bench.ts
+import { bench, describe } from 'vitest'
+import { formatCurrency, formatDate, sortUsers, searchUsers } from '@/utils'
+import { MockUserFactory } from '@/test/mocks/mockFactories'
+
+describe('Utility Function Benchmarks', () => {
+  const largeUserList = MockUserFactory.createMany(10000)
+  const testDate = new Date('2023-01-01')
+  const testAmount = 1234567.89
+
+  bench('formatCurrency performance', () => {
+    formatCurrency(testAmount)
+  }, {
+    iterations: 10000,
+  })
+
+  bench('formatDate performance', () => {
+    formatDate(testDate)
+  }, {
+    iterations: 10000,
+  })
+
+  bench('sortUsers by name (10k users)', () => {
+    sortUsers(largeUserList, 'name', 'asc')
+  }, {
+    iterations: 10,
+    time: 3000,
+  })
+
+  bench('searchUsers (10k users)', () => {
+    searchUsers(largeUserList, 'user1')
+  }, {
+    iterations: 100,
+    time: 5000,
+  })
+})
+
+// src/test/performance/performanceUtils.ts
+import { performance } from 'perf_hooks'
+
+export class PerformanceMonitor {
+  private marks: Map<string, number> = new Map()
+  private measures: Map<string, number> = new Map()
+
+  mark(name: string): void {
+    this.marks.set(name, performance.now())
+  }
+
+  measure(name: string, startMark: string): number {
+    const startTime = this.marks.get(startMark)
+    if (!startTime) {
+      throw new Error(`Start mark '${startMark}' not found`)
+    }
+    
+    const duration = performance.now() - startTime
+    this.measures.set(name, duration)
+    return duration
+  }
+
+  getMeasure(name: string): number | undefined {
+    return this.measures.get(name)
+  }
+
+  getAllMeasures(): Record<string, number> {
+    return Object.fromEntries(this.measures)
+  }
+
+  clear(): void {
+    this.marks.clear()
+    this.measures.clear()
+  }
+}
+
+export const createRenderPerformanceTest = () => {
+  const monitor = new PerformanceMonitor()
+  
+  return {
+    startTiming: (name: string) => monitor.mark(`${name}-start`),
+    endTiming: (name: string) => monitor.measure(name, `${name}-start`),
+    getMeasurement: (name: string) => monitor.getMeasure(name),
+    expectRenderTime: (name: string, maxMs: number) => {
+      const time = monitor.getMeasure(name)
+      if (time === undefined) {
+        throw new Error(`No measurement found for '${name}'`)
+      }
+      expect(time).toBeLessThan(maxMs)
+      return time
+    },
+  }
+}
+
+// Memory usage monitoring
+export const createMemoryMonitor = () => {
+  return {
+    measureMemoryUsage: <T>(fn: () => T): { result: T; memoryUsed: number } => {
+      const initialMemory = process.memoryUsage().heapUsed
+      const result = fn()
+      const finalMemory = process.memoryUsage().heapUsed
+      const memoryUsed = finalMemory - initialMemory
+      
+      return { result, memoryUsed }
+    },
+    
+    expectMemoryUsage: (fn: () => any, maxBytes: number) => {
+      const { memoryUsed } = createMemoryMonitor().measureMemoryUsage(fn)
+      expect(memoryUsed).toBeLessThan(maxBytes)
+      return memoryUsed
+    },
+  }
+}
+
+// Component performance testing
+// src/components/UserList.performance.test.tsx
+import { describe, it, expect } from 'vitest'
+import { render, screen } from '@testing-library/react'
+import { UserList } from './UserList'
+import { MockUserFactory } from '@/test/mocks/mockFactories'
+import { createRenderPerformanceTest, createMemoryMonitor } from '@/test/performance/performanceUtils'
+
+describe('UserList Performance Tests', () => {
+  const performanceTest = createRenderPerformanceTest()
+  const memoryMonitor = createMemoryMonitor()
+
+  it('should render large user lists within performance budget', () => {
+    const users = MockUserFactory.createMany(1000)
+    
+    performanceTest.startTiming('large-list-render')
+    render(<UserList users={users} />)
+    performanceTest.endTiming('large-list-render')
+    
+    // Should render within 100ms
+    performanceTest.expectRenderTime('large-list-render', 100)
+  })
+
+  it('should not consume excessive memory for large lists', () => {
+    const users = MockUserFactory.createMany(1000)
+    
+    const memoryUsed = memoryMonitor.expectMemoryUsage(() => {
+      render(<UserList users={users} />)
+    }, 10 * 1024 * 1024) // 10MB limit
+    
+    console.log(`Memory used for 1000 users: ${memoryUsed / 1024}KB`)
+  })
+
+  it('should maintain performance during filtering', () => {
+    const users = MockUserFactory.createMany(5000)
+    
+    performanceTest.startTiming('filter-performance')
+    const { rerender } = render(<UserList users={users} filter="" />)
+    
+    // Test multiple filter operations
+    for (let i = 0; i < 10; i++) {
+      rerender(<UserList users={users} filter={`user${i}`} />)
+    }
+    
+    performanceTest.endTiming('filter-performance')
+    
+    // Filtering should complete within 50ms
+    performanceTest.expectRenderTime('filter-performance', 50)
+  })
+
+  it('should optimize re-renders with memoization', () => {
+    const users = MockUserFactory.createMany(100)
+    let renderCount = 0
+    
+    const TestComponent = ({ users }: { users: User[] }) => {
+      renderCount++
+      return <UserList users={users} />
+    }
+
+    const { rerender } = render(<TestComponent users={users} />)
+    
+    expect(renderCount).toBe(1)
+    
+    // Re-render with same props
+    rerender(<TestComponent users={users} />)
+    
+    // Should not re-render due to memoization
+    expect(renderCount).toBe(1)
+  })
+})
+
+// API performance testing
+// src/services/userService.performance.test.ts
+import { describe, it, expect, beforeEach } from 'vitest'
+import { userService } from './userService'
+import { server } from '@/test/mocks/server'
+import { http, HttpResponse } from 'msw'
+import { createRenderPerformanceTest } from '@/test/performance/performanceUtils'
+
+describe('UserService Performance Tests', () => {
+  const performanceTest = createRenderPerformanceTest()
+
+  beforeEach(() => {
+    server.use(
+      http.get('/api/users', () => {
+        // Simulate network delay
+        return new Promise(resolve => {
+          setTimeout(() => {
+            resolve(HttpResponse.json(MockUserFactory.createMany(100)))
+          }, Math.random() * 100) // 0-100ms delay
+        })
+      })
+    )
+  })
+
+  it('should handle concurrent API requests efficiently', async () => {
+    performanceTest.startTiming('concurrent-requests')
+    
+    // Make 10 concurrent requests
+    const promises = Array.from({ length: 10 }, () => userService.getUsers())
+    
+    const results = await Promise.all(promises)
+    
+    performanceTest.endTiming('concurrent-requests')
+    
+    expect(results).toHaveLength(10)
+    results.forEach(result => {
+      expect(result).toHaveProperty('data')
+    })
+    
+    // Concurrent requests should complete within 500ms
+    performanceTest.expectRenderTime('concurrent-requests', 500)
+  })
+
+  it('should cache repeated requests', async () => {
+    performanceTest.startTiming('cached-requests')
+    
+    // First request
+    await userService.getUsers()
+    
+    // Subsequent requests should be cached
+    await userService.getUsers()
+    await userService.getUsers()
+    
+    performanceTest.endTiming('cached-requests')
+    
+    // Cached requests should be very fast
+    performanceTest.expectRenderTime('cached-requests', 50)
+  })
+})]]></correct-example>
+          <incorrect-example title="No performance testing" conditions="Testing application performance" expected-result="Performance monitoring and benchmarking" incorrectness-criteria="Missing performance tests, no benchmarking, no memory monitoring"><![CDATA[// Missing performance testing entirely
+// No benchmarking
+// No performance assertions
+// No memory monitoring]]></incorrect-example>
+        </example>
+      </examples>
+    </requirement>
+
+    <requirement priority="medium">
+      <description>Implement comprehensive CI/CD integration with parallel test execution, coverage reporting, and proper test result artifacts for continuous quality assurance.</description>
+      <examples>
+        <example title="CI/CD Integration for Vitest">
+          <correct-example title="Comprehensive CI/CD setup with Vitest" conditions="Setting up CI/CD pipeline with testing" expected-result="Optimized CI/CD with comprehensive testing" correctness-criteria="Includes parallel execution, coverage reporting, caching, and proper artifact management"><![CDATA[# .github/workflows/test.yml
+name: Test Suite
+
+on:
+  push:
+    branches: [main, develop]
+  pull_request:
+    branches: [main]
+
+jobs:
+  test:
+    name: Test and Coverage
+    runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        node-version: [18, 20, 21]
+        
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0 # Full history for better coverage reporting
+
+      - name: Setup Node.js ${{ matrix.node-version }}
+        uses: actions/setup-node@v4
+        with:
+          node-version: ${{ matrix.node-version }}
+          cache: 'npm'
+
+      - name: Install dependencies
+        run: |
+          npm ci --prefer-offline --no-audit
+          
+      - name: Type checking
+        run: npm run type-check
+
+      - name: Lint code
+        run: npm run lint
+
+      - name: Run unit tests
+        run: |
+          npm run test:unit -- \
+            --coverage \
+            --reporter=verbose \
+            --reporter=json \
+            --reporter=html \
+            --outputFile.json=./coverage/test-results.json \
+            --outputFile.html=./coverage/test-results.html
+        env:
+          CI: true
+
+      - name: Run integration tests
+        run: |
+          npm run test:integration -- \
+            --coverage \
+            --reporter=verbose \
+            --reporter=json \
+            --outputFile.json=./coverage/integration-results.json
+        env:
+          CI: true
+
+      - name: Run performance benchmarks
+        run: |
+          npm run test:bench -- \
+            --reporter=verbose \
+            --reporter=json \
+            --outputFile.json=./benchmarks/bench-results.json
+
+      - name: Generate coverage report
+        run: npm run coverage:report
+
+      - name: Upload coverage to Codecov
+        uses: codecov/codecov-action@v3
+        with:
+          file: ./coverage/lcov.info
+          flags: unittests
+          name: codecov-umbrella
+          fail_ci_if_error: true
+
+      - name: Upload test results
+        uses: actions/upload-artifact@v3
+        if: always()
+        with:
+          name: test-results-${{ matrix.node-version }}
+          path: |
+            coverage/
+            benchmarks/
+            test-results/
+          retention-days: 30
+
+      - name: Comment PR with coverage
+        if: github.event_name == 'pull_request'
+        uses: romeovs/lcov-reporter-action@v0.3.1
+        with:
+          github-token: ${{ secrets.GITHUB_TOKEN }}
+          lcov-file: ./coverage/lcov.info
+          delete-old-comments: true
+
+  test-e2e:
+    name: E2E Tests
+    runs-on: ubuntu-latest
+    needs: [test]
+    
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: 'npm'
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Build application
+        run: npm run build
+
+      - name: Start application
+        run: |
+          npm run start &
+          npx wait-on http://localhost:3000 --timeout 60000
+
+      - name: Run E2E tests
+        run: npm run test:e2e
+
+      - name: Upload E2E results
+        uses: actions/upload-artifact@v3
+        if: always()
+        with:
+          name: e2e-results
+          path: |
+            e2e-results/
+            screenshots/
+            videos/
+
+  security:
+    name: Security Scan
+    runs-on: ubuntu-latest
+    
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Run security audit
+        run: npm audit --audit-level high
+
+      - name: Run Snyk security scan
+        uses: snyk/actions/node@master
+        env:
+          SNYK_TOKEN: ${{ secrets.SNYK_TOKEN }}
+        with:
+          args: --severity-threshold=high
+
+# package.json scripts
+{
+  "scripts": {
+    "test": "vitest",
+    "test:unit": "vitest run --config vitest.unit.config.ts",
+    "test:integration": "vitest run --config vitest.integration.config.ts",
+    "test:e2e": "vitest run --config vitest.e2e.config.ts",
+    "test:watch": "vitest --watch",
+    "test:ui": "vitest --ui",
+    "test:bench": "vitest bench",
+    "test:coverage": "vitest run --coverage",
+    "test:ci": "vitest run --coverage --reporter=verbose --reporter=json --reporter=html",
+    "coverage:report": "vitest run --coverage && npx http-server coverage/html -p 8080 -o",
+    "type-check": "tsc --noEmit",
+    "lint": "eslint . --ext .ts,.tsx,.js,.jsx --max-warnings 0"
+  }
+}
+
+# Multiple Vitest configurations for different test types
+
+# vitest.unit.config.ts
+import { defineConfig } from 'vitest/config'
+import baseConfig from './vitest.config'
+
+export default defineConfig({
+  ...baseConfig,
+  test: {
+    ...baseConfig.test,
+    include: ['src/**/*.{test,spec}.{js,ts,jsx,tsx}'],
+    exclude: [
+      '**/node_modules/**',
+      '**/e2e/**',
+      '**/integration/**'
+    ],
+    environment: 'jsdom',
+    coverage: {
+      ...baseConfig.test?.coverage,
+      include: ['src/**/*.{js,ts,jsx,tsx}'],
+      exclude: [
+        'src/**/*.{test,spec}.{js,ts,jsx,tsx}',
+        'src/**/*.stories.{js,ts,jsx,tsx}',
+        'src/test/**',
+      ],
+    },
+  },
+})
+
+# vitest.integration.config.ts
+import { defineConfig } from 'vitest/config'
+import baseConfig from './vitest.config'
+
+export default defineConfig({
+  ...baseConfig,
+  test: {
+    ...baseConfig.test,
+    include: ['tests/integration/**/*.{test,spec}.{js,ts,jsx,tsx}'],
+    environment: 'jsdom',
+    testTimeout: 30000,
+    setupFiles: ['./tests/integration/setup.ts'],
+  },
+})
+
+# vitest.e2e.config.ts
+import { defineConfig } from 'vitest/config'
+
+export default defineConfig({
+  test: {
+    include: ['tests/e2e/**/*.{test,spec}.{js,ts,jsx,tsx}'],
+    environment: 'node',
+    testTimeout: 60000,
+    setupFiles: ['./tests/e2e/setup.ts'],
+    pool: 'forks', // Isolate E2E tests
+  },
+})
+
+# Docker configuration for consistent testing
+# Dockerfile.test
+FROM node:20-alpine
+
+WORKDIR /app
+
+# Copy package files
+COPY package*.json ./
+
+# Install dependencies
+RUN npm ci --only=production --ignore-scripts
+
+# Copy source code
+COPY . .
+
+# Run tests
+CMD ["npm", "run", "test:ci"]
+
+# docker-compose.test.yml
+version: '3.8'
+services:
+  test:
+    build:
+      context: .
+      dockerfile: Dockerfile.test
+    volumes:
+      - ./coverage:/app/coverage
+      - ./test-results:/app/test-results
+    environment:
+      - NODE_ENV=test
+      - CI=true
+    command: npm run test:ci
+
+  test-integration:
+    build:
+      context: .
+      dockerfile: Dockerfile.test
+    volumes:
+      - ./coverage:/app/coverage
+    environment:
+      - NODE_ENV=test
+      - CI=true
+    depends_on:
+      - postgres
+      - redis
+    command: npm run test:integration
+
+  postgres:
+    image: postgres:15-alpine
+    environment:
+      POSTGRES_DB: testdb
+      POSTGRES_USER: testuser
+      POSTGRES_PASSWORD: testpass
+    ports:
+      - "5432:5432"
+
+  redis:
+    image: redis:7-alpine
+    ports:
+      - "6379:6379"
+
+# Makefile for local testing
+.PHONY: test test-unit test-integration test-e2e test-watch test-coverage
+
+test:
+	npm run test
+
+test-unit:
+	npm run test:unit
+
+test-integration:
+	docker-compose -f docker-compose.test.yml up test-integration --abort-on-container-exit
+
+test-e2e:
+	npm run build && npm run test:e2e
+
+test-watch:
+	npm run test:watch
+
+test-coverage:
+	npm run test:coverage && open coverage/html/index.html
+
+test-ci:
+	docker-compose -f docker-compose.test.yml up test --abort-on-container-exit
+
+clean:
+	rm -rf coverage/ test-results/ benchmarks/
+	docker-compose -f docker-compose.test.yml down -v]]></correct-example>
+          <incorrect-example title="Basic CI without optimization" conditions="Setting up CI/CD pipeline" expected-result="Optimized CI/CD with comprehensive testing" incorrectness-criteria="Missing parallel execution, no coverage reporting, no caching, poor artifact management"><![CDATA[# .github/workflows/test.yml - Basic CI
+name: Test
+
+on:
+  push:
+    branches: [main]
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 18
+      - run: npm install
+      - run: npm test
+
+# Missing:
+# - Coverage reporting
+# - Multiple Node versions
+# - Parallel execution
+# - Artifact uploading
+# - Performance testing
+# - Security scanning]]></incorrect-example>
+        </example>
+      </examples>
+    </requirement>
+  </requirements>
+
+  <context description="Modern testing practices with Vitest">
+    Vitest is a modern, fast testing framework built specifically for Vite projects, offering excellent TypeScript support, ESM compatibility, and superior performance compared to traditional testing frameworks. It provides native support for modern JavaScript features, built-in mocking capabilities, and seamless integration with development workflows.
+
+    Key advantages of Vitest include:
+    - Native ESM support and TypeScript integration
+    - Lightning-fast execution with smart watch mode
+    - Built-in coverage reporting with v8 or c8
+    - Excellent IDE integration and debugging capabilities
+    - Compatible with Jest API for easy migration
+    - Advanced mocking with automatic hoisting
+    - Built-in benchmarking and performance testing
+    - Workspace support for monorepos
+
+    Modern testing strategies emphasize comprehensive coverage including unit tests, integration tests, and performance benchmarks. The testing pyramid should focus on a solid foundation of unit tests, supported by integration tests that verify component interactions and data flow, with performance tests ensuring the application meets performance requirements under various conditions.
+
+    Effective testing practices include proper test isolation, realistic mock data, comprehensive error scenario testing, and continuous integration with automated quality gates.
+  </context>
+
+  <references>
+    <reference as="dependency" href=".cursor/rules/000-core/002-cursor-rules-creation.mdc" reason="Follows standard rule format">Base rule format definition</reference>
+    <reference as="context" href="https://vitest.dev/" reason="Official Vitest documentation">Vitest Testing Framework</reference>
+    <reference as="context" href="https://testing-library.com/" reason="Testing Library best practices">Testing Library Documentation</reference>
+    <reference as="context" href="https://mswjs.io/" reason="Mock Service Worker documentation">MSW API Mocking</reference>
+  </references>
+</rule>
+description:
+globs:
+alwaysApply: false
+---

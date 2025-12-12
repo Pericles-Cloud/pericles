@@ -1,0 +1,1041 @@
+---
+description: "Comprehensive Jason JSON library standards for Elixir with encoding, decoding, performance optimization, error handling, and custom encoders following community best practices"
+globs:
+  - "*.{ex,exs}"
+  - "**/config/**/*"
+  - "**/*json*"
+alwaysApply: false
+---
+
+<rule>
+  <meta>
+    <title>Jason Core Standards</title>
+    <description>Comprehensive Jason JSON library standards for Elixir with encoding, decoding, performance optimization, error handling, and custom encoders following community best practices</description>
+    <created-at utc-timestamp="1744157700">January 25, 2025, 10:15 AM</created-at>
+    <last-updated-at utc-timestamp="1744157700">January 25, 2025, 10:15 AM</last-updated-at>
+    <applies-to>
+      <file-matcher glob="*.{ex,exs}">Elixir source files using Jason for JSON operations</file-matcher>
+      <file-matcher glob="**/config/**/*">Configuration files that may use JSON</file-matcher>
+      <file-matcher glob="**/*json*">JSON-related files and modules</file-matcher>
+      <action-matcher action="json-processing">Triggered when working with JSON encoding and decoding</action-matcher>
+    </applies-to>
+  </meta>
+  <requirements>
+    <non-negotiable priority="critical">
+      <description>Use Jason for all JSON encoding and decoding operations with proper error handling, validation, and performance optimization. Implement custom encoders for complex data structures and handle edge cases gracefully.</description>
+      <examples>
+        <example title="Comprehensive Jason Usage">
+          <correct-example title="Proper Jason implementation with error handling and validation" conditions="Implementing JSON operations in Elixir" expected-result="Robust, performant JSON processing" correctness-criteria="Error handling, validation, performance optimization, custom encoders"><![CDATA[# Elixir - Comprehensive Jason implementation
+
+# Configuration for Jason (config/config.exs)
+config :jason,
+  # Use maps for object keys instead of charlists
+  maps: true,
+  # Enable float precision control
+  float_precision: :normal,
+  # Custom encoder for special types
+  encode_maps: :strict
+
+# JSON processing module with comprehensive error handling
+defmodule MyApp.JSONProcessor do
+  @moduledoc """
+  Comprehensive JSON processing module using Jason with proper error handling,
+  validation, and performance optimization.
+  """
+
+  require Logger
+
+  # Type definitions for better documentation and Dialyzer
+  @type json_encodable :: 
+    nil | boolean() | number() | String.t() | 
+    [json_encodable()] | %{String.t() => json_encodable()}
+
+  @type decode_options :: [
+    {:keys, :atoms | :atoms! | :strings} |
+    {:floats, :native | :decimals} |
+    {:objects, :maps | :ordered_maps}
+  ]
+
+  @type encode_options :: [
+    {:escape, :json | :javascript | :html_safe | :unicode_safe} |
+    {:maps, :strict} |
+    {:pretty, boolean()}
+  ]
+
+  @type json_result(success_type) ::
+    {:ok, success_type} | {:error, Jason.DecodeError.t() | Jason.EncodeError.t() | atom()}
+
+  # Safe JSON encoding with comprehensive error handling
+  @spec encode(json_encodable(), encode_options()) :: json_result(String.t())
+  def encode(data, opts \\ []) do
+    try do
+      # Validate input before encoding
+      case validate_encodable(data) do
+        :ok ->
+          # Apply default options with user overrides
+          encoding_opts = Keyword.merge(default_encode_opts(), opts)
+          
+          case Jason.encode(data, encoding_opts) do
+            {:ok, json} ->
+              # Log successful encoding for monitoring
+              Logger.debug("JSON encoded successfully", 
+                size: byte_size(json),
+                type: get_data_type(data)
+              )
+              {:ok, json}
+              
+            {:error, %Jason.EncodeError{} = error} ->
+              Logger.warning("JSON encoding failed", 
+                error: inspect(error),
+                data_type: get_data_type(data)
+              )
+              {:error, error}
+          end
+          
+        {:error, reason} ->
+          Logger.warning("JSON encoding validation failed", reason: reason)
+          {:error, reason}
+      end
+    rescue
+      error ->
+        Logger.error("Unexpected error during JSON encoding", 
+          error: inspect(error),
+          stacktrace: __STACKTRACE__
+        )
+        {:error, :encoding_error}
+    end
+  end
+
+  # Safe JSON decoding with validation and type safety
+  @spec decode(String.t(), decode_options()) :: json_result(term())
+  def decode(json_string, opts \\ []) when is_binary(json_string) do
+    try do
+      # Validate input JSON string
+      case validate_json_string(json_string) do
+        :ok ->
+          # Apply default options with user overrides
+          decoding_opts = Keyword.merge(default_decode_opts(), opts)
+          
+          case Jason.decode(json_string, decoding_opts) do
+            {:ok, data} ->
+              # Validate decoded data structure
+              case validate_decoded_data(data, opts) do
+                :ok ->
+                  Logger.debug("JSON decoded successfully", 
+                    size: byte_size(json_string),
+                    result_type: get_data_type(data)
+                  )
+                  {:ok, data}
+                  
+                {:error, reason} ->
+                  Logger.warning("Decoded JSON validation failed", reason: reason)
+                  {:error, reason}
+              end
+              
+            {:error, %Jason.DecodeError{} = error} ->
+              Logger.warning("JSON decoding failed", 
+                error: inspect(error),
+                position: error.position,
+                input_size: byte_size(json_string)
+              )
+              {:error, error}
+          end
+          
+        {:error, reason} ->
+          Logger.warning("JSON string validation failed", reason: reason)
+          {:error, reason}
+      end
+    rescue
+      error ->
+        Logger.error("Unexpected error during JSON decoding", 
+          error: inspect(error),
+          stacktrace: __STACKTRACE__
+        )
+        {:error, :decoding_error}
+    end
+  end
+
+  # Batch JSON processing with error aggregation
+  @spec encode_batch([json_encodable()], encode_options()) :: 
+    {:ok, [String.t()]} | {:error, [{pos_integer(), term()}]}
+  def encode_batch(data_list, opts \\ []) when is_list(data_list) do
+    data_list
+    |> Enum.with_index(1)
+    |> Enum.reduce({[], []}, fn {data, index}, {successes, errors} ->
+      case encode(data, opts) do
+        {:ok, json} -> 
+          {[json | successes], errors}
+        {:error, reason} -> 
+          {successes, [{index, reason} | errors]}
+      end
+    end)
+    |> case do
+      {successes, []} -> {:ok, Enum.reverse(successes)}
+      {_, errors} -> {:error, Enum.reverse(errors)}
+    end
+  end
+
+  @spec decode_batch([String.t()], decode_options()) :: 
+    {:ok, [term()]} | {:error, [{pos_integer(), term()}]}
+  def decode_batch(json_list, opts \\ []) when is_list(json_list) do
+    json_list
+    |> Enum.with_index(1)
+    |> Enum.reduce({[], []}, fn {json, index}, {successes, errors} ->
+      case decode(json, opts) do
+        {:ok, data} -> 
+          {[data | successes], errors}
+        {:error, reason} -> 
+          {successes, [{index, reason} | errors]}
+      end
+    end)
+    |> case do
+      {successes, []} -> {:ok, Enum.reverse(successes)}
+      {_, errors} -> {:error, Enum.reverse(errors)}
+    end
+  end
+
+  # Stream processing for large JSON arrays
+  @spec stream_decode(Enumerable.t(), decode_options()) :: Stream.t()
+  def stream_decode(json_stream, opts \\ []) do
+    json_stream
+    |> Stream.map(fn json_string ->
+      case decode(json_string, opts) do
+        {:ok, data} -> data
+        {:error, reason} -> 
+          Logger.warning("Stream JSON decode failed", reason: inspect(reason))
+          nil
+      end
+    end)
+    |> Stream.reject(&is_nil/1)
+  end
+
+  # Pretty printing for debugging
+  @spec pretty_encode(json_encodable(), encode_options()) :: json_result(String.t())
+  def pretty_encode(data, opts \\ []) do
+    opts = Keyword.put(opts, :pretty, true)
+    encode(data, opts)
+  end
+
+  # Minified encoding for production
+  @spec minify_encode(json_encodable(), encode_options()) :: json_result(String.t())
+  def minify_encode(data, opts \\ []) do
+    opts = Keyword.delete(opts, :pretty)
+    encode(data, opts)
+  end
+
+  # JSON schema validation
+  @spec validate_schema(term(), map()) :: :ok | {:error, [String.t()]}
+  def validate_schema(data, schema) do
+    case ExJsonSchema.Validator.validate(schema, data) do
+      :ok -> :ok
+      {:error, errors} -> 
+        error_messages = Enum.map(errors, &format_schema_error/1)
+        {:error, error_messages}
+    end
+  end
+
+  # Performance monitoring for JSON operations
+  @spec benchmark_operation(fun(), String.t()) :: term()
+  def benchmark_operation(operation_fn, operation_name) do
+    start_time = System.monotonic_time(:microsecond)
+    
+    result = operation_fn.()
+    
+    end_time = System.monotonic_time(:microsecond)
+    duration = end_time - start_time
+    
+    Logger.info("JSON operation completed", 
+      operation: operation_name,
+      duration_microseconds: duration,
+      duration_ms: duration / 1000
+    )
+    
+    result
+  end
+
+  # Private helper functions
+  defp default_encode_opts do
+    [
+      escape: :json,
+      maps: :strict
+    ]
+  end
+
+  defp default_decode_opts do
+    [
+      keys: :strings,
+      floats: :native,
+      objects: :maps
+    ]
+  end
+
+  defp validate_encodable(data) do
+    cond do
+      is_nil(data) or is_boolean(data) or is_number(data) or is_binary(data) -> :ok
+      is_list(data) -> validate_list_encodable(data)
+      is_map(data) -> validate_map_encodable(data)
+      is_atom(data) -> validate_atom_encodable(data)
+      true -> {:error, :not_encodable}
+    end
+  end
+
+  defp validate_list_encodable(list) do
+    case Enum.find(list, fn item -> validate_encodable(item) != :ok end) do
+      nil -> :ok
+      _invalid_item -> {:error, :invalid_list_item}
+    end
+  end
+
+  defp validate_map_encodable(map) do
+    # Check that all keys are strings or atoms
+    key_valid? = map |> Map.keys() |> Enum.all?(&(is_binary(&1) or is_atom(&1)))
+    
+    if key_valid? do
+      # Validate all values
+      case map |> Map.values() |> Enum.find(&(validate_encodable(&1) != :ok)) do
+        nil -> :ok
+        _invalid_value -> {:error, :invalid_map_value}
+      end
+    else
+      {:error, :invalid_map_keys}
+    end
+  end
+
+  defp validate_atom_encodable(atom) do
+    # Only allow certain safe atoms
+    safe_atoms = [:null, :true, :false]
+    if atom in safe_atoms do
+      :ok
+    else
+      {:error, :unsafe_atom}
+    end
+  end
+
+  defp validate_json_string(json_string) do
+    cond do
+      byte_size(json_string) == 0 -> {:error, :empty_string}
+      byte_size(json_string) > 10_000_000 -> {:error, :string_too_large}  # 10MB limit
+      not String.valid?(json_string) -> {:error, :invalid_utf8}
+      true -> :ok
+    end
+  end
+
+  defp validate_decoded_data(data, opts) do
+    max_depth = Keyword.get(opts, :max_depth, 32)
+    
+    case check_depth(data, max_depth) do
+      :ok -> :ok
+      {:error, _} = error -> error
+    end
+  end
+
+  defp check_depth(data, max_depth, current_depth \\ 0)
+  defp check_depth(_data, max_depth, current_depth) when current_depth > max_depth do
+    {:error, :max_depth_exceeded}
+  end
+  defp check_depth(data, max_depth, current_depth) when is_list(data) do
+    Enum.reduce_while(data, :ok, fn item, :ok ->
+      case check_depth(item, max_depth, current_depth + 1) do
+        :ok -> {:cont, :ok}
+        error -> {:halt, error}
+      end
+    end)
+  end
+  defp check_depth(data, max_depth, current_depth) when is_map(data) do
+    data
+    |> Map.values()
+    |> Enum.reduce_while(:ok, fn value, :ok ->
+      case check_depth(value, max_depth, current_depth + 1) do
+        :ok -> {:cont, :ok}
+        error -> {:halt, error}
+      end
+    end)
+  end
+  defp check_depth(_data, _max_depth, _current_depth), do: :ok
+
+  defp get_data_type(data) when is_nil(data), do: "null"
+  defp get_data_type(data) when is_boolean(data), do: "boolean"
+  defp get_data_type(data) when is_integer(data), do: "integer"
+  defp get_data_type(data) when is_float(data), do: "float"
+  defp get_data_type(data) when is_binary(data), do: "string"
+  defp get_data_type(data) when is_list(data), do: "array"
+  defp get_data_type(data) when is_map(data), do: "object"
+  defp get_data_type(_data), do: "unknown"
+
+  defp format_schema_error({path, error_type, message}) do
+    "Path: #{Enum.join(path, ".")}, Error: #{error_type}, Message: #{message}"
+  end
+end
+
+# Custom JSON encoder for special data types
+defmodule MyApp.JSONEncoder do
+  @moduledoc """
+  Custom JSON encoders for application-specific data types.
+  """
+
+  # Custom encoder for DateTime
+  defimpl Jason.Encoder, for: DateTime do
+    def encode(datetime, opts) do
+      datetime
+      |> DateTime.to_iso8601()
+      |> Jason.Encode.string(opts)
+    end
+  end
+
+  # Custom encoder for Date
+  defimpl Jason.Encoder, for: Date do
+    def encode(date, opts) do
+      date
+      |> Date.to_iso8601()
+      |> Jason.Encode.string(opts)
+    end
+  end
+
+  # Custom encoder for Time
+  defimpl Jason.Encoder, for: Time do
+    def encode(time, opts) do
+      time
+      |> Time.to_iso8601()
+      |> Jason.Encode.string(opts)
+    end
+  end
+
+  # Custom encoder for Decimal (if using Decimal library)
+  defimpl Jason.Encoder, for: Decimal do
+    def encode(decimal, opts) do
+      decimal
+      |> Decimal.to_string()
+      |> Jason.Encode.string(opts)
+    end
+  end
+
+  # Custom encoder for MapSet
+  defimpl Jason.Encoder, for: MapSet do
+    def encode(mapset, opts) do
+      mapset
+      |> MapSet.to_list()
+      |> Jason.Encode.list(opts)
+    end
+  end
+
+  # Custom encoder for Range
+  defimpl Jason.Encoder, for: Range do
+    def encode(range, opts) do
+      %{
+        "start" => range.first,
+        "end" => range.last,
+        "step" => range.step
+      }
+      |> Jason.Encode.map(opts)
+    end
+  end
+end
+
+# JSON API helper module
+defmodule MyApp.JSONAPIHelpers do
+  @moduledoc """
+  Helper functions for JSON API responses and requests.
+  """
+
+  import MyApp.JSONProcessor
+
+  # Standard API response formatting
+  @spec format_success_response(term(), map()) :: {:ok, String.t()}
+  def format_success_response(data, metadata \\ %{}) do
+    response = %{
+      "status" => "success",
+      "data" => data,
+      "metadata" => Map.merge(%{
+        "timestamp" => DateTime.utc_now(),
+        "version" => "1.0"
+      }, metadata)
+    }
+    
+    encode(response)
+  end
+
+  @spec format_error_response(String.t(), String.t(), map()) :: {:ok, String.t()}
+  def format_error_response(error_code, message, details \\ %{}) do
+    response = %{
+      "status" => "error",
+      "error" => %{
+        "code" => error_code,
+        "message" => message,
+        "details" => details
+      },
+      "metadata" => %{
+        "timestamp" => DateTime.utc_now(),
+        "version" => "1.0"
+      }
+    }
+    
+    encode(response)
+  end
+
+  # Pagination helper
+  @spec format_paginated_response(list(), pos_integer(), pos_integer(), pos_integer()) :: 
+    {:ok, String.t()}
+  def format_paginated_response(items, page, page_size, total_count) do
+    total_pages = ceil(total_count / page_size)
+    
+    response = %{
+      "status" => "success",
+      "data" => items,
+      "pagination" => %{
+        "page" => page,
+        "page_size" => page_size,
+        "total_count" => total_count,
+        "total_pages" => total_pages,
+        "has_next" => page < total_pages,
+        "has_prev" => page > 1
+      },
+      "metadata" => %{
+        "timestamp" => DateTime.utc_now(),
+        "version" => "1.0"
+      }
+    }
+    
+    encode(response)
+  end
+
+  # Request validation
+  @spec validate_json_request(String.t(), map()) :: 
+    {:ok, term()} | {:error, String.t()}
+  def validate_json_request(json_string, schema) do
+    case decode(json_string) do
+      {:ok, data} ->
+        case validate_schema(data, schema) do
+          :ok -> {:ok, data}
+          {:error, errors} -> 
+            {:error, "Schema validation failed: #{Enum.join(errors, ", ")}"}
+        end
+        
+      {:error, %Jason.DecodeError{} = error} ->
+        {:error, "Invalid JSON: #{Exception.message(error)}"}
+        
+      {:error, reason} ->
+        {:error, "JSON processing failed: #{inspect(reason)}"}
+    end
+  end
+end
+
+# Performance testing and benchmarking
+defmodule MyApp.JSONBenchmark do
+  @moduledoc """
+  Benchmarking tools for JSON operations.
+  """
+
+  import MyApp.JSONProcessor
+
+  def run_encode_benchmark(data, iterations \\ 1000) do
+    {time_microseconds, _result} = :timer.tc(fn ->
+      Enum.each(1..iterations, fn _ ->
+        encode(data)
+      end)
+    end)
+    
+    avg_time_per_operation = time_microseconds / iterations
+    
+    IO.puts("""
+    JSON Encode Benchmark Results:
+    - Total time: #{time_microseconds / 1000} ms
+    - Iterations: #{iterations}
+    - Average per operation: #{Float.round(avg_time_per_operation, 2)} μs
+    - Operations per second: #{Float.round(1_000_000 / avg_time_per_operation)}
+    """)
+  end
+
+  def run_decode_benchmark(json_string, iterations \\ 1000) do
+    {time_microseconds, _result} = :timer.tc(fn ->
+      Enum.each(1..iterations, fn _ ->
+        decode(json_string)
+      end)
+    end)
+    
+    avg_time_per_operation = time_microseconds / iterations
+    
+    IO.puts("""
+    JSON Decode Benchmark Results:
+    - Total time: #{time_microseconds / 1000} ms
+    - Iterations: #{iterations}
+    - Average per operation: #{Float.round(avg_time_per_operation, 2)} μs
+    - Operations per second: #{Float.round(1_000_000 / avg_time_per_operation)}
+    """)
+  end
+
+  def memory_usage_test(data) do
+    # Measure memory before encoding
+    {memory_before, _} = :erlang.process_info(self(), :memory)
+    
+    {:ok, json} = encode(data)
+    
+    # Measure memory after encoding
+    {memory_after, _} = :erlang.process_info(self(), :memory)
+    
+    memory_used = memory_after - memory_before
+    json_size = byte_size(json)
+    
+    IO.puts("""
+    Memory Usage Test:
+    - JSON size: #{json_size} bytes
+    - Memory used: #{memory_used} bytes
+    - Memory overhead: #{Float.round((memory_used - json_size) / json_size * 100, 2)}%
+    """)
+  end
+end]]></correct-example>
+          <incorrect-example title="Poor Jason usage without error handling or optimization" conditions="Implementing JSON operations" expected-result="Robust JSON processing" incorrectness-criteria="No error handling, no validation, poor performance, missing custom encoders"><![CDATA[# BAD: Poor Jason implementation
+
+defmodule BadJSONProcessor do
+  
+  # No error handling
+  def encode(data) do
+    Jason.encode!(data)  # Using bang version without error handling
+  end
+
+  # No validation
+  def decode(json_string) do
+    Jason.decode!(json_string)  # Using bang version without error handling
+  end
+
+  # No batch processing
+  # No streaming support
+  # No performance monitoring
+  # No custom encoders
+  
+  # Direct use without any safety measures
+  def process_json(data) do
+    data
+    |> Jason.encode!()
+    |> Jason.decode!()
+  end
+  
+  # No schema validation
+  # No proper error messages
+  # No logging
+  # No type safety
+end]]></incorrect-example>
+        </example>
+      </examples>
+    </non-negotiable>
+
+    <requirement priority="high">
+      <description>Implement comprehensive testing for Jason operations including unit tests for encoding/decoding, performance tests, edge case handling, and integration tests with real-world JSON data.</description>
+      <examples>
+        <example title="Jason Testing Patterns">
+          <correct-example title="Comprehensive testing for JSON operations" conditions="Testing Jason implementations" expected-result="Thorough test coverage with performance and edge case validation" correctness-criteria="Unit tests, property tests, performance tests, error handling validation"><![CDATA[# Elixir - Comprehensive Jason testing
+
+defmodule MyApp.JSONProcessorTest do
+  use ExUnit.Case, async: true
+  
+  import MyApp.JSONProcessor
+  
+  describe "encode/2" do
+    test "encodes basic data types correctly" do
+      assert {:ok, "null"} = encode(nil)
+      assert {:ok, "true"} = encode(true)
+      assert {:ok, "false"} = encode(false)
+      assert {:ok, "42"} = encode(42)
+      assert {:ok, "3.14"} = encode(3.14)
+      assert {:ok, "\"hello\""} = encode("hello")
+    end
+
+    test "encodes complex data structures" do
+      data = %{
+        "name" => "John",
+        "age" => 30,
+        "active" => true,
+        "scores" => [85, 92, 78],
+        "profile" => %{
+          "email" => "john@example.com",
+          "verified" => true
+        }
+      }
+      
+      assert {:ok, json} = encode(data)
+      assert is_binary(json)
+      
+      # Verify round-trip consistency
+      assert {:ok, decoded} = decode(json)
+      assert decoded == data
+    end
+
+    test "handles encoding errors gracefully" do
+      # Test with non-encodable data
+      pid = spawn(fn -> :ok end)
+      assert {:error, _} = encode(pid)
+      
+      # Test with circular references would be handled by validation
+      assert {:error, :unsafe_atom} = encode(:some_random_atom)
+    end
+
+    test "respects encoding options" do
+      data = %{"test" => "value"}
+      
+      # Test pretty printing
+      assert {:ok, pretty_json} = encode(data, pretty: true)
+      assert String.contains?(pretty_json, "\n")
+      
+      # Test compact encoding
+      assert {:ok, compact_json} = encode(data, pretty: false)
+      refute String.contains?(compact_json, "\n")
+    end
+
+    test "validates input before encoding" do
+      # Test with deeply nested structure
+      deep_data = create_nested_structure(50)
+      assert {:error, :max_depth_exceeded} = encode(deep_data, max_depth: 10)
+    end
+  end
+
+  describe "decode/2" do
+    test "decodes basic JSON correctly" do
+      assert {:ok, nil} = decode("null")
+      assert {:ok, true} = decode("true")
+      assert {:ok, false} = decode("false")
+      assert {:ok, 42} = decode("42")
+      assert {:ok, 3.14} = decode("3.14")
+      assert {:ok, "hello"} = decode("\"hello\"")
+    end
+
+    test "decodes complex JSON structures" do
+      json = ~s({"name":"John","age":30,"active":true,"scores":[85,92,78]})
+      
+      assert {:ok, data} = decode(json)
+      assert %{
+        "name" => "John",
+        "age" => 30,
+        "active" => true,
+        "scores" => [85, 92, 78]
+      } = data
+    end
+
+    test "handles decoding errors gracefully" do
+      # Test invalid JSON
+      assert {:error, %Jason.DecodeError{}} = decode("{invalid json}")
+      assert {:error, %Jason.DecodeError{}} = decode("{'single': 'quotes'}")
+      assert {:error, %Jason.DecodeError{}} = decode("{\"unclosed\": \"string}")
+    end
+
+    test "respects decoding options" do
+      json = ~s({"name":"John","age":30})
+      
+      # Test with atom keys
+      assert {:ok, data} = decode(json, keys: :atoms)
+      assert %{name: "John", age: 30} = data
+      
+      # Test with string keys (default)
+      assert {:ok, data} = decode(json, keys: :strings)
+      assert %{"name" => "John", "age" => 30} = data
+    end
+
+    test "validates decoded data" do
+      # Test with large JSON
+      large_json = generate_large_json(100_000)
+      assert {:error, :string_too_large} = decode(large_json)
+      
+      # Test empty string
+      assert {:error, :empty_string} = decode("")
+    end
+  end
+
+  describe "batch processing" do
+    test "encode_batch/2 processes multiple items" do
+      data_list = [
+        %{"id" => 1, "name" => "Item 1"},
+        %{"id" => 2, "name" => "Item 2"},
+        %{"id" => 3, "name" => "Item 3"}
+      ]
+      
+      assert {:ok, json_list} = encode_batch(data_list)
+      assert length(json_list) == 3
+      assert Enum.all?(json_list, &is_binary/1)
+    end
+
+    test "encode_batch/2 handles partial failures" do
+      data_list = [
+        %{"valid" => "data"},
+        :invalid_atom,  # This should fail
+        %{"more" => "valid data"}
+      ]
+      
+      assert {:error, errors} = encode_batch(data_list)
+      assert [{2, _error_reason}] = errors
+    end
+
+    test "decode_batch/2 processes multiple JSON strings" do
+      json_list = [
+        ~s({"id":1,"name":"Item 1"}),
+        ~s({"id":2,"name":"Item 2"}),
+        ~s({"id":3,"name":"Item 3"})
+      ]
+      
+      assert {:ok, data_list} = decode_batch(json_list)
+      assert length(data_list) == 3
+      assert Enum.all?(data_list, &is_map/1)
+    end
+  end
+
+  describe "streaming" do
+    test "stream_decode/2 processes JSON stream" do
+      json_stream = [
+        ~s({"id":1}),
+        ~s({"id":2}),
+        ~s(invalid json),  # This should be filtered out
+        ~s({"id":3})
+      ]
+      
+      result = 
+        json_stream
+        |> stream_decode()
+        |> Enum.to_list()
+      
+      assert length(result) == 3
+      assert [%{"id" => 1}, %{"id" => 2}, %{"id" => 3}] = result
+    end
+  end
+
+  describe "performance" do
+    @tag :performance
+    test "encoding performance meets benchmarks" do
+      data = generate_test_data(1000)
+      
+      {time_microseconds, {:ok, _json}} = :timer.tc(fn ->
+        encode(data)
+      end)
+      
+      # Should encode 1000 items in less than 10ms
+      assert time_microseconds < 10_000
+    end
+
+    @tag :performance
+    test "decoding performance meets benchmarks" do
+      data = generate_test_data(1000)
+      {:ok, json} = encode(data)
+      
+      {time_microseconds, {:ok, _decoded}} = :timer.tc(fn ->
+        decode(json)
+      end)
+      
+      # Should decode 1000 items in less than 10ms
+      assert time_microseconds < 10_000
+    end
+
+    @tag :performance
+    test "memory usage is reasonable" do
+      data = generate_test_data(100)
+      
+      memory_before = :erlang.process_info(self(), :memory) |> elem(1)
+      {:ok, _json} = encode(data)
+      memory_after = :erlang.process_info(self(), :memory) |> elem(1)
+      
+      memory_used = memory_after - memory_before
+      
+      # Memory usage should be reasonable (less than 1MB for 100 items)
+      assert memory_used < 1_000_000
+    end
+  end
+
+  describe "custom encoders" do
+    test "encodes DateTime correctly" do
+      datetime = ~U[2023-01-01 12:00:00Z]
+      assert {:ok, json} = encode(datetime)
+      assert json == "\"2023-01-01T12:00:00Z\""
+    end
+
+    test "encodes Date correctly" do
+      date = ~D[2023-01-01]
+      assert {:ok, json} = encode(date)
+      assert json == "\"2023-01-01\""
+    end
+
+    test "encodes MapSet correctly" do
+      mapset = MapSet.new([1, 2, 3])
+      assert {:ok, json} = encode(mapset)
+      assert {:ok, decoded} = decode(json)
+      assert is_list(decoded)
+      assert Enum.sort(decoded) == [1, 2, 3]
+    end
+  end
+
+  # Property-based testing with StreamData
+  if Code.ensure_loaded?(StreamData) do
+    use ExUnitProperties
+
+    property "encoding and decoding are inverse operations" do
+      check all data <- json_encodable_data() do
+        assert {:ok, json} = encode(data)
+        assert {:ok, decoded} = decode(json)
+        assert data == decoded
+      end
+    end
+
+    property "encoding always produces valid JSON" do
+      check all data <- json_encodable_data() do
+        case encode(data) do
+          {:ok, json} ->
+            # Should be valid JSON that can be decoded
+            assert {:ok, _} = decode(json)
+          {:error, _} ->
+            # Encoding errors are acceptable for some inputs
+            :ok
+        end
+      end
+    end
+
+    defp json_encodable_data do
+      tree(json_primitive(), &json_container/1)
+    end
+
+    defp json_primitive do
+      one_of([
+        constant(nil),
+        boolean(),
+        integer(),
+        float(),
+        string(:alphanumeric)
+      ])
+    end
+
+    defp json_container(child_generator) do
+      one_of([
+        list_of(child_generator),
+        map_of(string(:alphanumeric), child_generator)
+      ])
+    end
+  end
+
+  # Helper functions
+  defp create_nested_structure(depth) when depth <= 0, do: "leaf"
+  defp create_nested_structure(depth) do
+    %{"nested" => create_nested_structure(depth - 1)}
+  end
+
+  defp generate_large_json(size) do
+    large_string = String.duplicate("x", size)
+    ~s({"large_field":"#{large_string}"})
+  end
+
+  defp generate_test_data(count) do
+    1..count
+    |> Enum.map(fn i ->
+      %{
+        "id" => i,
+        "name" => "Item #{i}",
+        "value" => :rand.uniform(1000),
+        "active" => rem(i, 2) == 0,
+        "metadata" => %{
+          "created_at" => DateTime.utc_now(),
+          "tags" => ["tag#{rem(i, 5)}", "category#{rem(i, 3)}"]
+        }
+      }
+    end)
+  end
+end
+
+# Integration tests
+defmodule MyApp.JSONAPIHelpersTest do
+  use ExUnit.Case, async: true
+  
+  import MyApp.JSONAPIHelpers
+
+  describe "format_success_response/2" do
+    test "formats success response correctly" do
+      data = %{"id" => 1, "name" => "Test"}
+      
+      assert {:ok, json} = format_success_response(data)
+      assert {:ok, parsed} = Jason.decode(json)
+      
+      assert %{
+        "status" => "success",
+        "data" => %{"id" => 1, "name" => "Test"},
+        "metadata" => metadata
+      } = parsed
+      
+      assert %{
+        "timestamp" => _timestamp,
+        "version" => "1.0"
+      } = metadata
+    end
+  end
+
+  describe "format_error_response/3" do
+    test "formats error response correctly" do
+      assert {:ok, json} = format_error_response("VALIDATION_ERROR", "Invalid input")
+      assert {:ok, parsed} = Jason.decode(json)
+      
+      assert %{
+        "status" => "error",
+        "error" => %{
+          "code" => "VALIDATION_ERROR",
+          "message" => "Invalid input",
+          "details" => %{}
+        }
+      } = parsed
+    end
+  end
+
+  describe "validate_json_request/2" do
+    test "validates correct JSON against schema" do
+      json = ~s({"name":"John","age":30})
+      schema = %{
+        "type" => "object",
+        "properties" => %{
+          "name" => %{"type" => "string"},
+          "age" => %{"type" => "integer"}
+        },
+        "required" => ["name", "age"]
+      }
+      
+      assert {:ok, data} = validate_json_request(json, schema)
+      assert %{"name" => "John", "age" => 30} = data
+    end
+  end
+end]]></correct-example>
+          <incorrect-example title="Poor Jason testing without comprehensive coverage" conditions="Testing JSON operations" expected-result="Comprehensive test coverage" incorrectness-criteria="No error testing, missing edge cases, no performance testing, poor integration coverage"><![CDATA[# BAD: Poor Jason testing
+
+defmodule BadJSONTest do
+  use ExUnit.Case
+  
+  # Only basic happy path testing
+  test "encode works" do
+    assert Jason.encode!(%{"test" => "data"}) == ~s({"test":"data"})
+  end
+
+  test "decode works" do
+    assert Jason.decode!(~s({"test":"data"})) == %{"test" => "data"}
+  end
+
+  # No error handling tests
+  # No performance tests
+  # No edge case testing
+  # No custom encoder testing
+  # No batch processing tests
+  # No streaming tests
+  # No property-based testing
+  # No integration testing
+end]]></incorrect-example>
+        </example>
+      </examples>
+    </requirement>
+  </requirements>
+  
+  <context description="Jason library considerations">
+    Jason is a high-performance JSON parser and generator for Elixir written in pure Elixir. It provides fast encoding and decoding with comprehensive options for customization. Jason is designed to be safe and memory-efficient while maintaining excellent performance.
+
+    Key considerations include:
+    - Performance optimization for large JSON documents and high-throughput applications
+    - Proper error handling for malformed JSON and encoding failures
+    - Custom encoders for application-specific data types like DateTime, Decimal, etc.
+    - Security considerations for JSON size limits and depth restrictions
+    - Memory management for large JSON processing operations
+    - Integration with Phoenix applications for API responses and request parsing
+
+    Jason supports various encoding and decoding options including pretty printing, different key formats (atoms vs strings), and custom escape sequences for different contexts (HTML, JavaScript, etc.).
+  </context>
+  
+  <references>
+    <reference as="dependency" href=".cursor/rules/000-core/002-cursor-rules-creation.mdc" reason="Follows standard rule format">Base rule format definition</reference>
+    <reference as="context" href="https://hexdocs.pm/jason/" reason="Official Jason documentation">Jason Package Documentation</reference>
+    <reference as="context" href="https://github.com/michalmuskala/jason" reason="Jason source code and examples">Jason GitHub Repository</reference>
+  </references>
+</rule>

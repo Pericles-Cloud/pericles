@@ -1,0 +1,428 @@
+---
+description: "Comprehensive ShellJS standards for secure cross-platform shell command execution, file operations, and build automation following security and operational best practices"
+globs: ["**/*.{js,ts,mjs,cjs}", "**/scripts/**/*.{js,ts}", "**/build/**/*.{js,ts}", "**/*.json"]
+alwaysApply: false
+---
+
+<rule>
+  <meta>
+    <title>ShellJS Cross-Platform Shell Standards</title>
+    <description>Comprehensive ShellJS standards for secure cross-platform shell command execution, file operations, and build automation following security and operational best practices</description>
+    <created-at utc-timestamp="1744401200">January 29, 2025, 3:20 PM</created-at>
+    <last-updated-at utc-timestamp="1744401200">January 29, 2025, 3:20 PM</last-updated-at>
+    <applies-to>
+      <file-matcher glob="**/*.{js,ts,mjs,cjs}">JavaScript and TypeScript files using ShellJS</file-matcher>
+      <file-matcher glob="**/scripts/**/*.{js,ts}">Build scripts and automation tools</file-matcher>
+      <action-matcher action="shell-automation">Triggered when automating shell commands and file operations</action-matcher>
+    </applies-to>
+  </meta>
+
+  <requirements>
+    <non-negotiable priority="critical">
+      <description>Use ShellJS with proper error handling, input validation, and security measures while maintaining cross-platform compatibility and following automation best practices.</description>
+      <examples>
+        <example title="Secure Shell Command Execution">
+          <correct-example title="ShellJS with security and error handling" conditions="Automating shell operations" expected-result="Secure and reliable shell automation" correctness-criteria="Validates inputs, handles errors, prevents injection, maintains cross-platform compatibility"><![CDATA[// utils/shell-executor.ts
+import shell from 'shelljs'
+import { join, resolve, normalize } from 'path'
+import { existsSync } from 'fs'
+
+export interface ShellResult {
+  success: boolean
+  code: number
+  stdout: string
+  stderr: string
+  command: string
+}
+
+export class SecureShell {
+  private static readonly SAFE_COMMANDS = new Set([
+    'ls', 'dir', 'pwd', 'cd', 'mkdir', 'rmdir', 'rm', 'cp', 'mv', 
+    'cat', 'echo', 'grep', 'find', 'which', 'test', 'touch'
+  ])
+
+  private static isPathSafe(path: string): boolean {
+    const normalizedPath = normalize(path)
+    
+    // Prevent path traversal
+    if (normalizedPath.includes('..') || normalizedPath.includes('~')) {
+      return false
+    }
+    
+    // Ensure path is within project directory
+    const projectRoot = process.cwd()
+    const absolutePath = resolve(projectRoot, normalizedPath)
+    
+    return absolutePath.startsWith(projectRoot)
+  }
+
+  private static validateCommand(command: string): boolean {
+    // Extract command name (first word)
+    const commandName = command.trim().split(/\s+/)[0]
+    
+    // Check if command is in safe list
+    if (!this.SAFE_COMMANDS.has(commandName)) {
+      throw new Error(`Unsafe command: ${commandName}`)
+    }
+    
+    // Check for command injection patterns
+    const dangerousPatterns = [';', '&&', '||', '|', '>', '<', '`', '$', '(', ')']
+    if (dangerousPatterns.some(pattern => command.includes(pattern))) {
+      throw new Error(`Command contains dangerous patterns: ${command}`)
+    }
+    
+    return true
+  }
+
+  static exec(command: string, options: { silent?: boolean, cwd?: string } = {}): ShellResult {
+    try {
+      this.validateCommand(command)
+      
+      const { silent = false, cwd } = options
+      
+      if (cwd && !this.isPathSafe(cwd)) {
+        throw new Error(`Unsafe working directory: ${cwd}`)
+      }
+      
+      const originalCwd = shell.pwd().toString()
+      
+      if (cwd) {
+        shell.cd(cwd)
+      }
+      
+      const result = shell.exec(command, { silent })
+      
+      // Restore original working directory
+      if (cwd) {
+        shell.cd(originalCwd)
+      }
+      
+      return {
+        success: result.code === 0,
+        code: result.code,
+        stdout: result.stdout,
+        stderr: result.stderr,
+        command
+      }
+    } catch (error) {
+      return {
+        success: false,
+        code: -1,
+        stdout: '',
+        stderr: error instanceof Error ? error.message : 'Unknown error',
+        command
+      }
+    }
+  }
+
+  static async copy(source: string, destination: string, options: { recursive?: boolean } = {}): Promise<boolean> {
+    try {
+      if (!this.isPathSafe(source) || !this.isPathSafe(destination)) {
+        throw new Error('Unsafe file paths provided')
+      }
+      
+      if (!existsSync(source)) {
+        throw new Error(`Source does not exist: ${source}`)
+      }
+      
+      const { recursive = false } = options
+      const flags = recursive ? '-R' : ''
+      
+      const result = shell.cp(flags, source, destination)
+      return result.code === 0
+    } catch (error) {
+      console.error('Copy operation failed:', error)
+      return false
+    }
+  }
+
+  static async remove(path: string, options: { force?: boolean, recursive?: boolean } = {}): Promise<boolean> {
+    try {
+      if (!this.isPathSafe(path)) {
+        throw new Error(`Unsafe path: ${path}`)
+      }
+      
+      const { force = false, recursive = false } = options
+      let flags = ''
+      
+      if (force) flags += 'f'
+      if (recursive) flags += 'r'
+      
+      const result = shell.rm(`-${flags}`, path)
+      return result.code === 0
+    } catch (error) {
+      console.error('Remove operation failed:', error)
+      return false
+    }
+  }
+
+  static mkdir(path: string, options: { parents?: boolean } = {}): boolean {
+    try {
+      if (!this.isPathSafe(path)) {
+        throw new Error(`Unsafe path: ${path}`)
+      }
+      
+      const { parents = false } = options
+      const flags = parents ? '-p' : ''
+      
+      const result = shell.mkdir(flags, path)
+      return result.code === 0
+    } catch (error) {
+      console.error('Mkdir operation failed:', error)
+      return false
+    }
+  }
+
+  static exists(path: string): boolean {
+    try {
+      if (!this.isPathSafe(path)) {
+        return false
+      }
+      
+      return shell.test('-e', path)
+    } catch (error) {
+      return false
+    }
+  }
+
+  static isFile(path: string): boolean {
+    try {
+      if (!this.isPathSafe(path)) {
+        return false
+      }
+      
+      return shell.test('-f', path)
+    } catch (error) {
+      return false
+    }
+  }
+
+  static isDirectory(path: string): boolean {
+    try {
+      if (!this.isPathSafe(path)) {
+        return false
+      }
+      
+      return shell.test('-d', path)
+    } catch (error) {
+      return false
+    }
+  }
+}
+
+// Build script automation
+// scripts/build-automation.ts
+import { SecureShell } from '../utils/shell-executor'
+
+export class BuildAutomation {
+  private readonly projectRoot: string
+  private readonly buildDir: string
+  private readonly srcDir: string
+
+  constructor(projectRoot = process.cwd()) {
+    this.projectRoot = projectRoot
+    this.buildDir = join(projectRoot, 'dist')
+    this.srcDir = join(projectRoot, 'src')
+  }
+
+  async clean(): Promise<boolean> {
+    console.log('🧹 Cleaning build directory...')
+    
+    if (SecureShell.exists(this.buildDir)) {
+      const success = await SecureShell.remove(this.buildDir, { 
+        recursive: true, 
+        force: true 
+      })
+      
+      if (!success) {
+        console.error('❌ Failed to clean build directory')
+        return false
+      }
+    }
+    
+    console.log('✅ Build directory cleaned')
+    return true
+  }
+
+  async prepare(): Promise<boolean> {
+    console.log('📁 Preparing build directory...')
+    
+    const success = SecureShell.mkdir(this.buildDir, { parents: true })
+    
+    if (!success) {
+      console.error('❌ Failed to create build directory')
+      return false
+    }
+    
+    console.log('✅ Build directory prepared')
+    return true
+  }
+
+  async copyAssets(): Promise<boolean> {
+    console.log('📄 Copying assets...')
+    
+    const assetDirs = ['public', 'assets', 'static']
+    
+    for (const assetDir of assetDirs) {
+      const sourcePath = join(this.projectRoot, assetDir)
+      
+      if (SecureShell.exists(sourcePath) && SecureShell.isDirectory(sourcePath)) {
+        const destinationPath = join(this.buildDir, assetDir)
+        const success = await SecureShell.copy(sourcePath, destinationPath, { 
+          recursive: true 
+        })
+        
+        if (!success) {
+          console.error(`❌ Failed to copy ${assetDir}`)
+          return false
+        }
+        
+        console.log(`✅ Copied ${assetDir}`)
+      }
+    }
+    
+    return true
+  }
+
+  async runTests(): Promise<boolean> {
+    console.log('🧪 Running tests...')
+    
+    const result = SecureShell.exec('npm test', { silent: false })
+    
+    if (!result.success) {
+      console.error('❌ Tests failed')
+      console.error(result.stderr)
+      return false
+    }
+    
+    console.log('✅ All tests passed')
+    return true
+  }
+
+  async build(): Promise<boolean> {
+    console.log('🏗️  Starting build process...')
+    
+    const steps = [
+      () => this.clean(),
+      () => this.prepare(),
+      () => this.runTests(),
+      () => this.copyAssets()
+    ]
+    
+    for (const step of steps) {
+      const success = await step()
+      if (!success) {
+        console.error('❌ Build process failed')
+        return false
+      }
+    }
+    
+    console.log('🎉 Build completed successfully!')
+    return true
+  }
+}
+
+// Deployment automation
+// scripts/deploy.ts
+export class DeploymentAutomation {
+  async deployToServer(environment: 'staging' | 'production'): Promise<boolean> {
+    console.log(`🚀 Deploying to ${environment}...`)
+    
+    // Validate environment
+    if (!['staging', 'production'].includes(environment)) {
+      console.error('❌ Invalid environment')
+      return false
+    }
+    
+    try {
+      // Build application
+      const buildResult = SecureShell.exec('npm run build', { silent: false })
+      if (!buildResult.success) {
+        throw new Error('Build failed')
+      }
+      
+      // Create deployment archive
+      const archiveName = `deploy-${environment}-${Date.now()}.tar.gz`
+      const createArchiveResult = SecureShell.exec(
+        `tar -czf ${archiveName} dist/`, 
+        { silent: false }
+      )
+      
+      if (!createArchiveResult.success) {
+        throw new Error('Failed to create deployment archive')
+      }
+      
+      console.log(`✅ Deployment to ${environment} completed`)
+      return true
+      
+    } catch (error) {
+      console.error(`❌ Deployment failed:`, error)
+      return false
+    }
+  }
+}
+
+// Usage example
+// scripts/main.ts
+async function main() {
+  const automation = new BuildAutomation()
+  const success = await automation.build()
+  
+  if (!success) {
+    process.exit(1)
+  }
+  
+  console.log('Build automation completed successfully!')
+}
+
+main().catch(console.error)]]></correct-example>
+          <incorrect-example title="Unsafe shell operations" conditions="Automating shell operations" expected-result="Secure shell automation" incorrectness-criteria="No input validation, command injection vulnerabilities, poor error handling, unsafe file operations"><![CDATA[// Bad: Unsafe shell operations
+import shell from 'shelljs'
+
+// Bad: No input validation
+function runCommand(userInput) {
+  shell.exec(userInput) // Command injection vulnerability
+}
+
+// Bad: No path validation
+function deleteFiles(path) {
+  shell.rm('-rf', path) // Could delete anything
+}
+
+// Bad: No error handling
+function copyFiles(src, dest) {
+  shell.cp('-R', src, dest) // No error checking
+}
+
+// Bad: Unsafe file operations
+function processUserFile(filename) {
+  // No path traversal protection
+  shell.cat(filename) // Could read sensitive files
+}
+
+// Bad: Direct execution of user input
+const command = process.argv[2]
+shell.exec(command) // Dangerous]]></incorrect-example>
+        </example>
+      </examples>
+    </non-negotiable>
+  </requirements>
+
+  <context description="Cross-platform shell automation considerations">
+    ShellJS provides a portable implementation of Unix shell commands for Node.js applications. Proper usage requires security awareness, error handling, and input validation to prevent command injection and unauthorized file access.
+
+    Key considerations for ShellJS usage:
+    - Validate and sanitize all input paths and commands
+    - Implement proper error handling and logging
+    - Prevent path traversal and command injection attacks
+    - Maintain cross-platform compatibility
+    - Use appropriate file permissions and access controls
+    - Provide meaningful error messages and recovery options
+  </context>
+
+  <references>
+    <reference as="dependency" href=".cursor/rules/000-core/002-cursor-rules-creation.mdc" reason="Follows standard rule format">Base rule format definition</reference>
+    <reference as="context" href="https://www.npmjs.com/package/shelljs" reason="Official ShellJS documentation">ShellJS NPM Package</reference>
+    <reference as="context" href="https://owasp.org/www-community/attacks/Command_Injection" reason="Security considerations">OWASP Command Injection</reference>
+  </references>
+</rule>

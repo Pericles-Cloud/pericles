@@ -1,0 +1,658 @@
+---
+description: Comprehensive npx execution standards with security practices, package execution patterns, and CI/CD integration following modern npx best practices
+globs: ["*.{js,ts,json}"]
+alwaysApply: false
+---
+
+<rule>
+  <meta>
+    <title>NPX Core Standards Auto</title>
+    <description>Comprehensive npx execution standards with security practices, package execution patterns, and CI/CD integration following modern npx best practices</description>
+    <created-at utc-timestamp="1744254280">January 27, 2025, 2:04 PM</created-at>
+    <last-updated-at utc-timestamp="1744254280">January 27, 2025, 2:04 PM</last-updated-at>
+    <applies-to>
+      <file-matcher glob="*.{js,ts,json}">Scripts and configuration files using npx</file-matcher>
+      <action-matcher action="npx-execution">Triggered when configuring npx package execution</action-matcher>
+    </applies-to>
+  </meta>
+  <requirements>
+    <non-negotiable priority="critical">
+      <description>Use npx with explicit versioning, security validation, and proper execution contexts following npm security guidelines and modern package execution best practices.</description>
+      <examples>
+        <example title="Secure NPX Usage">
+          <correct-example title="Comprehensive npx configuration with security" conditions="Setting up npx for package execution" expected-result="Secure and reliable npx usage" correctness-criteria="Uses explicit versioning, security practices, proper execution patterns"><![CDATA[// package.json - Secure npx scripts
+{
+  "scripts": {
+    // Development tools with explicit versions
+    "create:component": "npx @latest create-react-component",
+    "create:page": "npx create-next-app@latest",
+    "format": "npx prettier@^3.1.0 --write .",
+    "lint:fix": "npx eslint@^8.55.0 --fix .",
+    
+    // Build tools with version pinning
+    "build:analyze": "npx @next/bundle-analyzer@latest",
+    "build:deps": "npx depcheck@^1.4.0",
+    "build:size": "npx bundlephobia@latest",
+    
+    // Testing and quality tools
+    "test:lighthouse": "npx lighthouse-ci@^0.12.0",
+    "test:security": "npx audit-ci@^6.6.0",
+    "test:deps": "npx npm-check-updates@latest",
+    
+    // Database and migration tools
+    "db:migrate": "npx prisma@latest migrate dev",
+    "db:generate": "npx prisma@^5.7.0 generate",
+    "db:studio": "npx prisma@latest studio",
+    
+    // Deployment and CI tools
+    "deploy:vercel": "npx vercel@latest",
+    "deploy:netlify": "npx netlify-cli@latest deploy",
+    "changeset": "npx @changesets/cli@latest",
+    
+    // Security and validation
+    "security:audit": "npx audit-ci@latest --config audit-ci.json",
+    "security:licenses": "npx license-checker@latest --summary",
+    "validate:package": "npx publint@latest",
+    
+    // Code generation and scaffolding
+    "generate:api": "npx @openapitools/openapi-generator-cli@latest generate",
+    "generate:types": "npx graphql-codegen@latest",
+    "scaffold:lib": "npx create-turbo@latest"
+  },
+  
+  // NPX configuration
+  "npxConfig": {
+    "registry": "https://registry.npmjs.org/",
+    "cache": true,
+    "yes": false,
+    "packageLockOnly": false
+  }
+}
+
+// scripts/npx-security-wrapper.js
+#!/usr/bin/env node
+const { execSync, spawn } = require('child_process');
+const fs = require('fs');
+const path = require('path');
+
+class NPXSecurityWrapper {
+  constructor() {
+    this.allowedPackages = new Set([
+      '@changesets/cli',
+      'create-react-app',
+      'create-next-app',
+      'prettier',
+      'eslint',
+      'lighthouse-ci',
+      'audit-ci',
+      'prisma',
+      'vercel',
+      'netlify-cli'
+    ]);
+    
+    this.blockedPackages = new Set([
+      'event-stream',
+      'flatmap-stream',
+      'rc'
+    ]);
+    
+    this.trustedRegistries = new Set([
+      'https://registry.npmjs.org/',
+      'https://npm.pkg.github.com/'
+    ]);
+  }
+  
+  validatePackage(packageName) {
+    // Extract package name without version
+    const cleanPackageName = packageName.split('@')[0];
+    
+    if (this.blockedPackages.has(cleanPackageName)) {
+      throw new Error(`❌ Package '${cleanPackageName}' is blocked for security reasons`);
+    }
+    
+    // Optional: Check if package is in allow list for strict environments
+    if (process.env.NPX_STRICT_MODE && !this.allowedPackages.has(cleanPackageName)) {
+      throw new Error(`❌ Package '${cleanPackageName}' is not in the allow list`);
+    }
+    
+    return true;
+  }
+  
+  async checkPackageInfo(packageName) {
+    try {
+      const info = execSync(`npm view ${packageName} --json`, { encoding: 'utf8' });
+      const packageInfo = JSON.parse(info);
+      
+      console.log(`📦 Package: ${packageInfo.name}`);
+      console.log(`📋 Version: ${packageInfo.version}`);
+      console.log(`👤 Author: ${packageInfo.author?.name || 'Unknown'}`);
+      console.log(`📅 Published: ${new Date(packageInfo.time[packageInfo.version]).toDateString()}`);
+      
+      // Check for security vulnerabilities
+      try {
+        execSync(`npm audit --package ${packageName}`, { stdio: 'pipe' });
+        console.log('✅ No known vulnerabilities');
+      } catch (error) {
+        console.warn('⚠️  Security vulnerabilities detected');
+      }
+      
+      return packageInfo;
+    } catch (error) {
+      throw new Error(`❌ Failed to get package information: ${error.message}`);
+    }
+  }
+  
+  async executeSecurely(packageName, args = [], options = {}) {
+    console.log(`🔒 Executing npx ${packageName} ${args.join(' ')}`);
+    
+    // Validate package
+    this.validatePackage(packageName);
+    
+    // Get package info for verification
+    if (!options.skipValidation) {
+      await this.checkPackageInfo(packageName);
+      
+      // Prompt for confirmation in interactive mode
+      if (process.stdout.isTTY && !options.autoConfirm) {
+        const readline = require('readline');
+        const rl = readline.createInterface({
+          input: process.stdin,
+          output: process.stdout
+        });
+        
+        const answer = await new Promise(resolve => {
+          rl.question('Continue with execution? (y/N): ', resolve);
+        });
+        rl.close();
+        
+        if (answer.toLowerCase() !== 'y') {
+          console.log('❌ Execution cancelled by user');
+          return;
+        }
+      }
+    }
+    
+    // Execute with security flags
+    const npxArgs = [
+      packageName,
+      ...args
+    ];
+    
+    // Add security flags
+    if (!options.allowScripts) {
+      npxArgs.unshift('--ignore-scripts');
+    }
+    
+    const child = spawn('npx', npxArgs, {
+      stdio: 'inherit',
+      env: {
+        ...process.env,
+        NPM_CONFIG_AUDIT_LEVEL: 'moderate',
+        NPM_CONFIG_FUND: 'false'
+      }
+    });
+    
+    return new Promise((resolve, reject) => {
+      child.on('close', (code) => {
+        if (code === 0) {
+          console.log('✅ NPX execution completed successfully');
+          resolve();
+        } else {
+          reject(new Error(`NPX execution failed with code ${code}`));
+        }
+      });
+      
+      child.on('error', reject);
+    });
+  }
+}
+
+// CLI usage
+if (require.main === module) {
+  const wrapper = new NPXSecurityWrapper();
+  const [packageName, ...args] = process.argv.slice(2);
+  
+  if (!packageName) {
+    console.error('Usage: node npx-security-wrapper.js <package> [args...]');
+    process.exit(1);
+  }
+  
+  wrapper.executeSecurely(packageName, args, {
+    autoConfirm: process.env.CI === 'true',
+    skipValidation: process.env.NPX_SKIP_VALIDATION === 'true'
+  }).catch(error => {
+    console.error(error.message);
+    process.exit(1);
+  });
+}
+
+module.exports = NPXSecurityWrapper;
+
+// .npmrc - NPX configuration
+# NPX specific settings
+npx-cache-timeout=3600
+npx-prefer-offline=true
+npx-audit=true
+
+# Security settings for npx
+audit-level=moderate
+fund=false
+
+// scripts/validate-npx-usage.js
+#!/usr/bin/env node
+const fs = require('fs');
+const path = require('path');
+
+console.log('🔍 Validating npx usage in project...');
+
+const packageJson = JSON.parse(fs.readFileSync('package.json', 'utf8'));
+const scripts = packageJson.scripts || {};
+
+// Patterns that indicate npx usage
+const npxPatterns = [
+  /npx\s+([^\s@]+)(@[^\s]+)?/g,
+  /npm\s+exec\s+([^\s@]+)/g
+];
+
+const npxUsages = [];
+
+// Scan package.json scripts
+Object.entries(scripts).forEach(([scriptName, scriptCommand]) => {
+  npxPatterns.forEach(pattern => {
+    let match;
+    while ((match = pattern.exec(scriptCommand)) !== null) {
+      npxUsages.push({
+        script: scriptName,
+        package: match[1],
+        version: match[2] || 'latest',
+        command: scriptCommand
+      });
+    }
+  });
+});
+
+console.log(`Found ${npxUsages.length} npx usages:`);
+
+npxUsages.forEach(usage => {
+  console.log(`  📦 ${usage.script}: ${usage.package}${usage.version}`);
+  
+  // Check for security issues
+  if (usage.version === 'latest' || !usage.version.startsWith('@')) {
+    console.warn(`    ⚠️  Consider pinning version for ${usage.package}`);
+  }
+  
+  if (usage.command.includes('--yes') || usage.command.includes('-y')) {
+    console.warn(`    ⚠️  Auto-confirmation detected in ${usage.script}`);
+  }
+});
+
+// Check for potential security issues
+const securityChecks = [
+  {
+    name: 'Version Pinning',
+    check: () => {
+      const unpinnedPackages = npxUsages.filter(usage => 
+        usage.version === 'latest' || !usage.version.startsWith('@')
+      );
+      
+      if (unpinnedPackages.length > 0) {
+        console.warn(`⚠️  ${unpinnedPackages.length} packages without version pinning`);
+        return false;
+      }
+      return true;
+    }
+  },
+  {
+    name: 'Auto-confirmation Usage',
+    check: () => {
+      const autoConfirmUsages = npxUsages.filter(usage => 
+        usage.command.includes('--yes') || usage.command.includes('-y')
+      );
+      
+      if (autoConfirmUsages.length > 0) {
+        console.warn(`⚠️  ${autoConfirmUsages.length} scripts with auto-confirmation`);
+        return false;
+      }
+      return true;
+    }
+  }
+];
+
+let hasIssues = false;
+
+securityChecks.forEach(check => {
+  if (!check.check()) {
+    hasIssues = true;
+  }
+});
+
+if (!hasIssues) {
+  console.log('✅ NPX usage validation passed');
+} else {
+  console.warn('⚠️  NPX usage has potential security issues');
+}]]></correct-example>
+          <incorrect-example title="Unsafe npx usage without security considerations" conditions="Setting up npx for package execution" expected-result="Secure and reliable npx usage" incorrectness-criteria="No version pinning, auto-confirmation, no security validation"><![CDATA[// package.json - Unsafe npx usage
+{
+  "scripts": {
+    "create:app": "npx create-react-app --yes",  // Auto-confirmation dangerous
+    "format": "npx prettier",  // No version specified
+    "build": "npx webpack",  // No version pinning
+    "deploy": "npx some-random-package"  // Unknown package
+  }
+}
+
+// Missing:
+// - Version pinning
+// - Security validation
+// - Package verification
+// - Execution monitoring
+// - Proper error handling
+// - Registry validation]]></incorrect-example>
+        </example>
+      </examples>
+    </non-negotiable>
+
+    <requirement priority="critical">
+      <description>Implement npx with CI/CD optimization, caching strategies, and automated package verification for reliable build pipelines.</description>
+      <examples>
+        <example title="NPX CI/CD Integration">
+          <correct-example title="Optimized npx for CI/CD environments" conditions="Configuring npx for automated pipelines" expected-result="Reliable CI/CD npx execution" correctness-criteria="Uses caching, verification, monitoring, error handling"><![CDATA[// .github/workflows/npx-ci.yml
+name: NPX CI Pipeline
+on: [push, pull_request]
+
+jobs:
+  npx-validation:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '18'
+          cache: 'npm'
+      
+      # Validate npx usage before execution
+      - name: Validate NPX usage
+        run: node scripts/validate-npx-usage.js
+      
+      # Cache npx packages
+      - name: Cache NPX packages
+        uses: actions/cache@v3
+        with:
+          path: ~/.npm/_npx
+          key: npx-${{ hashFiles('**/package.json') }}
+          restore-keys: npx-
+      
+      # Execute npx commands with monitoring
+      - name: Run NPX commands
+        run: |
+          # Set security environment
+          export NPX_STRICT_MODE=true
+          export NPM_CONFIG_AUDIT_LEVEL=high
+          
+          # Execute with monitoring
+          npm run security:audit
+          npm run validate:package
+          npm run test:lighthouse
+        env:
+          NPX_CACHE: true
+          NPX_AUDIT: true
+
+  performance-test:
+    runs-on: ubuntu-latest
+    needs: npx-validation
+    steps:
+      - uses: actions/checkout@v4
+      
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '18'
+          cache: 'npm'
+      
+      # Performance monitoring for npx
+      - name: NPX Performance Test
+        run: |
+          echo "📊 Testing NPX performance..."
+          time npx @latest bundlephobia ./package.json
+          time npx lighthouse-ci@latest --help
+          time npx audit-ci@latest --config audit-ci.json
+      
+      - name: Upload performance reports
+        uses: actions/upload-artifact@v3
+        with:
+          name: npx-performance
+          path: |
+            lighthouse-report.html
+            audit-ci-report.json
+
+// scripts/npx-cache-manager.js
+#!/usr/bin/env node
+const fs = require('fs');
+const path = require('path');
+const { execSync } = require('child_process');
+
+class NPXCacheManager {
+  constructor() {
+    this.cacheDir = path.join(require('os').homedir(), '.npm', '_npx');
+    this.configFile = path.join(this.cacheDir, 'cache-config.json');
+  }
+  
+  initializeCache() {
+    if (!fs.existsSync(this.cacheDir)) {
+      fs.mkdirSync(this.cacheDir, { recursive: true });
+    }
+    
+    if (!fs.existsSync(this.configFile)) {
+      const defaultConfig = {
+        maxAge: 7 * 24 * 60 * 60 * 1000, // 7 days
+        maxSize: 500 * 1024 * 1024, // 500MB
+        packages: {}
+      };
+      fs.writeFileSync(this.configFile, JSON.stringify(defaultConfig, null, 2));
+    }
+  }
+  
+  getCacheInfo() {
+    this.initializeCache();
+    const config = JSON.parse(fs.readFileSync(this.configFile, 'utf8'));
+    
+    let totalSize = 0;
+    const packages = [];
+    
+    if (fs.existsSync(this.cacheDir)) {
+      const entries = fs.readdirSync(this.cacheDir, { withFileTypes: true });
+      
+      entries.forEach(entry => {
+        if (entry.isDirectory()) {
+          const packagePath = path.join(this.cacheDir, entry.name);
+          const stats = fs.statSync(packagePath);
+          const size = this.getDirectorySize(packagePath);
+          
+          packages.push({
+            name: entry.name,
+            size,
+            lastUsed: stats.mtime,
+            path: packagePath
+          });
+          
+          totalSize += size;
+        }
+      });
+    }
+    
+    return {
+      totalSize,
+      packages: packages.sort((a, b) => b.lastUsed - a.lastUsed),
+      config
+    };
+  }
+  
+  getDirectorySize(dirPath) {
+    try {
+      const output = execSync(`du -sb "${dirPath}"`, { encoding: 'utf8' });
+      return parseInt(output.split('\t')[0]);
+    } catch {
+      return 0;
+    }
+  }
+  
+  cleanCache(options = {}) {
+    const { maxAge, maxSize, force } = options;
+    const cacheInfo = this.getCacheInfo();
+    
+    console.log(`📊 Cache info: ${cacheInfo.packages.length} packages, ${(cacheInfo.totalSize / 1024 / 1024).toFixed(2)}MB`);
+    
+    if (force) {
+      console.log('🧹 Force cleaning entire cache...');
+      execSync(`rm -rf "${this.cacheDir}"/*`);
+      console.log('✅ Cache cleared');
+      return;
+    }
+    
+    const now = Date.now();
+    const ageThreshold = maxAge || cacheInfo.config.maxAge;
+    const sizeThreshold = maxSize || cacheInfo.config.maxSize;
+    
+    // Remove old packages
+    const oldPackages = cacheInfo.packages.filter(pkg => 
+      now - pkg.lastUsed.getTime() > ageThreshold
+    );
+    
+    oldPackages.forEach(pkg => {
+      console.log(`🗑️  Removing old package: ${pkg.name}`);
+      execSync(`rm -rf "${pkg.path}"`);
+    });
+    
+    // Remove packages if cache is too large
+    if (cacheInfo.totalSize > sizeThreshold) {
+      console.log('💾 Cache size exceeded, removing least recently used packages...');
+      
+      const sortedPackages = cacheInfo.packages
+        .filter(pkg => !oldPackages.includes(pkg))
+        .sort((a, b) => a.lastUsed - b.lastUsed);
+      
+      let currentSize = cacheInfo.totalSize - oldPackages.reduce((sum, pkg) => sum + pkg.size, 0);
+      
+      for (const pkg of sortedPackages) {
+        if (currentSize <= sizeThreshold * 0.8) break; // Keep 20% buffer
+        
+        console.log(`🗑️  Removing large package: ${pkg.name} (${(pkg.size / 1024 / 1024).toFixed(2)}MB)`);
+        execSync(`rm -rf "${pkg.path}"`);
+        currentSize -= pkg.size;
+      }
+    }
+    
+    console.log('✅ Cache cleanup completed');
+  }
+  
+  monitor() {
+    setInterval(() => {
+      const info = this.getCacheInfo();
+      console.log(`📊 NPX Cache: ${info.packages.length} packages, ${(info.totalSize / 1024 / 1024).toFixed(2)}MB`);
+      
+      if (info.totalSize > info.config.maxSize) {
+        console.log('⚠️  Cache size exceeded, triggering cleanup...');
+        this.cleanCache();
+      }
+    }, 5 * 60 * 1000); // Check every 5 minutes
+  }
+}
+
+// CLI usage
+if (require.main === module) {
+  const manager = new NPXCacheManager();
+  const command = process.argv[2];
+  
+  switch (command) {
+    case 'info':
+      const info = manager.getCacheInfo();
+      console.log(`NPX Cache Information:`);
+      console.log(`  Total size: ${(info.totalSize / 1024 / 1024).toFixed(2)}MB`);
+      console.log(`  Packages: ${info.packages.length}`);
+      info.packages.slice(0, 10).forEach(pkg => {
+        console.log(`    ${pkg.name}: ${(pkg.size / 1024 / 1024).toFixed(2)}MB (${pkg.lastUsed.toDateString()})`);
+      });
+      break;
+      
+    case 'clean':
+      manager.cleanCache({ force: process.argv.includes('--force') });
+      break;
+      
+    case 'monitor':
+      console.log('🔍 Starting NPX cache monitoring...');
+      manager.monitor();
+      break;
+      
+    default:
+      console.log('Usage: node npx-cache-manager.js [info|clean|monitor]');
+      break;
+  }
+}
+
+// package.json - CI optimized scripts
+{
+  "scripts": {
+    // Pre-optimized npx commands for CI
+    "ci:security": "npx --cache audit-ci@6.6.0 --config audit-ci.json",
+    "ci:lighthouse": "npx --cache lighthouse-ci@0.12.0 autorun",
+    "ci:deps": "npx --cache depcheck@1.4.7 --ignores='@types/*,eslint-*'",
+    
+    // Cache management
+    "cache:npx:info": "node scripts/npx-cache-manager.js info",
+    "cache:npx:clean": "node scripts/npx-cache-manager.js clean",
+    "cache:npx:monitor": "node scripts/npx-cache-manager.js monitor",
+    
+    // Performance testing
+    "perf:npx": "hyperfine 'npx create-react-app --help' 'npx @latest create-next-app --help'",
+    
+    // Validation
+    "validate:npx": "node scripts/validate-npx-usage.js"
+  }
+}]]></correct-example>
+          <incorrect-example title="Unoptimized npx in CI/CD" conditions="Configuring npx for automated pipelines" expected-result="Reliable CI/CD npx execution" incorrectness-criteria="No caching, poor error handling, missing validation"><![CDATA[// .github/workflows/basic-ci.yml
+name: Basic CI
+on: [push]
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - run: npx create-react-app  # No version, no caching
+      - run: npx some-tool  # No validation
+
+// Missing:
+// - Cache optimization
+// - Package validation
+// - Performance monitoring
+// - Error handling
+// - Security checks
+// - Version pinning]]></incorrect-example>
+        </example>
+      </examples>
+    </requirement>
+  </requirements>
+  
+  <context description="Modern npx development considerations">
+    NPX has become an essential tool for executing Node.js packages without global installation. Modern npx usage emphasizes security, performance, and integration with CI/CD pipelines while maintaining flexibility for development workflows.
+
+    Key considerations for modern npx usage:
+    - Security-first approach with package validation and version pinning
+    - Performance optimization through intelligent caching and offline capabilities
+    - CI/CD integration with automated validation and monitoring
+    - Proper execution contexts and environment isolation
+    - Comprehensive error handling and fallback strategies
+    - Integration with modern development tools and workflows
+    - Registry validation and package verification
+
+    Expert insights from the npm team and JavaScript community emphasize the importance of treating npx as a powerful but potentially dangerous tool that requires careful configuration and monitoring, especially in automated environments.
+  </context>
+  
+  <references>
+    <reference as="dependency" href=".cursor/rules/000-core/002-cursor-rules-creation.mdc" reason="Follows standard rule format">Base rule format definition</reference>
+    <reference as="context" href="https://docs.npmjs.com/cli/v10/commands/npx" reason="Official npx documentation">NPX Official Documentation</reference>
+    <reference as="context" href="https://blog.npmjs.org/post/162869356040/introducing-npx-an-npm-package-runner" reason="NPX introduction">NPX Introduction and Best Practices</reference>
+    <reference as="context" href="https://docs.npmjs.com/cli/v10/configuring-npm/npmrc" reason="NPM configuration">NPM Configuration for NPX</reference>
+    <reference as="context" href="https://snyk.io/blog/ten-npm-security-best-practices/" reason="Security practices">NPM Security Best Practices</reference>
+  </references>
+</rule>

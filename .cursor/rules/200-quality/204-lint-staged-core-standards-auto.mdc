@@ -1,0 +1,1167 @@
+---
+description: Comprehensive lint-staged configuration for selective file processing, performance optimization, and automated code quality enforcement in Git workflows
+globs: ["*.{json,js,ts}"]
+alwaysApply: false
+---
+
+<rule>
+  <meta>
+    <title>Lint-Staged Core Standards Auto</title>
+    <description>Comprehensive lint-staged configuration for selective file processing, performance optimization, and automated code quality enforcement in Git workflows</description>
+    <created-at utc-timestamp="1744252880">January 27, 2025, 1:41 PM</created-at>
+    <last-updated-at utc-timestamp="1744252880">January 27, 2025, 1:41 PM</last-updated-at>
+    <applies-to>
+      <file-matcher glob="*.{json,js,ts}">Configuration files for lint-staged setup</file-matcher>
+      <action-matcher action="lint-staged-configuration">Triggered when configuring selective file linting</action-matcher>
+    </applies-to>
+  </meta>
+  <requirements>
+    <non-negotiable priority="critical">
+      <description>Configure lint-staged with file-type specific commands, performance optimization, and comprehensive error handling following modern selective linting patterns.</description>
+      <examples>
+        <example title="Comprehensive Lint-Staged Configuration">
+          <correct-example title="Modern lint-staged setup with file-specific commands" conditions="Setting up lint-staged for selective processing" expected-result="Optimized selective file processing" correctness-criteria="File-type specific commands, performance optimization, error handling, extensibility"><![CDATA[// package.json - Comprehensive lint-staged configuration
+{
+  "name": "my-project",
+  "scripts": {
+    // Core linting and formatting
+    "lint": "eslint . --ext js,ts,jsx,tsx --max-warnings 0",
+    "lint:fix": "eslint . --ext js,ts,jsx,tsx --fix",
+    "format": "prettier --write .",
+    "format:check": "prettier --check .",
+    "type-check": "tsc --noEmit",
+    
+    // Optimized commands for lint-staged
+    "lint:staged": "eslint --fix",
+    "format:staged": "prettier --write",
+    "type-check:staged": "tsc --noEmit --pretty",
+    
+    // Testing commands
+    "test": "jest",
+    "test:staged": "jest --bail --findRelatedTests",
+    "test:coverage": "jest --coverage --findRelatedTests",
+    
+    // CSS and style processing
+    "stylelint:staged": "stylelint --fix",
+    "postcss:staged": "postcss --replace",
+    
+    // Image optimization
+    "imagemin:staged": "imagemin",
+    
+    // Security and validation
+    "audit:staged": "npm audit --audit-level moderate",
+    "validate:staged": "npm run type-check:staged"
+  },
+  
+  // Main lint-staged configuration
+  "lint-staged": {
+    // JavaScript and TypeScript files
+    "*.{js,jsx,ts,tsx}": [
+      "eslint --fix",
+      "prettier --write",
+      "jest --bail --findRelatedTests --passWithNoTests"
+    ],
+    
+    // TypeScript files (additional type checking)
+    "*.{ts,tsx}": [
+      "tsc --noEmit --pretty --incremental"
+    ],
+    
+    // CSS and style files
+    "*.{css,scss,less}": [
+      "stylelint --fix",
+      "prettier --write"
+    ],
+    
+    // JSON files
+    "*.json": [
+      "prettier --write",
+      "jsonlint --quiet"
+    ],
+    
+    // YAML files
+    "*.{yml,yaml}": [
+      "prettier --write",
+      "yamllint"
+    ],
+    
+    // Markdown files
+    "*.md": [
+      "prettier --write",
+      "markdownlint --fix"
+    ],
+    
+    // Package.json specific validation
+    "package.json": [
+      "prettier --write",
+      "npm run audit:staged",
+      "sort-package-json"
+    ],
+    
+    // Configuration files
+    "*.config.{js,ts}": [
+      "eslint --fix",
+      "prettier --write"
+    ],
+    
+    // Image files (optimization)
+    "*.{png,jpg,jpeg,gif,svg}": [
+      "imagemin-lint-staged"
+    ],
+    
+    // Shell scripts
+    "*.sh": [
+      "shellcheck",
+      "shfmt -w"
+    ],
+    
+    // Docker files
+    "{Dockerfile,*.dockerfile}": [
+      "hadolint"
+    ],
+    
+    // All files (security scan)
+    "*": [
+      "secretlint"
+    ]
+  },
+  
+  "devDependencies": {
+    "lint-staged": "^15.2.0",
+    "eslint": "^8.55.0",
+    "prettier": "^3.1.0",
+    "typescript": "^5.3.0",
+    "jest": "^29.7.0",
+    "stylelint": "^16.0.0",
+    "jsonlint": "^1.6.3",
+    "yamllint": "^1.32.0",
+    "markdownlint-cli": "^0.38.0",
+    "sort-package-json": "^2.6.0",
+    "imagemin-lint-staged": "^0.5.1",
+    "shellcheck": "^0.9.0",
+    "shfmt": "^3.7.0",
+    "hadolint": "^2.12.0",
+    "secretlint": "^8.0.0"
+  }
+}
+
+// .lintstagedrc.js - Advanced configuration with conditional logic
+module.exports = {
+  // File-specific configurations
+  '*.{js,jsx,ts,tsx}': (files) => {
+    const commands = [];
+    
+    // Always run ESLint with fix
+    commands.push(`eslint --fix ${files.join(' ')}`);
+    
+    // Always run Prettier
+    commands.push(`prettier --write ${files.join(' ')}`);
+    
+    // Run tests only if test files or source files changed
+    const hasTests = files.some(file => file.includes('.test.') || file.includes('.spec.'));
+    const hasSourceFiles = files.some(file => !file.includes('.test.') && !file.includes('.spec.'));
+    
+    if (hasTests || hasSourceFiles) {
+      commands.push(`jest --bail --findRelatedTests --passWithNoTests ${files.join(' ')}`);
+    }
+    
+    return commands;
+  },
+  
+  // TypeScript specific checks
+  '*.{ts,tsx}': (files) => {
+    // Only run type checking if TypeScript files changed
+    const tsFiles = files.filter(file => file.endsWith('.ts') || file.endsWith('.tsx'));
+    if (tsFiles.length > 0) {
+      return [`tsc --noEmit --incremental`];
+    }
+    return [];
+  },
+  
+  // CSS with conditional PostCSS processing
+  '*.{css,scss,less}': (files) => {
+    const commands = [];
+    
+    // Always run Stylelint
+    commands.push(`stylelint --fix ${files.join(' ')}`);
+    
+    // Always run Prettier
+    commands.push(`prettier --write ${files.join(' ')}`);
+    
+    // Run PostCSS for CSS files if config exists
+    const fs = require('fs');
+    if (fs.existsSync('postcss.config.js')) {
+      const cssFiles = files.filter(file => file.endsWith('.css'));
+      if (cssFiles.length > 0) {
+        commands.push(`postcss --replace ${cssFiles.join(' ')}`);
+      }
+    }
+    
+    return commands;
+  },
+  
+  // Package.json with enhanced validation
+  'package.json': [
+    'prettier --write',
+    'sort-package-json',
+    () => 'npm run validate:dependencies',
+    () => 'npm audit --audit-level moderate',
+  ],
+  
+  // Configuration files with validation
+  '*.config.{js,ts,json}': (files) => [
+    `eslint --fix ${files.join(' ')}`,
+    `prettier --write ${files.join(' ')}`,
+    () => 'npm run validate:config',
+  ],
+  
+  // Image optimization with size limits
+  '*.{png,jpg,jpeg,gif}': (files) => {
+    const commands = [];
+    
+    // Check file sizes before processing
+    const fs = require('fs');
+    const largeFiles = files.filter(file => {
+      try {
+        const stats = fs.statSync(file);
+        return stats.size > 1024 * 1024; // 1MB
+      } catch {
+        return false;
+      }
+    });
+    
+    if (largeFiles.length > 0) {
+      console.warn(`⚠️  Large image files detected: ${largeFiles.join(', ')}`);
+      commands.push(`imagemin ${largeFiles.join(' ')} --out-dir=./`);
+    }
+    
+    return commands;
+  },
+  
+  // SVG optimization
+  '*.svg': [
+    'svgo --multipass',
+    'prettier --write',
+  ],
+  
+  // Documentation files
+  '*.md': (files) => {
+    const commands = [];
+    
+    // Format with Prettier
+    commands.push(`prettier --write ${files.join(' ')}`);
+    
+    // Lint markdown
+    commands.push(`markdownlint --fix ${files.join(' ')}`);
+    
+    // Check for broken links in documentation
+    const docFiles = files.filter(file => file.startsWith('docs/'));
+    if (docFiles.length > 0) {
+      commands.push('markdown-link-check docs/**/*.md');
+    }
+    
+    return commands;
+  },
+  
+  // Environment and configuration validation
+  '.env*': [
+    () => 'npm run validate:env',
+    'secretlint',
+  ],
+  
+  // Docker files
+  '{Dockerfile,*.dockerfile,docker-compose*.yml}': [
+    'hadolint',
+    'prettier --write',
+  ],
+  
+  // Shell scripts
+  '*.sh': [
+    'shellcheck',
+    'shfmt -w -i 2',
+  ],
+  
+  // Global security scan for sensitive content
+  '*': [
+    'secretlint',
+  ],
+};
+
+// scripts/validate-dependencies.js - Custom validation script
+#!/usr/bin/env node
+const { execSync } = require('child_process');
+const packageJson = require('../package.json');
+
+console.log('🔍 Validating dependencies...');
+
+try {
+  // Check for security vulnerabilities
+  console.log('🛡️  Checking for security vulnerabilities...');
+  execSync('npm audit --audit-level moderate', { stdio: 'inherit' });
+  
+  // Check for outdated dependencies
+  console.log('📦 Checking for outdated dependencies...');
+  const outdated = execSync('npm outdated --json', { encoding: 'utf8' });
+  if (outdated.trim()) {
+    const outdatedPackages = JSON.parse(outdated);
+    const criticalUpdates = Object.entries(outdatedPackages).filter(
+      ([, info]) => info.wanted !== info.current
+    );
+    
+    if (criticalUpdates.length > 0) {
+      console.warn('⚠️  Outdated packages found:', criticalUpdates.map(([name]) => name));
+    }
+  }
+  
+  // Validate package.json structure
+  console.log('📋 Validating package.json structure...');
+  const requiredFields = ['name', 'version', 'description', 'scripts'];
+  const missingFields = requiredFields.filter(field => !packageJson[field]);
+  
+  if (missingFields.length > 0) {
+    throw new Error(`Missing required fields in package.json: ${missingFields.join(', ')}`);
+  }
+  
+  console.log('✅ Dependency validation passed!');
+} catch (error) {
+  console.error('❌ Dependency validation failed:', error.message);
+  process.exit(1);
+}
+
+// .lintstagedrc.performance.js - Performance-optimized configuration
+module.exports = {
+  // Concurrent execution with resource limits
+  concurrent: true,
+  chunkSize: 10, // Process files in chunks of 10
+  
+  // File-specific optimizations
+  '*.{js,jsx,ts,tsx}': (files) => {
+    // Split into chunks for large file sets
+    if (files.length > 20) {
+      const chunks = [];
+      for (let i = 0; i < files.length; i += 10) {
+        chunks.push(files.slice(i, i + 10));
+      }
+      
+      return chunks.map(chunk => [
+        `eslint --fix ${chunk.join(' ')}`,
+        `prettier --write ${chunk.join(' ')}`,
+      ]).flat();
+    }
+    
+    return [
+      `eslint --fix ${files.join(' ')}`,
+      `prettier --write ${files.join(' ')}`,
+      `jest --bail --findRelatedTests --passWithNoTests ${files.join(' ')}`,
+    ];
+  },
+  
+  // Parallel processing for independent operations
+  '*.{css,scss}': (files) => {
+    return files.map(file => [
+      `stylelint --fix ${file}`,
+      `prettier --write ${file}`,
+    ]).flat();
+  },
+  
+  // Optimized for CI environments
+  '*.json': process.env.CI ? [
+    'prettier --check', // Don't write in CI, just check
+  ] : [
+    'prettier --write',
+    'jsonlint --quiet',
+  ],
+};
+
+// GitHub Actions integration
+name: Lint Staged Files
+on:
+  pull_request:
+    types: [opened, synchronize]
+
+jobs:
+  lint-staged:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0 # Needed for changed files detection
+      
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '18'
+          cache: 'npm'
+      
+      - run: npm ci
+      
+      - name: Get changed files
+        id: changed-files
+        uses: tj-actions/changed-files@v40
+        with:
+          files: |
+            **/*.{js,jsx,ts,tsx,css,scss,json,md}
+      
+      - name: Run lint-staged on changed files
+        if: steps.changed-files.outputs.any_changed == 'true'
+        run: |
+          echo "Changed files: ${{ steps.changed-files.outputs.all_changed_files }}"
+          npx lint-staged --allow-empty
+      
+      - name: Comment on PR with results
+        if: failure()
+        uses: actions/github-script@v7
+        with:
+          script: |
+            github.rest.issues.createComment({
+              issue_number: context.issue.number,
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              body: `❌ **Lint-staged validation failed**
+              
+              Some files in your PR don't meet our code quality standards.
+              Please run \`npm run lint:fix\` locally and commit the changes.
+              
+              You can also run \`npx lint-staged\` to see which files need attention.`
+            })]]></correct-example>
+          <incorrect-example title="Basic lint-staged configuration" conditions="Setting up lint-staged for selective processing" expected-result="Optimized selective file processing" incorrectness-criteria="Minimal file type support, no performance optimization, poor error handling"><![CDATA[// Bad: Basic lint-staged configuration
+{
+  "lint-staged": {
+    "*.js": "eslint --fix",
+    "*.css": "prettier --write"
+  }
+}
+
+// Missing:
+// - TypeScript support
+// - File-type specific optimizations
+// - Testing integration
+// - Performance considerations
+// - Error handling
+// - Conditional execution logic]]></incorrect-example>
+        </example>
+      </examples>
+    </non-negotiable>
+
+    <non-negotiable priority="critical">
+      <description>Implement performance optimization through chunked processing, concurrent execution, and file-size aware operations for large repositories.</description>
+      <examples>
+        <example title="Performance-Optimized Lint-Staged">
+          <correct-example title="Optimized lint-staged for large repositories" conditions="Configuring lint-staged for performance" expected-result="Fast selective file processing" correctness-criteria="Chunked processing, concurrent execution, resource management, monitoring"><![CDATA[// .lintstagedrc.performance.js - Advanced performance configuration
+const { execSync } = require('child_process');
+const fs = require('fs');
+const path = require('path');
+
+// Performance monitoring
+const startTime = Date.now();
+const logPerformance = (stage) => {
+  const elapsed = Date.now() - startTime;
+  console.log(`⏱️  ${stage}: ${elapsed}ms`);
+};
+
+// Repository analysis for dynamic configuration
+const analyzeRepository = () => {
+  try {
+    const packageJson = JSON.parse(fs.readFileSync('package.json', 'utf8'));
+    const srcFiles = execSync('find src -type f \\( -name "*.js" -o -name "*.ts" -o -name "*.jsx" -o -name "*.tsx" \\) 2>/dev/null | wc -l', { encoding: 'utf8' });
+    
+    return {
+      isLarge: parseInt(srcFiles) > 500,
+      hasTests: fs.existsSync('src/__tests__') || fs.existsSync('tests'),
+      hasTypeScript: packageJson.devDependencies?.typescript || packageJson.dependencies?.typescript,
+      fileCount: parseInt(srcFiles),
+    };
+  } catch (error) {
+    return { isLarge: false, hasTests: false, hasTypeScript: false, fileCount: 0 };
+  }
+};
+
+const repoInfo = analyzeRepository();
+console.log(`📊 Repository info: ${repoInfo.fileCount} files, ${repoInfo.isLarge ? 'large' : 'standard'} size`);
+
+module.exports = {
+  // Dynamic concurrency based on repository size
+  concurrent: repoInfo.isLarge ? false : true, // Disable concurrency for large repos to prevent memory issues
+  chunkSize: repoInfo.isLarge ? 5 : 10, // Smaller chunks for large repos
+  
+  // JavaScript/TypeScript with intelligent chunking
+  '*.{js,jsx,ts,tsx}': (files) => {
+    logPerformance('JS/TS processing start');
+    
+    const commands = [];
+    
+    // Chunk files for large sets
+    const chunkSize = repoInfo.isLarge ? 5 : 10;
+    const chunks = [];
+    for (let i = 0; i < files.length; i += chunkSize) {
+      chunks.push(files.slice(i, i + chunkSize));
+    }
+    
+    // Process each chunk
+    chunks.forEach((chunk, index) => {
+      console.log(`📦 Processing chunk ${index + 1}/${chunks.length} (${chunk.length} files)`);
+      
+      // ESLint with cache for performance
+      commands.push(`eslint --cache --cache-location .eslintcache --fix ${chunk.join(' ')}`);
+      
+      // Prettier with parallel processing
+      commands.push(`prettier --write ${chunk.join(' ')}`);
+      
+      // Conditional testing based on chunk content
+      const hasTestFiles = chunk.some(file => file.includes('.test.') || file.includes('.spec.'));
+      const hasSourceFiles = chunk.some(file => !file.includes('.test.') && !file.includes('.spec.'));
+      
+      if ((hasTestFiles || hasSourceFiles) && repoInfo.hasTests) {
+        // Use --findRelatedTests for better performance
+        commands.push(`jest --bail --findRelatedTests --passWithNoTests --cache ${chunk.join(' ')}`);
+      }
+    });
+    
+    return commands;
+  },
+  
+  // TypeScript with incremental compilation
+  '*.{ts,tsx}': (files) => {
+    if (!repoInfo.hasTypeScript) return [];
+    
+    logPerformance('TypeScript checking start');
+    
+    // Use incremental compilation for performance
+    const commands = [];
+    
+    // Only check changed TypeScript files in large repos
+    if (repoInfo.isLarge && files.length > 10) {
+      console.log('🔍 Large repo detected: using incremental TypeScript checking');
+      commands.push('tsc --noEmit --incremental --tsBuildInfoFile .tsbuildinfo');
+    } else {
+      commands.push('tsc --noEmit --incremental');
+    }
+    
+    return commands;
+  },
+  
+  // CSS with parallel processing
+  '*.{css,scss,less}': (files) => {
+    logPerformance('CSS processing start');
+    
+    // Process CSS files in parallel for better performance
+    const commands = files.map(file => [
+      `stylelint --cache --fix ${file}`,
+      `prettier --write ${file}`,
+    ]).flat();
+    
+    // Add PostCSS processing if config exists and files are not too many
+    if (fs.existsSync('postcss.config.js') && files.length <= 20) {
+      const cssFiles = files.filter(file => file.endsWith('.css'));
+      if (cssFiles.length > 0) {
+        commands.push(`postcss --replace ${cssFiles.join(' ')}`);
+      }
+    }
+    
+    return commands;
+  },
+  
+  // Large file handling with warnings
+  '*.{png,jpg,jpeg,gif}': (files) => {
+    const commands = [];
+    const maxSize = 1024 * 1024; // 1MB
+    
+    const fileStats = files.map(file => {
+      try {
+        const stats = fs.statSync(file);
+        return { file, size: stats.size };
+      } catch {
+        return { file, size: 0 };
+      }
+    });
+    
+    const largeFiles = fileStats.filter(({ size }) => size > maxSize);
+    const normalFiles = fileStats.filter(({ size }) => size <= maxSize);
+    
+    if (largeFiles.length > 0) {
+      console.warn(`⚠️  Large image files detected (>${maxSize / 1024}KB):`, largeFiles.map(f => f.file));
+      
+      // Process large files individually to prevent memory issues
+      largeFiles.forEach(({ file }) => {
+        commands.push(`imagemin ${file} --out-dir=${path.dirname(file)}`);
+      });
+    }
+    
+    // Process normal files in batch
+    if (normalFiles.length > 0) {
+      commands.push(`imagemin ${normalFiles.map(f => f.file).join(' ')} --out-dir=./`);
+    }
+    
+    return commands;
+  },
+  
+  // JSON files with size-based processing
+  '*.json': (files) => {
+    const commands = [];
+    
+    // Check file sizes and process accordingly
+    const largeJsonFiles = files.filter(file => {
+      try {
+        const stats = fs.statSync(file);
+        return stats.size > 100 * 1024; // 100KB
+      } catch {
+        return false;
+      }
+    });
+    
+    const normalJsonFiles = files.filter(file => !largeJsonFiles.includes(file));
+    
+    // Process large JSON files individually
+    if (largeJsonFiles.length > 0) {
+      console.log(`📄 Processing ${largeJsonFiles.length} large JSON files individually`);
+      largeJsonFiles.forEach(file => {
+        commands.push(`prettier --write ${file}`);
+      });
+    }
+    
+    // Process normal JSON files in batch
+    if (normalJsonFiles.length > 0) {
+      commands.push(`prettier --write ${normalJsonFiles.join(' ')}`);
+      commands.push(`jsonlint --quiet ${normalJsonFiles.join(' ')}`);
+    }
+    
+    return commands;
+  },
+  
+  // Package.json with dependency validation
+  'package.json': (files) => {
+    logPerformance('Package.json processing start');
+    
+    return [
+      'prettier --write package.json',
+      'sort-package-json',
+      () => {
+        console.log('🔍 Validating dependencies...');
+        try {
+          execSync('npm run validate:dependencies --silent', { stdio: 'pipe' });
+          console.log('✅ Dependencies validated');
+        } catch (error) {
+          console.warn('⚠️  Dependency validation issues detected');
+        }
+      },
+    ];
+  },
+  
+  // Environment-specific optimizations
+  ...(process.env.CI && {
+    // CI-specific optimizations
+    '*.{js,jsx,ts,tsx}': (files) => [
+      `eslint --cache --cache-location .eslintcache --max-warnings 0 ${files.join(' ')}`,
+      `prettier --check ${files.join(' ')}`, // Check only, don't write in CI
+    ],
+  }),
+  
+  // Memory monitoring for large operations
+  '*': (files) => {
+    if (files.length > 100) {
+      console.log(`🧠 Processing ${files.length} files - monitoring memory usage`);
+      
+      const checkMemory = () => {
+        const used = process.memoryUsage();
+        console.log(`Memory usage: ${Math.round(used.rss / 1024 / 1024)}MB RSS, ${Math.round(used.heapUsed / 1024 / 1024)}MB Heap`);
+      };
+      
+      checkMemory();
+      setTimeout(checkMemory, 5000); // Check again after 5 seconds
+    }
+    
+    return [];
+  },
+};
+
+// scripts/monitor-lint-staged-performance.js
+#!/usr/bin/env node
+const { spawn } = require('child_process');
+const fs = require('fs');
+
+console.log('🔍 Monitoring lint-staged performance...');
+
+const startTime = Date.now();
+const monitorFile = '.lint-staged-performance.json';
+
+// Monitor system resources
+const monitorResources = () => {
+  const used = process.memoryUsage();
+  return {
+    timestamp: Date.now(),
+    memory: {
+      rss: used.rss,
+      heapUsed: used.heapUsed,
+      heapTotal: used.heapTotal,
+    },
+    uptime: process.uptime(),
+  };
+};
+
+const performanceData = {
+  startTime,
+  resources: [],
+  commands: [],
+};
+
+// Monitor every second during execution
+const monitor = setInterval(() => {
+  performanceData.resources.push(monitorResources());
+}, 1000);
+
+// Run lint-staged with monitoring
+const lintStaged = spawn('npx', ['lint-staged'], {
+  stdio: 'inherit',
+  env: { ...process.env, LINT_STAGED_DEBUG: '1' },
+});
+
+lintStaged.on('exit', (code) => {
+  clearInterval(monitor);
+  
+  const endTime = Date.now();
+  const duration = endTime - startTime;
+  
+  performanceData.endTime = endTime;
+  performanceData.duration = duration;
+  performanceData.exitCode = code;
+  
+  // Calculate performance metrics
+  const avgMemory = performanceData.resources.reduce((sum, r) => sum + r.memory.rss, 0) / performanceData.resources.length;
+  const maxMemory = Math.max(...performanceData.resources.map(r => r.memory.rss));
+  
+  console.log(`\n📊 Performance Summary:`);
+  console.log(`   Duration: ${duration}ms`);
+  console.log(`   Average Memory: ${Math.round(avgMemory / 1024 / 1024)}MB`);
+  console.log(`   Peak Memory: ${Math.round(maxMemory / 1024 / 1024)}MB`);
+  console.log(`   Exit Code: ${code}`);
+  
+  // Save performance data
+  fs.writeFileSync(monitorFile, JSON.stringify(performanceData, null, 2));
+  console.log(`💾 Performance data saved to ${monitorFile}`);
+  
+  process.exit(code);
+});]]></correct-example>
+          <incorrect-example title="Unoptimized lint-staged configuration" conditions="Configuring lint-staged for performance" expected-result="Fast selective file processing" incorrectness-criteria="No chunking, sequential processing, no resource monitoring"><![CDATA[// Bad: Unoptimized configuration
+{
+  "lint-staged": {
+    // Processes all files at once - can cause memory issues
+    "*.{js,jsx,ts,tsx}": [
+      "eslint --fix", // No caching
+      "prettier --write",
+      "jest" // Runs entire test suite
+    ],
+    
+    // No file size considerations
+    "*.json": [
+      "prettier --write",
+      "jsonlint"
+    ]
+  }
+}
+
+// Missing:
+// - Performance monitoring
+// - Chunked processing
+// - Memory management
+// - File size awareness
+// - Repository-specific optimizations]]></incorrect-example>
+        </example>
+      </examples>
+    </non-negotiable>
+
+    <requirement priority="critical">
+      <description>Configure lint-staged with comprehensive file type support, validation pipelines, and integration with modern development tools and CI/CD workflows.</description>
+      <examples>
+        <example title="Comprehensive File Type Support">
+          <correct-example title="Complete lint-staged file type configuration" conditions="Setting up lint-staged for all project file types" expected-result="Comprehensive file processing pipeline" correctness-criteria="Supports all common file types, validation pipelines, tool integration, CI/CD compatibility"><![CDATA[// .lintstagedrc.comprehensive.js - Complete file type support
+module.exports = {
+  // Frontend files
+  '*.{js,jsx}': [
+    'eslint --fix',
+    'prettier --write',
+    'jest --bail --findRelatedTests --passWithNoTests',
+  ],
+  
+  '*.{ts,tsx}': [
+    'eslint --fix',
+    'prettier --write',
+    'tsc --noEmit --incremental',
+    'jest --bail --findRelatedTests --passWithNoTests',
+  ],
+  
+  // Styling files
+  '*.{css,scss,sass}': [
+    'stylelint --fix',
+    'prettier --write',
+  ],
+  
+  '*.less': [
+    'lessc --lint',
+    'stylelint --fix',
+    'prettier --write',
+  ],
+  
+  '*.{postcss,pcss}': [
+    'stylelint --fix',
+    'postcss --replace',
+    'prettier --write',
+  ],
+  
+  // Configuration and data files
+  '*.json': [
+    'jsonlint --quiet',
+    'prettier --write',
+  ],
+  
+  '*.{yml,yaml}': [
+    'yamllint --strict',
+    'prettier --write',
+  ],
+  
+  '*.toml': [
+    'taplo format',
+    'taplo check',
+  ],
+  
+  '*.xml': [
+    'xmllint --format --output',
+  ],
+  
+  // Documentation files
+  '*.md': [
+    'markdownlint --fix',
+    'prettier --write',
+    'markdown-link-check',
+  ],
+  
+  '*.{rst,txt}': [
+    'prettier --write',
+  ],
+  
+  // Package and dependency files
+  'package.json': [
+    'sort-package-json',
+    'prettier --write',
+    () => 'npm run validate:dependencies',
+    () => 'npm audit --audit-level moderate',
+  ],
+  
+  'package-lock.json': [
+    () => 'npm ci --dry-run', // Validate lock file
+  ],
+  
+  'yarn.lock': [
+    () => 'yarn install --frozen-lockfile --dry-run',
+  ],
+  
+  'pnpm-lock.yaml': [
+    () => 'pnpm install --frozen-lockfile --dry-run',
+  ],
+  
+  // Environment and configuration
+  '.env*': [
+    'secretlint',
+    () => 'npm run validate:env',
+  ],
+  
+  '*.config.{js,ts,mjs,cjs}': [
+    'eslint --fix',
+    'prettier --write',
+    () => 'npm run validate:config',
+  ],
+  
+  // Build and deployment files
+  '{Dockerfile,*.dockerfile}': [
+    'hadolint --ignore DL3008 --ignore DL3009',
+    'prettier --write',
+  ],
+  
+  'docker-compose*.{yml,yaml}': [
+    'docker-compose config --quiet',
+    'yamllint --strict',
+    'prettier --write',
+  ],
+  
+  // Infrastructure as Code
+  '*.{tf,tfvars}': [
+    'terraform fmt',
+    'terraform validate',
+    'tflint',
+  ],
+  
+  '*.{cloudformation,cfn}.{yml,yaml,json}': [
+    'cfn-lint',
+    'prettier --write',
+  ],
+  
+  // Kubernetes manifests
+  'k8s/**/*.{yml,yaml}': [
+    'kubeval',
+    'yamllint --strict',
+    'prettier --write',
+  ],
+  
+  // Scripts and automation
+  '*.sh': [
+    'shellcheck',
+    'shfmt -w -i 2 -ci',
+  ],
+  
+  '*.{ps1,psm1}': [
+    'powershell -Command "Invoke-ScriptAnalyzer"',
+  ],
+  
+  '*.py': [
+    'black',
+    'isort',
+    'flake8',
+    'mypy',
+  ],
+  
+  // Images and media
+  '*.{png,jpg,jpeg,gif}': (files) => {
+    const commands = [];
+    
+    // Check file sizes
+    const fs = require('fs');
+    const largeFiles = files.filter(file => {
+      try {
+        const stats = fs.statSync(file);
+        return stats.size > 1024 * 1024; // 1MB
+      } catch {
+        return false;
+      }
+    });
+    
+    if (largeFiles.length > 0) {
+      console.warn(`⚠️  Large image files: ${largeFiles.join(', ')}`);
+      commands.push(`imagemin ${largeFiles.join(' ')} --out-dir=./`);
+    }
+    
+    return commands;
+  },
+  
+  '*.svg': [
+    'svgo --multipass',
+    'prettier --write',
+  ],
+  
+  // Security and compliance
+  '*': [
+    'secretlint', // Scan all files for secrets
+  ],
+  
+  // Language-specific files
+  '*.go': [
+    'gofmt -w',
+    'golint',
+    'go vet',
+  ],
+  
+  '*.rs': [
+    'rustfmt',
+    'cargo clippy -- -D warnings',
+  ],
+  
+  '*.java': [
+    'google-java-format --replace',
+    'checkstyle',
+  ],
+  
+  '*.{c,cpp,h,hpp}': [
+    'clang-format -i',
+    'cppcheck',
+  ],
+  
+  // Database files
+  '*.sql': [
+    'sqlfluff fix --dialect postgres',
+    'sql-formatter --config .sqlformatterrc',
+  ],
+  
+  // API specifications
+  '*.{openapi,swagger}.{yml,yaml,json}': [
+    'swagger-codegen validate',
+    'prettier --write',
+  ],
+  
+  // Mobile development
+  '*.{swift,m,mm}': [
+    'swiftformat',
+    'swiftlint autocorrect',
+  ],
+  
+  '*.kt': [
+    'ktlint -F',
+  ],
+  
+  // Game development
+  '*.{cs,unity}': [
+    'dotnet format',
+  ],
+  
+  // Data science
+  '*.{ipynb,jupyter}': [
+    'nbstripout',
+    'jupyter nbconvert --to notebook --execute --inplace',
+  ],
+  
+  '*.r': [
+    'formatR',
+    'lintr',
+  ],
+  
+  // Performance monitoring
+  '*': (files) => {
+    console.log(`🔍 Processing ${files.length} files`);
+    
+    if (files.length > 50) {
+      console.log('📊 Large file set detected - monitoring performance');
+      const startTime = Date.now();
+      
+      process.on('beforeExit', () => {
+        const duration = Date.now() - startTime;
+        console.log(`⏱️  Processing completed in ${duration}ms`);
+        
+        // Log to performance file
+        const fs = require('fs');
+        const perfData = {
+          timestamp: new Date().toISOString(),
+          fileCount: files.length,
+          duration,
+          types: [...new Set(files.map(f => f.split('.').pop()))],
+        };
+        
+        fs.appendFileSync('.lint-staged-perf.log', JSON.stringify(perfData) + '\n');
+      });
+    }
+    
+    return [];
+  },
+};
+
+// scripts/validate-all-files.js - Comprehensive validation script
+#!/usr/bin/env node
+const { execSync } = require('child_process');
+const fs = require('fs');
+const path = require('path');
+
+console.log('🔍 Running comprehensive file validation...');
+
+const validationRules = {
+  // Security validation
+  security: {
+    command: 'secretlint .',
+    description: 'Scanning for secrets and sensitive information',
+  },
+  
+  // Dependency validation
+  dependencies: {
+    command: 'npm audit --audit-level moderate',
+    description: 'Checking for security vulnerabilities',
+  },
+  
+  // Configuration validation
+  config: {
+    command: 'npm run validate:config',
+    description: 'Validating configuration files',
+  },
+  
+  // Environment validation
+  environment: {
+    command: 'npm run validate:env',
+    description: 'Validating environment configuration',
+  },
+  
+  // Build validation
+  build: {
+    command: 'npm run build',
+    description: 'Validating build process',
+  },
+  
+  // Test validation
+  tests: {
+    command: 'npm test',
+    description: 'Running test suite',
+  },
+};
+
+let hasErrors = false;
+
+Object.entries(validationRules).forEach(([name, rule]) => {
+  console.log(`\n${rule.description}...`);
+  
+  try {
+    execSync(rule.command, { stdio: 'inherit' });
+    console.log(`✅ ${name} validation passed`);
+  } catch (error) {
+    console.error(`❌ ${name} validation failed`);
+    hasErrors = true;
+  }
+});
+
+if (hasErrors) {
+  console.error('\n❌ Some validations failed');
+  process.exit(1);
+} else {
+  console.log('\n✅ All validations passed!');
+}
+
+// package.json integration scripts
+{
+  "scripts": {
+    "validate:dependencies": "node scripts/validate-dependencies.js",
+    "validate:config": "node scripts/validate-config.js",
+    "validate:env": "node scripts/validate-env.js",
+    "validate:all": "node scripts/validate-all-files.js",
+    "lint-staged:performance": "node scripts/monitor-lint-staged-performance.js"
+  }
+}]]></correct-example>
+          <incorrect-example title="Limited file type support" conditions="Setting up lint-staged for all project file types" expected-result="Comprehensive file processing pipeline" incorrectness-criteria="Limited file types, no validation pipelines, poor tool integration"><![CDATA[// Bad: Limited file type support
+{
+  "lint-staged": {
+    "*.js": "eslint --fix",
+    "*.css": "prettier --write"
+  }
+}
+
+// Missing:
+// - TypeScript support
+// - Configuration file validation
+// - Documentation processing
+// - Security scanning
+// - Performance monitoring
+// - Integration with CI/CD
+// - Comprehensive file type coverage]]></incorrect-example>
+        </example>
+      </examples>
+    </requirement>
+  </requirements>
+  
+  <context description="Modern lint-staged development considerations">
+    Lint-staged has become an essential tool for maintaining code quality in modern Git workflows. The latest versions emphasize performance optimization, comprehensive file type support, and seamless integration with development tools and CI/CD pipelines.
+
+    Key considerations for modern lint-staged usage:
+    - Performance optimization through chunked and concurrent processing
+    - Comprehensive file type support covering all project assets
+    - Integration with modern development tools and frameworks
+    - CI/CD pipeline compatibility and optimization
+    - Repository size awareness and adaptive configuration
+    - Security scanning and compliance validation
+    - Error handling and developer experience optimization
+
+    Expert insights from the lint-staged community emphasize the importance of balancing thoroughness with performance, providing clear feedback to developers, and maintaining consistency across different development environments and team workflows.
+  </context>
+  
+  <references>
+    <reference as="dependency" href=".cursor/rules/000-core/002-cursor-rules-creation.mdc" reason="Follows standard rule format">Base rule format definition</reference>
+    <reference as="context" href="https://github.com/okonet/lint-staged" reason="Official lint-staged documentation">Lint-staged Official Repository</reference>
+    <reference as="context" href="https://prettier.io/docs/en/install.html#git-hooks" reason="Prettier integration">Prettier Git Hooks Integration</reference>
+    <reference as="context" href="https://eslint.org/docs/latest/use/integrations" reason="ESLint integration">ESLint Integrations Documentation</reference>
+    <reference as="context" href="https://jestjs.io/docs/cli#--findrelatedtests" reason="Jest integration">Jest CLI Documentation</reference>
+    <reference as="context" href="https://stylelint.io/user-guide/integrations/other" reason="Stylelint integration">Stylelint Integrations</reference>
+  </references>
+</rule>
+description:
+globs:
+alwaysApply: false
+---

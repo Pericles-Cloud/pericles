@@ -1,0 +1,710 @@
+---
+description: Comprehensive npm package management standards with modern dependency management, security practices, and performance optimization following npm best practices
+globs: ["package*.json"]
+alwaysApply: false
+---
+
+<rule>
+  <meta>
+    <title>NPM Core Standards Auto</title>
+    <description>Comprehensive npm package management standards with modern dependency management, security practices, and performance optimization following npm best practices</description>
+    <created-at utc-timestamp="1744253480">January 27, 2025, 1:51 PM</created-at>
+    <last-updated-at utc-timestamp="1744253480">January 27, 2025, 1:51 PM</last-updated-at>
+    <applies-to>
+      <file-matcher glob="package*.json">NPM package configuration files</file-matcher>
+      <action-matcher action="npm-configuration">Triggered when configuring npm package management</action-matcher>
+    </applies-to>
+  </meta>
+  <requirements>
+    <non-negotiable priority="critical">
+      <description>Use npm with package-lock.json for deterministic dependency resolution, enforce exact versions for critical dependencies, and implement comprehensive security auditing following npm security best practices.</description>
+      <examples>
+        <example title="Modern NPM Configuration">
+          <correct-example title="Comprehensive package.json with security" conditions="Setting up npm project configuration" expected-result="Secure and optimized npm setup" correctness-criteria="Uses modern npm features, security practices, performance optimization"><![CDATA[// package.json - Modern npm configuration
+{
+  "name": "my-frontend-app",
+  "version": "1.0.0",
+  "description": "Modern frontend application with npm best practices",
+  "private": true,
+  "type": "module",
+  "engines": {
+    "node": ">=18.0.0",
+    "npm": ">=9.0.0"
+  },
+  "scripts": {
+    // Development scripts
+    "dev": "vite",
+    "dev:debug": "vite --debug",
+    "dev:host": "vite --host",
+    
+    // Build scripts
+    "build": "tsc && vite build",
+    "build:analyze": "npm run build -- --analyze",
+    "build:prod": "NODE_ENV=production npm run build",
+    
+    // Testing scripts
+    "test": "jest",
+    "test:watch": "jest --watch",
+    "test:coverage": "jest --coverage",
+    "test:ci": "jest --ci --coverage --maxWorkers=2",
+    
+    // Code quality scripts
+    "lint": "eslint . --ext js,ts,jsx,tsx --max-warnings 0",
+    "lint:fix": "eslint . --ext js,ts,jsx,tsx --fix",
+    "format": "prettier --write .",
+    "format:check": "prettier --check .",
+    "type-check": "tsc --noEmit",
+    
+    // Security and audit scripts
+    "audit": "npm audit --audit-level moderate",
+    "audit:fix": "npm audit fix",
+    "audit:signatures": "npm audit signatures",
+    "outdated": "npm outdated",
+    "vulnerabilities": "npm audit --json | jq '.vulnerabilities'",
+    
+    // Package management scripts
+    "deps:update": "npm update",
+    "deps:check": "npm-check-updates",
+    "deps:upgrade": "npm-check-updates -u",
+    "clean": "rm -rf node_modules package-lock.json && npm install",
+    "reinstall": "npm run clean",
+    
+    // CI/CD scripts
+    "ci": "npm ci",
+    "preinstall": "npx only-allow npm",
+    "postinstall": "npm run audit",
+    "prepare": "husky install",
+    
+    // Validation scripts
+    "validate": "npm run lint && npm run type-check && npm run test && npm run build",
+    "validate:ci": "npm run lint && npm run type-check && npm run test:ci && npm run build"
+  },
+  
+  // Dependencies with specific version strategies
+  "dependencies": {
+    "react": "^18.2.0",
+    "react-dom": "^18.2.0",
+    "@types/react": "^18.2.0",
+    "@types/react-dom": "^18.2.0"
+  },
+  
+  "devDependencies": {
+    // Build tools
+    "vite": "^5.0.0",
+    "typescript": "^5.3.0",
+    
+    // Code quality tools
+    "eslint": "^8.55.0",
+    "prettier": "^3.1.0",
+    "husky": "^8.0.3",
+    "lint-staged": "^15.2.0",
+    
+    // Testing tools
+    "jest": "^29.7.0",
+    "@testing-library/react": "^14.1.0",
+    "@testing-library/jest-dom": "^6.1.0",
+    
+    // Development utilities
+    "npm-check-updates": "^16.14.0",
+    "only-allow": "^1.2.1"
+  },
+  
+  // Peer dependencies for library projects
+  "peerDependencies": {
+    "react": ">=16.8.0",
+    "react-dom": ">=16.8.0"
+  },
+  
+  "peerDependenciesMeta": {
+    "react": {
+      "optional": false
+    },
+    "react-dom": {
+      "optional": false
+    }
+  },
+  
+  // npm configuration
+  "npmConfig": {
+    "fund": false,
+    "audit-level": "moderate",
+    "save-exact": false,
+    "save-prefix": "^"
+  },
+  
+  // Package metadata
+  "keywords": [
+    "react",
+    "typescript",
+    "frontend",
+    "vite"
+  ],
+  "author": {
+    "name": "Your Name",
+    "email": "your.email@example.com",
+    "url": "https://yourwebsite.com"
+  },
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/username/repository.git"
+  },
+  "bugs": {
+    "url": "https://github.com/username/repository/issues"
+  },
+  "homepage": "https://github.com/username/repository#readme",
+  
+  // Browser compatibility
+  "browserslist": [
+    "> 1%",
+    "last 2 versions",
+    "not dead",
+    "not ie 11"
+  ],
+  
+  // File inclusion/exclusion
+  "files": [
+    "dist",
+    "lib",
+    "types",
+    "README.md",
+    "LICENSE"
+  ],
+  
+  // npm publish configuration
+  "publishConfig": {
+    "access": "public",
+    "registry": "https://registry.npmjs.org/"
+  }
+}
+
+// .npmrc - npm configuration file
+# Performance optimization
+prefer-offline=true
+prefer-dedupe=true
+save-exact=false
+save-prefix=^
+
+# Security settings
+audit-level=moderate
+fund=false
+
+# Registry configuration
+registry=https://registry.npmjs.org/
+# @company:registry=https://npm.company.com/
+
+# Cache configuration
+cache-max=86400000
+cache-min=3600
+
+# Install behavior
+package-lock=true
+shrinkwrap=false
+optional=true
+dev=true
+
+# Logging
+loglevel=warn
+progress=true
+
+# CI optimizations
+if-present=true
+ignore-scripts=false
+
+# scripts/npm-security-audit.js
+#!/usr/bin/env node
+const { execSync } = require('child_process');
+const fs = require('fs');
+
+console.log('🔍 Running comprehensive npm security audit...');
+
+const auditChecks = [
+  {
+    name: 'Vulnerability Audit',
+    command: 'npm audit --json',
+    handler: (output) => {
+      const audit = JSON.parse(output);
+      if (audit.metadata.vulnerabilities.total > 0) {
+        console.warn(`⚠️  Found ${audit.metadata.vulnerabilities.total} vulnerabilities`);
+        console.log('High:', audit.metadata.vulnerabilities.high);
+        console.log('Moderate:', audit.metadata.vulnerabilities.moderate);
+        console.log('Low:', audit.metadata.vulnerabilities.low);
+        return false;
+      }
+      return true;
+    }
+  },
+  {
+    name: 'Signature Verification',
+    command: 'npm audit signatures',
+    handler: (output) => {
+      if (output.includes('verified')) {
+        console.log('✅ All package signatures verified');
+        return true;
+      }
+      console.error('❌ Package signature verification failed');
+      return false;
+    }
+  },
+  {
+    name: 'Outdated Dependencies',
+    command: 'npm outdated --json',
+    handler: (output) => {
+      try {
+        const outdated = JSON.parse(output);
+        const packages = Object.keys(outdated);
+        if (packages.length > 0) {
+          console.warn(`📦 ${packages.length} packages are outdated:`, packages);
+          return true; // Don't fail on outdated packages
+        }
+        return true;
+      } catch {
+        return true; // No outdated packages
+      }
+    }
+  }
+];
+
+let allPassed = true;
+
+auditChecks.forEach(check => {
+  console.log(`\n🔍 ${check.name}...`);
+  try {
+    const output = execSync(check.command, { encoding: 'utf8', stdio: 'pipe' });
+    if (!check.handler(output)) {
+      allPassed = false;
+    }
+  } catch (error) {
+    console.error(`❌ ${check.name} failed:`, error.message);
+    allPassed = false;
+  }
+});
+
+if (allPassed) {
+  console.log('\n✅ All security checks passed!');
+  process.exit(0);
+} else {
+  console.error('\n❌ Some security checks failed');
+  process.exit(1);
+}
+
+// scripts/validate-package-json.js
+#!/usr/bin/env node
+const fs = require('fs');
+const path = require('path');
+
+console.log('📋 Validating package.json structure...');
+
+const packagePath = path.join(process.cwd(), 'package.json');
+const packageJson = JSON.parse(fs.readFileSync(packagePath, 'utf8'));
+
+const validations = [
+  {
+    name: 'Required Fields',
+    check: () => {
+      const required = ['name', 'version', 'description', 'scripts'];
+      const missing = required.filter(field => !packageJson[field]);
+      if (missing.length > 0) {
+        throw new Error(`Missing required fields: ${missing.join(', ')}`);
+      }
+    }
+  },
+  {
+    name: 'Node Engine Version',
+    check: () => {
+      if (!packageJson.engines?.node) {
+        throw new Error('Missing engines.node specification');
+      }
+      const nodeVersion = packageJson.engines.node;
+      if (!nodeVersion.includes('>=18')) {
+        console.warn('⚠️  Consider requiring Node.js 18+ for modern features');
+      }
+    }
+  },
+  {
+    name: 'Security Scripts',
+    check: () => {
+      const securityScripts = ['audit', 'audit:fix'];
+      const hasSecurityScripts = securityScripts.some(script => 
+        packageJson.scripts?.[script]
+      );
+      if (!hasSecurityScripts) {
+        console.warn('⚠️  Missing security audit scripts');
+      }
+    }
+  },
+  {
+    name: 'Type Checking',
+    check: () => {
+      if (packageJson.devDependencies?.typescript && !packageJson.scripts?.['type-check']) {
+        console.warn('⚠️  TypeScript detected but no type-check script found');
+      }
+    }
+  },
+  {
+    name: 'License',
+    check: () => {
+      if (!packageJson.license) {
+        console.warn('⚠️  No license specified');
+      }
+    }
+  }
+];
+
+let hasWarnings = false;
+
+validations.forEach(validation => {
+  try {
+    validation.check();
+    console.log(`✅ ${validation.name}`);
+  } catch (error) {
+    console.error(`❌ ${validation.name}: ${error.message}`);
+    hasWarnings = true;
+  }
+});
+
+if (!hasWarnings) {
+  console.log('\n✅ Package.json validation passed!');
+} else {
+  console.warn('\n⚠️  Package.json has some issues to address');
+}
+
+// GitHub Actions workflow for npm
+name: NPM CI/CD
+on:
+  push:
+    branches: [main, develop]
+  pull_request:
+    branches: [main]
+
+jobs:
+  install-and-audit:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '18'
+          cache: 'npm'
+      
+      # Use npm ci for faster, reliable, reproducible builds
+      - name: Install dependencies
+        run: npm ci
+      
+      # Security audit
+      - name: Security audit
+        run: npm audit --audit-level moderate
+      
+      # Signature verification
+      - name: Verify package signatures
+        run: npm audit signatures
+      
+      # Validate package.json
+      - name: Validate package.json
+        run: node scripts/validate-package-json.js
+      
+      # Run comprehensive validation
+      - name: Run validation suite
+        run: npm run validate:ci]]></correct-example>
+          <incorrect-example title="Basic npm configuration without security" conditions="Setting up npm project configuration" expected-result="Secure and optimized npm setup" incorrectness-criteria="Missing security practices, no audit scripts, poor dependency management"><![CDATA[// package.json - Basic configuration
+{
+  "name": "my-app",
+  "version": "1.0.0",
+  "scripts": {
+    "start": "node index.js",
+    "build": "webpack"
+  },
+  "dependencies": {
+    "react": "*",  // Dangerous wildcard version
+    "lodash": "4.17.15"  // Outdated version with vulnerabilities
+  }
+}
+
+// Missing:
+// - Engine specifications
+// - Security audit scripts
+// - Proper version management
+// - Development dependencies separation
+// - npm configuration
+// - CI/CD integration]]></incorrect-example>
+        </example>
+      </examples>
+    </non-negotiable>
+
+    <requirement priority="critical">
+      <description>Configure npm with performance optimization through caching, offline mode, and CI/CD-specific settings for faster and more reliable builds.</description>
+      <examples>
+        <example title="NPM Performance Optimization">
+          <correct-example title="Optimized npm configuration" conditions="Optimizing npm performance" expected-result="Fast and reliable npm operations" correctness-criteria="Uses caching, offline capabilities, CI optimizations, monitoring"><![CDATA[// .npmrc - Performance-optimized configuration
+# Cache optimization
+cache=/tmp/.npm
+cache-max=86400000
+cache-min=3600
+prefer-offline=true
+prefer-dedupe=true
+
+# Network optimization
+fetch-retries=3
+fetch-retry-factor=2
+fetch-retry-mintimeout=10000
+fetch-retry-maxtimeout=60000
+
+# Install optimization
+package-lock=true
+package-lock-only=false
+optional=true
+dev=true
+progress=true
+
+# CI/CD optimizations
+audit=true
+fund=false
+update-notifier=false
+
+# Registry optimization
+registry=https://registry.npmjs.org/
+maxsockets=50
+
+# Security settings
+audit-level=moderate
+
+# scripts/npm-performance-monitor.js
+#!/usr/bin/env node
+const { performance } = require('perf_hooks');
+const { execSync } = require('child_process');
+const fs = require('fs');
+
+console.log('📊 Monitoring npm performance...');
+
+const measureCommand = (name, command) => {
+  const start = performance.now();
+  try {
+    execSync(command, { stdio: 'pipe' });
+    const end = performance.now();
+    return { name, duration: end - start, success: true };
+  } catch (error) {
+    const end = performance.now();
+    return { name, duration: end - start, success: false, error: error.message };
+  }
+};
+
+const performanceTests = [
+  {
+    name: 'npm install (cold)',
+    setup: () => {
+      if (fs.existsSync('node_modules')) {
+        execSync('rm -rf node_modules');
+      }
+      if (fs.existsSync('package-lock.json')) {
+        fs.unlinkSync('package-lock.json');
+      }
+    },
+    command: 'npm install'
+  },
+  {
+    name: 'npm install (warm cache)',
+    setup: () => {
+      if (fs.existsSync('node_modules')) {
+        execSync('rm -rf node_modules');
+      }
+    },
+    command: 'npm install'
+  },
+  {
+    name: 'npm ci',
+    setup: () => {
+      if (fs.existsSync('node_modules')) {
+        execSync('rm -rf node_modules');
+      }
+    },
+    command: 'npm ci'
+  },
+  {
+    name: 'npm audit',
+    setup: () => {},
+    command: 'npm audit'
+  }
+];
+
+const results = [];
+
+performanceTests.forEach(test => {
+  console.log(`\n🔍 Testing: ${test.name}`);
+  test.setup();
+  const result = measureCommand(test.name, test.command);
+  results.push(result);
+  
+  if (result.success) {
+    console.log(`✅ ${test.name}: ${Math.round(result.duration)}ms`);
+  } else {
+    console.log(`❌ ${test.name}: Failed after ${Math.round(result.duration)}ms`);
+  }
+});
+
+// Generate performance report
+const report = {
+  timestamp: new Date().toISOString(),
+  results,
+  summary: {
+    totalTests: results.length,
+    successful: results.filter(r => r.success).length,
+    averageDuration: results.reduce((sum, r) => sum + r.duration, 0) / results.length
+  }
+};
+
+fs.writeFileSync('.npm-performance.json', JSON.stringify(report, null, 2));
+console.log('\n📊 Performance report saved to .npm-performance.json');
+
+// Dockerfile with npm optimization
+FROM node:18-alpine AS builder
+
+# Enable npm cache mount
+RUN mkdir -p /root/.npm
+VOLUME /root/.npm
+
+# Copy package files
+COPY package*.json ./
+
+# Install dependencies with cache optimization
+RUN npm ci --only=production --cache /root/.npm
+
+# Copy application code
+COPY . .
+
+# Build application
+RUN npm run build
+
+# Multi-stage production image
+FROM node:18-alpine AS production
+
+# Create app directory
+WORKDIR /usr/src/app
+
+# Copy package files
+COPY package*.json ./
+
+# Install only production dependencies
+RUN npm ci --only=production --no-audit --no-fund
+
+# Copy built application
+COPY --from=builder /dist ./dist
+
+# Start application
+CMD ["npm", "start"]
+
+// GitHub Actions with npm optimization
+name: NPM Performance CI
+on: [push, pull_request]
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    
+    strategy:
+      matrix:
+        node-version: [18, 20]
+    
+    steps:
+      - uses: actions/checkout@v4
+      
+      - name: Use Node.js ${{ matrix.node-version }}
+        uses: actions/setup-node@v4
+        with:
+          node-version: ${{ matrix.node-version }}
+          cache: 'npm'
+      
+      # Cache node_modules
+      - name: Cache node_modules
+        uses: actions/cache@v3
+        with:
+          path: node_modules
+          key: ${{ runner.os }}-node-${{ matrix.node-version }}-${{ hashFiles('**/package-lock.json') }}
+          restore-keys: |
+            ${{ runner.os }}-node-${{ matrix.node-version }}-
+            ${{ runner.os }}-node-
+      
+      # Use npm ci for deterministic installs
+      - name: Install dependencies
+        run: npm ci --prefer-offline
+      
+      # Run performance monitoring
+      - name: Monitor npm performance
+        run: node scripts/npm-performance-monitor.js
+      
+      # Upload performance artifacts
+      - name: Upload performance report
+        uses: actions/upload-artifact@v3
+        if: always()
+        with:
+          name: npm-performance-${{ matrix.node-version }}
+          path: .npm-performance.json
+
+# package.json scripts for performance
+{
+  "scripts": {
+    "perf:install": "node scripts/npm-performance-monitor.js",
+    "perf:audit": "time npm audit",
+    "perf:cache-clean": "npm cache clean --force",
+    "perf:cache-verify": "npm cache verify",
+    "perf:benchmark": "hyperfine 'npm ci' 'yarn install --frozen-lockfile' 'pnpm install --frozen-lockfile'",
+    
+    "install:cold": "rm -rf node_modules package-lock.json && npm install",
+    "install:verify": "npm ci --dry-run",
+    "install:offline": "npm install --prefer-offline",
+    
+    "cache:clean": "npm cache clean --force",
+    "cache:verify": "npm cache verify",
+    "cache:size": "du -sh ~/.npm",
+    
+    "deps:size": "npm run build && bundlephobia .",
+    "deps:licenses": "license-checker --summary",
+    "deps:duplicates": "npm ls --depth=0 | grep deduped"
+  }
+}]]></correct-example>
+          <incorrect-example title="Unoptimized npm configuration" conditions="Optimizing npm performance" expected-result="Fast and reliable npm operations" incorrectness-criteria="No caching optimization, poor CI configuration, no performance monitoring"><![CDATA[// Basic .npmrc without optimization
+registry=https://registry.npmjs.org/
+
+// Basic package.json without performance considerations
+{
+  "scripts": {
+    "install": "npm install",
+    "build": "webpack"
+  }
+}
+
+// Missing:
+// - Cache optimization
+// - Offline capabilities
+// - CI/CD specific settings
+// - Performance monitoring
+// - Network optimization
+// - Build optimization]]></incorrect-example>
+        </example>
+      </examples>
+    </requirement>
+  </requirements>
+  
+  <context description="Modern npm development considerations">
+    NPM has evolved significantly with features like package-lock.json, audit functionality, and improved caching. Modern npm usage emphasizes security, performance, and reproducible builds across different environments.
+
+    Key considerations for modern npm usage:
+    - Security-first approach with regular auditing and signature verification
+    - Performance optimization through intelligent caching and offline capabilities
+    - Deterministic builds using package-lock.json and npm ci
+    - Strategic dependency management with appropriate versioning strategies
+    - CI/CD optimization for faster and more reliable automated builds
+    - Comprehensive monitoring and maintenance automation
+    - Integration with modern development workflows and tooling
+
+    Expert insights from the npm team and JavaScript community emphasize the importance of treating package management as a critical infrastructure component that requires ongoing attention to security, performance, and maintainability.
+  </context>
+  
+  <references>
+    <reference as="dependency" href=".cursor/rules/000-core/002-cursor-rules-creation.mdc" reason="Follows standard rule format">Base rule format definition</reference>
+    <reference as="context" href="https://docs.npmjs.com/" reason="Official npm documentation">NPM Official Documentation</reference>
+    <reference as="context" href="https://docs.npmjs.com/cli/v10/configuring-npm/npmrc" reason="NPM configuration">NPM Configuration Guide</reference>
+    <reference as="context" href="https://docs.npmjs.com/cli/v10/commands/npm-audit" reason="Security auditing">NPM Audit Documentation</reference>
+    <reference as="context" href="https://docs.npmjs.com/cli/v10/commands/npm-ci" reason="CI/CD practices">NPM CI Documentation</reference>
+  </references>
+</rule>

@@ -1,0 +1,82 @@
+---
+description: JSZip archive manipulation best practices with TypeScript, async operations, and performance
+globs: "*.{ts,tsx,js,jsx}"
+alwaysApply: false
+---
+<rule>
+  <meta>
+    <title>JSZip Core Standards Auto</title>
+    <description>JSZip archive manipulation best practices with TypeScript, async operations, and performance</description>
+    <created-at utc-timestamp="1752701607">July 16, 2025, 05:33 PM</created-at>
+    <last-updated-at utc-timestamp="1752701607">July 16, 2025, 05:33 PM</last-updated-at>
+    <applies-to>
+      <file-matcher glob="*.{ts,tsx,js,jsx}">TypeScript and JavaScript files using jszip</file-matcher>
+      <action-matcher action="jszip-development">Triggered when developing with jszip</action-matcher>
+    </applies-to>
+  </meta>
+  <requirements>
+    <non-negotiable priority="critical">
+      <description>Use TypeScript for type safety and proper integration patterns with jszip. Follow modern best practices for performance and maintainability.</description>
+      <examples>
+        <example title="Basic Jszip Usage">
+          <correct-example title="Proper jszip implementation" conditions="Using jszip in TypeScript project" expected-result="Type-safe and performant implementation" correctness-criteria="Uses TypeScript interfaces, proper error handling, follows best practices"><![CDATA[// Example usage with TypeScript
+import { /* relevant imports */ } from 'jszip';
+
+// Type-safe implementation
+interface ExampleConfig {
+  // Configuration interface
+}
+
+export const useExample = (config: ExampleConfig) => {
+  // Implementation with proper typing and error handling
+  return {
+    // Return type-safe results
+  };
+};]]></correct-example>
+          <incorrect-example title="Poor jszip implementation" conditions="Using jszip without proper setup" expected-result="Type-safe and performant implementation" incorrectness-criteria="Missing TypeScript types, no error handling, poor performance"><![CDATA[// Bad: No TypeScript, poor error handling
+const example = require('jszip'); // CommonJS import
+// Missing type definitions
+// No error handling
+// Performance issues]]></incorrect-example>
+        </example>
+      </examples>
+    </non-negotiable>
+    <requirement priority="high">
+      <description>Implement proper error handling and performance optimization when using jszip. Follow library-specific best practices and recommendations.</description>
+      <examples>
+        <example title="Error Handling and Performance">
+          <correct-example title="Robust implementation with error handling" conditions="Production usage of jszip" expected-result="Reliable and performant code" correctness-criteria="Proper error boundaries, performance optimization, monitoring"><![CDATA[// Production-ready implementation
+try {
+  // Safe usage with error handling
+  const result = await performOperation();
+  return result;
+} catch (error) {
+  // Proper error handling
+  console.error('Jszip error:', error);
+  throw new Error('Operation failed');
+}]]></correct-example>
+          <incorrect-example title="Poor error handling" conditions="Production usage of jszip" expected-result="Reliable and performant code" incorrectness-criteria="No error handling, performance issues, missing monitoring"><![CDATA[// Bad: No error handling
+const result = performOperation(); // May throw
+// No error recovery
+// No performance monitoring]]></incorrect-example>
+        </example>
+      </examples>
+    </requirement>
+  </requirements>
+  <context description="Jszip development considerations">
+    Jszip is a ZIP archives file compression library that provides jszip archive manipulation best practices with typescript, async operations, and performance.
+
+    Key considerations:
+    - TypeScript integration for type safety
+    - Performance optimization and best practices
+    - Error handling and edge cases
+    - Modern development patterns
+    - Testing and maintainability
+
+    Follow the official documentation and community best practices for optimal results.
+  </context>
+  <references>
+    <reference as="dependency" href=".cursor/rules/000-core/002-cursor-rules-creation.mdc" reason="Follows standard rule format">Base rule format definition</reference>
+    <reference as="context" href="https://www.npmjs.com/package/jszip" reason="Package documentation">Official jszip package documentation</reference>
+  </references>
+</rule>

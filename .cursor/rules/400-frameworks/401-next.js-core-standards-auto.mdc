@@ -1,0 +1,2194 @@
+---
+description: Comprehensive Next.js best practices with modern App Router, Server Components, TypeScript integration, and latest documented patterns following Next.js 13+ standards
+globs: ["*.{ts,tsx,js,jsx,json,md}"]
+alwaysApply: false
+---
+
+<rule>
+  <meta>
+    <title>Next.js Core Standards Auto</title>
+    <description>Comprehensive Next.js best practices with modern App Router, Server Components, TypeScript integration, and latest documented patterns following Next.js 13+ standards</description>
+    <created-at utc-timestamp="1744249880">January 27, 2025, 12:51 PM</created-at>
+    <last-updated-at utc-timestamp="1744249880">January 27, 2025, 12:51 PM</last-updated-at>
+    <applies-to>
+      <file-matcher glob="*.{ts,tsx,js,jsx,json,md}">Next.js application files including components, pages, API routes, and configuration</file-matcher>
+      <action-matcher action="next.js-development">Triggered when developing Next.js applications</action-matcher>
+    </applies-to>
+  </meta>
+  <requirements>
+    <non-negotiable priority="critical">
+      <description>Use Next.js 13+ App Router with app directory structure, Server Components by default, and Client Components only when necessary for interactivity or browser-only APIs.</description>
+      <examples>
+        <example title="App Router Structure">
+          <correct-example title="Modern App Router directory structure" conditions="Setting up Next.js 13+ application" expected-result="Proper app directory structure" correctness-criteria="Uses app directory, Server Components by default, proper file conventions"><![CDATA[app/
+├── layout.tsx              # Root layout (Server Component)
+├── page.tsx                # Home page (Server Component)
+├── loading.tsx             # Loading UI
+├── error.tsx               # Error UI
+├── not-found.tsx           # 404 page
+├── global-error.tsx        # Global error boundary
+├── globals.css             # Global styles
+├── (auth)/                 # Route group
+│   ├── layout.tsx          # Auth layout
+│   ├── login/
+│   │   ├── page.tsx        # Login page
+│   │   └── loading.tsx     # Login loading
+│   └── register/
+│       └── page.tsx        # Register page
+├── dashboard/
+│   ├── layout.tsx          # Dashboard layout
+│   ├── page.tsx            # Dashboard page
+│   ├── users/
+│   │   ├── page.tsx        # Users list
+│   │   └── [id]/
+│   │       ├── page.tsx    # User detail
+│   │       └── edit/
+│   │           └── page.tsx # Edit user
+│   └── settings/
+│       └── page.tsx        # Settings page
+├── api/                    # API routes
+│   ├── auth/
+│   │   └── route.ts        # Auth API endpoint
+│   ├── users/
+│   │   └── route.ts        # Users API endpoint
+│   └── hello/
+│       └── route.ts        # Hello API endpoint
+└── components/             # Reusable components
+    ├── ui/                 # UI components
+    │   ├── button.tsx      # Button component
+    │   ├── input.tsx       # Input component
+    │   └── modal.tsx       # Modal component
+    └── forms/              # Form components
+        ├── login-form.tsx  # Login form
+        └── user-form.tsx   # User form
+
+// app/layout.tsx (Server Component)
+import type { Metadata } from 'next';
+import { Inter } from 'next/font/google';
+import './globals.css';
+
+const inter = Inter({ subsets: ['latin'] });
+
+export const metadata: Metadata = {
+  title: 'My App',
+  description: 'A modern Next.js application',
+};
+
+export default function RootLayout({
+  children,
+}: {
+  children: React.ReactNode;
+}) {
+  return (
+    <html lang="en">
+      <body className={inter.className}>
+        {children}
+      </body>
+    </html>
+  );
+}
+
+// app/page.tsx (Server Component)
+import { Suspense } from 'react';
+import { UserList } from '@/components/user-list';
+import { UserListSkeleton } from '@/components/user-list-skeleton';
+
+export default function HomePage() {
+  return (
+    <main className="container mx-auto p-4">
+      <h1 className="text-3xl font-bold mb-6">Welcome to My App</h1>
+      <Suspense fallback={<UserListSkeleton />}>
+        <UserList />
+      </Suspense>
+    </main>
+  );
+}
+
+// app/components/ui/button.tsx (Client Component when needed)
+'use client';
+
+import { ButtonHTMLAttributes, forwardRef } from 'react';
+import { cn } from '@/lib/utils';
+
+interface ButtonProps extends ButtonHTMLAttributes<HTMLButtonElement> {
+  variant?: 'primary' | 'secondary' | 'outline';
+  size?: 'sm' | 'md' | 'lg';
+}
+
+const Button = forwardRef<HTMLButtonElement, ButtonProps>(
+  ({ className, variant = 'primary', size = 'md', ...props }, ref) => {
+    return (
+      <button
+        className={cn(
+          'inline-flex items-center justify-center rounded-md font-medium transition-colors',
+          {
+            'bg-blue-600 text-white hover:bg-blue-700': variant === 'primary',
+            'bg-gray-200 text-gray-900 hover:bg-gray-300': variant === 'secondary',
+            'border border-gray-300 bg-white hover:bg-gray-50': variant === 'outline',
+          },
+          {
+            'h-8 px-3 text-sm': size === 'sm',
+            'h-10 px-4': size === 'md',
+            'h-12 px-6 text-lg': size === 'lg',
+          },
+          className
+        )}
+        ref={ref}
+        {...props}
+      />
+    );
+  }
+);
+
+Button.displayName = 'Button';
+
+export { Button };]]></correct-example>
+          <incorrect-example title="Legacy pages directory structure" conditions="Setting up Next.js 13+ application" expected-result="Modern app directory structure" incorrectness-criteria="Uses outdated pages directory, doesn't leverage Server Components"><![CDATA[pages/
+├── _app.tsx                # Legacy app component
+├── _document.tsx           # Legacy document
+├── index.tsx               # Home page
+├── about.tsx               # About page
+├── api/
+│   └── hello.ts            # API route
+└── components/
+    └── Layout.tsx          # Layout component
+
+// pages/_app.tsx (Legacy pattern)
+import type { AppProps } from 'next/app';
+import '../styles/globals.css';
+
+function MyApp({ Component, pageProps }: AppProps) {
+  return <Component {...pageProps} />;
+}
+
+export default MyApp;]]></incorrect-example>
+        </example>
+      </examples>
+    </non-negotiable>
+
+    <non-negotiable priority="critical">
+      <description>Use TypeScript with strict configuration, proper typing for Next.js components, and avoid any type while following TypeScript core standards.</description>
+      <examples>
+        <example title="TypeScript Configuration">
+          <correct-example title="Strict TypeScript configuration for Next.js" conditions="Setting up TypeScript in Next.js" expected-result="Proper TypeScript setup" correctness-criteria="Uses strict mode, proper Next.js types, follows TypeScript standards"><![CDATA[// tsconfig.json
+{
+  "compilerOptions": {
+    "lib": ["dom", "dom.iterable", "es6"],
+    "allowJs": true,
+    "skipLibCheck": true,
+    "strict": true,
+    "noEmit": true,
+    "esModuleInterop": true,
+    "module": "esnext",
+    "moduleResolution": "bundler",
+    "resolveJsonModule": true,
+    "isolatedModules": true,
+    "jsx": "preserve",
+    "incremental": true,
+    "plugins": [
+      {
+        "name": "next"
+      }
+    ],
+    "baseUrl": ".",
+    "paths": {
+      "@/*": ["./src/*"],
+      "@/components/*": ["./src/components/*"],
+      "@/lib/*": ["./src/lib/*"],
+      "@/styles/*": ["./src/styles/*"]
+    }
+  },
+  "include": [
+    "next-env.d.ts",
+    "**/*.ts",
+    "**/*.tsx",
+    ".next/types/**/*.ts"
+  ],
+  "exclude": ["node_modules"]
+}
+
+// next-env.d.ts
+/// <reference types="next" />
+/// <reference types="next/image-types/global" />
+
+// app/types/index.ts
+export interface User {
+  id: string;
+  name: string;
+  email: string;
+  avatar?: string;
+  createdAt: Date;
+  updatedAt: Date;
+}
+
+export interface ApiResponse<T> {
+  data: T;
+  message: string;
+  success: boolean;
+}
+
+export interface PageProps {
+  params: { [key: string]: string | string[] };
+  searchParams: { [key: string]: string | string[] | undefined };
+}
+
+// app/lib/api.ts
+import { ApiResponse, User } from '@/types';
+
+export async function fetchUsers(): Promise<ApiResponse<User[]>> {
+  const response = await fetch('/api/users');
+  
+  if (!response.ok) {
+    throw new Error('Failed to fetch users');
+  }
+  
+  return response.json();
+}
+
+export async function fetchUser(id: string): Promise<ApiResponse<User>> {
+  const response = await fetch(`/api/users/${id}`);
+  
+  if (!response.ok) {
+    throw new Error('Failed to fetch user');
+  }
+  
+  return response.json();
+}
+
+// app/components/user-card.tsx
+import { User } from '@/types';
+import Image from 'next/image';
+
+interface UserCardProps {
+  user: User;
+  onSelect?: (user: User) => void;
+}
+
+export function UserCard({ user, onSelect }: UserCardProps) {
+  return (
+    <div className="border rounded-lg p-4 hover:shadow-md transition-shadow">
+      {user.avatar && (
+        <Image
+          src={user.avatar}
+          alt={`${user.name}'s avatar`}
+          width={48}
+          height={48}
+          className="rounded-full mb-2"
+        />
+      )}
+      <h3 className="font-semibold">{user.name}</h3>
+      <p className="text-gray-600">{user.email}</p>
+      {onSelect && (
+        <button
+          onClick={() => onSelect(user)}
+          className="mt-2 text-blue-600 hover:text-blue-800"
+        >
+          Select User
+        </button>
+      )}
+    </div>
+  );
+}
+
+// app/components/user-search.tsx (Client Component)
+'use client';
+
+import { useState, useEffect } from 'react';
+import { User } from '@/types';
+import { UserCard } from './user-card';
+
+interface UserSearchProps {
+  initialUsers: User[];
+}
+
+export function UserSearch({ initialUsers }: UserSearchProps) {
+  const [users, setUsers] = useState<User[]>(initialUsers);
+  const [searchTerm, setSearchTerm] = useState('');
+  const [loading, setLoading] = useState(false);
+
+  useEffect(() => {
+    if (!searchTerm) {
+      setUsers(initialUsers);
+      return;
+    }
+
+    const searchUsers = async () => {
+      setLoading(true);
+      try {
+        const response = await fetch(`/api/users/search?q=${encodeURIComponent(searchTerm)}`);
+        if (response.ok) {
+          const data = await response.json();
+          setUsers(data.users);
+        }
+      } catch (error) {
+        console.error('Search failed:', error);
+      } finally {
+        setLoading(false);
+      }
+    };
+
+    const debounceTimer = setTimeout(searchUsers, 300);
+    return () => clearTimeout(debounceTimer);
+  }, [searchTerm, initialUsers]);
+
+  return (
+    <div>
+      <input
+        type="text"
+        placeholder="Search users..."
+        value={searchTerm}
+        onChange={(e) => setSearchTerm(e.target.value)}
+        className="w-full p-2 border rounded mb-4"
+      />
+      {loading && <p>Searching...</p>}
+      <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
+        {users.map((user) => (
+          <UserCard key={user.id} user={user} />
+        ))}
+      </div>
+    </div>
+  );
+}
+
+// app/api/users/route.ts (API Route)
+import { NextRequest, NextResponse } from 'next/server';
+import { User } from '@/types';
+
+export async function GET(request: NextRequest) {
+  try {
+    // Fetch users from database or external API
+    const users: User[] = await fetchUsersFromDatabase();
+    
+    return NextResponse.json({
+      users,
+      success: true,
+    });
+  } catch (error) {
+    console.error('Error fetching users:', error);
+    return NextResponse.json(
+      { error: 'Failed to fetch users', success: false },
+      { status: 500 }
+    );
+  }
+}
+
+async function fetchUsersFromDatabase(): Promise<User[]> {
+  // Database query implementation
+  return [];
+}]]></correct-example>
+          <incorrect-example title="Loose TypeScript configuration and any types" conditions="Setting up TypeScript in Next.js" expected-result="Proper TypeScript setup" incorrectness-criteria="Uses loose configuration, any types, missing proper typing"><![CDATA[// tsconfig.json (Loose configuration)
+{
+  "compilerOptions": {
+    "strict": false,
+    "noImplicitAny": false,
+    "target": "es5",
+    "lib": ["dom", "dom.iterable", "es6"],
+    "allowJs": true,
+    "skipLibCheck": true,
+    "esModuleInterop": true,
+    "module": "esnext",
+    "moduleResolution": "node",
+    "resolveJsonModule": true,
+    "isolatedModules": true,
+    "jsx": "preserve",
+    "incremental": true
+  },
+  "include": ["next-env.d.ts", "**/*.ts", "**/*.tsx"],
+  "exclude": ["node_modules"]
+}
+
+// Bad component with any types
+export function UserCard({ user, onSelect }: any) {
+  return (
+    <div>
+      <h3>{user.name}</h3>
+      <p>{user.email}</p>
+      {onSelect && (
+        <button onClick={() => onSelect(user)}>
+          Select User
+        </button>
+      )}
+    </div>
+  );
+}
+
+// Bad API function with any
+export async function fetchUsers(): Promise<any> {
+  const response = await fetch('/api/users');
+  return response.json();
+}]]></incorrect-example>
+        </example>
+      </examples>
+    </non-negotiable>
+
+    <non-negotiable priority="critical">
+      <description>Implement proper data fetching using Server Components for initial data, Client Components for interactive data, and proper caching strategies with Next.js 13+ patterns.</description>
+      <examples>
+        <example title="Data Fetching Patterns">
+          <correct-example title="Modern data fetching with Server Components" conditions="Fetching data in Next.js 13+" expected-result="Proper data fetching patterns" correctness-criteria="Uses Server Components for initial data, proper caching, TypeScript types"><![CDATA[// app/users/page.tsx (Server Component)
+import { Suspense } from 'react';
+import { UserList } from '@/components/user-list';
+import { UserListSkeleton } from '@/components/user-list-skeleton';
+
+export default function UsersPage() {
+  return (
+    <div className="container mx-auto p-4">
+      <h1 className="text-3xl font-bold mb-6">Users</h1>
+      <Suspense fallback={<UserListSkeleton />}>
+        <UserList />
+      </Suspense>
+    </div>
+  );
+}
+
+// app/components/user-list.tsx (Server Component)
+import { User } from '@/types';
+import { UserCard } from './user-card';
+
+async function fetchUsers(): Promise<User[]> {
+  // Fetch with caching
+  const response = await fetch('https://api.example.com/users', {
+    next: { revalidate: 3600 }, // Cache for 1 hour
+  });
+  
+  if (!response.ok) {
+    throw new Error('Failed to fetch users');
+  }
+  
+  return response.json();
+}
+
+export async function UserList() {
+  const users = await fetchUsers();
+  
+  return (
+    <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
+      {users.map((user) => (
+        <UserCard key={user.id} user={user} />
+      ))}
+    </div>
+  );
+}
+
+// app/components/user-search.tsx (Client Component)
+'use client';
+
+import { useState, useEffect } from 'react';
+import { User } from '@/types';
+import { UserCard } from './user-card';
+
+interface UserSearchProps {
+  initialUsers: User[];
+}
+
+export function UserSearch({ initialUsers }: UserSearchProps) {
+  const [users, setUsers] = useState<User[]>(initialUsers);
+  const [searchTerm, setSearchTerm] = useState('');
+  const [loading, setLoading] = useState(false);
+
+  useEffect(() => {
+    if (!searchTerm) {
+      setUsers(initialUsers);
+      return;
+    }
+
+    const searchUsers = async () => {
+      setLoading(true);
+      try {
+        const response = await fetch(`/api/users/search?q=${encodeURIComponent(searchTerm)}`);
+        if (response.ok) {
+          const data = await response.json();
+          setUsers(data.users);
+        }
+      } catch (error) {
+        console.error('Search failed:', error);
+      } finally {
+        setLoading(false);
+      }
+    };
+
+    const debounceTimer = setTimeout(searchUsers, 300);
+    return () => clearTimeout(debounceTimer);
+  }, [searchTerm, initialUsers]);
+
+  return (
+    <div>
+      <input
+        type="text"
+        placeholder="Search users..."
+        value={searchTerm}
+        onChange={(e) => setSearchTerm(e.target.value)}
+        className="w-full p-2 border rounded mb-4"
+      />
+      {loading && <p>Searching...</p>}
+      <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
+        {users.map((user) => (
+          <UserCard key={user.id} user={user} />
+        ))}
+      </div>
+    </div>
+  );
+}
+
+// app/api/users/route.ts (API Route)
+import { NextRequest, NextResponse } from 'next/server';
+import { User } from '@/types';
+
+export async function GET(request: NextRequest) {
+  try {
+    // Fetch users from database or external API
+    const users: User[] = await fetchUsersFromDatabase();
+    
+    return NextResponse.json({
+      users,
+      success: true,
+    });
+  } catch (error) {
+    console.error('Error fetching users:', error);
+    return NextResponse.json(
+      { error: 'Failed to fetch users', success: false },
+      { status: 500 }
+    );
+  }
+}
+
+async function fetchUsersFromDatabase(): Promise<User[]> {
+  // Database query implementation
+  return [];
+}]]></correct-example>
+          <incorrect-example title="Legacy data fetching patterns" conditions="Fetching data in Next.js 13+" expected-result="Modern data fetching patterns" incorrectness-criteria="Uses outdated getServerSideProps, doesn't leverage Server Components"><![CDATA[// pages/users.tsx (Legacy pattern)
+import { GetServerSideProps } from 'next';
+
+interface UsersPageProps {
+  users: any[];
+}
+
+export default function UsersPage({ users }: UsersPageProps) {
+  return (
+    <div>
+      <h1>Users</h1>
+      {users.map((user) => (
+        <div key={user.id}>
+          <h3>{user.name}</h3>
+          <p>{user.email}</p>
+        </div>
+      ))}
+    </div>
+  );
+}
+
+export const getServerSideProps: GetServerSideProps = async () => {
+  const response = await fetch('https://api.example.com/users');
+  const users = await response.json();
+  
+  return {
+    props: {
+      users,
+    },
+  };
+};
+
+// Bad client-side data fetching
+export function UserList() {
+  const [users, setUsers] = useState([]);
+  const [loading, setLoading] = useState(true);
+
+  useEffect(() => {
+    fetch('/api/users')
+      .then(response => response.json())
+      .then(data => {
+        setUsers(data);
+        setLoading(false);
+      });
+  }, []);
+
+  if (loading) return <div>Loading...</div>;
+
+  return (
+    <div>
+      {users.map((user: any) => (
+        <div key={user.id}>{user.name}</div>
+      ))}
+    </div>
+  );
+}]]></incorrect-example>
+        </example>
+      </examples>
+    </non-negotiable>
+
+    <requirement priority="critical">
+      <description>Use proper file-based routing with Next.js 13+ conventions, including dynamic routes, route groups, parallel routes, and intercepting routes when appropriate.</description>
+      <examples>
+        <example title="File-based Routing">
+          <correct-example title="Modern routing patterns" conditions="Setting up routes in Next.js 13+" expected-result="Proper routing structure" correctness-criteria="Uses app directory conventions, proper file naming, TypeScript integration"><![CDATA[// Dynamic routes
+app/
+├── users/
+│   ├── page.tsx                    # /users
+│   ├── [id]/
+│   │   ├── page.tsx                # /users/[id]
+│   │   ├── edit/
+│   │   │   └── page.tsx            # /users/[id]/edit
+│   │   └── posts/
+│   │       ├── page.tsx            # /users/[id]/posts
+│   │       └── [postId]/
+│   │           └── page.tsx        # /users/[id]/posts/[postId]
+│   └── [...slug]/
+│       └── page.tsx                # /users/[...slug] (catch-all)
+├── blog/
+│   ├── page.tsx                    # /blog
+│   └── [[...slug]]/
+│       └── page.tsx                # /blog/[[...slug]] (optional catch-all)
+
+// app/users/[id]/page.tsx
+import { notFound } from 'next/navigation';
+import { User } from '@/types';
+
+interface UserPageProps {
+  params: { id: string };
+}
+
+async function fetchUser(id: string): Promise<User | null> {
+  try {
+    const response = await fetch(`https://api.example.com/users/${id}`, {
+      next: { revalidate: 3600 },
+    });
+    
+    if (!response.ok) {
+      return null;
+    }
+    
+    return response.json();
+  } catch (error) {
+    console.error('Error fetching user:', error);
+    return null;
+  }
+}
+
+export default async function UserPage({ params }: UserPageProps) {
+  const user = await fetchUser(params.id);
+  
+  if (!user) {
+    notFound();
+  }
+  
+  return (
+    <div className="container mx-auto p-4">
+      <h1 className="text-3xl font-bold mb-4">{user.name}</h1>
+      <p className="text-gray-600 mb-2">{user.email}</p>
+      <p className="text-sm text-gray-500">
+        Created: {new Date(user.createdAt).toLocaleDateString()}
+      </p>
+    </div>
+  );
+}
+
+// Route groups (organize without affecting URL)
+app/
+├── (marketing)/
+│   ├── layout.tsx              # Marketing layout
+│   ├── page.tsx                # / (home)
+│   ├── about/
+│   │   └── page.tsx            # /about
+│   └── contact/
+│       └── page.tsx            # /contact
+├── (dashboard)/
+│   ├── layout.tsx              # Dashboard layout
+│   ├── dashboard/
+│   │   └── page.tsx            # /dashboard
+│   └── settings/
+│       └── page.tsx            # /settings
+
+// app/(marketing)/layout.tsx
+export default function MarketingLayout({
+  children,
+}: {
+  children: React.ReactNode;
+}) {
+  return (
+    <div>
+      <nav className="bg-white border-b">
+        <div className="container mx-auto px-4">
+          <div className="flex justify-between items-center h-16">
+            <div className="font-bold text-xl">My App</div>
+            <div className="space-x-4">
+              <a href="/about" className="hover:text-blue-600">About</a>
+              <a href="/contact" className="hover:text-blue-600">Contact</a>
+            </div>
+          </div>
+        </div>
+      </nav>
+      <main>{children}</main>
+    </div>
+  );
+}
+
+// Parallel routes (render multiple pages in same layout)
+app/
+├── dashboard/
+│   ├── layout.tsx
+│   ├── page.tsx
+│   ├── @analytics/
+│   │   └── page.tsx            # Parallel route
+│   └── @team/
+│       └── page.tsx            # Parallel route
+
+// app/dashboard/layout.tsx
+export default function DashboardLayout({
+  children,
+  analytics,
+  team,
+}: {
+  children: React.ReactNode;
+  analytics: React.ReactNode;
+  team: React.ReactNode;
+}) {
+  return (
+    <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
+      <div className="lg:col-span-2">{children}</div>
+      <div className="space-y-6">
+        {analytics}
+        {team}
+      </div>
+    </div>
+  );
+}]]></correct-example>
+          <incorrect-example title="Improper routing structure" conditions="Setting up routes in Next.js 13+" expected-result="Proper routing structure" incorrectness-criteria="Doesn't follow app directory conventions, missing TypeScript types"><![CDATA[// Incorrect file structure
+app/
+├── user.tsx                       # Wrong: should be users/page.tsx
+├── user-detail.tsx                # Wrong: should be users/[id]/page.tsx
+├── user-edit.tsx                  # Wrong: should be users/[id]/edit/page.tsx
+
+// app/user.tsx (Wrong structure)
+export default function User() {
+  return <div>User page</div>;
+}
+
+// Missing proper dynamic routing
+// No TypeScript interfaces for params
+// No proper data fetching patterns]]></incorrect-example>
+        </example>
+      </examples>
+    </requirement>
+
+    <requirement priority="critical">
+      <description>Implement proper SEO optimization using Next.js metadata API, structured data, and performance best practices including Image optimization and Core Web Vitals.</description>
+      <examples>
+        <example title="SEO and Performance">
+          <correct-example title="Complete SEO implementation" conditions="Optimizing Next.js application for SEO" expected-result="Proper SEO and performance optimization" correctness-criteria="Uses metadata API, structured data, optimized images, performance best practices"><![CDATA[// app/layout.tsx (Root layout with metadata)
+import type { Metadata } from 'next';
+import { Inter } from 'next/font/google';
+
+const inter = Inter({ 
+  subsets: ['latin'],
+  display: 'swap',
+  preload: true,
+});
+
+export const metadata: Metadata = {
+  title: {
+    template: '%s | My App',
+    default: 'My App - The best app ever',
+  },
+  description: 'A comprehensive Next.js application with modern features',
+  keywords: ['Next.js', 'React', 'TypeScript', 'Web Development'],
+  authors: [{ name: 'Your Name', url: 'https://yourwebsite.com' }],
+  creator: 'Your Name',
+  publisher: 'Your Company',
+  openGraph: {
+    type: 'website',
+    locale: 'en_US',
+    url: 'https://myapp.com',
+    title: 'My App - The best app ever',
+    description: 'A comprehensive Next.js application with modern features',
+    siteName: 'My App',
+    images: [
+      {
+        url: 'https://myapp.com/og-image.jpg',
+        width: 1200,
+        height: 630,
+        alt: 'My App',
+      },
+    ],
+  },
+  twitter: {
+    card: 'summary_large_image',
+    title: 'My App - The best app ever',
+    description: 'A comprehensive Next.js application with modern features',
+    creator: '@yourusername',
+    images: ['https://myapp.com/twitter-image.jpg'],
+  },
+  robots: {
+    index: true,
+    follow: true,
+    googleBot: {
+      index: true,
+      follow: true,
+      'max-video-preview': -1,
+      'max-image-preview': 'large',
+      'max-snippet': -1,
+    },
+  },
+  verification: {
+    google: 'your-google-verification-code',
+    yahoo: 'your-yahoo-verification-code',
+  },
+};
+
+export default function RootLayout({
+  children,
+}: {
+  children: React.ReactNode;
+}) {
+  return (
+    <html lang="en">
+      <head>
+        <title>My App</title>
+      </head>
+      <body>{children}</body>
+    </html>
+  );
+}
+
+// app/users/[id]/page.tsx (Dynamic metadata)
+import { Metadata } from 'next';
+import { notFound } from 'next/navigation';
+import { User } from '@/types';
+
+interface UserPageProps {
+  params: { id: string };
+}
+
+async function fetchUser(id: string): Promise<User | null> {
+  const response = await fetch(`https://api.example.com/users/${id}`, {
+    next: { revalidate: 3600 },
+  });
+  
+  if (!response.ok) {
+    return null;
+  }
+  
+  return response.json();
+}
+
+export async function generateMetadata({ params }: UserPageProps): Promise<Metadata> {
+  const user = await fetchUser(params.id);
+  
+  if (!user) {
+    return {
+      title: 'User Not Found',
+      description: 'The requested user could not be found.',
+    };
+  }
+  
+  return {
+    title: user.name,
+    description: `Profile page for ${user.name}`,
+    openGraph: {
+      title: user.name,
+      description: `Profile page for ${user.name}`,
+      images: user.avatar ? [user.avatar] : [],
+    },
+    twitter: {
+      card: 'summary',
+      title: user.name,
+      description: `Profile page for ${user.name}`,
+      images: user.avatar ? [user.avatar] : [],
+    },
+  };
+}
+
+export default async function UserPage({ params }: UserPageProps) {
+  const user = await fetchUser(params.id);
+  
+  if (!user) {
+    notFound();
+  }
+  
+  // Structured data for SEO
+  const personSchema = {
+    '@context': 'https://schema.org',
+    '@type': 'Person',
+    name: user.name,
+    email: user.email,
+    image: user.avatar,
+    url: `https://myapp.com/users/${user.id}`,
+  };
+  
+  return (
+    <>
+      <script
+        type="application/ld+json"
+        dangerouslySetInnerHTML={{
+          __html: JSON.stringify(personSchema),
+        }}
+      />
+      <div className="container mx-auto p-4">
+        <h1 className="text-3xl font-bold mb-4">{user.name}</h1>
+        {user.avatar && (
+          <Image
+            src={user.avatar}
+            alt={`${user.name}'s avatar`}
+            width={200}
+            height={200}
+            className="rounded-full mb-4"
+            priority
+            placeholder="blur"
+            blurDataURL="data:image/svg+xml;base64,PHN2ZyB3aWR0aD0iNDAiIGhlaWdodD0iNDAiIHZpZXdCb3g9IjAgMCA0MCA0MCIgZmlsbD0ibm9uZSIgeG1sbnM9Imh0dHA6Ly93d3cudzMub3JnLzIwMDAvc3ZnIj4KPHJlY3Qgd2lkdGg9IjQwIiBoZWlnaHQ9IjQwIiBmaWxsPSIjRjNGNEY2Ii8+Cjwvc3ZnPgo="
+            sizes="(max-width: 768px) 100vw, (max-width: 1200px) 50vw, 33vw"
+          />
+        )}
+        <p className="text-gray-600 mb-2">{user.email}</p>
+        <p className="text-sm text-gray-500">
+          Created: {new Date(user.createdAt).toLocaleDateString()}
+        </p>
+      </div>
+    </>
+  );
+}
+
+// app/sitemap.ts (Generate sitemap)
+import { MetadataRoute } from 'next';
+
+export default function sitemap(): MetadataRoute.Sitemap {
+  return [
+    {
+      url: 'https://myapp.com',
+      lastModified: new Date(),
+      changeFrequency: 'daily',
+      priority: 1,
+    },
+    {
+      url: 'https://myapp.com/about',
+      lastModified: new Date(),
+      changeFrequency: 'monthly',
+      priority: 0.8,
+    },
+    {
+      url: 'https://myapp.com/users',
+      lastModified: new Date(),
+      changeFrequency: 'weekly',
+      priority: 0.9,
+    },
+  ];
+}
+
+// app/robots.ts (Generate robots.txt)
+import { MetadataRoute } from 'next';
+
+export default function robots(): MetadataRoute.Robots {
+  return {
+    rules: {
+      userAgent: '*',
+      allow: '/',
+      disallow: '/private/',
+    },
+    sitemap: 'https://myapp.com/sitemap.xml',
+  };
+}]]></correct-example>
+          <incorrect-example title="Poor SEO implementation" conditions="Optimizing Next.js application for SEO" expected-result="Proper SEO and performance optimization" incorrectness-criteria="Missing metadata, no structured data, unoptimized images"><![CDATA[// app/layout.tsx (Poor SEO)
+export default function RootLayout({
+  children,
+}: {
+  children: React.ReactNode;
+}) {
+  return (
+    <html>
+      <head>
+        <title>My App</title>
+      </head>
+      <body>{children}</body>
+    </html>
+  );
+}
+
+// app/users/[id]/page.tsx (No metadata)
+export default function UserPage({ params }: { params: { id: string } }) {
+  return (
+    <div>
+      <h1>User Profile</h1>
+      <img src="/user-avatar.jpg" alt="User" />
+      <p>User details...</p>
+    </div>
+  );
+}
+
+// Missing:
+// - Proper metadata API usage
+// - Structured data
+// - Image optimization
+// - Performance considerations
+// - Sitemap generation
+// - Robots.txt]]></incorrect-example>
+        </example>
+      </examples>
+    </requirement>
+
+    <requirement priority="high">
+      <description>Use proper state management with React hooks, Context API, or external libraries like Zustand, and implement proper loading states and error boundaries.</description>
+      <examples>
+        <example title="State Management">
+          <correct-example title="Modern state management patterns" conditions="Managing state in Next.js application" expected-result="Proper state management implementation" correctness-criteria="Uses appropriate state management, proper TypeScript types, error boundaries"><![CDATA[// app/lib/store.ts (Zustand store)
+import { create } from 'zustand';
+import { devtools } from 'zustand/middleware';
+import { User } from '@/types';
+
+interface UserState {
+  users: User[];
+  selectedUser: User | null;
+  loading: boolean;
+  error: string | null;
+  fetchUsers: () => Promise<void>;
+  selectUser: (user: User) => void;
+  clearError: () => void;
+}
+
+export const useUserStore = create<UserState>()(
+  devtools(
+    (set, get) => ({
+      users: [],
+      selectedUser: null,
+      loading: false,
+      error: null,
+      
+      fetchUsers: async () => {
+        set({ loading: true, error: null });
+        try {
+          const response = await fetch('/api/users');
+          if (!response.ok) {
+            throw new Error('Failed to fetch users');
+          }
+          const data = await response.json();
+          set({ users: data.users, loading: false });
+        } catch (error) {
+          set({ 
+            error: error instanceof Error ? error.message : 'An error occurred',
+            loading: false 
+          });
+        }
+      },
+      
+      selectUser: (user: User) => {
+        set({ selectedUser: user });
+      },
+      
+      clearError: () => {
+        set({ error: null });
+      },
+    }),
+    {
+      name: 'user-store',
+    }
+  )
+);
+
+// app/contexts/auth-context.tsx (Context API)
+'use client';
+
+import { createContext, useContext, useEffect, useState } from 'react';
+
+interface AuthUser {
+  id: string;
+  name: string;
+  email: string;
+}
+
+interface AuthContextType {
+  user: AuthUser | null;
+  login: (email: string, password: string) => Promise<void>;
+  logout: () => Promise<void>;
+  loading: boolean;
+}
+
+const AuthContext = createContext<AuthContextType | undefined>(undefined);
+
+export function AuthProvider({ children }: { children: React.ReactNode }) {
+  const [user, setUser] = useState<AuthUser | null>(null);
+  const [loading, setLoading] = useState(true);
+
+  useEffect(() => {
+    // Check if user is logged in
+    const checkAuth = async () => {
+      try {
+        const response = await fetch('/api/auth/me');
+        if (response.ok) {
+          const userData = await response.json();
+          setUser(userData);
+        }
+      } catch (error) {
+        console.error('Auth check failed:', error);
+      } finally {
+        setLoading(false);
+      }
+    };
+
+    checkAuth();
+  }, []);
+
+  const login = async (email: string, password: string) => {
+    setLoading(true);
+    try {
+      const response = await fetch('/api/auth/login', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({ email, password }),
+      });
+
+      if (!response.ok) {
+        throw new Error('Login failed');
+      }
+
+      const userData = await response.json();
+      setUser(userData);
+    } catch (error) {
+      throw error;
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const logout = async () => {
+    try {
+      await fetch('/api/auth/logout', { method: 'POST' });
+      setUser(null);
+    } catch (error) {
+      console.error('Logout failed:', error);
+    }
+  };
+
+  return (
+    <AuthContext.Provider value={{ user, login, logout, loading }}>
+      {children}
+    </AuthContext.Provider>
+  );
+}
+
+export function useAuth() {
+  const context = useContext(AuthContext);
+  if (context === undefined) {
+    throw new Error('useAuth must be used within an AuthProvider');
+  }
+  return context;
+}
+
+// app/components/error-boundary.tsx (Error Boundary)
+'use client';
+
+import { Component, ErrorInfo, ReactNode } from 'react';
+
+interface Props {
+  children?: ReactNode;
+  fallback?: ReactNode;
+}
+
+interface State {
+  hasError: boolean;
+  error?: Error;
+}
+
+export class ErrorBoundary extends Component<Props, State> {
+  public state: State = {
+    hasError: false,
+  };
+
+  public static getDerivedStateFromError(error: Error): State {
+    return { hasError: true, error };
+  }
+
+  public componentDidCatch(error: Error, errorInfo: ErrorInfo) {
+    console.error('Error boundary caught an error:', error, errorInfo);
+  }
+
+  public render() {
+    if (this.state.hasError) {
+      return this.props.fallback || (
+        <div className="min-h-screen flex items-center justify-center">
+          <div className="text-center">
+            <h2 className="text-2xl font-bold text-red-600 mb-4">
+              Something went wrong
+            </h2>
+            <p className="text-gray-600 mb-4">
+              {this.state.error?.message || 'An unexpected error occurred'}
+            </p>
+            <button
+              onClick={() => this.setState({ hasError: false })}
+              className="bg-blue-600 text-white px-4 py-2 rounded hover:bg-blue-700"
+            >
+              Try again
+            </button>
+          </div>
+        </div>
+      );
+    }
+
+    return this.props.children;
+  }
+}
+
+// app/components/user-list-client.tsx (Client component with state)
+'use client';
+
+import { useEffect } from 'react';
+import { useUserStore } from '@/lib/store';
+import { UserCard } from './user-card';
+import { ErrorBoundary } from './error-boundary';
+
+export function UserListClient() {
+  const { users, loading, error, fetchUsers, clearError } = useUserStore();
+
+  useEffect(() => {
+    fetchUsers();
+  }, [fetchUsers]);
+
+  if (loading) {
+    return (
+      <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
+        {Array.from({ length: 6 }).map((_, index) => (
+          <div key={index} className="border rounded-lg p-4 animate-pulse">
+            <div className="h-12 w-12 bg-gray-200 rounded-full mb-2"></div>
+            <div className="h-4 bg-gray-200 rounded mb-2"></div>
+            <div className="h-3 bg-gray-200 rounded"></div>
+          </div>
+        ))}
+      </div>
+    );
+  }
+
+  if (error) {
+    return (
+      <div className="text-center py-8">
+        <p className="text-red-600 mb-4">{error}</p>
+        <button
+          onClick={() => {
+            clearError();
+            fetchUsers();
+          }}
+          className="bg-blue-600 text-white px-4 py-2 rounded hover:bg-blue-700"
+        >
+          Retry
+        </button>
+      </div>
+    );
+  }
+
+  return (
+    <ErrorBoundary>
+      <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
+        {users.map((user) => (
+          <UserCard key={user.id} user={user} />
+        ))}
+      </div>
+    </ErrorBoundary>
+  );
+}]]></correct-example>
+          <incorrect-example title="Poor state management" conditions="Managing state in Next.js application" expected-result="Proper state management implementation" incorrectness-criteria="No proper state management, missing error handling, no loading states"><![CDATA[// Bad state management
+'use client';
+
+import { useState, useEffect } from 'react';
+
+export function UserList() {
+  const [users, setUsers] = useState([]);
+
+  useEffect(() => {
+    fetch('/api/users')
+      .then(response => response.json())
+      .then(data => setUsers(data));
+  }, []);
+
+  return (
+    <div>
+      {users.map((user: any) => (
+        <div key={user.id}>{user.name}</div>
+      ))}
+    </div>
+  );
+}
+
+// Missing:
+// - Loading states
+// - Error handling
+// - TypeScript types
+// - Proper state management
+// - Error boundaries]]></incorrect-example>
+        </example>
+      </examples>
+    </requirement>
+
+    <requirement priority="high">
+      <description>Implement proper authentication and authorization patterns using Next.js middleware, API routes, and secure session management.</description>
+      <examples>
+        <example title="Authentication and Authorization">
+          <correct-example title="Secure authentication implementation" conditions="Implementing authentication in Next.js" expected-result="Proper authentication and authorization" correctness-criteria="Uses middleware, secure sessions, proper TypeScript types"><![CDATA[// middleware.ts (Route protection)
+import { NextResponse } from 'next/server';
+import type { NextRequest } from 'next/server';
+import { verifyToken } from '@/lib/auth';
+
+export async function middleware(request: NextRequest) {
+  const token = request.cookies.get('auth-token')?.value;
+  
+  // Protected routes
+  if (request.nextUrl.pathname.startsWith('/dashboard')) {
+    if (!token) {
+      return NextResponse.redirect(new URL('/login', request.url));
+    }
+    
+    try {
+      const payload = await verifyToken(token);
+      if (!payload) {
+        return NextResponse.redirect(new URL('/login', request.url));
+      }
+      
+      // Add user info to headers for Server Components
+      const response = NextResponse.next();
+      response.headers.set('x-user-id', payload.userId);
+      response.headers.set('x-user-role', payload.role);
+      return response;
+    } catch (error) {
+      return NextResponse.redirect(new URL('/login', request.url));
+    }
+  }
+  
+  // Redirect authenticated users away from auth pages
+  if (request.nextUrl.pathname.startsWith('/login') || 
+      request.nextUrl.pathname.startsWith('/register')) {
+    if (token) {
+      try {
+        const payload = await verifyToken(token);
+        if (payload) {
+          return NextResponse.redirect(new URL('/dashboard', request.url));
+        }
+      } catch (error) {
+        // Token is invalid, continue to login/register
+      }
+    }
+  }
+  
+  return NextResponse.next();
+}
+
+export const config = {
+  matcher: ['/dashboard/:path*', '/login', '/register']
+};
+
+// app/lib/auth.ts (Authentication utilities)
+import { SignJWT, jwtVerify } from 'jose';
+import { cookies } from 'next/headers';
+
+const secretKey = process.env.JWT_SECRET;
+const key = new TextEncoder().encode(secretKey);
+
+export interface SessionPayload {
+  userId: string;
+  role: string;
+  exp: number;
+}
+
+export async function signToken(payload: Omit<SessionPayload, 'exp'>) {
+  return await new SignJWT(payload)
+    .setProtectedHeader({ alg: 'HS256' })
+    .setIssuedAt()
+    .setExpirationTime('24h')
+    .sign(key);
+}
+
+export async function verifyToken(token: string): Promise<SessionPayload | null> {
+  try {
+    const { payload } = await jwtVerify(token, key);
+    return payload as SessionPayload;
+  } catch (error) {
+    return null;
+  }
+}
+
+export async function getSession(): Promise<SessionPayload | null> {
+  const token = cookies().get('auth-token')?.value;
+  if (!token) return null;
+  
+  return await verifyToken(token);
+}
+
+export async function createSession(userId: string, role: string) {
+  const token = await signToken({ userId, role });
+  
+  cookies().set('auth-token', token, {
+    httpOnly: true,
+    secure: process.env.NODE_ENV === 'production',
+    sameSite: 'strict',
+    maxAge: 24 * 60 * 60, // 24 hours
+    path: '/',
+  });
+}
+
+export async function deleteSession() {
+  cookies().delete('auth-token');
+}
+
+// app/api/auth/login/route.ts (Login API)
+import { NextRequest, NextResponse } from 'next/server';
+import { createSession } from '@/lib/auth';
+import { verifyPassword } from '@/lib/password';
+
+export async function POST(request: NextRequest) {
+  try {
+    const { email, password } = await request.json();
+    
+    // Validate input
+    if (!email || !password) {
+      return NextResponse.json(
+        { error: 'Email and password are required' },
+        { status: 400 }
+      );
+    }
+    
+    // Find user in database
+    const user = await findUserByEmail(email);
+    if (!user) {
+      return NextResponse.json(
+        { error: 'Invalid credentials' },
+        { status: 401 }
+      );
+    }
+    
+    // Verify password
+    const isValidPassword = await verifyPassword(password, user.hashedPassword);
+    if (!isValidPassword) {
+      return NextResponse.json(
+        { error: 'Invalid credentials' },
+        { status: 401 }
+      );
+    }
+    
+    // Create session
+    await createSession(user.id, user.role);
+    
+    return NextResponse.json({
+      user: {
+        id: user.id,
+        name: user.name,
+        email: user.email,
+        role: user.role,
+      },
+    });
+  } catch (error) {
+    console.error('Login error:', error);
+    return NextResponse.json(
+      { error: 'Internal server error' },
+      { status: 500 }
+    );
+  }
+}
+
+// app/api/auth/logout/route.ts (Logout API)
+import { NextResponse } from 'next/server';
+import { deleteSession } from '@/lib/auth';
+
+export async function POST() {
+  await deleteSession();
+  return NextResponse.json({ message: 'Logged out successfully' });
+}
+
+// app/dashboard/layout.tsx (Protected layout)
+import { redirect } from 'next/navigation';
+import { getSession } from '@/lib/auth';
+
+export default async function DashboardLayout({
+  children,
+}: {
+  children: React.ReactNode;
+}) {
+  const session = await getSession();
+  
+  if (!session) {
+    redirect('/login');
+  }
+  
+  return (
+    <div className="min-h-screen bg-gray-50">
+      <nav className="bg-white shadow">
+        <div className="container mx-auto px-4">
+          <div className="flex justify-between items-center h-16">
+            <h1 className="text-xl font-bold">Dashboard</h1>
+            <div className="flex items-center space-x-4">
+              <span>Welcome, {session.userId}</span>
+              <form action="/api/auth/logout" method="POST">
+                <button
+                  type="submit"
+                  className="text-red-600 hover:text-red-800"
+                >
+                  Logout
+                </button>
+              </form>
+            </div>
+          </div>
+        </div>
+      </nav>
+      <main className="container mx-auto px-4 py-8">
+        {children}
+      </main>
+    </div>
+  );
+}
+
+// app/components/role-guard.tsx (Role-based access control)
+import { getSession } from '@/lib/auth';
+import { redirect } from 'next/navigation';
+
+interface RoleGuardProps {
+  children: React.ReactNode;
+  requiredRole: string;
+  fallback?: React.ReactNode;
+}
+
+export async function RoleGuard({ 
+  children, 
+  requiredRole, 
+  fallback 
+}: RoleGuardProps) {
+  const session = await getSession();
+  
+  if (!session) {
+    redirect('/login');
+  }
+  
+  if (session.role !== requiredRole) {
+    return fallback || (
+      <div className="text-center py-8">
+        <p className="text-red-600">Access denied. Required role: {requiredRole}</p>
+      </div>
+    );
+  }
+  
+  return <>{children}</>;
+}]]></correct-example>
+          <incorrect-example title="Insecure authentication" conditions="Implementing authentication in Next.js" expected-result="Proper authentication and authorization" incorrectness-criteria="Insecure sessions, missing middleware, no proper error handling"><![CDATA[// Bad authentication
+'use client';
+
+import { useState } from 'react';
+
+export function LoginForm() {
+  const [user, setUser] = useState(null);
+
+  const handleLogin = async (email: string, password: string) => {
+    const response = await fetch('/api/login', {
+      method: 'POST',
+      body: JSON.stringify({ email, password }),
+    });
+    
+    if (response.ok) {
+      const userData = await response.json();
+      setUser(userData);
+      localStorage.setItem('user', JSON.stringify(userData));
+    }
+  };
+
+  return (
+    <div>
+      {user ? (
+        <p>Welcome {user.name}</p>
+      ) : (
+        <button onClick={() => handleLogin('user@example.com', 'password')}>
+          Login
+        </button>
+      )}
+    </div>
+  );
+}
+
+// Missing:
+// - Secure session management
+// - Middleware protection
+// - Proper error handling
+// - CSRF protection
+// - Role-based access control]]></incorrect-example>
+        </example>
+      </examples>
+    </requirement>
+
+    <requirement priority="medium">
+      <description>Implement proper testing strategies using Jest, React Testing Library, and Playwright for unit, integration, and end-to-end testing.</description>
+      <examples>
+        <example title="Testing Implementation">
+          <correct-example title="Comprehensive testing setup" conditions="Setting up testing in Next.js" expected-result="Complete testing infrastructure" correctness-criteria="Uses Jest, React Testing Library, Playwright, proper test organization"><![CDATA[// jest.config.js
+const nextJest = require('next/jest');
+
+const createJestConfig = nextJest({
+  dir: './',
+});
+
+const customJestConfig = {
+  setupFilesAfterEnv: ['<rootDir>/jest.setup.js'],
+  testEnvironment: 'jest-environment-jsdom',
+  moduleNameMapping: {
+    '^@/(.*)$': '<rootDir>/src/$1',
+  },
+  testPathIgnorePatterns: [
+    '<rootDir>/.next/',
+    '<rootDir>/node_modules/',
+    '<rootDir>/e2e/',
+  ],
+  collectCoverageFrom: [
+    'src/**/*.{js,jsx,ts,tsx}',
+    '!src/**/*.d.ts',
+    '!src/pages/api/**',
+  ],
+  coverageThreshold: {
+    global: {
+      branches: 80,
+      functions: 80,
+      lines: 80,
+      statements: 80,
+    },
+  },
+};
+
+module.exports = createJestConfig(customJestConfig);
+
+// jest.setup.js
+import '@testing-library/jest-dom';
+import { server } from './src/mocks/server';
+
+beforeAll(() => server.listen());
+afterEach(() => server.resetHandlers());
+afterAll(() => server.close());
+
+// src/mocks/server.ts (MSW setup)
+import { setupServer } from 'msw/node';
+import { handlers } from './handlers';
+
+export const server = setupServer(...handlers);
+
+// src/mocks/handlers.ts
+import { rest } from 'msw';
+import { User } from '@/types';
+
+const mockUsers: User[] = [
+  {
+    id: '1',
+    name: 'John Doe',
+    email: 'john@example.com',
+    avatar: 'https://example.com/avatar.jpg',
+    createdAt: new Date('2024-01-01'),
+    updatedAt: new Date('2024-01-01'),
+  },
+];
+
+export const handlers = [
+  rest.get('/api/users', (req, res, ctx) => {
+    return res(ctx.json({ users: mockUsers }));
+  }),
+  
+  rest.get('/api/users/:id', (req, res, ctx) => {
+    const { id } = req.params;
+    const user = mockUsers.find(u => u.id === id);
+    
+    if (!user) {
+      return res(ctx.status(404), ctx.json({ error: 'User not found' }));
+    }
+    
+    return res(ctx.json(user));
+  }),
+];
+
+// __tests__/components/user-card.test.tsx
+import { render, screen, fireEvent } from '@testing-library/react';
+import { UserCard } from '@/components/user-card';
+import { User } from '@/types';
+
+const mockUser: User = {
+  id: '1',
+  name: 'John Doe',
+  email: 'john@example.com',
+  avatar: 'https://example.com/avatar.jpg',
+  createdAt: new Date('2024-01-01'),
+  updatedAt: new Date('2024-01-01'),
+};
+
+describe('UserCard', () => {
+  it('renders user information correctly', () => {
+    render(<UserCard user={mockUser} />);
+    
+    expect(screen.getByText('John Doe')).toBeInTheDocument();
+    expect(screen.getByText('john@example.com')).toBeInTheDocument();
+    expect(screen.getByAltText("John Doe's avatar")).toBeInTheDocument();
+  });
+  
+  it('calls onSelect when select button is clicked', () => {
+    const mockOnSelect = jest.fn();
+    render(<UserCard user={mockUser} onSelect={mockOnSelect} />);
+    
+    const selectButton = screen.getByText('Select User');
+    fireEvent.click(selectButton);
+    
+    expect(mockOnSelect).toHaveBeenCalledWith(mockUser);
+  });
+  
+  it('does not render select button when onSelect is not provided', () => {
+    render(<UserCard user={mockUser} />);
+    
+    expect(screen.queryByText('Select User')).not.toBeInTheDocument();
+  });
+});
+
+// __tests__/pages/users.test.tsx
+import { render, screen } from '@testing-library/react';
+import UsersPage from '@/app/users/page';
+
+// Mock the UserList component
+jest.mock('@/components/user-list', () => ({
+  UserList: () => <div data-testid="user-list">User List</div>,
+}));
+
+describe('Users Page', () => {
+  it('renders the users page with correct title', () => {
+    render(<UsersPage />);
+    
+    expect(screen.getByRole('heading', { name: 'Users' })).toBeInTheDocument();
+    expect(screen.getByTestId('user-list')).toBeInTheDocument();
+  });
+});
+
+// __tests__/api/users.test.ts
+import { GET } from '@/app/api/users/route';
+import { NextRequest } from 'next/server';
+
+jest.mock('@/lib/database', () => ({
+  getUsers: jest.fn(),
+}));
+
+describe('/api/users', () => {
+  it('returns users successfully', async () => {
+    const mockUsers = [
+      { id: '1', name: 'John Doe', email: 'john@example.com' },
+    ];
+    
+    const { getUsers } = require('@/lib/database');
+    getUsers.mockResolvedValue(mockUsers);
+    
+    const request = new NextRequest('http://localhost:3000/api/users');
+    const response = await GET(request);
+    const data = await response.json();
+    
+    expect(response.status).toBe(200);
+    expect(data.users).toEqual(mockUsers);
+  });
+  
+  it('handles database errors', async () => {
+    const { getUsers } = require('@/lib/database');
+    getUsers.mockRejectedValue(new Error('Database error'));
+    
+    const request = new NextRequest('http://localhost:3000/api/users');
+    const response = await GET(request);
+    
+    expect(response.status).toBe(500);
+  });
+});
+
+// e2e/users.spec.ts (Playwright E2E tests)
+import { test, expect } from '@playwright/test';
+
+test.describe('Users Page', () => {
+  test('should display users list', async ({ page }) => {
+    await page.goto('/users');
+    
+    await expect(page.getByRole('heading', { name: 'Users' })).toBeVisible();
+    await expect(page.getByTestId('user-list')).toBeVisible();
+  });
+  
+  test('should navigate to user detail page', async ({ page }) => {
+    await page.goto('/users');
+    
+    await page.getByText('John Doe').click();
+    await expect(page).toHaveURL(/\/users\/1/);
+    await expect(page.getByRole('heading', { name: 'John Doe' })).toBeVisible();
+  });
+  
+  test('should search users', async ({ page }) => {
+    await page.goto('/users');
+    
+    await page.getByPlaceholder('Search users...').fill('John');
+    await page.waitForTimeout(500); // Wait for debounce
+    
+    await expect(page.getByText('John Doe')).toBeVisible();
+  });
+});
+
+// playwright.config.ts
+import { defineConfig, devices } from '@playwright/test';
+
+export default defineConfig({
+  testDir: './e2e',
+  fullyParallel: true,
+  forbidOnly: !!process.env.CI,
+  retries: process.env.CI ? 2 : 0,
+  workers: process.env.CI ? 1 : undefined,
+  reporter: 'html',
+  use: {
+    baseURL: 'http://localhost:3000',
+    trace: 'on-first-retry',
+    screenshot: 'only-on-failure',
+  },
+  projects: [
+    {
+      name: 'chromium',
+      use: { ...devices['Desktop Chrome'] },
+    },
+    {
+      name: 'firefox',
+      use: { ...devices['Desktop Firefox'] },
+    },
+    {
+      name: 'webkit',
+      use: { ...devices['Desktop Safari'] },
+    },
+  ],
+  webServer: {
+    command: 'npm run dev',
+    url: 'http://localhost:3000',
+    reuseExistingServer: !process.env.CI,
+  },
+});]]></correct-example>
+          <incorrect-example title="Inadequate testing setup" conditions="Setting up testing in Next.js" expected-result="Complete testing infrastructure" incorrectness-criteria="Missing test configuration, no mocking, inadequate coverage"><![CDATA[// Basic test without proper setup
+import { render } from '@testing-library/react';
+import UserCard from '@/components/user-card';
+
+test('renders user card', () => {
+  const user = { id: 1, name: 'John' };
+  render(<UserCard user={user} />);
+});
+
+// Missing:
+// - Jest configuration
+// - MSW setup
+// - Proper test organization
+// - E2E testing
+// - Coverage requirements
+// - Type safety in tests]]></incorrect-example>
+        </example>
+      </examples>
+    </requirement>
+
+    <requirement priority="medium">
+      <description>Follow Next.js performance best practices including code splitting, lazy loading, image optimization, and proper bundle analysis.</description>
+      <examples>
+        <example title="Performance Optimization">
+          <correct-example title="Complete performance optimization" conditions="Optimizing Next.js application performance" expected-result="Optimized application performance" correctness-criteria="Uses code splitting, lazy loading, image optimization, bundle analysis"><![CDATA[// next.config.js
+/** @type {import('next').NextConfig} */
+const nextConfig = {
+  // Enable experimental features
+  experimental: {
+    optimizePackageImports: ['@/components', '@/lib'],
+  },
+  
+  // Image optimization
+  images: {
+    domains: ['example.com', 'cdn.example.com'],
+    formats: ['image/webp', 'image/avif'],
+    minimumCacheTTL: 60,
+    sizes: '(max-width: 768px) 100vw, (max-width: 1200px) 50vw, 33vw',
+  },
+  
+  // Compression
+  compress: true,
+  
+  // Bundle analyzer
+  webpack: (config, { isServer }) => {
+    if (process.env.ANALYZE === 'true') {
+      const { BundleAnalyzerPlugin } = require('webpack-bundle-analyzer');
+      config.plugins.push(
+        new BundleAnalyzerPlugin({
+          analyzerMode: 'static',
+          openAnalyzer: false,
+          reportFilename: isServer 
+            ? '../analyze/server.html' 
+            : '../analyze/client.html',
+        })
+      );
+    }
+    
+    return config;
+  },
+  
+  // Headers for performance
+  async headers() {
+    return [
+      {
+        source: '/(.*)',
+        headers: [
+          {
+            key: 'X-Content-Type-Options',
+            value: 'nosniff',
+          },
+          {
+            key: 'X-Frame-Options',
+            value: 'DENY',
+          },
+          {
+            key: 'X-XSS-Protection',
+            value: '1; mode=block',
+          },
+        ],
+      },
+    ];
+  },
+};
+
+module.exports = nextConfig;
+
+// app/components/lazy-components.tsx (Code splitting)
+import { lazy, Suspense } from 'react';
+
+// Lazy load heavy components
+const DataVisualization = lazy(() => import('./data-visualization'));
+const AdvancedChart = lazy(() => import('./advanced-chart'));
+const HeavyModal = lazy(() => import('./heavy-modal'));
+
+interface LazyComponentProps {
+  type: 'visualization' | 'chart' | 'modal';
+  data?: any;
+}
+
+export function LazyComponent({ type, data }: LazyComponentProps) {
+  const renderComponent = () => {
+    switch (type) {
+      case 'visualization':
+        return (
+          <Suspense fallback={<div className="h-96 bg-gray-100 animate-pulse rounded" />}>
+            <DataVisualization data={data} />
+          </Suspense>
+        );
+      case 'chart':
+        return (
+          <Suspense fallback={<div className="h-64 bg-gray-100 animate-pulse rounded" />}>
+            <AdvancedChart data={data} />
+          </Suspense>
+        );
+      case 'modal':
+        return (
+          <Suspense fallback={<div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center"><div className="bg-white p-8 rounded">Loading...</div></div>}>
+            <HeavyModal data={data} />
+          </Suspense>
+        );
+      default:
+        return null;
+    }
+  };
+
+  return renderComponent();
+}
+
+// app/components/optimized-image.tsx (Image optimization)
+import Image from 'next/image';
+import { useState } from 'react';
+
+interface OptimizedImageProps {
+  src: string;
+  alt: string;
+  width: number;
+  height: number;
+  priority?: boolean;
+  className?: string;
+}
+
+export function OptimizedImage({ 
+  src, 
+  alt, 
+  width, 
+  height, 
+  priority = false,
+  className 
+}: OptimizedImageProps) {
+  const [isLoading, setIsLoading] = useState(true);
+  
+  return (
+    <div className={`relative overflow-hidden ${className}`}>
+      <Image
+        src={src}
+        alt={alt}
+        width={width}
+        height={height}
+        priority={priority}
+        className={`transition-opacity duration-300 ${
+          isLoading ? 'opacity-0' : 'opacity-100'
+        }`}
+        onLoad={() => setIsLoading(false)}
+        placeholder="blur"
+        blurDataURL="data:image/svg+xml;base64,PHN2ZyB3aWR0aD0iNDAiIGhlaWdodD0iNDAiIHZpZXdCb3g9IjAgMCA0MCA0MCIgZmlsbD0ibm9uZSIgeG1sbnM9Imh0dHA6Ly93d3cudzMub3JnLzIwMDAvc3ZnIj4KPHJlY3Qgd2lkdGg9IjQwIiBoZWlnaHQ9IjQwIiBmaWxsPSIjRjNGNEY2Ii8+Cjwvc3ZnPgo="
+        sizes="(max-width: 768px) 100vw, (max-width: 1200px) 50vw, 33vw"
+      />
+      {isLoading && (
+        <div className="absolute inset-0 bg-gray-200 animate-pulse" />
+      )}
+    </div>
+  );
+}
+
+// app/lib/dynamic-imports.ts (Dynamic imports)
+export const dynamicImports = {
+  // Lazy load heavy libraries
+  loadChartLibrary: () => import('chart.js'),
+  loadMarkdownParser: () => import('marked'),
+  loadDateLibrary: () => import('date-fns'),
+  loadAnimationLibrary: () => import('framer-motion'),
+  
+  // Lazy load components
+  loadHeavyComponent: () => import('@/components/heavy-component'),
+  loadModalComponent: () => import('@/components/modal'),
+  loadDataTableComponent: () => import('@/components/data-table'),
+};
+
+// app/components/performance-optimized-list.tsx (Virtualization)
+'use client';
+
+import { FixedSizeList as List } from 'react-window';
+import { memo, useMemo } from 'react';
+import { User } from '@/types';
+
+interface VirtualizedListProps {
+  users: User[];
+  height: number;
+  itemHeight: number;
+}
+
+const UserItem = memo(({ index, style, data }: any) => (
+  <div style={style} className="p-2 border-b">
+    <div className="flex items-center space-x-3">
+      <img
+        src={data[index].avatar || '/default-avatar.png'}
+        alt={`${data[index].name}'s avatar`}
+        className="w-10 h-10 rounded-full"
+        loading="lazy"
+      />
+      <div>
+        <h3 className="font-medium">{data[index].name}</h3>
+        <p className="text-sm text-gray-600">{data[index].email}</p>
+      </div>
+    </div>
+  </div>
+));
+
+UserItem.displayName = 'UserItem';
+
+export function VirtualizedUserList({ users, height, itemHeight }: VirtualizedListProps) {
+  const memoizedUsers = useMemo(() => users, [users]);
+  
+  return (
+    <List
+      height={height}
+      itemCount={users.length}
+      itemSize={itemHeight}
+      itemData={memoizedUsers}
+      overscanCount={5}
+    >
+      {UserItem}
+    </List>
+  );
+}
+
+// app/lib/performance-monitoring.ts (Performance monitoring)
+export function measurePerformance(name: string, fn: () => Promise<any>) {
+  return async (...args: any[]) => {
+    const start = performance.now();
+    
+    try {
+      const result = await fn.apply(this, args);
+      const end = performance.now();
+      
+      console.log(`${name} took ${end - start} milliseconds`);
+      
+      // Send to analytics
+      if (typeof window !== 'undefined' && window.gtag) {
+        window.gtag('event', 'timing_complete', {
+          name,
+          value: Math.round(end - start),
+        });
+      }
+      
+      return result;
+    } catch (error) {
+      const end = performance.now();
+      console.error(`${name} failed after ${end - start} milliseconds`, error);
+      throw error;
+    }
+  };
+}
+
+// Usage in components
+export const fetchUsersWithPerformance = measurePerformance(
+  'fetchUsers',
+  async () => {
+    const response = await fetch('/api/users');
+    return response.json();
+  }
+);
+
+// package.json scripts for bundle analysis
+{
+  "scripts": {
+    "analyze": "cross-env ANALYZE=true next build",
+    "analyze:server": "cross-env BUNDLE_ANALYZE=server next build",
+    "analyze:browser": "cross-env BUNDLE_ANALYZE=browser next build"
+  }
+}]]></correct-example>
+          <incorrect-example title="Poor performance practices" conditions="Optimizing Next.js application performance" expected-result="Optimized application performance" incorrectness-criteria="No optimization, large bundles, unoptimized images"><![CDATA[// Bad performance practices
+import Chart from 'chart.js'; // Always imported
+import * as DateFns from 'date-fns'; // Import everything
+import { motion } from 'framer-motion'; // Heavy library always loaded
+
+export function BadComponent() {
+  return (
+    <div>
+      <img src="/large-image.jpg" alt="Large image" />
+      <Chart data={data} />
+      <motion.div>Content</motion.div>
+    </div>
+  );
+}
+
+// No lazy loading
+// No image optimization
+// No bundle analysis
+// No performance monitoring
+// Large initial bundle size]]></incorrect-example>
+        </example>
+      </examples>
+    </requirement>
+  </requirements>
+  
+  <context description="Next.js 13+ development considerations">
+    Next.js 13+ introduces significant paradigm shifts with the App Router, Server Components, and improved developer experience. Modern Next.js development emphasizes server-first rendering, improved performance, and better TypeScript integration.
+
+    Key considerations for Next.js 13+ development:
+    - App Router is the new standard, replacing the pages directory
+    - Server Components by default improve performance and SEO
+    - Client Components should be used sparingly for interactivity
+    - Proper data fetching patterns with caching strategies
+    - TypeScript integration with strict configuration
+    - Modern authentication patterns with middleware
+    - Performance optimization with code splitting and lazy loading
+    - Comprehensive testing strategies for modern patterns
+    - SEO optimization with the new metadata API
+    - Security best practices with middleware and API routes
+
+    The React Server Components paradigm requires developers to think differently about client-server boundaries and data flow. This leads to better performance, improved SEO, and reduced bundle sizes when properly implemented.
+
+    Next.js continues to evolve rapidly, with regular updates introducing new features and improvements. Staying current with the latest documentation and best practices is essential for modern Next.js development.
+  </context>
+  
+  <references>
+    <reference as="dependency" href=".cursor/rules/000-core/002-cursor-rules-creation.mdc" reason="Follows standard rule format">Base rule format definition</reference>
+    <reference as="dependency" href=".cursor/rules/languages/typescript-core-standards-auto.mdc" reason="Incorporates TypeScript best practices">TypeScript core standards and best practices</reference>
+    <reference as="context" href="https://nextjs.org/docs" reason="Official Next.js documentation">Next.js Official Documentation</reference>
+    <reference as="context" href="https://nextjs.org/docs/app" reason="App Router documentation">Next.js App Router Guide</reference>
+    <reference as="context" href="https://react.dev/reference/react/use-client" reason="React Server Components">React Server Components Documentation</reference>
+    <reference as="context" href="https://nextjs.org/docs/app/building-your-application/optimizing/metadata" reason="SEO optimization">Next.js Metadata API</reference>
+    <reference as="context" href="https://nextjs.org/docs/app/building-your-application/authentication" reason="Authentication patterns">Next.js Authentication Guide</reference>
+    <reference as="context" href="https://nextjs.org/docs/app/building-your-application/optimizing/images" reason="Image optimization">Next.js Image Optimization</reference>
+    <reference as="context" href="https://nextjs.org/docs/app/building-your-application/testing" reason="Testing strategies">Next.js Testing Guide</reference>
+    <reference as="context" href="https://nextjs.org/docs/app/api-reference/next-config-js" reason="Configuration options">Next.js Configuration</reference>
+  </references>
+</rule>
+description:
+globs:
+alwaysApply: false
+---

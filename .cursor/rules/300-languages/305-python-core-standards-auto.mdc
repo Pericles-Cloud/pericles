@@ -1,0 +1,2237 @@
+---
+description: "Comprehensive Python best practices following PEP standards, modern Python features, and community guidelines"
+globs: ["*.py"]
+alwaysApply: false
+---
+
+<rule>
+  <meta>
+    <title>Python Best Practices and Standards</title>
+    <description>Comprehensive rules for Python development following PEP 8, modern Python features, testing, performance, and security best practices</description>
+    <created-at utc-timestamp="1736694600">January 12, 2025, 10:50 AM</created-at>
+    <last-updated-at utc-timestamp="1736694600">January 12, 2025, 10:50 AM</last-updated-at>
+    <applies-to>
+      <file-matcher glob="*.py">All Python files</file-matcher>
+      <action-matcher action="python-development">Triggered when developing Python code</action-matcher>
+    </applies-to>
+  </meta>
+  <requirements>
+    <non-negotiable priority="critical">
+      <description>Follow PEP 8 style guidelines for code formatting, naming conventions, and structure</description>
+      <examples>
+        <example title="PEP 8 Compliance">
+          <correct-example title="Proper PEP 8 formatting" conditions="Writing Python code" expected-result="Clean, readable code" correctness-criteria="Follows PEP 8 standards for naming, spacing, and structure"><![CDATA[import os
+import sys
+from typing import List, Optional, Dict, Any
+
+# Constants use UPPER_CASE
+MAX_RETRY_COUNT = 3
+DEFAULT_TIMEOUT = 30
+
+# Class names use PascalCase
+class UserManager:
+    """Manages user operations with proper documentation."""
+    
+    def __init__(self, database_url: str) -> None:
+        self.database_url = database_url
+        self._cache: Dict[str, Any] = {}
+    
+    def get_user_by_id(self, user_id: int) -> Optional[Dict[str, Any]]:
+        """Get user by ID with type hints and docstring."""
+        if user_id <= 0:
+            raise ValueError("User ID must be positive")
+        
+        # Use proper spacing around operators
+        cache_key = f"user_{user_id}"
+        if cache_key in self._cache:
+            return self._cache[cache_key]
+        
+        # Function/method names use snake_case
+        user_data = self._fetch_user_from_database(user_id)
+        self._cache[cache_key] = user_data
+        return user_data
+    
+    def _fetch_user_from_database(self, user_id: int) -> Optional[Dict[str, Any]]:
+        """Private method with leading underscore."""
+        # Implementation details
+        pass
+
+# Function names use snake_case
+def process_user_data(user_list: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
+    """Process user data with proper list comprehension."""
+    return [
+        {
+            'id': user['id'],
+            'name': user['name'].strip(),
+            'email': user['email'].lower()
+        }
+        for user in user_list
+        if user.get('active', False)
+    ]]]></correct-example>
+          <incorrect-example title="Non-PEP 8 code" conditions="Writing Python code" expected-result="PEP 8 compliant code" incorrectness-criteria="Violates PEP 8 naming conventions and formatting"><![CDATA[import os,sys
+from typing import *
+
+maxRetryCount=3  # Wrong constant naming
+defaultTimeout   =   30  # Wrong spacing
+
+class userManager:  # Wrong class naming
+    def __init__(self,databaseUrl):  # Missing spaces, no type hints
+        self.databaseUrl=databaseUrl
+        self._cache={}
+    
+    def GetUserById(self,userId):  # Wrong method naming
+        if userId<=0:  # Missing spaces around operator
+            raise ValueError("User ID must be positive")
+        
+        cacheKey=f"user_{userId}"
+        if cacheKey in self._cache:
+            return self._cache[cacheKey]
+        
+        userData=self._fetchUserFromDatabase(userId)
+        self._cache[cacheKey]=userData
+        return userData
+    
+    def _fetchUserFromDatabase(self,userId):
+        pass
+
+def ProcessUserData(userList):  # Wrong function naming
+    result=[]
+    for user in userList:
+        if user.get('active',False):
+            result.append({'id':user['id'],'name':user['name'].strip(),'email':user['email'].lower()})
+    return result]]></incorrect-example>
+        </example>
+      </examples>
+    </non-negotiable>
+    <non-negotiable priority="critical">
+      <description>Use type hints for all function parameters, return values, and complex variables to improve code clarity and enable static analysis</description>
+      <examples>
+        <example title="Type Hints Usage">
+          <correct-example title="Comprehensive type hints" conditions="Writing functions and classes" expected-result="Fully typed code" correctness-criteria="Uses proper type annotations from typing module"><![CDATA[from typing import List, Dict, Optional, Union, Tuple, Protocol, TypeVar, Generic
+from datetime import datetime
+from pathlib import Path
+
+# Type variables for generics
+T = TypeVar('T')
+K = TypeVar('K')
+V = TypeVar('V')
+
+# Protocol for structural typing
+class Serializable(Protocol):
+    def serialize(self) -> Dict[str, Any]:
+        ...
+
+# Generic class with type hints
+class Repository(Generic[T]):
+    def __init__(self, data_source: str) -> None:
+        self.data_source = data_source
+        self._items: List[T] = []
+    
+    def add(self, item: T) -> None:
+        self._items.append(item)
+    
+    def get_all(self) -> List[T]:
+        return self._items.copy()
+
+# Function with comprehensive type hints
+def process_file_data(
+    file_path: Path,
+    processor: Callable[[str], Dict[str, Any]],
+    filters: Optional[List[str]] = None,
+    max_size: int = 1000000
+) -> Tuple[List[Dict[str, Any]], int]:
+    """
+    Process file data with comprehensive type hints.
+    
+    Args:
+        file_path: Path to the file to process
+        processor: Function to process each line
+        filters: Optional list of filters to apply
+        max_size: Maximum file size to process
+    
+    Returns:
+        Tuple of processed data and count of processed items
+    
+    Raises:
+        ValueError: If file is too large
+        FileNotFoundError: If file doesn't exist
+    """
+    if not file_path.exists():
+        raise FileNotFoundError(f"File not found: {file_path}")
+    
+    if file_path.stat().st_size > max_size:
+        raise ValueError(f"File too large: {file_path.stat().st_size} bytes")
+    
+    processed_data: List[Dict[str, Any]] = []
+    filters = filters or []
+    
+    with file_path.open('r', encoding='utf-8') as file:
+        for line_number, line in enumerate(file, 1):
+            try:
+                line = line.strip()
+                if not line or any(f in line for f in filters):
+                    continue
+                
+                processed_item = processor(line)
+                processed_data.append(processed_item)
+                
+            except Exception as e:
+                logger.warning(f"Error processing line {line_number}: {e}")
+                continue
+    
+    return processed_data, len(processed_data)
+
+# Class with typed attributes
+class UserPreferences:
+    def __init__(
+        self,
+        user_id: int,
+        settings: Dict[str, Union[str, int, bool]],
+        created_at: Optional[datetime] = None
+    ) -> None:
+        self.user_id = user_id
+        self.settings = settings
+        self.created_at = created_at or datetime.now()
+        self._cache: Dict[str, Any] = {}
+    
+    def get_setting(self, key: str, default: Optional[Any] = None) -> Any:
+        return self.settings.get(key, default)
+    
+    def update_settings(self, new_settings: Dict[str, Union[str, int, bool]]) -> None:
+        self.settings.update(new_settings)]]></correct-example>
+          <incorrect-example title="Missing type hints" conditions="Writing functions and classes" expected-result="Properly typed code" incorrectness-criteria="Lacks type annotations and documentation"><![CDATA[# Missing type hints and documentation
+def process_file_data(file_path, processor, filters=None, max_size=1000000):
+    if not file_path.exists():
+        raise FileNotFoundError(f"File not found: {file_path}")
+    
+    if file_path.stat().st_size > max_size:
+        raise ValueError(f"File too large: {file_path.stat().st_size} bytes")
+    
+    processed_data = []
+    filters = filters or []
+    
+    with file_path.open('r', encoding='utf-8') as file:
+        for line_number, line in enumerate(file, 1):
+            try:
+                line = line.strip()
+                if not line or any(f in line for f in filters):
+                    continue
+                
+                processed_item = processor(line)
+                processed_data.append(processed_item)
+                
+            except Exception as e:
+                continue
+    
+    return processed_data, len(processed_data)
+
+class UserPreferences:
+    def __init__(self, user_id, settings, created_at=None):
+        self.user_id = user_id
+        self.settings = settings
+        self.created_at = created_at or datetime.now()
+        self._cache = {}
+    
+    def get_setting(self, key, default=None):
+        return self.settings.get(key, default)]]></incorrect-example>
+        </example>
+      </examples>
+    </non-negotiable>
+    <requirement priority="critical">
+      <description>Implement comprehensive error handling with specific exception types and proper logging</description>
+      <examples>
+        <example title="Error Handling Patterns">
+          <correct-example title="Proper exception handling" conditions="Handling errors and exceptions" expected-result="Robust error handling with logging" correctness-criteria="Uses specific exceptions, logging, and proper error messages"><![CDATA[import logging
+from typing import Optional, Dict, Any
+import json
+from pathlib import Path
+
+# Configure logging
+logging.basicConfig(
+    level=logging.INFO,
+    format='%(asctime)s - %(name)s - %(levelname)s - %(message)s'
+)
+logger = logging.getLogger(__name__)
+
+# Custom exception hierarchy
+class DataProcessingError(Exception):
+    """Base exception for data processing errors."""
+    pass
+
+class ValidationError(DataProcessingError):
+    """Raised when data validation fails."""
+    pass
+
+class ConfigurationError(DataProcessingError):
+    """Raised when configuration is invalid."""
+    pass
+
+class DataProcessor:
+    def __init__(self, config_file: Path) -> None:
+        self.config = self._load_config(config_file)
+        self.processed_count = 0
+    
+    def _load_config(self, config_file: Path) -> Dict[str, Any]:
+        """Load configuration with proper error handling."""
+        try:
+            if not config_file.exists():
+                raise ConfigurationError(f"Config file not found: {config_file}")
+            
+            with config_file.open('r', encoding='utf-8') as f:
+                config = json.load(f)
+            
+            # Validate required configuration
+            required_fields = ['input_dir', 'output_dir', 'max_file_size']
+            missing_fields = [field for field in required_fields if field not in config]
+            
+            if missing_fields:
+                raise ConfigurationError(f"Missing required config fields: {missing_fields}")
+            
+            logger.info(f"Configuration loaded successfully from {config_file}")
+            return config
+            
+        except json.JSONDecodeError as e:
+            logger.error(f"Invalid JSON in config file {config_file}: {e}")
+            raise ConfigurationError(f"Invalid JSON in config file: {e}") from e
+        except PermissionError as e:
+            logger.error(f"Permission denied reading config file {config_file}: {e}")
+            raise ConfigurationError(f"Permission denied: {e}") from e
+        except Exception as e:
+            logger.error(f"Unexpected error loading config: {e}")
+            raise ConfigurationError(f"Failed to load configuration: {e}") from e
+    
+    def process_data(self, data: Dict[str, Any]) -> Dict[str, Any]:
+        """Process data with validation and error handling."""
+        try:
+            # Validate input data
+            if not isinstance(data, dict):
+                raise ValidationError(f"Expected dict, got {type(data)}")
+            
+            required_keys = ['id', 'name', 'email']
+            missing_keys = [key for key in required_keys if key not in data]
+            
+            if missing_keys:
+                raise ValidationError(f"Missing required keys: {missing_keys}")
+            
+            # Validate email format
+            email = data.get('email', '').strip()
+            if not email or '@' not in email:
+                raise ValidationError(f"Invalid email format: {email}")
+            
+            # Process the data
+            processed_data = {
+                'id': int(data['id']),
+                'name': data['name'].strip().title(),
+                'email': email.lower(),
+                'processed_at': datetime.now().isoformat()
+            }
+            
+            self.processed_count += 1
+            logger.debug(f"Successfully processed data for ID: {data['id']}")
+            
+            return processed_data
+            
+        except ValidationError:
+            # Re-raise validation errors as-is
+            raise
+        except ValueError as e:
+            logger.error(f"Value error processing data: {e}")
+            raise ValidationError(f"Invalid data value: {e}") from e
+        except Exception as e:
+            logger.error(f"Unexpected error processing data: {e}")
+            raise DataProcessingError(f"Processing failed: {e}") from e
+    
+    def process_batch(self, data_list: List[Dict[str, Any]]) -> Tuple[List[Dict[str, Any]], List[str]]:
+        """Process batch of data with error collection."""
+        processed_items = []
+        errors = []
+        
+        for i, item in enumerate(data_list):
+            try:
+                processed_item = self.process_data(item)
+                processed_items.append(processed_item)
+            except ValidationError as e:
+                error_msg = f"Item {i}: {str(e)}"
+                errors.append(error_msg)
+                logger.warning(error_msg)
+            except DataProcessingError as e:
+                error_msg = f"Item {i}: Processing error - {str(e)}"
+                errors.append(error_msg)
+                logger.error(error_msg)
+        
+        logger.info(f"Batch processing completed: {len(processed_items)} successful, {len(errors)} errors")
+        return processed_items, errors]]></correct-example>
+          <incorrect-example title="Poor error handling" conditions="Handling errors and exceptions" expected-result="Proper error handling" incorrectness-criteria="Uses generic exceptions and lacks proper logging"><![CDATA[import json
+
+# Poor error handling - generic exceptions, no logging
+def load_config(config_file):
+    try:
+        with open(config_file, 'r') as f:
+            return json.load(f)
+    except:  # Too broad exception handling
+        return {}  # Silent failure
+
+def process_data(data):
+    try:
+        # No validation
+        processed_data = {
+            'id': data['id'],
+            'name': data['name'],
+            'email': data['email']
+        }
+        return processed_data
+    except Exception as e:
+        print(f"Error: {e}")  # Using print instead of logging
+        return None  # Silent failure
+
+def process_batch(data_list):
+    results = []
+    for item in data_list:
+        try:
+            result = process_data(item)
+            if result:
+                results.append(result)
+        except:  # Catching all exceptions
+            pass  # Silent failure
+    return results]]></incorrect-example>
+        </example>
+      </examples>
+    </requirement>
+    <requirement priority="high">
+      <description>Write comprehensive unit tests using pytest with fixtures, parameterization, and proper test organization</description>
+      <examples>
+        <example title="Testing Best Practices">
+          <correct-example title="Comprehensive test suite" conditions="Testing Python code" expected-result="Well-organized test suite with good coverage" correctness-criteria="Uses pytest fixtures, parameterization, and proper test structure"><![CDATA[import pytest
+from unittest.mock import Mock, patch, MagicMock
+from pathlib import Path
+import tempfile
+import json
+from datetime import datetime
+
+from my_module import DataProcessor, ValidationError, ConfigurationError
+
+class TestDataProcessor:
+    """Test suite for DataProcessor class."""
+    
+    @pytest.fixture
+    def valid_config(self):
+        """Fixture for valid configuration."""
+        return {
+            'input_dir': '/tmp/input',
+            'output_dir': '/tmp/output',
+            'max_file_size': 1000000
+        }
+    
+    @pytest.fixture
+    def config_file(self, valid_config):
+        """Fixture for temporary config file."""
+        with tempfile.NamedTemporaryFile(mode='w', suffix='.json', delete=False) as f:
+            json.dump(valid_config, f)
+            config_path = Path(f.name)
+        
+        yield config_path
+        
+        # Cleanup
+        config_path.unlink()
+    
+    @pytest.fixture
+    def processor(self, config_file):
+        """Fixture for DataProcessor instance."""
+        return DataProcessor(config_file)
+    
+    @pytest.fixture
+    def valid_data(self):
+        """Fixture for valid test data."""
+        return {
+            'id': '123',
+            'name': 'john doe',
+            'email': 'john.doe@example.com'
+        }
+    
+    def test_init_with_valid_config(self, config_file, valid_config):
+        """Test DataProcessor initialization with valid config."""
+        processor = DataProcessor(config_file)
+        assert processor.config == valid_config
+        assert processor.processed_count == 0
+    
+    def test_init_with_missing_config_file(self):
+        """Test DataProcessor initialization with missing config file."""
+        non_existent_file = Path('/tmp/non_existent.json')
+        with pytest.raises(ConfigurationError, match="Config file not found"):
+            DataProcessor(non_existent_file)
+    
+    def test_init_with_invalid_json(self):
+        """Test DataProcessor initialization with invalid JSON."""
+        with tempfile.NamedTemporaryFile(mode='w', suffix='.json', delete=False) as f:
+            f.write("invalid json {")
+            invalid_config_path = Path(f.name)
+        
+        try:
+            with pytest.raises(ConfigurationError, match="Invalid JSON in config file"):
+                DataProcessor(invalid_config_path)
+        finally:
+            invalid_config_path.unlink()
+    
+    @pytest.mark.parametrize("missing_field", [
+        'input_dir',
+        'output_dir',
+        'max_file_size'
+    ])
+    def test_init_with_missing_required_fields(self, missing_field, valid_config):
+        """Test DataProcessor initialization with missing required fields."""
+        incomplete_config = valid_config.copy()
+        del incomplete_config[missing_field]
+        
+        with tempfile.NamedTemporaryFile(mode='w', suffix='.json', delete=False) as f:
+            json.dump(incomplete_config, f)
+            config_path = Path(f.name)
+        
+        try:
+            with pytest.raises(ConfigurationError, match="Missing required config fields"):
+                DataProcessor(config_path)
+        finally:
+            config_path.unlink()
+    
+    def test_process_data_valid(self, processor, valid_data):
+        """Test processing valid data."""
+        result = processor.process_data(valid_data)
+        
+        assert result['id'] == 123
+        assert result['name'] == 'John Doe'
+        assert result['email'] == 'john.doe@example.com'
+        assert 'processed_at' in result
+        assert processor.processed_count == 1
+    
+    @pytest.mark.parametrize("invalid_data,expected_error", [
+        ("not a dict", "Expected dict, got"),
+        ({}, "Missing required keys"),
+        ({'id': '123', 'name': 'John'}, "Missing required keys"),
+        ({'id': '123', 'name': 'John', 'email': 'invalid'}, "Invalid email format"),
+        ({'id': '123', 'name': 'John', 'email': ''}, "Invalid email format"),
+    ])
+    def test_process_data_invalid(self, processor, invalid_data, expected_error):
+        """Test processing invalid data."""
+        with pytest.raises(ValidationError, match=expected_error):
+            processor.process_data(invalid_data)
+    
+    def test_process_batch_mixed_data(self, processor):
+        """Test batch processing with mixed valid and invalid data."""
+        data_list = [
+            {'id': '1', 'name': 'John', 'email': 'john@example.com'},
+            {'id': '2', 'name': 'Jane'},  # Missing email
+            {'id': '3', 'name': 'Bob', 'email': 'bob@example.com'},
+            "invalid_data"  # Not a dict
+        ]
+        
+        processed_items, errors = processor.process_batch(data_list)
+        
+        assert len(processed_items) == 2
+        assert len(errors) == 2
+        assert processor.processed_count == 2
+        
+        # Check that valid items were processed correctly
+        assert processed_items[0]['name'] == 'John'
+        assert processed_items[1]['name'] == 'Bob'
+        
+        # Check that errors were captured
+        assert any("Missing required keys" in error for error in errors)
+        assert any("Expected dict, got" in error for error in errors)
+    
+    @patch('my_module.logger')
+    def test_logging_behavior(self, mock_logger, processor, valid_data):
+        """Test that logging works correctly."""
+        processor.process_data(valid_data)
+        
+        # Verify debug logging was called
+        mock_logger.debug.assert_called_once()
+        assert "Successfully processed data for ID: 123" in mock_logger.debug.call_args[0][0]
+    
+    def test_process_data_increments_counter(self, processor):
+        """Test that processed_count increments correctly."""
+        valid_data = {'id': '123', 'name': 'Test', 'email': 'test@example.com'}
+        
+        initial_count = processor.processed_count
+        processor.process_data(valid_data)
+        
+        assert processor.processed_count == initial_count + 1
+    
+    @pytest.mark.integration
+    def test_full_workflow(self, processor):
+        """Integration test for full workflow."""
+        data_list = [
+            {'id': '1', 'name': 'alice', 'email': 'ALICE@EXAMPLE.COM'},
+            {'id': '2', 'name': 'bob', 'email': 'bob@example.com'}
+        ]
+        
+        processed_items, errors = processor.process_batch(data_list)
+        
+        assert len(processed_items) == 2
+        assert len(errors) == 0
+        assert processor.processed_count == 2
+        
+        # Verify data transformation
+        assert processed_items[0]['name'] == 'Alice'
+        assert processed_items[0]['email'] == 'alice@example.com'
+        assert processed_items[1]['name'] == 'Bob'
+        assert processed_items[1]['email'] == 'bob@example.com'
+
+# Conftest.py for shared fixtures
+@pytest.fixture(scope="session")
+def test_data_dir():
+    """Create temporary directory for test data."""
+    with tempfile.TemporaryDirectory() as temp_dir:
+        yield Path(temp_dir)
+
+@pytest.fixture(autouse=True)
+def setup_logging():
+    """Setup logging for tests."""
+    import logging
+    logging.basicConfig(level=logging.DEBUG)]]></correct-example>
+          <incorrect-example title="Poor testing practices" conditions="Testing Python code" expected-result="Comprehensive test suite" incorrectness-criteria="Lacks proper test structure, fixtures, and coverage"><![CDATA[# Poor testing practices - no fixtures, minimal coverage
+import unittest
+
+class TestDataProcessor(unittest.TestCase):
+    
+    def test_process_data(self):
+        # No setup, hardcoded values
+        processor = DataProcessor('/tmp/config.json')
+        data = {'id': '123', 'name': 'John', 'email': 'john@example.com'}
+        result = processor.process_data(data)
+        
+        # Basic assertion only
+        assert result is not None
+    
+    def test_invalid_data(self):
+        processor = DataProcessor('/tmp/config.json')
+        
+        # No specific exception testing
+        try:
+            processor.process_data({})
+            assert False, "Should have raised an exception"
+        except:
+            pass  # Too generic
+    
+    def test_batch_processing(self):
+        processor = DataProcessor('/tmp/config.json')
+        data_list = [{'id': '1', 'name': 'John', 'email': 'john@example.com'}]
+        
+        # No error checking
+        results = processor.process_batch(data_list)
+        assert len(results) > 0
+
+# No fixtures, no parameterization, no proper test organization
+if __name__ == '__main__':
+    unittest.main()]]></incorrect-example>
+        </example>
+      </examples>
+    </requirement>
+    <requirement priority="high">
+      <description>Use modern Python features like dataclasses, context managers, and pathlib for cleaner, more maintainable code</description>
+      <examples>
+        <example title="Modern Python Features">
+          <correct-example title="Modern Python patterns" conditions="Writing modern Python code" expected-result="Clean, maintainable code using modern features" correctness-criteria="Uses dataclasses, context managers, pathlib, and other modern Python features"><![CDATA[from dataclasses import dataclass, field
+from pathlib import Path
+from contextlib import contextmanager
+from typing import Iterator, List, Optional, Dict, Any
+import json
+import logging
+from datetime import datetime
+
+# Modern dataclass with type hints and defaults
+@dataclass
+class UserProfile:
+    user_id: int
+    username: str
+    email: str
+    full_name: Optional[str] = None
+    is_active: bool = True
+    created_at: datetime = field(default_factory=datetime.now)
+    preferences: Dict[str, Any] = field(default_factory=dict)
+    tags: List[str] = field(default_factory=list)
+    
+    def __post_init__(self) -> None:
+        """Validate data after initialization."""
+        if self.user_id <= 0:
+            raise ValueError("User ID must be positive")
+        if not self.username:
+            raise ValueError("Username cannot be empty")
+        if '@' not in self.email:
+            raise ValueError("Invalid email format")
+    
+    @property
+    def display_name(self) -> str:
+        """Get display name with fallback."""
+        return self.full_name or self.username
+    
+    def to_dict(self) -> Dict[str, Any]:
+        """Convert to dictionary for serialization."""
+        return {
+            'user_id': self.user_id,
+            'username': self.username,
+            'email': self.email,
+            'full_name': self.full_name,
+            'is_active': self.is_active,
+            'created_at': self.created_at.isoformat(),
+            'preferences': self.preferences,
+            'tags': self.tags
+        }
+
+# Context manager for file operations
+@contextmanager
+def managed_file_writer(file_path: Path, mode: str = 'w') -> Iterator[Any]:
+    """Context manager for safe file writing with backup."""
+    backup_path = file_path.with_suffix(f'{file_path.suffix}.backup')
+    
+    # Create backup if original exists
+    if file_path.exists():
+        backup_path.write_text(file_path.read_text())
+    
+    temp_path = file_path.with_suffix(f'{file_path.suffix}.tmp')
+    
+    try:
+        with temp_path.open(mode, encoding='utf-8') as file:
+            yield file
+        
+        # Atomic move on success
+        temp_path.replace(file_path)
+        
+        # Remove backup on success
+        if backup_path.exists():
+            backup_path.unlink()
+    
+    except Exception as e:
+        # Cleanup temp file on error
+        if temp_path.exists():
+            temp_path.unlink()
+        
+        # Restore backup if it exists
+        if backup_path.exists():
+            backup_path.replace(file_path)
+        
+        raise e
+
+# Modern file handling with pathlib
+class DataManager:
+    """Modern data manager using pathlib and context managers."""
+    
+    def __init__(self, data_dir: Path) -> None:
+        self.data_dir = Path(data_dir)
+        self.data_dir.mkdir(parents=True, exist_ok=True)
+        self.logger = logging.getLogger(self.__class__.__name__)
+    
+    def save_user_profile(self, profile: UserProfile) -> None:
+        """Save user profile using modern file handling."""
+        file_path = self.data_dir / f"user_{profile.user_id}.json"
+        
+        try:
+            with managed_file_writer(file_path) as f:
+                json.dump(profile.to_dict(), f, indent=2, ensure_ascii=False)
+            
+            self.logger.info(f"User profile saved: {file_path}")
+        
+        except Exception as e:
+            self.logger.error(f"Failed to save user profile {profile.user_id}: {e}")
+            raise
+    
+    def load_user_profile(self, user_id: int) -> Optional[UserProfile]:
+        """Load user profile with proper error handling."""
+        file_path = self.data_dir / f"user_{user_id}.json"
+        
+        if not file_path.exists():
+            return None
+        
+        try:
+            data = json.loads(file_path.read_text(encoding='utf-8'))
+            
+            # Convert ISO datetime back to datetime object
+            if 'created_at' in data:
+                data['created_at'] = datetime.fromisoformat(data['created_at'])
+            
+            return UserProfile(**data)
+        
+        except Exception as e:
+            self.logger.error(f"Failed to load user profile {user_id}: {e}")
+            return None
+    
+    def get_all_user_files(self) -> List[Path]:
+        """Get all user files using pathlib."""
+        return list(self.data_dir.glob("user_*.json"))
+    
+    def cleanup_old_files(self, days_old: int = 30) -> int:
+        """Clean up old files using pathlib."""
+        cutoff_time = datetime.now().timestamp() - (days_old * 24 * 60 * 60)
+        cleaned_count = 0
+        
+        for file_path in self.get_all_user_files():
+            try:
+                if file_path.stat().st_mtime < cutoff_time:
+                    file_path.unlink()
+                    cleaned_count += 1
+                    self.logger.info(f"Cleaned up old file: {file_path}")
+            except Exception as e:
+                self.logger.error(f"Failed to cleanup file {file_path}: {e}")
+        
+        return cleaned_count
+
+# Modern class with properties and descriptors
+class Configuration:
+    """Configuration class with validation and modern features."""
+    
+    def __init__(self, config_path: Path) -> None:
+        self.config_path = Path(config_path)
+        self._data: Dict[str, Any] = {}
+        self._load_config()
+    
+    def _load_config(self) -> None:
+        """Load configuration from file."""
+        if not self.config_path.exists():
+            raise FileNotFoundError(f"Config file not found: {self.config_path}")
+        
+        try:
+            self._data = json.loads(self.config_path.read_text(encoding='utf-8'))
+        except json.JSONDecodeError as e:
+            raise ValueError(f"Invalid JSON in config file: {e}")
+    
+    @property
+    def database_url(self) -> str:
+        """Get database URL with validation."""
+        url = self._data.get('database_url')
+        if not url:
+            raise ValueError("Database URL not configured")
+        return url
+    
+    @property
+    def max_connections(self) -> int:
+        """Get max connections with default."""
+        return self._data.get('max_connections', 10)
+    
+    @property
+    def timeout(self) -> float:
+        """Get timeout with validation."""
+        timeout = self._data.get('timeout', 30.0)
+        if timeout <= 0:
+            raise ValueError("Timeout must be positive")
+        return timeout
+    
+    def get(self, key: str, default: Any = None) -> Any:
+        """Get configuration value with default."""
+        return self._data.get(key, default)
+    
+    def update(self, updates: Dict[str, Any]) -> None:
+        """Update configuration and save."""
+        self._data.update(updates)
+        self._save_config()
+    
+    def _save_config(self) -> None:
+        """Save configuration to file."""
+        with managed_file_writer(self.config_path) as f:
+            json.dump(self._data, f, indent=2, ensure_ascii=False)
+
+# Usage example
+def main() -> None:
+    """Example usage of modern Python features."""
+    data_dir = Path("./data")
+    manager = DataManager(data_dir)
+    
+    # Create user profile with dataclass
+    profile = UserProfile(
+        user_id=1,
+        username="john_doe",
+        email="john@example.com",
+        full_name="John Doe",
+        preferences={"theme": "dark", "notifications": True},
+        tags=["developer", "python"]
+    )
+    
+    # Save and load with modern file handling
+    manager.save_user_profile(profile)
+    loaded_profile = manager.load_user_profile(1)
+    
+    if loaded_profile:
+        print(f"Loaded profile: {loaded_profile.display_name}")
+    
+    # Cleanup old files
+    cleaned = manager.cleanup_old_files(days_old=7)
+    print(f"Cleaned {cleaned} old files")
+
+if __name__ == "__main__":
+    main()]]></correct-example>
+          <incorrect-example title="Legacy Python patterns" conditions="Writing modern Python code" expected-result="Modern Python features" incorrectness-criteria="Uses old-style classes, manual file handling, and outdated patterns"><![CDATA[import os
+import json
+from datetime import datetime
+
+# Old-style class without dataclass or type hints
+class UserProfile:
+    def __init__(self, user_id, username, email, full_name=None, is_active=True, 
+                 created_at=None, preferences=None, tags=None):
+        self.user_id = user_id
+        self.username = username
+        self.email = email
+        self.full_name = full_name
+        self.is_active = is_active
+        self.created_at = created_at or datetime.now()
+        self.preferences = preferences or {}
+        self.tags = tags or []
+    
+    def get_display_name(self):
+        return self.full_name or self.username
+    
+    def to_dict(self):
+        return {
+            'user_id': self.user_id,
+            'username': self.username,
+            'email': self.email,
+            'full_name': self.full_name,
+            'is_active': self.is_active,
+            'created_at': self.created_at.isoformat(),
+            'preferences': self.preferences,
+            'tags': self.tags
+        }
+
+# Manual file handling without context managers
+class DataManager:
+    def __init__(self, data_dir):
+        self.data_dir = data_dir
+        if not os.path.exists(data_dir):
+            os.makedirs(data_dir)
+    
+    def save_user_profile(self, profile):
+        file_path = os.path.join(self.data_dir, f"user_{profile.user_id}.json")
+        
+        # No backup, no atomic operations
+        f = open(file_path, 'w')
+        try:
+            json.dump(profile.to_dict(), f, indent=2)
+        finally:
+            f.close()
+    
+    def load_user_profile(self, user_id):
+        file_path = os.path.join(self.data_dir, f"user_{user_id}.json")
+        
+        if not os.path.exists(file_path):
+            return None
+        
+        f = open(file_path, 'r')
+        try:
+            data = json.load(f)
+            data['created_at'] = datetime.fromisoformat(data['created_at'])
+            return UserProfile(**data)
+        except:
+            return None
+        finally:
+            f.close()
+    
+    def get_all_user_files(self):
+        # Manual directory traversal
+        files = []
+        for filename in os.listdir(self.data_dir):
+            if filename.startswith('user_') and filename.endswith('.json'):
+                files.append(os.path.join(self.data_dir, filename))
+        return files
+
+# Old-style configuration handling
+class Configuration:
+    def __init__(self, config_path):
+        self.config_path = config_path
+        self._data = {}
+        self._load_config()
+    
+    def _load_config(self):
+        if not os.path.exists(self.config_path):
+            raise FileNotFoundError(f"Config file not found: {self.config_path}")
+        
+        with open(self.config_path, 'r') as f:
+            self._data = json.load(f)
+    
+    def get_database_url(self):
+        return self._data.get('database_url')
+    
+    def get_max_connections(self):
+        return self._data.get('max_connections', 10)]]></incorrect-example>
+        </example>
+      </examples>
+    </requirement>
+    <requirement priority="high">
+      <description>Implement proper logging configuration with structured logging and appropriate log levels</description>
+      <examples>
+        <example title="Logging Best Practices">
+          <correct-example title="Structured logging setup" conditions="Implementing logging in applications" expected-result="Comprehensive logging configuration" correctness-criteria="Uses proper log levels, structured messages, and appropriate formatters"><![CDATA[import logging
+import logging.config
+import json
+import sys
+from datetime import datetime
+from pathlib import Path
+from typing import Dict, Any, Optional
+
+# Structured logging configuration
+LOGGING_CONFIG = {
+    'version': 1,
+    'disable_existing_loggers': False,
+    'formatters': {
+        'standard': {
+            'format': '%(asctime)s - %(name)s - %(levelname)s - %(message)s',
+            'datefmt': '%Y-%m-%d %H:%M:%S'
+        },
+        'detailed': {
+            'format': '%(asctime)s - %(name)s - %(levelname)s - %(module)s - %(funcName)s:%(lineno)d - %(message)s',
+            'datefmt': '%Y-%m-%d %H:%M:%S'
+        },
+        'json': {
+            'class': 'pythonjsonlogger.jsonlogger.JsonFormatter',
+            'format': '%(asctime)s %(name)s %(levelname)s %(module)s %(funcName)s %(lineno)d %(message)s'
+        }
+    },
+    'handlers': {
+        'console': {
+            'class': 'logging.StreamHandler',
+            'level': 'INFO',
+            'formatter': 'standard',
+            'stream': 'ext://sys.stdout'
+        },
+        'file': {
+            'class': 'logging.handlers.RotatingFileHandler',
+            'level': 'DEBUG',
+            'formatter': 'detailed',
+            'filename': 'app.log',
+            'maxBytes': 10485760,  # 10MB
+            'backupCount': 5,
+            'encoding': 'utf-8'
+        },
+        'error_file': {
+            'class': 'logging.handlers.RotatingFileHandler',
+            'level': 'ERROR',
+            'formatter': 'detailed',
+            'filename': 'errors.log',
+            'maxBytes': 10485760,
+            'backupCount': 5,
+            'encoding': 'utf-8'
+        }
+    },
+    'loggers': {
+        '': {  # Root logger
+            'handlers': ['console', 'file', 'error_file'],
+            'level': 'DEBUG',
+            'propagate': False
+        },
+        'requests': {
+            'handlers': ['console'],
+            'level': 'WARNING',
+            'propagate': False
+        },
+        'urllib3': {
+            'handlers': ['console'],
+            'level': 'WARNING',
+            'propagate': False
+        }
+    }
+}
+
+# Custom logging utility
+class LoggerMixin:
+    """Mixin class to add logging capabilities to any class."""
+    
+    @property
+    def logger(self) -> logging.Logger:
+        """Get logger instance for the class."""
+        return logging.getLogger(self.__class__.__name__)
+
+class ApplicationLogger:
+    """Centralized logging configuration and utilities."""
+    
+    def __init__(self, config_path: Optional[Path] = None):
+        self.config_path = config_path
+        self.setup_logging()
+    
+    def setup_logging(self) -> None:
+        """Setup logging configuration."""
+        if self.config_path and self.config_path.exists():
+            # Load custom logging configuration
+            config = json.loads(self.config_path.read_text())
+            logging.config.dictConfig(config)
+        else:
+            # Use default configuration
+            logging.config.dictConfig(LOGGING_CONFIG)
+        
+        # Add custom exception logging
+        sys.excepthook = self._handle_exception
+    
+    def _handle_exception(self, exc_type, exc_value, exc_traceback):
+        """Handle uncaught exceptions with logging."""
+        if issubclass(exc_type, KeyboardInterrupt):
+            # Call default handler for keyboard interrupt
+            sys.__excepthook__(exc_type, exc_value, exc_traceback)
+            return
+        
+        logger = logging.getLogger(__name__)
+        logger.critical(
+            "Uncaught exception occurred",
+            exc_info=(exc_type, exc_value, exc_traceback)
+        )
+    
+    @staticmethod
+    def log_function_call(func):
+        """Decorator to log function calls."""
+        def wrapper(*args, **kwargs):
+            logger = logging.getLogger(func.__module__)
+            logger.debug(f"Calling {func.__name__} with args={args}, kwargs={kwargs}")
+            
+            start_time = datetime.now()
+            try:
+                result = func(*args, **kwargs)
+                duration = (datetime.now() - start_time).total_seconds()
+                logger.debug(f"Function {func.__name__} completed in {duration:.3f}s")
+                return result
+            except Exception as e:
+                duration = (datetime.now() - start_time).total_seconds()
+                logger.error(f"Function {func.__name__} failed after {duration:.3f}s: {e}")
+                raise
+        
+        return wrapper
+
+# Example usage of proper logging
+class UserService(LoggerMixin):
+    """User service with comprehensive logging."""
+    
+    def __init__(self, database_url: str):
+        self.database_url = database_url
+        self.logger.info(f"UserService initialized with database: {database_url}")
+    
+    @ApplicationLogger.log_function_call
+    def create_user(self, user_data: Dict[str, Any]) -> Dict[str, Any]:
+        """Create a new user with comprehensive logging."""
+        self.logger.info(f"Creating user: {user_data.get('username')}")
+        
+        try:
+            # Validate input
+            if not user_data.get('username'):
+                self.logger.warning("User creation failed: missing username")
+                raise ValueError("Username is required")
+            
+            if not user_data.get('email'):
+                self.logger.warning("User creation failed: missing email")
+                raise ValueError("Email is required")
+            
+            # Simulate user creation
+            user_id = self._generate_user_id()
+            user = {
+                'id': user_id,
+                'username': user_data['username'],
+                'email': user_data['email'],
+                'created_at': datetime.now().isoformat()
+            }
+            
+            # Log success with structured data
+            self.logger.info(
+                f"User created successfully: {user['username']}",
+                extra={
+                    'user_id': user_id,
+                    'username': user['username'],
+                    'email': user['email'],
+                    'action': 'create_user'
+                }
+            )
+            
+            return user
+        
+        except ValueError as e:
+            self.logger.error(f"Validation error creating user: {e}")
+            raise
+        except Exception as e:
+            self.logger.error(
+                f"Unexpected error creating user: {e}",
+                extra={
+                    'username': user_data.get('username'),
+                    'email': user_data.get('email'),
+                    'action': 'create_user'
+                }
+            )
+            raise
+    
+    def get_user(self, user_id: int) -> Optional[Dict[str, Any]]:
+        """Get user by ID with logging."""
+        self.logger.debug(f"Retrieving user with ID: {user_id}")
+        
+        try:
+            # Simulate user retrieval
+            if user_id <= 0:
+                self.logger.warning(f"Invalid user ID requested: {user_id}")
+                return None
+            
+            # Simulate database lookup
+            user = self._fetch_user_from_database(user_id)
+            
+            if user:
+                self.logger.debug(f"User found: {user['username']}")
+            else:
+                self.logger.info(f"User not found with ID: {user_id}")
+            
+            return user
+        
+        except Exception as e:
+            self.logger.error(f"Error retrieving user {user_id}: {e}")
+            raise
+    
+    def _generate_user_id(self) -> int:
+        """Generate a new user ID."""
+        # Simplified ID generation
+        return 12345
+    
+    def _fetch_user_from_database(self, user_id: int) -> Optional[Dict[str, Any]]:
+        """Simulate fetching user from database."""
+        # Simulate database operation
+        if user_id == 12345:
+            return {
+                'id': user_id,
+                'username': 'john_doe',
+                'email': 'john@example.com',
+                'created_at': datetime.now().isoformat()
+            }
+        return None
+
+# Application setup
+def setup_application_logging(log_level: str = 'INFO') -> None:
+    """Setup application-wide logging."""
+    # Initialize logging
+    app_logger = ApplicationLogger()
+    
+    # Set log level based on environment
+    numeric_level = getattr(logging, log_level.upper(), None)
+    if not isinstance(numeric_level, int):
+        raise ValueError(f'Invalid log level: {log_level}')
+    
+    logging.getLogger().setLevel(numeric_level)
+    
+    # Log application startup
+    logger = logging.getLogger(__name__)
+    logger.info(f"Application logging initialized with level: {log_level}")
+
+# Usage example
+if __name__ == "__main__":
+    # Setup logging
+    setup_application_logging('DEBUG')
+    
+    # Create service
+    service = UserService("postgresql://localhost/myapp")
+    
+    # Test operations
+    try:
+        user = service.create_user({
+            'username': 'john_doe',
+            'email': 'john@example.com'
+        })
+        
+        retrieved_user = service.get_user(user['id'])
+        
+    except Exception as e:
+        logging.getLogger(__name__).error(f"Application error: {e}")]]></correct-example>
+          <incorrect-example title="Poor logging practices" conditions="Implementing logging in applications" expected-result="Proper logging configuration" incorrectness-criteria="Uses print statements, no configuration, or inappropriate log levels"><![CDATA[import logging
+
+# Poor logging setup - basic configuration only
+logging.basicConfig(level=logging.INFO)
+
+class UserService:
+    def __init__(self, database_url):
+        self.database_url = database_url
+        print(f"UserService initialized with {database_url}")  # Using print instead of logging
+    
+    def create_user(self, user_data):
+        print(f"Creating user: {user_data.get('username')}")  # Print instead of logging
+        
+        try:
+            if not user_data.get('username'):
+                print("ERROR: Username is required")  # Print for errors
+                raise ValueError("Username is required")
+            
+            user_id = self._generate_user_id()
+            user = {
+                'id': user_id,
+                'username': user_data['username'],
+                'email': user_data['email']
+            }
+            
+            print(f"User created: {user['username']}")  # Print for success
+            return user
+        
+        except Exception as e:
+            print(f"Error creating user: {e}")  # Generic error printing
+            raise
+    
+    def get_user(self, user_id):
+        # No logging at all
+        if user_id <= 0:
+            return None
+        
+        user = self._fetch_user_from_database(user_id)
+        return user
+    
+    def _generate_user_id(self):
+        return 12345
+    
+    def _fetch_user_from_database(self, user_id):
+        if user_id == 12345:
+            return {
+                'id': user_id,
+                'username': 'john_doe',
+                'email': 'john@example.com'
+            }
+        return None
+
+# No proper logging setup
+if __name__ == "__main__":
+    service = UserService("postgresql://localhost/myapp")
+    
+    try:
+        user = service.create_user({
+            'username': 'john_doe',
+            'email': 'john@example.com'
+        })
+        
+        retrieved_user = service.get_user(user['id'])
+        
+    except Exception as e:
+        print(f"Application error: {e}")]]></incorrect-example>
+        </example>
+      </examples>
+    </requirement>
+    <requirement priority="medium">
+      <description>Use virtual environments and modern dependency management tools like uv or poetry for project isolation</description>
+      <examples>
+        <example title="Dependency Management">
+          <correct-example title="Modern dependency management" conditions="Setting up Python projects" expected-result="Proper project setup with dependency management" correctness-criteria="Uses modern tools and proper project structure"><![CDATA[# pyproject.toml - Modern Python project configuration
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[project]
+name = "my-python-project"
+version = "0.1.0"
+description = "A modern Python project with proper dependency management"
+readme = "README.md"
+license = {text = "MIT"}
+authors = [
+    {name = "John Doe", email = "john@example.com"},
+]
+keywords = ["python", "project", "modern"]
+classifiers = [
+    "Development Status :: 4 - Beta",
+    "Intended Audience :: Developers",
+    "License :: OSI Approved :: MIT License",
+    "Programming Language :: Python :: 3",
+    "Programming Language :: Python :: 3.9",
+    "Programming Language :: Python :: 3.10",
+    "Programming Language :: Python :: 3.11",
+    "Programming Language :: Python :: 3.12",
+]
+requires-python = ">=3.9"
+dependencies = [
+    "requests>=2.28.0",
+    "click>=8.0.0",
+    "pydantic>=2.0.0",
+    "httpx>=0.24.0",
+]
+
+[project.optional-dependencies]
+dev = [
+    "pytest>=7.0.0",
+    "pytest-cov>=4.0.0",
+    "black>=23.0.0",
+    "ruff>=0.0.280",
+    "mypy>=1.0.0",
+    "pre-commit>=3.0.0",
+]
+docs = [
+    "mkdocs>=1.4.0",
+    "mkdocs-material>=9.0.0",
+    "mkdocstrings[python]>=0.22.0",
+]
+test = [
+    "pytest>=7.0.0",
+    "pytest-cov>=4.0.0",
+    "pytest-mock>=3.10.0",
+    "httpx>=0.24.0",
+]
+
+[project.urls]
+Homepage = "https://github.com/user/my-python-project"
+Documentation = "https://my-python-project.readthedocs.io"
+Repository = "https://github.com/user/my-python-project.git"
+Issues = "https://github.com/user/my-python-project/issues"
+
+[project.scripts]
+my-cli = "my_package.cli:main"
+
+[tool.hatch.version]
+path = "src/my_package/__init__.py"
+
+[tool.hatch.build.targets.sdist]
+include = [
+    "/src",
+    "/tests",
+]
+
+[tool.hatch.build.targets.wheel]
+packages = ["src/my_package"]
+
+# Black configuration
+[tool.black]
+line-length = 88
+target-version = ['py39']
+include = '\.pyi?$'
+extend-exclude = '''
+/(
+  # directories
+  \.eggs
+  | \.git
+  | \.hg
+  | \.mypy_cache
+  | \.tox
+  | \.venv
+  | _build
+  | buck-out
+  | build
+  | dist
+)/
+'''
+
+# Ruff configuration
+[tool.ruff]
+target-version = "py39"
+line-length = 88
+select = [
+    "E",  # pycodestyle errors
+    "W",  # pycodestyle warnings
+    "F",  # pyflakes
+    "I",  # isort
+    "B",  # flake8-bugbear
+    "C4", # flake8-comprehensions
+    "UP", # pyupgrade
+]
+ignore = [
+    "E501",  # line too long, handled by black
+    "B008",  # do not perform function calls in argument defaults
+    "C901",  # too complex
+]
+
+[tool.ruff.per-file-ignores]
+"__init__.py" = ["F401"]
+"tests/**/*" = ["E501"]
+
+[tool.ruff.isort]
+known-first-party = ["my_package"]
+
+# MyPy configuration
+[tool.mypy]
+python_version = "3.9"
+warn_return_any = true
+warn_unused_configs = true
+disallow_untyped_defs = true
+disallow_incomplete_defs = true
+check_untyped_defs = true
+disallow_untyped_decorators = true
+no_implicit_optional = true
+warn_redundant_casts = true
+warn_unused_ignores = true
+warn_no_return = true
+warn_unreachable = true
+strict_equality = true
+
+[[tool.mypy.overrides]]
+module = "tests.*"
+disallow_untyped_defs = false
+
+# Pytest configuration
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+python_files = ["test_*.py", "*_test.py"]
+python_classes = ["Test*"]
+python_functions = ["test_*"]
+addopts = [
+    "--cov=src/my_package",
+    "--cov-report=html",
+    "--cov-report=term-missing",
+    "--cov-fail-under=80",
+    "--strict-markers",
+    "--strict-config",
+    "--verbose",
+]
+markers = [
+    "slow: marks tests as slow (deselect with '-m \"not slow\"')",
+    "integration: marks tests as integration tests",
+    "unit: marks tests as unit tests",
+]
+
+# Coverage configuration
+[tool.coverage.run]
+source = ["src"]
+branch = true
+
+[tool.coverage.report]
+exclude_lines = [
+    "pragma: no cover",
+    "def __repr__",
+    "if self.debug:",
+    "if settings.DEBUG",
+    "raise AssertionError",
+    "raise NotImplementedError",
+    "if 0:",
+    "if __name__ == .__main__.:",
+    "class .*\\bProtocol\\):",
+    "@(abc\\.)?abstractmethod",
+]
+
+# Project structure with proper organization
+# src/my_package/
+# ├── __init__.py
+# ├── cli.py
+# ├── config.py
+# ├── exceptions.py
+# ├── models.py
+# ├── services/
+# │   ├── __init__.py
+# │   └── user_service.py
+# └── utils/
+#     ├── __init__.py
+#     └── helpers.py
+#
+# tests/
+# ├── __init__.py
+# ├── conftest.py
+# ├── test_models.py
+# └── services/
+#     └── test_user_service.py
+
+# .pre-commit-config.yaml
+repos:
+  - repo: https://github.com/pre-commit/pre-commit-hooks
+    rev: v4.4.0
+    hooks:
+      - id: trailing-whitespace
+      - id: end-of-file-fixer
+      - id: check-merge-conflict
+      - id: check-case-conflict
+      - id: check-json
+      - id: check-toml
+      - id: check-yaml
+      - id: debug-statements
+      - id: check-added-large-files
+
+  - repo: https://github.com/psf/black
+    rev: 23.3.0
+    hooks:
+      - id: black
+        language_version: python3
+
+  - repo: https://github.com/charliermarsh/ruff-pre-commit
+    rev: v0.0.280
+    hooks:
+      - id: ruff
+        args: [--fix, --exit-non-zero-on-fix]
+
+  - repo: https://github.com/pre-commit/mirrors-mypy
+    rev: v1.4.1
+    hooks:
+      - id: mypy
+        additional_dependencies: [types-requests]
+
+# Modern project setup commands
+# uv init my-project
+# cd my-project
+# uv add requests click pydantic httpx
+# uv add --dev pytest pytest-cov black ruff mypy pre-commit
+# uv run pytest
+# uv run black .
+# uv run ruff check .
+# uv run mypy src/
+
+# GitHub Actions workflow example
+# .github/workflows/ci.yml
+name: CI
+
+on:
+  push:
+    branches: [main, develop]
+  pull_request:
+    branches: [main]
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        python-version: ["3.9", "3.10", "3.11", "3.12"]
+
+    steps:
+      - uses: actions/checkout@v4
+      
+      - name: Install uv
+        uses: astral-sh/setup-uv@v1
+        with:
+          version: "latest"
+      
+      - name: Set up Python ${{ matrix.python-version }}
+        run: uv python install ${{ matrix.python-version }}
+      
+      - name: Install dependencies
+        run: uv sync --all-extras
+      
+      - name: Run ruff
+        run: uv run ruff check .
+      
+      - name: Run black
+        run: uv run black --check .
+      
+      - name: Run mypy
+        run: uv run mypy src/
+      
+      - name: Run tests
+        run: uv run pytest
+
+  build:
+    needs: test
+    runs-on: ubuntu-latest
+    if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+    
+    steps:
+      - uses: actions/checkout@v4
+      
+      - name: Install uv
+        uses: astral-sh/setup-uv@v1
+      
+      - name: Build package
+        run: uv build
+      
+      - name: Upload build artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: dist
+          path: dist/]]></correct-example>
+          <incorrect-example title="Poor dependency management" conditions="Setting up Python projects" expected-result="Proper project setup" incorrectness-criteria="Uses outdated tools and poor project structure"><![CDATA[# requirements.txt - Old-style dependency management
+requests==2.28.0
+click==8.0.0
+pydantic==2.0.0
+httpx==0.24.0
+
+# requirements-dev.txt
+pytest==7.0.0
+pytest-cov==4.0.0
+black==23.0.0
+ruff==0.0.280
+mypy==1.0.0
+
+# No pyproject.toml, no proper project structure
+# No version pinning strategy
+# No optional dependencies
+# No build system configuration
+
+# setup.py - Deprecated setup method
+from setuptools import setup, find_packages
+
+setup(
+    name="my-python-project",
+    version="0.1.0",
+    packages=find_packages(),
+    install_requires=[
+        "requests",
+        "click",
+        "pydantic",
+        "httpx",
+    ],
+    python_requires=">=3.9",
+)
+
+# Poor project structure
+# my_package.py  # Single file instead of package
+# test_my_package.py  # Single test file
+# requirements.txt
+# setup.py
+
+# No CI/CD configuration
+# No pre-commit hooks
+# No proper testing setup
+# No code quality tools configuration
+
+# Manual setup commands (error-prone)
+# pip install -r requirements.txt
+# pip install -r requirements-dev.txt
+# python setup.py install
+# python -m pytest
+# python -m black .
+# python -m ruff check .]]></incorrect-example>
+        </example>
+      </examples>
+    </requirement>
+    <requirement priority="medium">
+      <description>Write clear, comprehensive docstrings following Google or NumPy style for all public functions, classes, and modules</description>
+      <examples>
+        <example title="Documentation Standards">
+          <correct-example title="Comprehensive docstrings" conditions="Documenting Python code" expected-result="Clear, well-documented code" correctness-criteria="Uses Google-style docstrings with proper sections"><![CDATA["""
+User Management Module
+
+This module provides functionality for managing user accounts, including
+creation, authentication, and profile management.
+
+Example:
+    Basic usage of the UserManager class:
+
+    >>> from my_package.user_manager import UserManager
+    >>> manager = UserManager("postgresql://localhost/myapp")
+    >>> user = manager.create_user("john_doe", "john@example.com")
+    >>> print(user.username)
+    'john_doe'
+
+Attributes:
+    DEFAULT_TIMEOUT (int): Default timeout for database operations in seconds.
+    MAX_USERNAME_LENGTH (int): Maximum allowed length for usernames.
+"""
+
+import logging
+from typing import Optional, List
+from datetime import datetime, timedelta
+from dataclasses import dataclass
+
+# Module-level constants
+DEFAULT_TIMEOUT = 30
+MAX_USERNAME_LENGTH = 50
+
+logger = logging.getLogger(__name__)
+
+
+@dataclass
+class User:
+    """
+    Represents a user in the system.
+
+    This class encapsulates user data and provides methods for user-related
+    operations. It includes validation and utility methods for user management.
+
+    Attributes:
+        user_id (int): Unique identifier for the user.
+        username (str): The user's chosen username.
+        email (str): The user's email address.
+        full_name (Optional[str]): The user's full name, if provided.
+        is_active (bool): Whether the user account is active.
+        created_at (datetime): When the user account was created.
+        last_login (Optional[datetime]): When the user last logged in.
+
+    Example:
+        >>> user = User(
+        ...     user_id=1,
+        ...     username="john_doe",
+        ...     email="john@example.com",
+        ...     full_name="John Doe"
+        ... )
+        >>> print(user.display_name)
+        'John Doe'
+    """
+
+    user_id: int
+    username: str
+    email: str
+    full_name: Optional[str] = None
+    is_active: bool = True
+    created_at: datetime = None
+    last_login: Optional[datetime] = None
+
+    def __post_init__(self) -> None:
+        """
+        Validate user data after initialization.
+
+        Raises:
+            ValueError: If user_id is not positive, username is empty or too long,
+                       or email format is invalid.
+        """
+        if self.user_id <= 0:
+            raise ValueError("User ID must be positive")
+        
+        if not self.username or len(self.username) > MAX_USERNAME_LENGTH:
+            raise ValueError(f"Username must be 1-{MAX_USERNAME_LENGTH} characters")
+        
+        if not self.email or '@' not in self.email:
+            raise ValueError("Invalid email format")
+        
+        if self.created_at is None:
+            self.created_at = datetime.now()
+
+    @property
+    def display_name(self) -> str:
+        """
+        Get the user's display name.
+
+        Returns the full name if available, otherwise returns the username.
+
+        Returns:
+            str: The user's display name.
+
+        Example:
+            >>> user = User(1, "john_doe", "john@example.com", "John Doe")
+            >>> user.display_name
+            'John Doe'
+            >>> user_no_name = User(2, "jane_doe", "jane@example.com")
+            >>> user_no_name.display_name
+            'jane_doe'
+        """
+        return self.full_name or self.username
+
+    def update_last_login(self) -> None:
+        """
+        Update the user's last login timestamp to the current time.
+
+        This method should be called whenever the user successfully
+        authenticates with the system.
+
+        Example:
+            >>> user = User(1, "john_doe", "john@example.com")
+            >>> user.update_last_login()
+            >>> print(user.last_login)  # doctest: +SKIP
+            2023-01-01 12:00:00.000000
+        """
+        self.last_login = datetime.now()
+        logger.info(f"Updated last login for user {self.username}")
+
+    def is_recently_active(self, days: int = 30) -> bool:
+        """
+        Check if the user has been active within the specified number of days.
+
+        Args:
+            days (int, optional): Number of days to check for activity.
+                                 Defaults to 30.
+
+        Returns:
+            bool: True if the user has logged in within the specified days,
+                  False otherwise.
+
+        Example:
+            >>> user = User(1, "john_doe", "john@example.com")
+            >>> user.update_last_login()
+            >>> user.is_recently_active(7)
+            True
+            >>> user.is_recently_active(0)
+            False
+        """
+        if not self.last_login:
+            return False
+        
+        cutoff_date = datetime.now() - timedelta(days=days)
+        return self.last_login > cutoff_date
+
+
+class UserManager:
+    """
+    Manages user accounts and operations.
+
+    This class provides a high-level interface for user management operations
+    including user creation, authentication, and profile management. It handles
+    database interactions and business logic for user-related functionality.
+
+    Attributes:
+        database_url (str): The database connection URL.
+        timeout (int): Timeout for database operations in seconds.
+
+    Example:
+        >>> manager = UserManager("postgresql://localhost/myapp")
+        >>> user = manager.create_user("john_doe", "john@example.com")
+        >>> authenticated_user = manager.authenticate("john_doe", "password123")
+    """
+
+    def __init__(self, database_url: str, timeout: int = DEFAULT_TIMEOUT) -> None:
+        """
+        Initialize the UserManager.
+
+        Args:
+            database_url (str): The database connection URL.
+            timeout (int, optional): Timeout for database operations in seconds.
+                                    Defaults to DEFAULT_TIMEOUT.
+
+        Raises:
+            ValueError: If database_url is empty or timeout is not positive.
+            ConnectionError: If unable to connect to the database.
+
+        Example:
+            >>> manager = UserManager("postgresql://localhost/myapp")
+            >>> manager.timeout
+            30
+        """
+        if not database_url:
+            raise ValueError("Database URL cannot be empty")
+        
+        if timeout <= 0:
+            raise ValueError("Timeout must be positive")
+
+        self.database_url = database_url
+        self.timeout = timeout
+        self._connection = None
+        
+        logger.info(f"UserManager initialized with database: {database_url}")
+
+    def create_user(
+        self,
+        username: str,
+        email: str,
+        password: str,
+        full_name: Optional[str] = None
+    ) -> User:
+        """
+        Create a new user account.
+
+        This method creates a new user account with the provided information.
+        It validates the input data, checks for existing users, and stores
+        the new user in the database.
+
+        Args:
+            username (str): The desired username for the new user.
+            email (str): The user's email address.
+            password (str): The user's password (will be hashed).
+            full_name (Optional[str], optional): The user's full name.
+                                               Defaults to None.
+
+        Returns:
+            User: The newly created user object.
+
+        Raises:
+            ValueError: If username or email is invalid, or password is too weak.
+            UserExistsError: If a user with the same username or email already exists.
+            DatabaseError: If there's an error creating the user in the database.
+
+        Example:
+            >>> manager = UserManager("postgresql://localhost/myapp")
+            >>> user = manager.create_user(
+            ...     username="john_doe",
+            ...     email="john@example.com",
+            ...     password="secure_password123",
+            ...     full_name="John Doe"
+            ... )
+            >>> print(user.username)
+            'john_doe'
+
+        Note:
+            The password will be securely hashed before storage. The original
+            password is not stored in the database.
+        """
+        logger.info(f"Creating user: {username}")
+        
+        # Validate input
+        if not username or len(username) > MAX_USERNAME_LENGTH:
+            raise ValueError(f"Username must be 1-{MAX_USERNAME_LENGTH} characters")
+        
+        if not email or '@' not in email:
+            raise ValueError("Invalid email format")
+        
+        if not password or len(password) < 8:
+            raise ValueError("Password must be at least 8 characters")
+        
+        # Check if user already exists
+        if self._user_exists(username, email):
+            raise UserExistsError(f"User with username '{username}' or email '{email}' already exists")
+        
+        # Create user
+        user_id = self._generate_user_id()
+        hashed_password = self._hash_password(password)
+        
+        user = User(
+            user_id=user_id,
+            username=username,
+            email=email,
+            full_name=full_name
+        )
+        
+        # Store in database
+        self._store_user(user, hashed_password)
+        
+        logger.info(f"User created successfully: {username}")
+        return user
+
+    def authenticate(self, username: str, password: str) -> Optional[User]:
+        """
+        Authenticate a user with username and password.
+
+        This method verifies the provided credentials against the stored
+        user data and returns the user object if authentication succeeds.
+
+        Args:
+            username (str): The username to authenticate.
+            password (str): The password to verify.
+
+        Returns:
+            Optional[User]: The authenticated user object if successful,
+                           None if authentication fails.
+
+        Raises:
+            ValueError: If username or password is empty.
+            DatabaseError: If there's an error querying the database.
+
+        Example:
+            >>> manager = UserManager("postgresql://localhost/myapp")
+            >>> user = manager.authenticate("john_doe", "secure_password123")
+            >>> if user:
+            ...     print(f"Welcome, {user.display_name}!")
+            ... else:
+            ...     print("Invalid credentials")
+
+        Note:
+            Failed authentication attempts are logged for security monitoring.
+            The method returns None rather than raising an exception for
+            invalid credentials to prevent information leakage.
+        """
+        logger.debug(f"Authenticating user: {username}")
+        
+        if not username or not password:
+            raise ValueError("Username and password cannot be empty")
+        
+        try:
+            # Get user from database
+            user = self._get_user_by_username(username)
+            if not user:
+                logger.warning(f"Authentication failed: user not found - {username}")
+                return None
+            
+            # Verify password
+            if not self._verify_password(password, user.password_hash):
+                logger.warning(f"Authentication failed: invalid password - {username}")
+                return None
+            
+            # Update last login
+            user.update_last_login()
+            self._update_user_last_login(user)
+            
+            logger.info(f"User authenticated successfully: {username}")
+            return user
+        
+        except Exception as e:
+            logger.error(f"Database error during authentication: {e}")
+            raise DatabaseError(f"Authentication failed due to database error")
+
+    def get_users(
+        self,
+        active_only: bool = True,
+        limit: int = 100,
+        offset: int = 0
+    ) -> List[User]:
+        """
+        Retrieve a list of users from the database.
+
+        This method retrieves users based on the specified criteria with
+        pagination support.
+
+        Args:
+            active_only (bool, optional): If True, only return active users.
+                                        Defaults to True.
+            limit (int, optional): Maximum number of users to return.
+                                  Defaults to 100.
+            offset (int, optional): Number of users to skip for pagination.
+                                   Defaults to 0.
+
+        Returns:
+            List[User]: A list of user objects matching the criteria.
+
+        Raises:
+            ValueError: If limit is not positive or offset is negative.
+            DatabaseError: If there's an error querying the database.
+
+        Example:
+            >>> manager = UserManager("postgresql://localhost/myapp")
+            >>> active_users = manager.get_users(active_only=True, limit=50)
+            >>> print(f"Found {len(active_users)} active users")
+            >>> 
+            >>> all_users = manager.get_users(active_only=False, limit=10, offset=20)
+            >>> print(f"Users 21-30: {[u.username for u in all_users]}")
+        """
+        if limit <= 0:
+            raise ValueError("Limit must be positive")
+        
+        if offset < 0:
+            raise ValueError("Offset cannot be negative")
+        
+        logger.debug(f"Retrieving users: active_only={active_only}, limit={limit}, offset={offset}")
+        
+        try:
+            users = self._query_users(active_only, limit, offset)
+            logger.info(f"Retrieved {len(users)} users")
+            return users
+        
+        except Exception as e:
+            logger.error(f"Error retrieving users: {e}")
+            raise DatabaseError(f"Failed to retrieve users: {e}")
+
+    def _user_exists(self, username: str, email: str) -> bool:
+        """Check if a user with the given username or email already exists."""
+        # Implementation details...
+        pass
+
+    def _generate_user_id(self) -> int:
+        """Generate a unique user ID."""
+        # Implementation details...
+        pass
+
+    def _hash_password(self, password: str) -> str:
+        """Hash a password securely."""
+        # Implementation details...
+        pass
+
+    def _store_user(self, user: User, password_hash: str) -> None:
+        """Store a user in the database."""
+        # Implementation details...
+        pass
+
+    def _get_user_by_username(self, username: str) -> Optional[User]:
+        """Retrieve a user by username from the database."""
+        # Implementation details...
+        pass
+
+    def _verify_password(self, password: str, password_hash: str) -> bool:
+        """Verify a password against its hash."""
+        # Implementation details...
+        pass
+
+    def _update_user_last_login(self, user: User) -> None:
+        """Update the user's last login timestamp in the database."""
+        # Implementation details...
+        pass
+
+    def _query_users(self, active_only: bool, limit: int, offset: int) -> List[User]:
+        """Query users from the database with filters and pagination."""
+        # Implementation details...
+        pass
+
+
+# Custom exceptions with proper documentation
+class UserExistsError(Exception):
+    """
+    Raised when attempting to create a user that already exists.
+
+    This exception is raised when trying to create a user with a username
+    or email that is already in use by another user.
+
+    Attributes:
+        message (str): The error message.
+        username (Optional[str]): The username that caused the conflict.
+        email (Optional[str]): The email that caused the conflict.
+    """
+
+    def __init__(self, message: str, username: Optional[str] = None, email: Optional[str] = None) -> None:
+        """
+        Initialize the UserExistsError.
+
+        Args:
+            message (str): The error message.
+            username (Optional[str], optional): The conflicting username.
+            email (Optional[str], optional): The conflicting email.
+        """
+        super().__init__(message)
+        self.username = username
+        self.email = email
+
+
+class DatabaseError(Exception):
+    """
+    Raised when a database operation fails.
+
+    This exception is raised when there's an error during database operations
+    such as connection failures, query errors, or transaction issues.
+    """
+    pass]]></correct-example>
+          <incorrect-example title="Poor documentation" conditions="Documenting Python code" expected-result="Comprehensive documentation" incorrectness-criteria="Lacks docstrings, has minimal or unclear documentation"><![CDATA[# Poor documentation - minimal or missing docstrings
+import logging
+from typing import Optional, List
+from datetime import datetime
+from dataclasses import dataclass
+
+@dataclass
+class User:
+    # No class docstring
+    user_id: int
+    username: str
+    email: str
+    full_name: Optional[str] = None
+    is_active: bool = True
+    created_at: datetime = None
+    last_login: Optional[datetime] = None
+
+    def __post_init__(self):
+        # No docstring
+        if self.user_id <= 0:
+            raise ValueError("User ID must be positive")
+        if not self.username:
+            raise ValueError("Username cannot be empty")
+        if not self.email or '@' not in self.email:
+            raise ValueError("Invalid email format")
+        if self.created_at is None:
+            self.created_at = datetime.now()
+
+    @property
+    def display_name(self):
+        # No docstring
+        return self.full_name or self.username
+
+    def update_last_login(self):
+        # No docstring
+        self.last_login = datetime.now()
+
+    def is_recently_active(self, days=30):
+        # No docstring, unclear parameter
+        if not self.last_login:
+            return False
+        cutoff_date = datetime.now() - timedelta(days=days)
+        return self.last_login > cutoff_date
+
+class UserManager:
+    # No class docstring
+    def __init__(self, database_url, timeout=30):
+        # No docstring
+        self.database_url = database_url
+        self.timeout = timeout
+
+    def create_user(self, username, email, password, full_name=None):
+        # No docstring, unclear what exceptions are raised
+        if not username:
+            raise ValueError("Username cannot be empty")
+        if not email or '@' not in email:
+            raise ValueError("Invalid email format")
+        if not password or len(password) < 8:
+            raise ValueError("Password must be at least 8 characters")
+        
+        # Implementation without documentation
+        user_id = self._generate_user_id()
+        user = User(user_id, username, email, full_name)
+        return user
+
+    def authenticate(self, username, password):
+        # No docstring, unclear return value
+        if not username or not password:
+            raise ValueError("Username and password cannot be empty")
+        # Implementation
+        pass
+
+    def get_users(self, active_only=True, limit=100, offset=0):
+        # No docstring, unclear parameters
+        if limit <= 0:
+            raise ValueError("Limit must be positive")
+        if offset < 0:
+            raise ValueError("Offset cannot be negative")
+        # Implementation
+        pass
+
+    def _generate_user_id(self):
+        # No docstring for private method
+        pass
+
+# No module docstring
+# No exception documentation
+class UserExistsError(Exception):
+    pass
+
+class DatabaseError(Exception):
+    pass]]></incorrect-example>
+        </example>
+      </examples>
+    </requirement>
+  </requirements>
+  <context description="Python development considerations">
+    Python development has evolved significantly with modern tools and best practices. Focus on writing clean, readable code that follows PEP 8 guidelines while leveraging modern Python features like type hints, dataclasses, and context managers. Comprehensive testing with pytest, proper error handling, and structured logging are essential for maintainable applications. Use modern dependency management tools like uv or poetry for project setup and isolation. Remember that Python's philosophy emphasizes readability and simplicity - "There should be one obvious way to do it."
+  </context>
+  <references>
+    <reference as="dependency" href=".cursor/rules/rules.mdc" reason="Follows standard rule format">Base rule format definition</reference>
+    <reference as="context" href=".cursor/rules/database/migration-tools/python/sqlalchemy-rules-auto.mdc" reason="Database development patterns">SQLAlchemy Best Practices</reference>
+    <reference as="context" href=".cursor/rules/testing/pytest.mdc" reason="Testing best practices">Pytest Testing Standards</reference>
+  </references>
+</rule>
+ 

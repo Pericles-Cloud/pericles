@@ -1,0 +1,1680 @@
+---
+description: "Comprehensive Redis in-memory data store standards with cluster configuration, high availability, advanced caching strategies, and real-time features following performance optimization best practices"
+globs: ["**/redis/**/*", "**/cache/**/*", "**/redis.conf", "**/redis-cluster/**/*"]
+alwaysApply: false
+---
+
+<rule>
+  <meta>
+    <title>Redis Core Standards</title>
+    <description>Comprehensive Redis in-memory data store standards covering caching strategies, data structures, persistence options, clustering, security policies, monitoring, and production deployment following high-performance data store and caching best practices</description>
+    <created-at utc-timestamp="1744157700">January 25, 2025, 10:15 AM</created-at>
+    <last-updated-at utc-timestamp="1744157700">January 25, 2025, 10:15 AM</last-updated-at>
+    <applies-to>
+      <file-matcher glob="**/redis/**/*">Redis configuration and client files</file-matcher>
+      <file-matcher glob="**/cache/**/*">Caching implementation files</file-matcher>
+      <file-matcher glob="**/*redis*">Redis-related files throughout the application</file-matcher>
+      <file-matcher glob="**/session/**/*">Session storage implementation files</file-matcher>
+      <file-matcher glob="**/pub-sub/**/*">Pub/Sub messaging implementation files</file-matcher>
+      <action-matcher action="caching">Triggered when working with Redis caching and data storage</action-matcher>
+    </applies-to>
+  </meta>
+  <requirements>
+    <non-negotiable priority="critical">
+      <description>Use Redis with proper security configuration, persistence settings, clustering for high availability, comprehensive monitoring, and optimized caching strategies. Implement authentication, encryption, resource limits, and production-ready deployment patterns with proper backup and disaster recovery.</description>
+      <examples>
+        <example title="Production Redis Cluster Configuration">
+          <correct-example title="Secure Redis cluster with high availability and monitoring" conditions="Deploying production Redis cluster" expected-result="Secure, highly available Redis deployment" correctness-criteria="Security configuration, clustering, persistence, monitoring, backup strategies"><![CDATA[#!/bin/bash
+# redis-cluster-setup.sh - Production Redis cluster deployment
+
+set -euo pipefail
+
+echo "🚀 Setting up production Redis cluster"
+
+# Redis cluster configuration - redis.conf
+cat > redis.conf <<EOF
+# Network and security
+bind 0.0.0.0
+port 6379
+protected-mode yes
+requirepass $(openssl rand -base64 32)
+timeout 300
+tcp-keepalive 300
+tcp-backlog 511
+
+# TLS configuration
+tls-port 6380
+tls-cert-file /etc/redis/tls/redis.crt
+tls-key-file /etc/redis/tls/redis.key
+tls-ca-cert-file /etc/redis/tls/ca.crt
+tls-protocols "TLSv1.2 TLSv1.3"
+tls-ciphers "ECDHE+AESGCM:ECDHE+CHACHA20:DHE+AESGCM:DHE+CHACHA20:!aNULL:!MD5:!DSS"
+tls-auth-clients yes
+
+# Clustering
+cluster-enabled yes
+cluster-config-file nodes-6379.conf
+cluster-node-timeout 15000
+cluster-announce-ip $(hostname -i)
+cluster-announce-port 6379
+cluster-announce-bus-port 16379
+cluster-require-full-coverage no
+
+# Memory management
+maxmemory 2gb
+maxmemory-policy allkeys-lru
+maxmemory-samples 5
+
+# Persistence - Hybrid AOF + RDB
+save 900 1
+save 300 10
+save 60 10000
+rdbcompression yes
+rdbchecksum yes
+dbfilename dump.rdb
+
+appendonly yes
+appendfilename "appendonly.aof"
+appendfsync everysec
+no-appendfsync-on-rewrite no
+auto-aof-rewrite-percentage 100
+auto-aof-rewrite-min-size 64mb
+aof-load-truncated yes
+aof-use-rdb-preamble yes
+
+# Logging
+loglevel notice
+logfile "/var/log/redis/redis-server.log"
+syslog-enabled yes
+syslog-ident redis
+
+# Performance tuning
+databases 16
+always-show-logo yes
+stop-writes-on-bgsave-error yes
+rdbcompression yes
+rdbchecksum yes
+hz 10
+dynamic-hz yes
+
+# Slow log
+slowlog-log-slower-than 10000
+slowlog-max-len 128
+
+# Latency monitoring
+latency-monitor-threshold 100
+
+# Client management
+maxclients 10000
+client-output-buffer-limit normal 0 0 0
+client-output-buffer-limit replica 256mb 64mb 60
+client-output-buffer-limit pubsub 32mb 8mb 60
+
+# Security
+rename-command FLUSHDB ""
+rename-command FLUSHALL ""
+rename-command KEYS ""
+rename-command CONFIG "CONFIG_$(openssl rand -hex 8)"
+rename-command SHUTDOWN "SHUTDOWN_$(openssl rand -hex 8)"
+rename-command DEBUG ""
+rename-command EVAL "EVAL_$(openssl rand -hex 8)"
+
+# ACL configuration
+aclfile /etc/redis/users.acl
+
+EOF
+
+# ACL users configuration
+cat > users.acl <<EOF
+# Default user - disabled
+user default off
+
+# Application user - limited permissions
+user app on >$(openssl rand -base64 32) ~* &* -@dangerous +@read +@write +@stream +@connection +@transaction
+
+# Monitoring user - read-only
+user monitoring on >$(openssl rand -base64 32) ~* &* +@read +info +ping +config|get +slowlog +latency +memory +client
+
+# Admin user - full access
+user admin on >$(openssl rand -base64 32) ~* &* +@all
+
+# Backup user - dump and sync permissions
+user backup on >$(openssl rand -base64 32) ~* &* +@read +save +bgsave +lastsave +sync +psync
+
+EOF
+
+# Docker Compose for Redis cluster
+cat > docker-compose.redis.yml <<EOF
+version: '3.8'
+
+services:
+  # Redis cluster nodes
+  redis-node-1:
+    image: redis:7-alpine
+    container_name: redis-node-1
+    hostname: redis-node-1
+    command: >
+      redis-server
+      --cluster-enabled yes
+      --cluster-config-file nodes.conf
+      --cluster-node-timeout 5000
+      --appendonly yes
+      --appendfsync everysec
+      --maxmemory 512mb
+      --maxmemory-policy allkeys-lru
+      --requirepass changeit
+      --masterauth changeit
+    ports:
+      - "7001:6379"
+      - "17001:16379"
+    volumes:
+      - redis-node-1-data:/data
+      - ./redis.conf:/usr/local/etc/redis/redis.conf
+      - ./users.acl:/etc/redis/users.acl
+    networks:
+      - redis-cluster
+    healthcheck:
+      test: ["CMD", "redis-cli", "--no-auth-warning", "-a", "changeit", "ping"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+    deploy:
+      resources:
+        limits:
+          memory: 1G
+          cpus: '0.5'
+        reservations:
+          memory: 512M
+          cpus: '0.25'
+
+  redis-node-2:
+    image: redis:7-alpine
+    container_name: redis-node-2
+    hostname: redis-node-2
+    command: >
+      redis-server
+      --cluster-enabled yes
+      --cluster-config-file nodes.conf
+      --cluster-node-timeout 5000
+      --appendonly yes
+      --appendfsync everysec
+      --maxmemory 512mb
+      --maxmemory-policy allkeys-lru
+      --requirepass changeit
+      --masterauth changeit
+    ports:
+      - "7002:6379"
+      - "17002:16379"
+    volumes:
+      - redis-node-2-data:/data
+      - ./redis.conf:/usr/local/etc/redis/redis.conf
+      - ./users.acl:/etc/redis/users.acl
+    networks:
+      - redis-cluster
+    healthcheck:
+      test: ["CMD", "redis-cli", "--no-auth-warning", "-a", "changeit", "ping"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+    deploy:
+      resources:
+        limits:
+          memory: 1G
+          cpus: '0.5'
+        reservations:
+          memory: 512M
+          cpus: '0.25'
+
+  redis-node-3:
+    image: redis:7-alpine
+    container_name: redis-node-3
+    hostname: redis-node-3
+    command: >
+      redis-server
+      --cluster-enabled yes
+      --cluster-config-file nodes.conf
+      --cluster-node-timeout 5000
+      --appendonly yes
+      --appendfsync everysec
+      --maxmemory 512mb
+      --maxmemory-policy allkeys-lru
+      --requirepass changeit
+      --masterauth changeit
+    ports:
+      - "7003:6379"
+      - "17003:16379"
+    volumes:
+      - redis-node-3-data:/data
+      - ./redis.conf:/usr/local/etc/redis/redis.conf
+      - ./users.acl:/etc/redis/users.acl
+    networks:
+      - redis-cluster
+    healthcheck:
+      test: ["CMD", "redis-cli", "--no-auth-warning", "-a", "changeit", "ping"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+    deploy:
+      resources:
+        limits:
+          memory: 1G
+          cpus: '0.5'
+        reservations:
+          memory: 512M
+          cpus: '0.25'
+
+  redis-node-4:
+    image: redis:7-alpine
+    container_name: redis-node-4
+    hostname: redis-node-4
+    command: >
+      redis-server
+      --cluster-enabled yes
+      --cluster-config-file nodes.conf
+      --cluster-node-timeout 5000
+      --appendonly yes
+      --appendfsync everysec
+      --maxmemory 512mb
+      --maxmemory-policy allkeys-lru
+      --requirepass changeit
+      --masterauth changeit
+    ports:
+      - "7004:6379"
+      - "17004:16379"
+    volumes:
+      - redis-node-4-data:/data
+      - ./redis.conf:/usr/local/etc/redis/redis.conf
+      - ./users.acl:/etc/redis/users.acl
+    networks:
+      - redis-cluster
+    healthcheck:
+      test: ["CMD", "redis-cli", "--no-auth-warning", "-a", "changeit", "ping"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+    deploy:
+      resources:
+        limits:
+          memory: 1G
+          cpus: '0.5'
+        reservations:
+          memory: 512M
+          cpus: '0.25'
+
+  redis-node-5:
+    image: redis:7-alpine
+    container_name: redis-node-5
+    hostname: redis-node-5
+    command: >
+      redis-server
+      --cluster-enabled yes
+      --cluster-config-file nodes.conf
+      --cluster-node-timeout 5000
+      --appendonly yes
+      --appendfsync everysec
+      --maxmemory 512mb
+      --maxmemory-policy allkeys-lru
+      --requirepass changeit
+      --masterauth changeit
+    ports:
+      - "7005:6379"
+      - "17005:16379"
+    volumes:
+      - redis-node-5-data:/data
+      - ./redis.conf:/usr/local/etc/redis/redis.conf
+      - ./users.acl:/etc/redis/users.acl
+    networks:
+      - redis-cluster
+    healthcheck:
+      test: ["CMD", "redis-cli", "--no-auth-warning", "-a", "changeit", "ping"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+    deploy:
+      resources:
+        limits:
+          memory: 1G
+          cpus: '0.5'
+        reservations:
+          memory: 512M
+          cpus: '0.25'
+
+  redis-node-6:
+    image: redis:7-alpine
+    container_name: redis-node-6
+    hostname: redis-node-6
+    command: >
+      redis-server
+      --cluster-enabled yes
+      --cluster-config-file nodes.conf
+      --cluster-node-timeout 5000
+      --appendonly yes
+      --appendfsync everysec
+      --maxmemory 512mb
+      --maxmemory-policy allkeys-lru
+      --requirepass changeit
+      --masterauth changeit
+    ports:
+      - "7006:6379"
+      - "17006:16379"
+    volumes:
+      - redis-node-6-data:/data
+      - ./redis.conf:/usr/local/etc/redis/redis.conf
+      - ./users.acl:/etc/redis/users.acl
+    networks:
+      - redis-cluster
+    healthcheck:
+      test: ["CMD", "redis-cli", "--no-auth-warning", "-a", "changeit", "ping"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+    deploy:
+      resources:
+        limits:
+          memory: 1G
+          cpus: '0.5'
+        reservations:
+          memory: 512M
+          cpus: '0.25'
+
+  # Redis Sentinel for high availability
+  redis-sentinel-1:
+    image: redis:7-alpine
+    container_name: redis-sentinel-1
+    command: >
+      redis-sentinel /etc/redis/sentinel.conf
+      --sentinel
+    volumes:
+      - ./sentinel.conf:/etc/redis/sentinel.conf
+    ports:
+      - "26379:26379"
+    networks:
+      - redis-cluster
+    depends_on:
+      - redis-node-1
+      - redis-node-2
+      - redis-node-3
+
+  # Redis monitoring and management
+  redis-commander:
+    image: rediscommander/redis-commander:latest
+    container_name: redis-commander
+    hostname: redis-commander
+    environment:
+      REDIS_HOSTS: >
+        local:redis-node-1:6379:0:changeit,
+        local:redis-node-2:6379:0:changeit,
+        local:redis-node-3:6379:0:changeit
+      HTTP_USER: admin
+      HTTP_PASSWORD: admin123
+    ports:
+      - "8081:8081"
+    networks:
+      - redis-cluster
+    depends_on:
+      - redis-node-1
+      - redis-node-2
+      - redis-node-3
+
+  # Prometheus Redis exporter
+  redis-exporter:
+    image: oliver006/redis_exporter
+    container_name: redis-exporter
+    environment:
+      REDIS_ADDR: "redis://redis-node-1:6379,redis://redis-node-2:6379,redis://redis-node-3:6379"
+      REDIS_PASSWORD: "changeit"
+    ports:
+      - "9121:9121"
+    networks:
+      - redis-cluster
+    depends_on:
+      - redis-node-1
+      - redis-node-2
+      - redis-node-3
+
+volumes:
+  redis-node-1-data:
+  redis-node-2-data:
+  redis-node-3-data:
+  redis-node-4-data:
+  redis-node-5-data:
+  redis-node-6-data:
+
+networks:
+  redis-cluster:
+    driver: bridge
+
+EOF
+
+# Sentinel configuration
+cat > sentinel.conf <<EOF
+port 26379
+sentinel monitor mymaster redis-node-1 6379 2
+sentinel auth-pass mymaster changeit
+sentinel down-after-milliseconds mymaster 5000
+sentinel parallel-syncs mymaster 1
+sentinel failover-timeout mymaster 10000
+
+# Security
+requirepass changeit
+sentinel auth-user mymaster monitoring
+
+EOF
+
+# Cluster initialization script
+cat > init-cluster.sh <<'EOF'
+#!/bin/bash
+
+echo "Waiting for Redis nodes to be ready..."
+sleep 30
+
+echo "Creating Redis cluster..."
+redis-cli --cluster create \
+  redis-node-1:6379 \
+  redis-node-2:6379 \
+  redis-node-3:6379 \
+  redis-node-4:6379 \
+  redis-node-5:6379 \
+  redis-node-6:6379 \
+  --cluster-replicas 1 \
+  -a changeit \
+  --cluster-yes
+
+echo "Redis cluster created successfully!"
+
+# Verify cluster status
+redis-cli -c -h redis-node-1 -p 6379 -a changeit cluster nodes
+redis-cli -c -h redis-node-1 -p 6379 -a changeit cluster info
+
+EOF
+
+chmod +x init-cluster.sh
+
+echo "✅ Redis cluster configuration completed"
+echo "🚀 Start cluster: docker-compose -f docker-compose.redis.yml up -d"
+echo "🔧 Initialize cluster: ./init-cluster.sh"]]></correct-example>
+          <incorrect-example title="Basic Redis setup without security or clustering" conditions="Setting up Redis" expected-result="Secure, production-ready Redis deployment" incorrectness-criteria="No security, single instance, no persistence, no monitoring"><![CDATA[version: '3.8'
+
+services:
+  redis:
+    image: redis:latest
+    ports:
+      - "6379:6379"
+
+# Bad: No password protection
+# Bad: Single instance
+# Bad: No persistence
+# Bad: No clustering
+# Bad: No resource limits
+# Bad: No monitoring
+# Bad: No security configuration]]></incorrect-example>
+        </example>
+      </examples>
+    </non-negotiable>
+
+    <requirement priority="critical">
+      <description>Implement optimal caching strategies with proper TTL management, cache invalidation patterns, data structures optimization, and comprehensive monitoring for high-performance applications.</description>
+      <examples>
+        <example title="Advanced Redis Caching Implementation">
+          <correct-example title="Comprehensive caching service with strategies and monitoring" conditions="Implementing Redis caching for high-performance applications" expected-result="Optimized caching with proper invalidation and monitoring" correctness-criteria="Caching strategies, TTL management, invalidation patterns, monitoring, performance optimization"><![CDATA[// TypeScript - Advanced Redis caching implementation
+import Redis, { RedisOptions, Cluster } from 'ioredis';
+import { createLogger } from 'winston';
+import { Counter, Histogram, Gauge, register } from 'prom-client';
+import { createHash } from 'crypto';
+import { LRUCache } from 'lru-cache';
+
+interface CacheConfig {
+  redis: {
+    nodes?: Array<{ host: string; port: number }>;
+    host?: string;
+    port?: number;
+    password?: string;
+    username?: string;
+    db?: number;
+    keyPrefix?: string;
+    enableOfflineQueue?: boolean;
+    maxRetriesPerRequest?: number;
+    retryDelayOnFailover?: number;
+    lazyConnect?: boolean;
+  };
+  cache: {
+    defaultTTL: number;
+    maxMemoryPolicy: 'allkeys-lru' | 'allkeys-lfu' | 'volatile-lru' | 'volatile-lfu';
+    compression: boolean;
+    serializerType: 'json' | 'msgpack' | 'cbor';
+    l1Cache: {
+      enabled: boolean;
+      maxSize: number;
+      ttl: number;
+    };
+  };
+  monitoring: {
+    enableMetrics: boolean;
+    slowQueryThreshold: number;
+    enableTracing: boolean;
+  };
+}
+
+interface CacheMetrics {
+  cacheHits: Counter<string>;
+  cacheMisses: Counter<string>;
+  cacheOperations: Counter<string>;
+  cacheLatency: Histogram<string>;
+  cacheSize: Gauge<string>;
+  cacheExpired: Counter<string>;
+  cacheErrors: Counter<string>;
+}
+
+interface CacheOptions {
+  ttl?: number;
+  tags?: string[];
+  compress?: boolean;
+  serializer?: 'json' | 'msgpack' | 'cbor';
+  namespace?: string;
+}
+
+interface CachePattern {
+  pattern: string;
+  tags: string[];
+  strategy: 'write-through' | 'write-behind' | 'write-around' | 'refresh-ahead';
+  ttl: number;
+}
+
+class AdvancedRedisCache {
+  private redis: Redis | Cluster;
+  private logger = createLogger({ level: 'info' });
+  private metrics: CacheMetrics;
+  private l1Cache?: LRUCache<string, any>;
+  private cachePatterns = new Map<string, CachePattern>();
+  private isConnected = false;
+
+  constructor(private config: CacheConfig) {
+    this.initializeRedis();
+    this.initializeMetrics();
+    this.initializeL1Cache();
+    this.setupPatterns();
+  }
+
+  private initializeRedis(): void {
+    const redisConfig: RedisOptions = {
+      ...this.config.redis,
+      enableOfflineQueue: false,
+      maxRetriesPerRequest: 3,
+      retryDelayOnFailover: 100,
+      lazyConnect: true,
+    };
+
+    if (this.config.redis.nodes && this.config.redis.nodes.length > 1) {
+      this.redis = new Redis.Cluster(this.config.redis.nodes, {
+        redisOptions: redisConfig,
+        enableOfflineQueue: false,
+        scaleReads: 'slave',
+        maxRedirections: 16,
+        retryDelayOnFailover: 100,
+        slotsRefreshTimeout: 10000,
+      });
+    } else {
+      this.redis = new Redis(redisConfig);
+    }
+
+    this.setupRedisEventHandlers();
+  }
+
+  private setupRedisEventHandlers(): void {
+    this.redis.on('connect', () => {
+      this.logger.info('Redis connected');
+      this.isConnected = true;
+    });
+
+    this.redis.on('ready', () => {
+      this.logger.info('Redis ready');
+    });
+
+    this.redis.on('error', (error) => {
+      this.logger.error('Redis error', error);
+      this.isConnected = false;
+      this.metrics.cacheErrors.inc({ operation: 'connection', error_type: error.name });
+    });
+
+    this.redis.on('close', () => {
+      this.logger.warn('Redis connection closed');
+      this.isConnected = false;
+    });
+
+    this.redis.on('reconnecting', () => {
+      this.logger.info('Redis reconnecting');
+    });
+  }
+
+  private initializeMetrics(): void {
+    this.metrics = {
+      cacheHits: new Counter({
+        name: 'redis_cache_hits_total',
+        help: 'Total number of cache hits',
+        labelNames: ['operation', 'namespace', 'level'],
+      }),
+      cacheMisses: new Counter({
+        name: 'redis_cache_misses_total',
+        help: 'Total number of cache misses',
+        labelNames: ['operation', 'namespace'],
+      }),
+      cacheOperations: new Counter({
+        name: 'redis_cache_operations_total',
+        help: 'Total number of cache operations',
+        labelNames: ['operation', 'namespace', 'status'],
+      }),
+      cacheLatency: new Histogram({
+        name: 'redis_cache_operation_duration_seconds',
+        help: 'Cache operation duration in seconds',
+        labelNames: ['operation', 'namespace'],
+        buckets: [0.001, 0.005, 0.01, 0.05, 0.1, 0.5, 1, 5],
+      }),
+      cacheSize: new Gauge({
+        name: 'redis_cache_size_bytes',
+        help: 'Cache size in bytes',
+        labelNames: ['namespace'],
+      }),
+      cacheExpired: new Counter({
+        name: 'redis_cache_expired_total',
+        help: 'Total number of expired cache entries',
+        labelNames: ['namespace'],
+      }),
+      cacheErrors: new Counter({
+        name: 'redis_cache_errors_total',
+        help: 'Total number of cache errors',
+        labelNames: ['operation', 'error_type'],
+      }),
+    };
+
+    Object.values(this.metrics).forEach(metric => register.registerMetric(metric));
+  }
+
+  private initializeL1Cache(): void {
+    if (this.config.cache.l1Cache.enabled) {
+      this.l1Cache = new LRUCache({
+        max: this.config.cache.l1Cache.maxSize,
+        ttl: this.config.cache.l1Cache.ttl,
+        updateAgeOnGet: true,
+        allowStale: false,
+      });
+
+      this.logger.info('L1 cache initialized', {
+        maxSize: this.config.cache.l1Cache.maxSize,
+        ttl: this.config.cache.l1Cache.ttl,
+      });
+    }
+  }
+
+  private setupPatterns(): void {
+    // Define common caching patterns
+    this.cachePatterns.set('user:*', {
+      pattern: 'user:*',
+      tags: ['users'],
+      strategy: 'write-through',
+      ttl: 3600, // 1 hour
+    });
+
+    this.cachePatterns.set('session:*', {
+      pattern: 'session:*',
+      tags: ['sessions'],
+      strategy: 'write-through',
+      ttl: 1800, // 30 minutes
+    });
+
+    this.cachePatterns.set('api:*', {
+      pattern: 'api:*',
+      tags: ['api'],
+      strategy: 'write-around',
+      ttl: 300, // 5 minutes
+    });
+
+    this.cachePatterns.set('static:*', {
+      pattern: 'static:*',
+      tags: ['static'],
+      strategy: 'refresh-ahead',
+      ttl: 86400, // 24 hours
+    });
+  }
+
+  async connect(): Promise<void> {
+    try {
+      await this.redis.connect();
+      this.logger.info('Redis cache service connected');
+    } catch (error) {
+      this.logger.error('Failed to connect to Redis', error);
+      throw error;
+    }
+  }
+
+  async disconnect(): Promise<void> {
+    try {
+      await this.redis.disconnect();
+      this.logger.info('Redis cache service disconnected');
+    } catch (error) {
+      this.logger.error('Failed to disconnect from Redis', error);
+      throw error;
+    }
+  }
+
+  async get<T>(key: string, options: CacheOptions = {}): Promise<T | null> {
+    const startTime = Date.now();
+    const namespace = options.namespace || 'default';
+    const fullKey = this.buildKey(key, namespace);
+
+    try {
+      // Try L1 cache first
+      if (this.l1Cache && this.l1Cache.has(fullKey)) {
+        const value = this.l1Cache.get(fullKey);
+        this.metrics.cacheHits.inc({ operation: 'get', namespace, level: 'l1' });
+        this.logger.debug('L1 cache hit', { key: fullKey });
+        return value;
+      }
+
+      // Try Redis (L2) cache
+      const value = await this.redis.get(fullKey);
+      const latency = (Date.now() - startTime) / 1000;
+
+      if (value !== null) {
+        const deserializedValue = this.deserialize(value, options.serializer);
+        
+        // Update L1 cache
+        if (this.l1Cache) {
+          this.l1Cache.set(fullKey, deserializedValue);
+        }
+
+        this.metrics.cacheHits.inc({ operation: 'get', namespace, level: 'l2' });
+        this.metrics.cacheLatency.observe({ operation: 'get', namespace }, latency);
+        
+        this.logger.debug('L2 cache hit', { key: fullKey, latency });
+        return deserializedValue;
+      }
+
+      this.metrics.cacheMisses.inc({ operation: 'get', namespace });
+      this.metrics.cacheLatency.observe({ operation: 'get', namespace }, latency);
+      
+      this.logger.debug('Cache miss', { key: fullKey, latency });
+      return null;
+
+    } catch (error) {
+      const latency = (Date.now() - startTime) / 1000;
+      this.metrics.cacheErrors.inc({ operation: 'get', error_type: error.name });
+      this.metrics.cacheLatency.observe({ operation: 'get', namespace }, latency);
+      
+      this.logger.error('Cache get error', { key: fullKey, error: error.message, latency });
+      return null;
+    }
+  }
+
+  async set<T>(key: string, value: T, options: CacheOptions = {}): Promise<boolean> {
+    const startTime = Date.now();
+    const namespace = options.namespace || 'default';
+    const fullKey = this.buildKey(key, namespace);
+    const ttl = options.ttl || this.config.cache.defaultTTL;
+
+    try {
+      const serializedValue = this.serialize(value, options.serializer);
+      
+      // Set in Redis with TTL
+      if (ttl > 0) {
+        await this.redis.setex(fullKey, ttl, serializedValue);
+      } else {
+        await this.redis.set(fullKey, serializedValue);
+      }
+
+      // Update L1 cache
+      if (this.l1Cache) {
+        this.l1Cache.set(fullKey, value, { ttl: ttl * 1000 });
+      }
+
+      // Handle tags for invalidation
+      if (options.tags && options.tags.length > 0) {
+        await this.setTags(fullKey, options.tags);
+      }
+
+      const latency = (Date.now() - startTime) / 1000;
+      
+      this.metrics.cacheOperations.inc({ operation: 'set', namespace, status: 'success' });
+      this.metrics.cacheLatency.observe({ operation: 'set', namespace }, latency);
+      
+      this.logger.debug('Cache set success', { key: fullKey, ttl, latency });
+      return true;
+
+    } catch (error) {
+      const latency = (Date.now() - startTime) / 1000;
+      this.metrics.cacheErrors.inc({ operation: 'set', error_type: error.name });
+      this.metrics.cacheLatency.observe({ operation: 'set', namespace }, latency);
+      
+      this.logger.error('Cache set error', { key: fullKey, error: error.message, latency });
+      return false;
+    }
+  }
+
+  async del(key: string, options: CacheOptions = {}): Promise<boolean> {
+    const startTime = Date.now();
+    const namespace = options.namespace || 'default';
+    const fullKey = this.buildKey(key, namespace);
+
+    try {
+      const result = await this.redis.del(fullKey);
+      
+      // Remove from L1 cache
+      if (this.l1Cache) {
+        this.l1Cache.delete(fullKey);
+      }
+
+      const latency = (Date.now() - startTime) / 1000;
+      
+      this.metrics.cacheOperations.inc({ operation: 'del', namespace, status: 'success' });
+      this.metrics.cacheLatency.observe({ operation: 'del', namespace }, latency);
+      
+      this.logger.debug('Cache delete success', { key: fullKey, latency });
+      return result > 0;
+
+    } catch (error) {
+      const latency = (Date.now() - startTime) / 1000;
+      this.metrics.cacheErrors.inc({ operation: 'del', error_type: error.name });
+      this.metrics.cacheLatency.observe({ operation: 'del', namespace }, latency);
+      
+      this.logger.error('Cache delete error', { key: fullKey, error: error.message, latency });
+      return false;
+    }
+  }
+
+  async invalidateByTags(tags: string[]): Promise<number> {
+    const startTime = Date.now();
+    let deletedCount = 0;
+
+    try {
+      for (const tag of tags) {
+        const tagKey = `tags:${tag}`;
+        const keys = await this.redis.smembers(tagKey);
+        
+        if (keys.length > 0) {
+          // Delete all keys associated with the tag
+          const pipeline = this.redis.pipeline();
+          keys.forEach(key => {
+            pipeline.del(key);
+            // Remove from L1 cache
+            if (this.l1Cache) {
+              this.l1Cache.delete(key);
+            }
+          });
+          
+          // Delete the tag set itself
+          pipeline.del(tagKey);
+          
+          const results = await pipeline.exec();
+          deletedCount += keys.length;
+        }
+      }
+
+      const latency = (Date.now() - startTime) / 1000;
+      
+      this.metrics.cacheOperations.inc({ 
+        operation: 'invalidate_tags', 
+        namespace: 'global', 
+        status: 'success' 
+      });
+      this.metrics.cacheLatency.observe({ operation: 'invalidate_tags', namespace: 'global' }, latency);
+      
+      this.logger.info('Cache invalidation by tags completed', { 
+        tags, 
+        deletedCount, 
+        latency 
+      });
+      
+      return deletedCount;
+
+    } catch (error) {
+      const latency = (Date.now() - startTime) / 1000;
+      this.metrics.cacheErrors.inc({ operation: 'invalidate_tags', error_type: error.name });
+      this.metrics.cacheLatency.observe({ operation: 'invalidate_tags', namespace: 'global' }, latency);
+      
+      this.logger.error('Cache invalidation error', { tags, error: error.message, latency });
+      return 0;
+    }
+  }
+
+  private async setTags(key: string, tags: string[]): Promise<void> {
+    const pipeline = this.redis.pipeline();
+    
+    for (const tag of tags) {
+      const tagKey = `tags:${tag}`;
+      pipeline.sadd(tagKey, key);
+      pipeline.expire(tagKey, 86400); // Tags expire in 24 hours
+    }
+    
+    await pipeline.exec();
+  }
+
+  private buildKey(key: string, namespace: string): string {
+    const prefix = this.config.redis.keyPrefix || 'app';
+    return `${prefix}:${namespace}:${key}`;
+  }
+
+  private serialize(value: any, serializer?: string): string {
+    const type = serializer || this.config.cache.serializerType;
+    
+    switch (type) {
+      case 'json':
+        return JSON.stringify(value);
+      case 'msgpack':
+        // Implement msgpack serialization
+        return JSON.stringify(value); // Fallback to JSON
+      case 'cbor':
+        // Implement CBOR serialization
+        return JSON.stringify(value); // Fallback to JSON
+      default:
+        return JSON.stringify(value);
+    }
+  }
+
+  private deserialize(value: string, serializer?: string): any {
+    const type = serializer || this.config.cache.serializerType;
+    
+    switch (type) {
+      case 'json':
+        return JSON.parse(value);
+      case 'msgpack':
+        // Implement msgpack deserialization
+        return JSON.parse(value); // Fallback to JSON
+      case 'cbor':
+        // Implement CBOR deserialization
+        return JSON.parse(value); // Fallback to JSON
+      default:
+        return JSON.parse(value);
+    }
+  }
+
+  // Cache statistics and health check
+  async getStats(): Promise<any> {
+    try {
+      const info = await this.redis.info('memory');
+      const dbSize = await this.redis.dbsize();
+      
+      return {
+        connected: this.isConnected,
+        memory: this.parseInfo(info),
+        keyCount: dbSize,
+        l1Cache: this.l1Cache ? {
+          size: this.l1Cache.size,
+          maxSize: this.l1Cache.max,
+        } : null,
+      };
+    } catch (error) {
+      this.logger.error('Failed to get cache stats', error);
+      return { connected: false, error: error.message };
+    }
+  }
+
+  private parseInfo(info: string): any {
+    const lines = info.split('\r\n');
+    const result: any = {};
+    
+    for (const line of lines) {
+      if (line.includes(':')) {
+        const [key, value] = line.split(':');
+        result[key] = isNaN(Number(value)) ? value : Number(value);
+      }
+    }
+    
+    return result;
+  }
+}
+
+// Usage example
+const cacheConfig: CacheConfig = {
+  redis: {
+    nodes: [
+      { host: 'redis-node-1', port: 6379 },
+      { host: 'redis-node-2', port: 6379 },
+      { host: 'redis-node-3', port: 6379 },
+    ],
+    password: process.env.REDIS_PASSWORD,
+    username: 'app',
+    keyPrefix: 'myapp',
+  },
+  cache: {
+    defaultTTL: 3600,
+    maxMemoryPolicy: 'allkeys-lru',
+    compression: true,
+    serializerType: 'json',
+    l1Cache: {
+      enabled: true,
+      maxSize: 1000,
+      ttl: 300000, // 5 minutes
+    },
+  },
+  monitoring: {
+    enableMetrics: true,
+    slowQueryThreshold: 100,
+    enableTracing: true,
+  },
+};
+
+export { AdvancedRedisCache, CacheConfig, CacheOptions };]]></correct-example>
+          <incorrect-example title="Basic Redis caching without optimization" conditions="Implementing Redis caching" expected-result="Optimized caching with proper strategies" incorrectness-criteria="No TTL management, no monitoring, no invalidation, basic caching only"><![CDATA[// Basic Redis caching without optimization
+import Redis from 'ioredis';
+
+const redis = new Redis('redis://localhost:6379');
+
+// Bad: No error handling
+// Bad: No TTL management
+// Bad: No monitoring
+// Bad: No invalidation strategy
+
+async function get(key: string) {
+  return await redis.get(key);
+}
+
+async function set(key: string, value: string) {
+  return await redis.set(key, value);
+}
+
+// Bad: No serialization handling
+// Bad: No compression
+// Bad: No L1 cache
+// Bad: No health checks
+// Bad: No statistics]]></incorrect-example>
+        </example>
+      </examples>
+    </requirement>
+
+    <requirement priority="high">
+      <description>Configure Redis for session management, pub/sub messaging, and real-time features with proper connection pooling, failover handling, and performance optimization for distributed applications.</description>
+      <examples>
+        <example title="Redis Session and Real-time Features">
+          <correct-example title="Complete session management and pub/sub implementation" conditions="Implementing Redis for sessions and real-time features" expected-result="Robust session management with real-time capabilities" correctness-criteria="Session management, pub/sub messaging, connection pooling, failover handling, performance optimization"><![CDATA[// TypeScript - Redis session management and pub/sub implementation
+import Redis, { Cluster } from 'ioredis';
+import { EventEmitter } from 'events';
+import { createLogger } from 'winston';
+import { randomBytes, createHash } from 'crypto';
+
+interface SessionConfig {
+  redis: {
+    nodes: Array<{ host: string; port: number }>;
+    password?: string;
+    username?: string;
+    keyPrefix: string;
+  };
+  session: {
+    ttl: number;
+    rolling: boolean;
+    cookieName: string;
+    secure: boolean;
+    httpOnly: boolean;
+    sameSite: 'strict' | 'lax' | 'none';
+  };
+  pubsub: {
+    channels: string[];
+    retryStrategy: (times: number) => number | void;
+  };
+}
+
+interface SessionData {
+  id: string;
+  userId?: string;
+  data: Record<string, any>;
+  createdAt: number;
+  lastAccessed: number;
+  expiresAt: number;
+}
+
+interface PubSubMessage {
+  channel: string;
+  message: any;
+  timestamp: number;
+  id: string;
+}
+
+class RedisSessionManager extends EventEmitter {
+  private redis: Cluster;
+  private pubRedis: Cluster;
+  private subRedis: Cluster;
+  private logger = createLogger({ level: 'info' });
+  private subscribedChannels = new Set<string>();
+
+  constructor(private config: SessionConfig) {
+    super();
+    this.initializeRedis();
+    this.setupEventHandlers();
+  }
+
+  private initializeRedis(): void {
+    const redisOptions = {
+      password: this.config.redis.password,
+      username: this.config.redis.username,
+      enableOfflineQueue: false,
+      maxRetriesPerRequest: 3,
+      retryDelayOnFailover: 100,
+      lazyConnect: true,
+    };
+
+    // Main Redis connection for sessions
+    this.redis = new Redis.Cluster(this.config.redis.nodes, {
+      redisOptions,
+      scaleReads: 'slave',
+      enableOfflineQueue: false,
+    });
+
+    // Dedicated connections for pub/sub
+    this.pubRedis = new Redis.Cluster(this.config.redis.nodes, {
+      redisOptions: { ...redisOptions, maxRetriesPerRequest: null },
+      scaleReads: 'master',
+    });
+
+    this.subRedis = new Redis.Cluster(this.config.redis.nodes, {
+      redisOptions: { ...redisOptions, maxRetriesPerRequest: null },
+      scaleReads: 'slave',
+    });
+  }
+
+  private setupEventHandlers(): void {
+    // Session Redis events
+    this.redis.on('connect', () => {
+      this.logger.info('Session Redis connected');
+    });
+
+    this.redis.on('error', (error) => {
+      this.logger.error('Session Redis error', error);
+      this.emit('error', error);
+    });
+
+    // Pub/Sub Redis events
+    this.subRedis.on('message', (channel, message) => {
+      this.handlePubSubMessage(channel, message);
+    });
+
+    this.subRedis.on('pmessage', (pattern, channel, message) => {
+      this.handlePubSubMessage(channel, message, pattern);
+    });
+
+    this.subRedis.on('error', (error) => {
+      this.logger.error('Pub/Sub Redis error', error);
+      this.emit('pubsub_error', error);
+    });
+  }
+
+  async connect(): Promise<void> {
+    try {
+      await Promise.all([
+        this.redis.connect(),
+        this.pubRedis.connect(),
+        this.subRedis.connect(),
+      ]);
+      
+      this.logger.info('Redis session manager connected');
+      
+      // Subscribe to configured channels
+      for (const channel of this.config.pubsub.channels) {
+        await this.subscribe(channel);
+      }
+      
+    } catch (error) {
+      this.logger.error('Failed to connect Redis session manager', error);
+      throw error;
+    }
+  }
+
+  async disconnect(): Promise<void> {
+    try {
+      await Promise.all([
+        this.redis.disconnect(),
+        this.pubRedis.disconnect(),
+        this.subRedis.disconnect(),
+      ]);
+      
+      this.logger.info('Redis session manager disconnected');
+    } catch (error) {
+      this.logger.error('Failed to disconnect Redis session manager', error);
+      throw error;
+    }
+  }
+
+  // Session Management
+  async createSession(userId?: string, initialData: Record<string, any> = {}): Promise<SessionData> {
+    const sessionId = this.generateSessionId();
+    const now = Date.now();
+    const expiresAt = now + (this.config.session.ttl * 1000);
+
+    const sessionData: SessionData = {
+      id: sessionId,
+      userId,
+      data: initialData,
+      createdAt: now,
+      lastAccessed: now,
+      expiresAt,
+    };
+
+    await this.saveSession(sessionData);
+    
+    this.logger.info('Session created', { sessionId, userId });
+    
+    // Publish session created event
+    await this.publish('session:created', {
+      sessionId,
+      userId,
+      timestamp: now,
+    });
+
+    return sessionData;
+  }
+
+  async getSession(sessionId: string): Promise<SessionData | null> {
+    try {
+      const key = this.getSessionKey(sessionId);
+      const data = await this.redis.hgetall(key);
+
+      if (!data || Object.keys(data).length === 0) {
+        return null;
+      }
+
+      const sessionData: SessionData = {
+        id: data.id,
+        userId: data.userId || undefined,
+        data: JSON.parse(data.data || '{}'),
+        createdAt: parseInt(data.createdAt),
+        lastAccessed: parseInt(data.lastAccessed),
+        expiresAt: parseInt(data.expiresAt),
+      };
+
+      // Check if session is expired
+      if (sessionData.expiresAt < Date.now()) {
+        await this.destroySession(sessionId);
+        return null;
+      }
+
+      // Update last accessed time if rolling sessions
+      if (this.config.session.rolling) {
+        sessionData.lastAccessed = Date.now();
+        sessionData.expiresAt = Date.now() + (this.config.session.ttl * 1000);
+        await this.saveSession(sessionData);
+      }
+
+      return sessionData;
+
+    } catch (error) {
+      this.logger.error('Failed to get session', { sessionId, error: error.message });
+      return null;
+    }
+  }
+
+  async updateSession(sessionId: string, updates: Partial<SessionData>): Promise<boolean> {
+    try {
+      const session = await this.getSession(sessionId);
+      if (!session) {
+        return false;
+      }
+
+      const updatedSession: SessionData = {
+        ...session,
+        ...updates,
+        id: sessionId, // Ensure ID cannot be changed
+        lastAccessed: Date.now(),
+      };
+
+      await this.saveSession(updatedSession);
+      
+      this.logger.debug('Session updated', { sessionId });
+      
+      // Publish session updated event
+      await this.publish('session:updated', {
+        sessionId,
+        userId: updatedSession.userId,
+        timestamp: Date.now(),
+      });
+
+      return true;
+
+    } catch (error) {
+      this.logger.error('Failed to update session', { sessionId, error: error.message });
+      return false;
+    }
+  }
+
+  async destroySession(sessionId: string): Promise<boolean> {
+    try {
+      const session = await this.getSession(sessionId);
+      const key = this.getSessionKey(sessionId);
+      const result = await this.redis.del(key);
+
+      if (result > 0) {
+        this.logger.info('Session destroyed', { sessionId });
+        
+        // Publish session destroyed event
+        await this.publish('session:destroyed', {
+          sessionId,
+          userId: session?.userId,
+          timestamp: Date.now(),
+        });
+      }
+
+      return result > 0;
+
+    } catch (error) {
+      this.logger.error('Failed to destroy session', { sessionId, error: error.message });
+      return false;
+    }
+  }
+
+  async getUserSessions(userId: string): Promise<SessionData[]> {
+    try {
+      const pattern = this.getSessionKey('*');
+      const keys = await this.redis.keys(pattern);
+      const sessions: SessionData[] = [];
+
+      for (const key of keys) {
+        const data = await this.redis.hgetall(key);
+        if (data.userId === userId) {
+          sessions.push({
+            id: data.id,
+            userId: data.userId,
+            data: JSON.parse(data.data || '{}'),
+            createdAt: parseInt(data.createdAt),
+            lastAccessed: parseInt(data.lastAccessed),
+            expiresAt: parseInt(data.expiresAt),
+          });
+        }
+      }
+
+      return sessions;
+
+    } catch (error) {
+      this.logger.error('Failed to get user sessions', { userId, error: error.message });
+      return [];
+    }
+  }
+
+  async destroyUserSessions(userId: string): Promise<number> {
+    try {
+      const sessions = await this.getUserSessions(userId);
+      let destroyedCount = 0;
+
+      for (const session of sessions) {
+        const success = await this.destroySession(session.id);
+        if (success) {
+          destroyedCount++;
+        }
+      }
+
+      this.logger.info('User sessions destroyed', { userId, destroyedCount });
+      return destroyedCount;
+
+    } catch (error) {
+      this.logger.error('Failed to destroy user sessions', { userId, error: error.message });
+      return 0;
+    }
+  }
+
+  private async saveSession(session: SessionData): Promise<void> {
+    const key = this.getSessionKey(session.id);
+    const ttl = Math.floor((session.expiresAt - Date.now()) / 1000);
+
+    if (ttl <= 0) {
+      return;
+    }
+
+    const pipeline = this.redis.pipeline();
+    pipeline.hset(key, {
+      id: session.id,
+      userId: session.userId || '',
+      data: JSON.stringify(session.data),
+      createdAt: session.createdAt.toString(),
+      lastAccessed: session.lastAccessed.toString(),
+      expiresAt: session.expiresAt.toString(),
+    });
+    pipeline.expire(key, ttl);
+    
+    await pipeline.exec();
+  }
+
+  private getSessionKey(sessionId: string): string {
+    return `${this.config.redis.keyPrefix}:session:${sessionId}`;
+  }
+
+  private generateSessionId(): string {
+    const randomData = randomBytes(32);
+    const timestamp = Date.now().toString();
+    return createHash('sha256')
+      .update(randomData)
+      .update(timestamp)
+      .digest('hex');
+  }
+
+  // Pub/Sub Messaging
+  async publish(channel: string, message: any): Promise<number> {
+    try {
+      const pubSubMessage: PubSubMessage = {
+        channel,
+        message,
+        timestamp: Date.now(),
+        id: randomBytes(16).toString('hex'),
+      };
+
+      const serialized = JSON.stringify(pubSubMessage);
+      const result = await this.pubRedis.publish(channel, serialized);
+      
+      this.logger.debug('Message published', { channel, messageId: pubSubMessage.id });
+      return result;
+
+    } catch (error) {
+      this.logger.error('Failed to publish message', { channel, error: error.message });
+      return 0;
+    }
+  }
+
+  async subscribe(channel: string): Promise<void> {
+    try {
+      await this.subRedis.subscribe(channel);
+      this.subscribedChannels.add(channel);
+      this.logger.info('Subscribed to channel', { channel });
+
+    } catch (error) {
+      this.logger.error('Failed to subscribe to channel', { channel, error: error.message });
+      throw error;
+    }
+  }
+
+  async unsubscribe(channel: string): Promise<void> {
+    try {
+      await this.subRedis.unsubscribe(channel);
+      this.subscribedChannels.delete(channel);
+      this.logger.info('Unsubscribed from channel', { channel });
+
+    } catch (error) {
+      this.logger.error('Failed to unsubscribe from channel', { channel, error: error.message });
+      throw error;
+    }
+  }
+
+  async psubscribe(pattern: string): Promise<void> {
+    try {
+      await this.subRedis.psubscribe(pattern);
+      this.logger.info('Subscribed to pattern', { pattern });
+
+    } catch (error) {
+      this.logger.error('Failed to subscribe to pattern', { pattern, error: error.message });
+      throw error;
+    }
+  }
+
+  private handlePubSubMessage(channel: string, message: string, pattern?: string): void {
+    try {
+      const pubSubMessage: PubSubMessage = JSON.parse(message);
+      
+      this.logger.debug('Message received', { 
+        channel, 
+        pattern, 
+        messageId: pubSubMessage.id 
+      });
+
+      this.emit('message', pubSubMessage);
+      this.emit(`message:${channel}`, pubSubMessage.message);
+
+    } catch (error) {
+      this.logger.error('Failed to handle pub/sub message', { 
+        channel, 
+        error: error.message 
+      });
+    }
+  }
+
+  // Real-time features
+  async broadcastToUser(userId: string, event: string, data: any): Promise<void> {
+    await this.publish(`user:${userId}`, { event, data });
+  }
+
+  async broadcastToRoom(roomId: string, event: string, data: any): Promise<void> {
+    await this.publish(`room:${roomId}`, { event, data });
+  }
+
+  async joinRoom(sessionId: string, roomId: string): Promise<void> {
+    const key = `${this.config.redis.keyPrefix}:room:${roomId}:members`;
+    await this.redis.sadd(key, sessionId);
+    await this.redis.expire(key, 3600); // Room membership expires in 1 hour
+    
+    this.logger.debug('Session joined room', { sessionId, roomId });
+  }
+
+  async leaveRoom(sessionId: string, roomId: string): Promise<void> {
+    const key = `${this.config.redis.keyPrefix}:room:${roomId}:members`;
+    await this.redis.srem(key, sessionId);
+    
+    this.logger.debug('Session left room', { sessionId, roomId });
+  }
+
+  async getRoomMembers(roomId: string): Promise<string[]> {
+    const key = `${this.config.redis.keyPrefix}:room:${roomId}:members`;
+    return await this.redis.smembers(key);
+  }
+
+  // Health check and statistics
+  async getStats(): Promise<any> {
+    try {
+      const [
+        redisInfo,
+        pubRedisInfo,
+        subRedisInfo,
+        sessionCount,
+      ] = await Promise.all([
+        this.redis.info('memory'),
+        this.pubRedis.info('memory'),
+        this.subRedis.info('memory'),
+        this.redis.eval(`return #redis.call('keys', '${this.config.redis.keyPrefix}:session:*')`, 0),
+      ]);
+
+      return {
+        redis: this.parseRedisInfo(redisInfo),
+        pubRedis: this.parseRedisInfo(pubRedisInfo),
+        subRedis: this.parseRedisInfo(subRedisInfo),
+        sessions: {
+          count: sessionCount,
+        },
+        pubsub: {
+          subscribedChannels: Array.from(this.subscribedChannels),
+          channelCount: this.subscribedChannels.size,
+        },
+      };
+
+    } catch (error) {
+      this.logger.error('Failed to get stats', error);
+      return { error: error.message };
+    }
+  }
+
+  private parseRedisInfo(info: string): any {
+    const lines = info.split('\r\n');
+    const result: any = {};
+    
+    for (const line of lines) {
+      if (line.includes(':')) {
+        const [key, value] = line.split(':');
+        result[key] = isNaN(Number(value)) ? value : Number(value);
+      }
+    }
+    
+    return result;
+  }
+}
+
+// Usage example
+const sessionConfig: SessionConfig = {
+  redis: {
+    nodes: [
+      { host: 'redis-node-1', port: 6379 },
+      { host: 'redis-node-2', port: 6379 },
+      { host: 'redis-node-3', port: 6379 },
+    ],
+    password: process.env.REDIS_PASSWORD,
+    keyPrefix: 'myapp',
+  },
+  session: {
+    ttl: 3600, // 1 hour
+    rolling: true,
+    cookieName: 'sessionId',
+    secure: true,
+    httpOnly: true,
+    sameSite: 'strict',
+  },
+  pubsub: {
+    channels: ['notifications', 'chat', 'system'],
+    retryStrategy: (times) => Math.min(times * 50, 2000),
+  },
+};
+
+export { RedisSessionManager, SessionConfig, SessionData };]]></correct-example>
+          <incorrect-example title="Basic session handling without Redis optimization" conditions="Implementing session management" expected-result="Robust session management with Redis" incorrectness-criteria="No clustering, no pub/sub, basic session handling, no real-time features"><![CDATA[// Basic session handling without optimization
+import Redis from 'ioredis';
+
+const redis = new Redis('redis://localhost:6379');
+
+// Bad: No clustering
+// Bad: No connection pooling
+// Bad: No error handling
+// Bad: No TTL management
+
+async function createSession(userId: string) {
+  const sessionId = Math.random().toString();
+  await redis.set(`session:${sessionId}`, userId);
+  return sessionId;
+}
+
+async function getSession(sessionId: string) {
+  return await redis.get(`session:${sessionId}`);
+}
+
+// Bad: No pub/sub functionality
+// Bad: No real-time features
+// Bad: No room management
+// Bad: No session expiration
+// Bad: No monitoring]]></incorrect-example>
+        </example>
+      </examples>
+    </requirement>
+  </requirements>
+  <context description="Redis in-memory data store best practices and patterns">
+    Redis is a high-performance in-memory data structure store that serves as a database, cache, and message broker. Modern Redis development emphasizes clustering for high availability, security-first configurations, and optimized caching strategies for distributed applications.
+
+    Key principles for Redis implementation include:
+    - Clustering and high availability with Redis Sentinel and Redis Cluster
+    - Security with authentication, authorization, encryption, and network isolation
+    - Performance optimization with proper data structures, memory management, and persistence
+    - Caching strategies with TTL management, invalidation patterns, and multi-level caching
+    - Real-time features with pub/sub messaging, session management, and stream processing
+    - Comprehensive monitoring and alerting for performance and health metrics
+
+    Redis security is critical and includes authentication with ACL (Access Control Lists), SSL/TLS encryption, protected mode, and proper network configuration. All instances should use secure configurations by default.
+
+    Performance optimization involves choosing appropriate data structures (strings, hashes, lists, sets, sorted sets, streams), implementing proper memory policies (LRU, LFU), configuring persistence (RDB, AOF), and using pipelining for batch operations.
+
+    Production deployments require clustering for horizontal scaling, Sentinel for automatic failover, backup and restore procedures, monitoring with Redis Exporter and Prometheus, and proper capacity planning.
+
+    Modern Redis use cases include caching layers, session stores, real-time analytics, message queues, pub/sub systems, and stream processing, making it essential for high-performance web applications and microservices architectures.
+  </context>
+  <references>
+    <reference as="dependency" href=".cursor/rules/000-core/002-cursor-rules-creation.mdc" reason="Follows standard rule format">Base rule format definition</reference>
+    <reference as="context" href="https://redis.io/documentation" reason="Official Redis documentation">Redis Documentation</reference>
+    <reference as="context" href="https://redis.io/topics/security" reason="Security best practices">Redis Security Guide</reference>
+    <reference as="context" href="https://redis.io/topics/cluster-tutorial" reason="Clustering configuration">Redis Cluster Tutorial</reference>
+  </references>
+</rule>

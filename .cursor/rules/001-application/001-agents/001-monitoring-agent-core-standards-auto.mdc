@@ -1,0 +1,216 @@
+---
+description: Defines an implementation-agnostic rule for a Monitoring Agent, including role, responsibilities, and constraints.
+globs: ".cursor/rules/monitoring-agent.mdc"
+alwaysApply: false
+---
+
+<rule>
+  <meta>
+    <title>Monitoring Agent</title>
+    <description>Agent responsible for real-time monitoring of Pericles data sources to identify potential risk events for a tenant based on geographic exposure; upon identification, passes event data to the Validation Agent.</description>
+    <created-at utc-timestamp="1735689600">Jan 1, 2025, 00:00 UTC</created-at>
+    <last-updated-at utc-timestamp="1735689600">Jan 1, 2025, 00:00 UTC</last-updated-at>
+    <applies-to>
+      <file-matcher glob="**/*">Conceptual guidance; applicable to any code or configuration implementing a Monitoring Agent.</file-matcher>
+      <action-matcher action="create-monitoring-agent">Triggered when designing or refactoring a monitoring capability.</action-matcher>
+    </applies-to>
+  </meta>
+
+  <!--
+    Assumptions (technology-agnostic):
+    - "Tenant" denotes any scoping entity (e.g., customer, account, project) used to constrain data access and outputs.
+    - "Message bus" refers to any event transport (e.g., queue/stream) used to deliver incidents. No specific vendor/tech is implied.
+    - "Geographic filtering" is optional; if used, inputs may include locations for monitored entities and events.
+    - Time values MUST be timezone-aware and normalized (ISO 8601 recommended) when serialized.
+  -->
+
+  <requirements>
+    <non-negotiable priority="critical">
+      <description>Tenant context must be explicit and validated before any monitoring or publishing.</description>
+      <examples>
+        <example title="Tenant identity required">
+          <correct-example title="Explicit tenant scope" conditions="Agent start" expected-result="Start permitted" correctness-criteria="Tenant identifier present and validated"><![CDATA[
+Start(agent_config with tenant_id = "acme-123") -> proceed
+]]></correct-example>
+          <incorrect-example title="Missing tenant scope" conditions="Agent start" expected-result="Start rejected" incorrectness-criteria="No tenant identifier"><![CDATA[
+Start(agent_config without tenant_id) -> error and halt
+]]></incorrect-example>
+        </example>
+      </examples>
+    </non-negotiable>
+
+    <non-negotiable priority="critical">
+      <description>Customer contextualization: incorporate tenant-specific context from ERP and business documents (annual plans, strategic documents) to tailor monitored sources, risk types, and geographic exposure.</description>
+      <examples>
+        <example title="ERP + documents context">
+          <correct-example title="Context applied" conditions="Configure agent" expected-result="Scoped monitoring" correctness-criteria="Uses ERP fields and referenced documents"><![CDATA[
+context = { erp:{plants:['CN-01'], lanes:['CN->US']}, docs:['2025-plan','risk-policy'] }
+sources = enableFor(context)
+]]></correct-example>
+          <incorrect-example title="No context" conditions="Default config" expected-result="Insufficient" incorrectness-criteria="Ignores tenant ERP/docs"><![CDATA[
+sources = enableAll() // same for every tenant
+]]></incorrect-example>
+        </example>
+      </examples>
+    </non-negotiable>
+
+    <non-negotiable priority="critical">
+      <description>Configuration precedence: caller/runtime configuration overrides file/default configuration, without overwriting unique identifiers.</description>
+      <examples>
+        <example title="Precedence and immutability">
+          <correct-example title="Runtime overrides" conditions="Merge configs" expected-result="Runtime values win" correctness-criteria="Do not override tenant_id"><![CDATA[
+merge(runtime={tenant_id:"acme-123", interval:300}, file={interval:600}) => {tenant_id:"acme-123", interval:300}
+]]></correct-example>
+          <incorrect-example title="File overrides runtime" conditions="Merge configs" expected-result="Runtime preserved" incorrectness-criteria="File resets tenant_id"><![CDATA[
+merge(runtime={tenant_id:"acme-123"}, file={tenant_id:"default"}) => {tenant_id:"default"}
+]]></incorrect-example>
+        </example>
+      </examples>
+    </non-negotiable>
+
+    <non-negotiable priority="critical">
+      <description>Deduplicate incidents using a stable content hash and a bounded lookback window; skip publishing duplicates.</description>
+      <examples>
+        <example title="Stable hash inputs">
+          <correct-example title="Hash from stable fields" conditions="Hash compute" expected-result="Consistent hash" correctness-criteria="Use normalized core fields"><![CDATA[
+hash_input = normalize(title)|normalize(source)|normalize(type)|truncate_to_hour(timestamp)
+]]></correct-example>
+          <incorrect-example title="Volatile fields in hash" conditions="Hash compute" expected-result="Stable hash" incorrectness-criteria="Includes random ids or full payload"><![CDATA[
+hash_input = random_uuid|raw_payload_json
+]]></incorrect-example>
+        </example>
+      </examples>
+    </non-negotiable>
+
+    <non-negotiable priority="critical">
+      <description>Error handling and resilience: continuous loop with bounded backoff; failures must not crash the process without retries.</description>
+      <examples>
+        <example title="Retry with delay">
+          <correct-example title="Backoff on failure" conditions="Source failure" expected-result="Retry later" correctness-criteria="Sleep/backoff then resume"><![CDATA[
+try fetch(); on error: wait(backoff_ms) then continue
+]]></correct-example>
+          <incorrect-example title="Tight error loop" conditions="Source failure" expected-result="No resource burn" incorrectness-criteria="Busy-spin or crash"><![CDATA[
+try fetch(); on error: while(true) retry immediately
+]]></incorrect-example>
+        </example>
+      </examples>
+    </non-negotiable>
+
+    <requirement priority="high">
+      <description>Modular monitoring: implement independent monitors for each signal source; enable/disable via configuration; compose them in a pipeline before analysis.</description>
+      <examples>
+        <example title="Composable monitors">
+          <correct-example title="Toggle sources" conditions="Configure" expected-result="Only enabled sources run" correctness-criteria="No code change to disable"><![CDATA[
+config.sources = { news:true, social:false, external_feed:true }
+]]></correct-example>
+          <incorrect-example title="Hard-coded sequence" conditions="Change sources" expected-result="Runtime control" incorrectness-criteria="Requires code edits"><![CDATA[
+if (true) run social-only; // cannot disable without redeploy
+]]></incorrect-example>
+        </example>
+      </examples>
+    </requirement>
+
+    <requirement priority="high">
+      <description>Geographic relevance (if enabled): filter events by proximity to monitored entities using declared distances; define behavior when entity or event locations are missing.</description>
+      <examples>
+        <example title="Clear fallback">
+          <correct-example title="Include when coordinates unknown (configurable)" conditions="No entity coords" expected-result="Documented behavior" correctness-criteria="Config flag controls fallback"><![CDATA[
+if no entity_coords: pass-through or exclude based on geo.strict_mode
+]]></correct-example>
+          <incorrect-example title="Implicit behavior" conditions="No entity coords" expected-result="Predictable filter" incorrectness-criteria="Undocumented silent drop"><![CDATA[
+missing coords -> silently drop all events
+]]></incorrect-example>
+        </example>
+      </examples>
+    </requirement>
+
+    <requirement priority="high">
+      <description>Risk analysis: normalize inputs, classify incident type, compute severity/confidence, attach relevant factors and affected domains; handle missing/partial fields gracefully.</description>
+    </requirement>
+
+    <requirement priority="high">
+      <description>Tenant-specific focus: optionally restrict incident types to those declared as relevant for the tenant/context (“risk needs”).</description>
+      <examples>
+        <example title="Selective acceptance">
+          <correct-example title="Filter not-needed types" conditions="risk_needs defined" expected-result="Irrelevant types skipped" correctness-criteria="Accept if needs absent"><![CDATA[
+needs = { flood, strike }; event.type = wildfire -> skip; if needs empty -> accept all
+]]></correct-example>
+          <incorrect-example title="Over-filter" conditions="risk_needs empty" expected-result="Accept all" incorrectness-criteria="Drop everything"><![CDATA[
+needs = {}; drop all types by default
+]]></incorrect-example>
+        </example>
+      </examples>
+    </requirement>
+
+    <requirement priority="high">
+      <description>Publishing: serialize timestamps in ISO format, include tenant identifier and event_hash, and ensure idempotent behavior (duplicates not re-published).</description>
+    </requirement>
+
+    <requirement priority="medium">
+      <description>Observability: structured logs with counts/samples; surface enabled sources, filtered counts, published counts; avoid logging sensitive payloads.</description>
+    </requirement>
+
+    <requirement priority="medium">
+      <description>Security and configuration hygiene: do not hardcode secrets; use environment/config management; apply least-privilege access to external systems.</description>
+    </requirement>
+
+    <requirement priority="medium">
+      <description>Performance and control: support polling intervals, batching, backpressure, and rate limits; all thresholds must be configurable.</description>
+    </requirement>
+  </requirements>
+
+  <grammar>
+    <schema title="Incident Record Schema (conceptual)" description="Minimal normalized incident representation; types and transport are implementation-agnostic."><![CDATA[
+IncidentRecord {
+  id: string // unique incident identifier
+  tenant_id: string // required tenant/owner scope
+  type: string // incident/risk category
+  source: string // origin of signal
+  title: string
+  description: string
+  location?: string | { latitude: number, longitude: number } // optional
+  timestamp: string // ISO 8601
+  confidence: number // [0.0 .. 1.0]
+  severity: number // [0.0 .. 1.0]
+  risk_factors: string[]
+  affected_domains: string[]
+  event_hash: string // stable dedup key derived from normalized core fields
+  raw?: object // optional raw signal for traceability; avoid PII where possible
+}
+]]></schema>
+
+    <grammar-entry title="Stable Deduplication Hash">
+      <pattern description="Recommended stable components">normalize(title)|normalize(source)|normalize(type)|truncate_to_hour(timestamp)</pattern>
+      <example description="Time-bucketing for near-duplicates">Use hour-level bucketing to avoid excessive hash proliferation for minor timestamp differences.</example>
+    </grammar-entry>
+
+    <grammar-entry title="Run Loop Behavior">
+      <pattern description="Resilient loop">initialize -> monitor(s) -> analyze -> publish -> sleep(poll_interval) -> repeat</pattern>
+      <example description="Error path">on error: log -> sleep(backoff) -> continue</example>
+    </grammar-entry>
+  </grammar>
+
+  <context description="Role, Responsibilities, Requirements">
+    <![CDATA[
+Name: Monitoring Agent
+Description: Defines an agent for detecting incidents across varied systems, independent of language/stack.
+Role:
+  - Monitor configured signal sources for relevant events.
+  - Analyze signals for incident patterns and tenant relevance.
+  - Emit normalized, deduplicated, actionable incident records.
+Responsibilities:
+  - Maintain accurate detection and clear scope (tenant-first).
+  - Remain system- and vendor-agnostic; modularize source monitors.
+  - Provide explainable outputs with severity/confidence and factors.
+Requirements:
+  - Parse heterogeneous inputs (feeds, logs, streams, APIs).
+  - Support configurable thresholds, filters, and polling intervals.
+  - Enforce deduplication and idempotent publishing behavior.
+    ]]>
+  </context>
+
+  <references>
+    <reference as="dependency" href=".cursor/rules/002-cursor-rules-creation.mdc" reason="Adhere to Cursor .mdc structure">Cursor Rule File Format (.mdc)</reference>
+  </references>
+</rule>
+

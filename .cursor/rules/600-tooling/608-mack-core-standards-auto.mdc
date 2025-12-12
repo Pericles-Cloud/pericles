@@ -1,0 +1,1185 @@
+---
+description: "Comprehensive @instantish/mack standards for interactive CLI documentation and automation tools with user interaction patterns, workflow automation, and modern CLI UX following expert best practices"
+globs: ["**/*.{js,ts,mjs,cjs}", "**/cli/**/*.{js,ts}", "**/scripts/**/*.{js,ts}", "**/*.json"]
+alwaysApply: false
+---
+
+<rule>
+  <meta>
+    <title>Mack Interactive CLI Standards</title>
+    <description>Comprehensive @instantish/mack standards for interactive CLI documentation and automation tools with user interaction patterns, workflow automation, and modern CLI UX following expert best practices</description>
+    <created-at utc-timestamp="1744245220">January 27, 2025, 11:40 AM</created-at>
+    <last-updated-at utc-timestamp="1744245220">January 27, 2025, 11:40 AM</last-updated-at>
+    <applies-to>
+      <file-matcher glob="**/*.{js,ts,mjs,cjs}">JavaScript and TypeScript files using @instantish/mack</file-matcher>
+      <file-matcher glob="**/cli/**/*.{js,ts}">CLI tools and interactive applications</file-matcher>
+      <file-matcher glob="**/scripts/**/*.{js,ts}">Automation and workflow scripts</file-matcher>
+      <file-matcher glob="**/*.json">Configuration files for CLI tools</file-matcher>
+      <action-matcher action="interactive-cli">Triggered when building interactive CLI applications with mack</action-matcher>
+    </applies-to>
+  </meta>
+
+  <requirements>
+    <non-negotiable priority="critical">
+      <description>Use @instantish/mack with proper interactive CLI patterns, user experience design, and automation workflows for professional command-line tools and documentation systems.</description>
+      <examples>
+        <example title="Interactive CLI Application Architecture">
+          <correct-example title="Professional interactive CLI with mack" conditions="Building interactive CLI applications" expected-result="User-friendly, professional CLI tools with excellent UX" correctness-criteria="Uses proper interactive patterns, excellent UX, automation capabilities, error handling">// TypeScript - Comprehensive interactive CLI application
+import { Mack, Command, Prompt, Select, MultiSelect, Confirm } from '@instantish/mack';
+import chalk from 'chalk';
+import { promises as fs } from 'fs';
+import path from 'path';
+import ora from 'ora';
+
+// CLI Application configuration
+interface CLIConfig {
+  name: string;
+  version: string;
+  description: string;
+  commands: CommandDefinition[];
+  globalOptions: GlobalOption[];
+  themes: {
+    primary: string;
+    secondary: string;
+    success: string;
+    warning: string;
+    error: string;
+  };
+}
+
+interface CommandDefinition {
+  name: string;
+  description: string;
+  alias?: string;
+  options?: CommandOption[];
+  subcommands?: CommandDefinition[];
+  handler: CommandHandler;
+}
+
+interface CommandOption {
+  name: string;
+  description: string;
+  type: 'string' | 'number' | 'boolean' | 'array';
+  required?: boolean;
+  default?: any;
+  choices?: string[];
+}
+
+interface GlobalOption extends CommandOption {
+  global: true;
+}
+
+interface CommandHandler {
+  (args: any, options: any, context: CLIContext): Promise<void>;
+}
+
+interface CLIContext {
+  config: CLIConfig;
+  mack: Mack;
+  workingDirectory: string;
+  verbose: boolean;
+  dryRun: boolean;
+}
+
+// Professional CLI application class
+class InteractiveCLI {
+  private mack: Mack;
+  private config: CLIConfig;
+  private context: CLIContext;
+
+  constructor(config: CLIConfig) {
+    this.config = config;
+    this.mack = new Mack({
+      name: config.name,
+      version: config.version,
+      description: config.description
+    });
+
+    this.context = {
+      config,
+      mack: this.mack,
+      workingDirectory: process.cwd(),
+      verbose: false,
+      dryRun: false
+    };
+
+    this.setupGlobalOptions();
+    this.setupCommands();
+    this.setupErrorHandling();
+  }
+
+  private setupGlobalOptions(): void {
+    this.config.globalOptions.forEach(option => {
+      this.mack.option(option.name, {
+        description: option.description,
+        type: option.type,
+        default: option.default,
+        global: true
+      });
+    });
+  }
+
+  private setupCommands(): void {
+    this.config.commands.forEach(command => {
+      this.registerCommand(command);
+    });
+  }
+
+  private registerCommand(definition: CommandDefinition, parent?: Command): void {
+    const command = parent 
+      ? parent.command(definition.name)
+      : this.mack.command(definition.name);
+
+    command
+      .description(definition.description)
+      .action(async (args, options) => {
+        // Update context with current options
+        this.context.verbose = options.verbose || false;
+        this.context.dryRun = options.dryRun || false;
+
+        try {
+          await definition.handler(args, options, this.context);
+        } catch (error) {
+          await this.handleCommandError(error, definition.name);
+        }
+      });
+
+    // Add alias if provided
+    if (definition.alias) {
+      command.alias(definition.alias);
+    }
+
+    // Add options
+    definition.options?.forEach(option => {
+      command.option(option.name, {
+        description: option.description,
+        type: option.type,
+        required: option.required,
+        default: option.default,
+        choices: option.choices
+      });
+    });
+
+    // Add subcommands
+    definition.subcommands?.forEach(subcommand => {
+      this.registerCommand(subcommand, command);
+    });
+  }
+
+  private setupErrorHandling(): void {
+    this.mack.onError(async (error) => {
+      console.error(chalk.red('💥 An unexpected error occurred:'));
+      console.error(chalk.red(error.message));
+      
+      if (this.context.verbose) {
+        console.error(chalk.gray(error.stack));
+      }
+
+      process.exit(1);
+    });
+  }
+
+  private async handleCommandError(error: Error, commandName: string): Promise<void> {
+    console.error(chalk.red(`❌ Command '${commandName}' failed:`));
+    console.error(chalk.red(error.message));
+
+    if (this.context.verbose) {
+      console.error(chalk.gray(error.stack));
+    }
+
+    // Offer to create issue or get help
+    const createIssue = await Confirm.prompt({
+      message: 'Would you like to create a GitHub issue for this error?',
+      default: false
+    });
+
+    if (createIssue) {
+      await this.createErrorIssue(error, commandName);
+    }
+  }
+
+  private async createErrorIssue(error: Error, commandName: string): Promise<void> {
+    const issueBody = `
+## Error Report
+
+**Command:** \`${commandName}\`
+**Error:** ${error.message}
+**Version:** ${this.config.version}
+**Node Version:** ${process.version}
+**Platform:** ${process.platform}
+
+## Stack Trace
+
+\`\`\`
+${error.stack}
+\`\`\`
+
+## Additional Context
+
+<!-- Add any additional context about the error here -->
+    `.trim();
+
+    const issueUrl = `https://github.com/your-org/your-cli/issues/new?title=${encodeURIComponent(`Error in ${commandName}`)}&body=${encodeURIComponent(issueBody)}`;
+    
+    console.log(chalk.blue('🔗 Issue URL copied to clipboard:'));
+    console.log(chalk.underline(issueUrl));
+  }
+
+  async run(argv?: string[]): Promise<void> {
+    await this.mack.run(argv);
+  }
+}
+
+// Interactive prompts and user input handling
+class CLIPrompts {
+  static async getProjectConfiguration(): Promise<any> {
+    console.log(chalk.blue.bold('\n🚀 Project Configuration Setup\n'));
+
+    const projectName = await Prompt.text({
+      message: 'What is your project name?',
+      placeholder: 'my-awesome-project',
+      validate: (value: string) => {
+        if (!value.trim()) return 'Project name is required';
+        if (!/^[a-z0-9-]+$/.test(value)) return 'Project name must be lowercase with hyphens only';
+        return true;
+      }
+    });
+
+    const projectType = await Select.prompt({
+      message: 'What type of project are you creating?',
+      choices: [
+        { label: '📱 Web Application', value: 'web-app', description: 'React, Vue, or vanilla web app' },
+        { label: '🔧 CLI Tool', value: 'cli-tool', description: 'Command-line utility or tool' },
+        { label: '📚 Library', value: 'library', description: 'Reusable library or package' },
+        { label: '🖥️  Desktop App', value: 'desktop-app', description: 'Electron or native desktop app' },
+        { label: '🤖 Bot/Automation', value: 'bot', description: 'Discord bot, automation script, etc.' }
+      ]
+    });
+
+    const features = await MultiSelect.prompt({
+      message: 'Select features to include:',
+      choices: [
+        { label: '🧪 Testing Framework', value: 'testing', selected: true },
+        { label: '📝 TypeScript', value: 'typescript', selected: true },
+        { label: '💅 Linting & Formatting', value: 'linting', selected: true },
+        { label: '🔄 CI/CD Workflow', value: 'cicd', selected: false },
+        { label: '📖 Documentation', value: 'docs', selected: false },
+        { label: '🐳 Docker Support', value: 'docker', selected: false }
+      ],
+      min: 1,
+      hint: 'Use spacebar to select, enter to confirm'
+    });
+
+    const useGitHubActions = features.includes('cicd') 
+      ? await Confirm.prompt({
+          message: 'Set up GitHub Actions for CI/CD?',
+          default: true
+        })
+      : false;
+
+    const license = await Select.prompt({
+      message: 'Choose a license:',
+      choices: [
+        { label: 'MIT', value: 'MIT', description: 'Permissive license' },
+        { label: 'Apache 2.0', value: 'Apache-2.0', description: 'Permissive with patent protection' },
+        { label: 'GPL 3.0', value: 'GPL-3.0', description: 'Copyleft license' },
+        { label: 'BSD 3-Clause', value: 'BSD-3-Clause', description: 'Permissive license' },
+        { label: 'None', value: 'none', description: 'No license' }
+      ]
+    });
+
+    return {
+      projectName,
+      projectType,
+      features,
+      useGitHubActions,
+      license,
+      timestamp: new Date().toISOString()
+    };
+  }
+
+  static async confirmDestructiveAction(action: string, target: string): Promise<boolean> {
+    console.log(chalk.yellow.bold(`\n⚠️  Destructive Action Warning\n`));
+    console.log(chalk.yellow(`You are about to ${action}:`));
+    console.log(chalk.white(`  ${target}\n`));
+
+    const typeConfirmation = await Prompt.text({
+      message: `Type "${action.toUpperCase()}" to confirm:`,
+      validate: (value: string) => {
+        if (value !== action.toUpperCase()) {
+          return `Please type "${action.toUpperCase()}" exactly to confirm`;
+        }
+        return true;
+      }
+    });
+
+    return typeConfirmation === action.toUpperCase();
+  }
+
+  static async selectFromFileSystem(
+    directory: string,
+    fileType: 'files' | 'directories' | 'both' = 'both'
+  ): Promise<string[]> {
+    const spinner = ora('Scanning directory...').start();
+    
+    try {
+      const items = await fs.readdir(directory, { withFileTypes: true });
+      spinner.stop();
+
+      const filteredItems = items.filter(item => {
+        switch (fileType) {
+          case 'files':
+            return item.isFile();
+          case 'directories':
+            return item.isDirectory();
+          case 'both':
+          default:
+            return true;
+        }
+      });
+
+      if (filteredItems.length === 0) {
+        console.log(chalk.yellow(`No ${fileType} found in ${directory}`));
+        return [];
+      }
+
+      const selectedItems = await MultiSelect.prompt({
+        message: `Select ${fileType} from ${directory}:`,
+        choices: filteredItems.map(item => ({
+          label: `${item.isDirectory() ? '📁' : '📄'} ${item.name}`,
+          value: path.join(directory, item.name),
+          description: item.isDirectory() ? 'Directory' : 'File'
+        }))
+      });
+
+      return selectedItems;
+    } catch (error) {
+      spinner.stop();
+      throw error;
+    }
+  }
+
+  static async getProgressiveInput<T>(
+    steps: Array<{
+      key: keyof T;
+      prompt: () => Promise<any>;
+      validate?: (value: any, previous: Partial<T>) => boolean | string;
+    }>
+  ): Promise<T> {
+    const result: Partial<T> = {};
+
+    for (const step of steps) {
+      try {
+        const value = await step.prompt();
+        
+        if (step.validate) {
+          const validation = step.validate(value, result);
+          if (validation !== true) {
+            console.log(chalk.red(`❌ ${validation}`));
+            continue; // Retry this step
+          }
+        }
+
+        result[step.key] = value;
+      } catch (error) {
+        console.log(chalk.red(`❌ Error in step ${String(step.key)}: ${error.message}`));
+        throw error;
+      }
+    }
+
+    return result as T;
+  }
+}
+
+// Workflow automation and task management
+class WorkflowManager {
+  private tasks: Map<string, Task> = new Map();
+  private context: CLIContext;
+
+  constructor(context: CLIContext) {
+    this.context = context;
+  }
+
+  async runWorkflow(workflowName: string, tasks: Task[]): Promise<void> {
+    console.log(chalk.blue.bold(`\n🔄 Running workflow: ${workflowName}\n`));
+
+    const spinner = ora();
+    
+    try {
+      for (let i = 0; i < tasks.length; i++) {
+        const task = tasks[i];
+        this.tasks.set(task.name, task);
+
+        spinner.start(`${task.name} (${i + 1}/${tasks.length})`);
+
+        if (this.context.dryRun) {
+          spinner.info(`[DRY RUN] Would execute: ${task.name}`);
+          await new Promise(resolve => setTimeout(resolve, 500)); // Simulate work
+        } else {
+          await task.execute(this.context);
+          spinner.succeed(`${task.name} completed`);
+        }
+      }
+
+      console.log(chalk.green.bold(`\n✅ Workflow '${workflowName}' completed successfully!`));
+
+    } catch (error) {
+      spinner.fail(`Failed at task: ${error.message}`);
+      
+      const retry = await Confirm.prompt({
+        message: 'Would you like to retry the failed task?',
+        default: false
+      });
+
+      if (retry) {
+        // Retry logic would go here
+        console.log(chalk.blue('🔄 Retrying...'));
+      }
+
+      throw error;
+    }
+  }
+
+  async executeTask(taskName: string): Promise<void> {
+    const task = this.tasks.get(taskName);
+    if (!task) {
+      throw new Error(`Task '${taskName}' not found`);
+    }
+
+    await task.execute(this.context);
+  }
+}
+
+interface Task {
+  name: string;
+  description: string;
+  dependencies?: string[];
+  execute: (context: CLIContext) => Promise<void>;
+}
+
+// Example CLI application implementation
+const cliConfig: CLIConfig = {
+  name: 'dev-toolkit',
+  version: '1.0.0',
+  description: 'A comprehensive development toolkit CLI',
+  globalOptions: [
+    {
+      name: 'verbose',
+      description: 'Enable verbose logging',
+      type: 'boolean',
+      default: false,
+      global: true
+    },
+    {
+      name: 'dry-run',
+      description: 'Show what would be done without executing',
+      type: 'boolean',
+      default: false,
+      global: true
+    }
+  ],
+  commands: [
+    {
+      name: 'init',
+      description: 'Initialize a new project',
+      handler: async (args, options, context) => {
+        const config = await CLIPrompts.getProjectConfiguration();
+        
+        console.log(chalk.green('\n✅ Project configuration:'));
+        console.log(JSON.stringify(config, null, 2));
+
+        const workflowManager = new WorkflowManager(context);
+        
+        const initTasks: Task[] = [
+          {
+            name: 'Create project directory',
+            description: 'Create the main project directory',
+            execute: async (ctx) => {
+              if (!ctx.dryRun) {
+                await fs.mkdir(config.projectName, { recursive: true });
+              }
+            }
+          },
+          {
+            name: 'Initialize package.json',
+            description: 'Create package.json with project metadata',
+            execute: async (ctx) => {
+              const packageJson = {
+                name: config.projectName,
+                version: '1.0.0',
+                description: '',
+                license: config.license !== 'none' ? config.license : undefined
+              };
+              
+              if (!ctx.dryRun) {
+                await fs.writeFile(
+                  path.join(config.projectName, 'package.json'),
+                  JSON.stringify(packageJson, null, 2)
+                );
+              }
+            }
+          },
+          {
+            name: 'Setup TypeScript',
+            description: 'Configure TypeScript if selected',
+            execute: async (ctx) => {
+              if (config.features.includes('typescript') && !ctx.dryRun) {
+                const tsConfig = {
+                  compilerOptions: {
+                    target: 'ES2020',
+                    module: 'commonjs',
+                    strict: true,
+                    esModuleInterop: true
+                  }
+                };
+                
+                await fs.writeFile(
+                  path.join(config.projectName, 'tsconfig.json'),
+                  JSON.stringify(tsConfig, null, 2)
+                );
+              }
+            }
+          }
+        ];
+
+        await workflowManager.runWorkflow('Project Initialization', initTasks);
+      }
+    },
+    {
+      name: 'deploy',
+      description: 'Deploy the application',
+      options: [
+        {
+          name: 'environment',
+          description: 'Deployment environment',
+          type: 'string',
+          choices: ['development', 'staging', 'production'],
+          required: true
+        },
+        {
+          name: 'force',
+          description: 'Force deployment without confirmation',
+          type: 'boolean',
+          default: false
+        }
+      ],
+      handler: async (args, options, context) => {
+        if (options.environment === 'production' && !options.force) {
+          const confirmed = await CLIPrompts.confirmDestructiveAction(
+            'deploy to production',
+            'This will update the live application'
+          );
+          
+          if (!confirmed) {
+            console.log(chalk.yellow('Deployment cancelled'));
+            return;
+          }
+        }
+
+        const workflowManager = new WorkflowManager(context);
+        
+        const deployTasks: Task[] = [
+          {
+            name: 'Build application',
+            description: 'Compile and bundle the application',
+            execute: async () => {
+              // Build logic here
+            }
+          },
+          {
+            name: 'Run tests',
+            description: 'Execute the test suite',
+            execute: async () => {
+              // Test logic here
+            }
+          },
+          {
+            name: 'Deploy to environment',
+            description: `Deploy to ${options.environment}`,
+            execute: async () => {
+              // Deployment logic here
+            }
+          }
+        ];
+
+        await workflowManager.runWorkflow(`Deploy to ${options.environment}`, deployTasks);
+      }
+    }
+  ],
+  themes: {
+    primary: '#007acc',
+    secondary: '#6c757d',
+    success: '#28a745',
+    warning: '#ffc107',
+    error: '#dc3545'
+  }
+};
+
+// Export the CLI application
+export { InteractiveCLI, CLIPrompts, WorkflowManager, type CLIConfig, type Task };
+
+// CLI entry point
+async function main() {
+  const cli = new InteractiveCLI(cliConfig);
+  await cli.run();
+}
+
+if (require.main === module) {
+  main().catch(console.error);
+}</correct-example>
+          <incorrect-example title="Poor CLI implementation without proper UX" conditions="Building interactive CLI applications" expected-result="User-friendly, professional CLI tools with excellent UX" incorrectness-criteria="No interactive features, poor UX, no error handling, basic implementation">const { Mack } = require('@instantish/mack');
+
+// Bad: Basic usage without proper configuration
+const cli = new Mack();
+
+// Bad: No interactive prompts
+cli.command('deploy')
+  .action(() => {
+    // Bad: No confirmation for destructive actions
+    console.log('Deploying...');
+    // Bad: No error handling
+    // Bad: No progress indication
+    // Bad: No user feedback
+  });
+
+// Bad: No global options
+// Bad: No help system
+// Bad: No validation
+// Bad: No automation
+
+cli.run();</incorrect-example>
+        </example>
+      </examples>
+    </non-negotiable>
+
+    <requirement priority="high">
+      <description>Implement comprehensive user experience patterns with progressive disclosure, contextual help, accessibility features, and professional CLI design principles.</description>
+      <examples>
+        <example title="Advanced UX and Accessibility Features">
+          <correct-example title="Professional CLI UX with accessibility and progressive disclosure" conditions="Creating user-friendly CLI experiences" expected-result="Accessible, intuitive CLI interfaces with excellent usability" correctness-criteria="Uses progressive disclosure, accessibility features, contextual help, professional design">// Advanced UX patterns for CLI applications
+import { Mack, Prompt, Select, MultiSelect, Confirm } from '@instantish/mack';
+import chalk from 'chalk';
+import { createWriteStream } from 'fs';
+import { promises as fs } from 'fs';
+
+interface AccessibilityOptions {
+  highContrast: boolean;
+  screenReader: boolean;
+  reduceMotion: boolean;
+  fontSize: 'small' | 'medium' | 'large';
+  colorBlind: 'none' | 'protanopia' | 'deuteranopia' | 'tritanopia';
+}
+
+interface UXTheme {
+  colors: {
+    primary: string;
+    secondary: string;
+    success: string;
+    warning: string;
+    error: string;
+    muted: string;
+  };
+  symbols: {
+    success: string;
+    error: string;
+    warning: string;
+    info: string;
+    question: string;
+    pointer: string;
+  };
+  spacing: {
+    section: number;
+    item: number;
+    indent: number;
+  };
+}
+
+class CLIAccessibility {
+  private options: AccessibilityOptions;
+  private theme: UXTheme;
+
+  constructor(options: Partial<AccessibilityOptions> = {}) {
+    this.options = {
+      highContrast: false,
+      screenReader: false,
+      reduceMotion: false,
+      fontSize: 'medium',
+      colorBlind: 'none',
+      ...options
+    };
+
+    this.theme = this.createTheme();
+  }
+
+  private createTheme(): UXTheme {
+    const baseTheme: UXTheme = {
+      colors: {
+        primary: '#007acc',
+        secondary: '#6c757d',
+        success: '#28a745',
+        warning: '#ffc107',
+        error: '#dc3545',
+        muted: '#6c757d'
+      },
+      symbols: {
+        success: '✅',
+        error: '❌',
+        warning: '⚠️',
+        info: 'ℹ️',
+        question: '❓',
+        pointer: '▶'
+      },
+      spacing: {
+        section: 2,
+        item: 1,
+        indent: 2
+      }
+    };
+
+    // Apply accessibility modifications
+    if (this.options.highContrast) {
+      baseTheme.colors = {
+        primary: '#ffffff',
+        secondary: '#cccccc',
+        success: '#00ff00',
+        warning: '#ffff00',
+        error: '#ff0000',
+        muted: '#999999'
+      };
+    }
+
+    if (this.options.colorBlind !== 'none') {
+      baseTheme.colors = this.adjustForColorBlindness(baseTheme.colors);
+    }
+
+    if (this.options.screenReader) {
+      baseTheme.symbols = {
+        success: '[SUCCESS]',
+        error: '[ERROR]',
+        warning: '[WARNING]',
+        info: '[INFO]',
+        question: '[QUESTION]',
+        pointer: '>'
+      };
+    }
+
+    return baseTheme;
+  }
+
+  private adjustForColorBlindness(colors: UXTheme['colors']): UXTheme['colors'] {
+    // Simplified color adjustment - in reality, you'd use a proper color adjustment library
+    switch (this.options.colorBlind) {
+      case 'protanopia':
+      case 'deuteranopia':
+        return {
+          ...colors,
+          success: '#0077bb',
+          error: '#ee7733',
+          warning: '#ddaa33'
+        };
+      case 'tritanopia':
+        return {
+          ...colors,
+          success: '#009988',
+          error: '#cc3311',
+          warning: '#ee3377'
+        };
+      default:
+        return colors;
+    }
+  }
+
+  formatMessage(type: keyof UXTheme['symbols'], message: string): string {
+    const symbol = this.theme.symbols[type];
+    const color = this.theme.colors[type === 'success' ? 'success' : type === 'error' ? 'error' : type === 'warning' ? 'warning' : 'primary'];
+    
+    return `${chalk.hex(color)(symbol)} ${message}`;
+  }
+
+  createSection(title: string, content: string[]): string {
+    const separator = '─'.repeat(Math.max(20, title.length + 4));
+    const lines = [
+      '',
+      chalk.bold(title),
+      chalk.dim(separator),
+      ...content.map(line => `  ${line}`),
+      ''
+    ];
+
+    return lines.join('\n');
+  }
+
+  announceForScreenReader(message: string): void {
+    if (this.options.screenReader) {
+      console.log(`[SCREEN READER] ${message}`);
+    }
+  }
+}
+
+class ProgressiveDisclosure {
+  private currentLevel: 'basic' | 'intermediate' | 'advanced' = 'basic';
+  private userExperience: Map<string, number> = new Map();
+
+  async detectUserLevel(): Promise<'basic' | 'intermediate' | 'advanced'> {
+    // Simple heuristic based on user choices
+    const experience = await Select.prompt({
+      message: 'How would you describe your experience with CLI tools?',
+      choices: [
+        { 
+          label: '🌱 Beginner', 
+          value: 'basic',
+          description: 'I prefer guided experiences with explanations'
+        },
+        { 
+          label: '🔧 Intermediate', 
+          value: 'intermediate',
+          description: 'I know the basics but like some guidance'
+        },
+        { 
+          label: '🚀 Advanced', 
+          value: 'advanced',
+          description: 'I prefer minimal prompts and maximum control'
+        }
+      ]
+    });
+
+    this.currentLevel = experience;
+    return experience;
+  }
+
+  async promptBasedOnLevel<T>(prompts: {
+    basic: () => Promise<T>;
+    intermediate: () => Promise<T>;
+    advanced: () => Promise<T>;
+  }): Promise<T> {
+    switch (this.currentLevel) {
+      case 'basic':
+        return await prompts.basic();
+      case 'intermediate':
+        return await prompts.intermediate();
+      case 'advanced':
+        return await prompts.advanced();
+      default:
+        return await prompts.basic();
+    }
+  }
+
+  getHelpLevel(): 'verbose' | 'standard' | 'minimal' {
+    switch (this.currentLevel) {
+      case 'basic':
+        return 'verbose';
+      case 'intermediate':
+        return 'standard';
+      case 'advanced':
+        return 'minimal';
+      default:
+        return 'standard';
+    }
+  }
+
+  shouldShowAdvancedOptions(): boolean {
+    return this.currentLevel === 'advanced';
+  }
+
+  recordUserChoice(command: string, successful: boolean): void {
+    const current = this.userExperience.get(command) || 0;
+    this.userExperience.set(command, successful ? current + 1 : Math.max(0, current - 1));
+    
+    // Adjust level based on accumulated experience
+    const totalExperience = Array.from(this.userExperience.values())
+      .reduce((sum, exp) => sum + exp, 0);
+    
+    if (totalExperience > 20 && this.currentLevel === 'basic') {
+      this.currentLevel = 'intermediate';
+    } else if (totalExperience > 50 && this.currentLevel === 'intermediate') {
+      this.currentLevel = 'advanced';
+    }
+  }
+}
+
+class ContextualHelp {
+  private helpContent: Map<string, HelpContent> = new Map();
+
+  registerHelp(command: string, content: HelpContent): void {
+    this.helpContent.set(command, content);
+  }
+
+  async showContextualHelp(command: string, context?: any): Promise<void> {
+    const content = this.helpContent.get(command);
+    if (!content) {
+      console.log(chalk.yellow(`No help available for command: ${command}`));
+      return;
+    }
+
+    console.log(chalk.blue.bold(`\n📖 Help: ${command}\n`));
+    
+    if (content.description) {
+      console.log(content.description);
+      console.log();
+    }
+
+    if (content.usage) {
+      console.log(chalk.bold('Usage:'));
+      console.log(`  ${content.usage}`);
+      console.log();
+    }
+
+    if (content.examples && content.examples.length > 0) {
+      console.log(chalk.bold('Examples:'));
+      content.examples.forEach((example, index) => {
+        console.log(`  ${index + 1}. ${example.description}`);
+        console.log(chalk.dim(`     ${example.command}`));
+        if (example.explanation) {
+          console.log(chalk.gray(`     ${example.explanation}`));
+        }
+        console.log();
+      });
+    }
+
+    if (content.tips && content.tips.length > 0) {
+      console.log(chalk.bold('💡 Tips:'));
+      content.tips.forEach(tip => {
+        console.log(`  • ${tip}`);
+      });
+      console.log();
+    }
+
+    if (content.relatedCommands && content.relatedCommands.length > 0) {
+      console.log(chalk.bold('Related commands:'));
+      content.relatedCommands.forEach(related => {
+        console.log(`  • ${chalk.cyan(related.command)} - ${related.description}`);
+      });
+      console.log();
+    }
+  }
+
+  async showInteractiveHelp(command: string): Promise<void> {
+    const content = this.helpContent.get(command);
+    if (!content) return;
+
+    const helpChoice = await Select.prompt({
+      message: 'What would you like help with?',
+      choices: [
+        { label: '📋 Basic usage', value: 'usage' },
+        { label: '💼 Examples', value: 'examples' },
+        { label: '⚙️ Advanced options', value: 'options' },
+        { label: '🔗 Related commands', value: 'related' },
+        { label: '🏃 Quick start guide', value: 'quickstart' }
+      ]
+    });
+
+    switch (helpChoice) {
+      case 'usage':
+        console.log(chalk.bold('\nUsage:'));
+        console.log(content.usage || 'No usage information available');
+        break;
+      
+      case 'examples':
+        if (content.examples && content.examples.length > 0) {
+          const exampleChoice = await Select.prompt({
+            message: 'Choose an example:',
+            choices: content.examples.map((example, index) => ({
+              label: example.description,
+              value: index,
+              description: example.command
+            }))
+          });
+          
+          const selectedExample = content.examples[exampleChoice];
+          console.log(chalk.bold('\nExample:'));
+          console.log(chalk.cyan(selectedExample.command));
+          if (selectedExample.explanation) {
+            console.log(chalk.gray(selectedExample.explanation));
+          }
+        }
+        break;
+      
+      case 'related':
+        if (content.relatedCommands && content.relatedCommands.length > 0) {
+          console.log(chalk.bold('\nRelated commands:'));
+          content.relatedCommands.forEach(related => {
+            console.log(`  ${chalk.cyan(related.command)} - ${related.description}`);
+          });
+        }
+        break;
+    }
+  }
+}
+
+interface HelpContent {
+  description?: string;
+  usage?: string;
+  examples?: Array<{
+    description: string;
+    command: string;
+    explanation?: string;
+  }>;
+  tips?: string[];
+  relatedCommands?: Array<{
+    command: string;
+    description: string;
+  }>;
+}
+
+class UserFeedbackSystem {
+  private feedbackLog: string;
+
+  constructor(logPath: string = './cli-feedback.log') {
+    this.feedbackLog = logPath;
+  }
+
+  async collectFeedback(command: string, success: boolean): Promise<void> {
+    if (!success) {
+      const feedback = await this.promptForFeedback(command);
+      if (feedback) {
+        await this.saveFeedback(command, feedback);
+      }
+    } else {
+      // Occasionally ask for positive feedback
+      if (Math.random() < 0.1) { // 10% chance
+        const provideFeedback = await Confirm.prompt({
+          message: 'Quick feedback: How was your experience with this command?',
+          default: false
+        });
+
+        if (provideFeedback) {
+          const rating = await Select.prompt({
+            message: 'Rate your experience:',
+            choices: [
+              { label: '😍 Excellent', value: 5 },
+              { label: '😊 Good', value: 4 },
+              { label: '😐 Okay', value: 3 },
+              { label: '😕 Poor', value: 2 },
+              { label: '😞 Terrible', value: 1 }
+            ]
+          });
+
+          await this.saveFeedback(command, { rating, type: 'positive' });
+        }
+      }
+    }
+  }
+
+  private async promptForFeedback(command: string): Promise<any> {
+    const wantToProvideFeedback = await Confirm.prompt({
+      message: 'Something went wrong. Would you like to provide feedback to help us improve?',
+      default: false
+    });
+
+    if (!wantToProvideFeedback) return null;
+
+    const feedbackType = await Select.prompt({
+      message: 'What type of issue did you encounter?',
+      choices: [
+        { label: '🐛 Bug/Error', value: 'bug' },
+        { label: '😕 Confusing UX', value: 'ux' },
+        { label: '📚 Missing documentation', value: 'docs' },
+        { label: '🚀 Feature request', value: 'feature' },
+        { label: '💡 Other suggestion', value: 'other' }
+      ]
+    });
+
+    const description = await Prompt.text({
+      message: 'Please describe the issue or suggestion:',
+      placeholder: 'What happened? What did you expect?'
+    });
+
+    const email = await Prompt.text({
+      message: 'Email (optional, for follow-up):',
+      placeholder: 'your@email.com',
+      required: false
+    });
+
+    return {
+      command,
+      type: feedbackType,
+      description,
+      email: email || null,
+      timestamp: new Date().toISOString(),
+      platform: process.platform,
+      nodeVersion: process.version
+    };
+  }
+
+  private async saveFeedback(command: string, feedback: any): Promise<void> {
+    try {
+      const logEntry = JSON.stringify({
+        command,
+        feedback,
+        timestamp: new Date().toISOString()
+      }) + '\n';
+
+      await fs.appendFile(this.feedbackLog, logEntry);
+      console.log(chalk.green('✅ Thank you for your feedback!'));
+    } catch (error) {
+      console.log(chalk.yellow('⚠️  Could not save feedback, but thank you for trying!'));
+    }
+  }
+}
+
+// Export UX utilities
+export { 
+  CLIAccessibility, 
+  ProgressiveDisclosure, 
+  ContextualHelp, 
+  UserFeedbackSystem,
+  type AccessibilityOptions,
+  type UXTheme,
+  type HelpContent
+};</correct-example>
+          <incorrect-example title="Poor CLI UX without accessibility or proper design" conditions="Creating user-friendly CLI experiences" expected-result="Accessible, intuitive CLI interfaces with excellent usability" incorrectness-criteria="No accessibility features, poor UX design, no progressive disclosure, basic prompts only">const { Mack, Prompt } = require('@instantish/mack');
+
+// Bad: No accessibility considerations
+const cli = new Mack();
+
+// Bad: Basic prompts without UX considerations
+cli.command('setup')
+  .action(async () => {
+    // Bad: No progressive disclosure
+    const name = await Prompt.text({ message: 'Name?' });
+    const type = await Prompt.text({ message: 'Type?' });
+    
+    // Bad: No validation
+    // Bad: No help or context
+    // Bad: No accessibility features
+    // Bad: No error handling
+    
+    console.log('Done');
+  });
+
+// Bad: No contextual help
+// Bad: No user feedback system
+// Bad: No theming or customization
+// Bad: No progressive experience</incorrect-example>
+        </example>
+      </examples>
+    </requirement>
+  </requirements>
+
+  <context description="Interactive CLI development with modern UX patterns">
+    @instantish/mack is a modern CLI framework designed for building interactive command-line applications with excellent user experience. It provides advanced prompting capabilities, workflow automation, and professional CLI design patterns.
+
+    Key advantages include:
+    - Interactive prompting with various input types (text, select, multi-select, confirm)
+    - Professional CLI architecture with command structure and option handling
+    - Workflow automation and task management capabilities
+    - Modern UX patterns including progressive disclosure and contextual help
+    - Accessibility features and customizable theming
+
+    Modern usage patterns emphasize user experience design, accessibility, progressive disclosure, and automation workflows. The framework excels in building professional development tools, automation scripts, and interactive documentation systems.
+
+    Best practices include implementing comprehensive user experience patterns, accessibility features, contextual help systems, and professional CLI design principles for maximum usability and adoption.
+  </context>
+
+  <references>
+    <reference as="dependency" href=".cursor/rules/000-core/002-cursor-rules-creation.mdc" reason="Follows standard rule format">Base rule format definition</reference>
+    <reference as="context" href="https://www.npmjs.com/package/@instantish/mack" reason="Official mack documentation">@instantish/mack npm package documentation</reference>
+    <reference as="context" href="https://github.com/instantish/mack" reason="Mack GitHub repository">Mack GitHub repository with examples</reference>
+    <reference as="context" href="https://clig.dev/" reason="CLI Guidelines">Command Line Interface Guidelines</reference>
+    <reference as="context" href="https://www.w3.org/WAI/WCAG21/Understanding/" reason="WCAG Guidelines">Web Content Accessibility Guidelines for CLI accessibility</reference>
+  </references>
+</rule>
+description:
+globs:
+alwaysApply: false
+---

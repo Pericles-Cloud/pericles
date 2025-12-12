@@ -1,0 +1,254 @@
+---
+description: Comprehensive Vercel AI SDK best practices for providers, streaming, structured outputs, and secure server/client usage
+globs: ["api/**/*.{ts,js}", "src/**/*.{ts,tsx}"]
+alwaysApply: false
+---
+
+<rule>
+  <meta>
+    <title>Vercel AI SDK Core Standards (Auto)</title>
+    <description>Best practices for using the Vercel AI SDK (ai-sdk) including provider configuration, secure key management, streaming, function/tool calling, structured outputs, and React integration with TypeScript.</description>
+    <created-at utc-timestamp="1757130000">September 6, 2025, 00:20 UTC</created-at>
+    <last-updated-at utc-timestamp="1757130000">September 6, 2025, 00:20 UTC</last-updated-at>
+    <applies-to>
+      <file-matcher glob="api/**/*.{ts,js}">Serverless API routes using AI SDK</file-matcher>
+      <file-matcher glob="src/**/*.{ts,tsx}">Frontend files using AI SDK React helpers</file-matcher>
+      <action-matcher action="vercel-ai-sdk">Triggered when integrating Vercel AI SDK</action-matcher>
+    </applies-to>
+  </meta>
+  <requirements>
+    <non-negotiable priority="critical">
+      <description>Use provider packages from @ai-sdk/* with the core 'ai' APIs; never call model HTTP endpoints directly. Configure models via providers (e.g., @ai-sdk/openai) and pass them into ai functions.</description>
+      <examples>
+        <example title="Provider-based model configuration">
+          <correct-example title="Use provider and core 'ai' API" conditions="Selecting a model" expected-result="Typed model instance passed to ai function" correctness-criteria="Imports from @ai-sdk/* and 'ai', no raw HTTP calls"><![CDATA[
+// server/api/ai/chat.ts (Node runtime)
+import { generateText } from 'ai';
+import { openai } from '@ai-sdk/openai';
+
+const model = openai('gpt-4o-mini');
+
+export async function createReply(prompt: string) {
+  const { text } = await generateText({
+    model,
+    prompt,
+    temperature: 0.2,
+    maxTokens: 500,
+  });
+  return text;
+}]]></correct-example>
+          <incorrect-example title="Raw HTTP calls to LLM" conditions="Selecting a model" expected-result="Provider-based configuration" incorrectness-criteria="Uses fetch directly to vendor APIs, bypassing ai-sdk"><![CDATA[
+// BAD: Avoid raw fetch to OpenAI/Anthropic/Gemini
+const res = await fetch('https://api.openai.com/v1/chat/completions', {
+  method: 'POST',
+  headers: { Authorization: `Bearer ${process.env.OPENAI_API_KEY}` },
+  body: JSON.stringify({ model: 'gpt-4o-mini', messages: [...] })
+});
+const json = await res.json();]]></incorrect-example>
+        </example>
+      </examples>
+    </non-negotiable>
+
+    <non-negotiable priority="critical">
+      <description>Never hardcode API keys. Read keys from server-side environment variables. Do not expose provider keys to the browser. Client code must call server endpoints, not providers directly.</description>
+      <examples>
+        <example title="Secure key management">
+          <correct-example title="Server-only env usage" conditions="Configuring provider" expected-result="Keys accessed on server only" correctness-criteria="No client exposure, uses process.env or platform secrets"><![CDATA[
+// api/ai/provider.ts
+import { openai } from '@ai-sdk/openai';
+
+export const openAIModel = openai('gpt-4o-mini', {
+  apiKey: process.env.OPENAI_API_KEY!,
+});]]></correct-example>
+          <incorrect-example title="Client-side key leakage" conditions="Configuring provider" expected-result="No keys in client bundle" incorrectness-criteria="Uses import.meta.env.VITE_* for private keys or hardcoded strings"><![CDATA[
+// BAD: Never put secrets in client code
+const model = openai('gpt-4o-mini', { apiKey: import.meta.env.VITE_OPENAI_KEY });
+// or
+const model2 = openai('gpt-4o-mini', { apiKey: 'sk-...' });]]></incorrect-example>
+        </example>
+      </examples>
+    </non-negotiable>
+
+    <non-negotiable priority="critical">
+      <description>Prefer streaming for chat/text generation in interactive UX. Use streamText on the server and return an event stream response. Set proper headers for text/event-stream.</description>
+      <examples>
+        <example title="Server streaming with Node runtime">
+          <correct-example title="SSE streaming from API route" conditions="Returning streamed output" expected-result="Standards-compliant SSE response" correctness-criteria="Uses streamText, sets Content-Type: text/event-stream, flushes chunks"><![CDATA[
+// api/ai/chat.ts
+import type { VercelRequest, VercelResponse } from '@vercel/node';
+import { streamText } from 'ai';
+import { openai } from '@ai-sdk/openai';
+
+const model = openai('gpt-4o-mini');
+
+export default async function handler(req: VercelRequest, res: VercelResponse) {
+  if (req.method !== 'POST') return res.status(405).json({ error: 'Method not allowed' });
+  const { messages } = req.body as { messages: Array<{ role: 'system'|'user'|'assistant'; content: string }> };
+
+  res.setHeader('Content-Type', 'text/event-stream');
+  res.setHeader('Cache-Control', 'no-cache');
+  res.setHeader('Connection', 'keep-alive');
+
+  const { textStream } = await streamText({
+    model,
+    messages,
+    temperature: 0.3,
+    maxTokens: 800,
+  });
+
+  for await (const delta of textStream) {
+    res.write(`data: ${JSON.stringify({ delta })}\n\n`);
+  }
+  res.end();
+}]]></correct-example>
+          <incorrect-example title="Buffer-then-send" conditions="Returning streamed output" expected-result="SSE stream" incorrectness-criteria="Aggregates full text and responds at the end"><![CDATA[
+// BAD: Do not buffer full response for interactive chat UIs
+const { text } = await generateText({ model, prompt });
+return res.json({ text });]]></incorrect-example>
+        </example>
+      </examples>
+    </non-negotiable>
+
+    <requirement priority="critical">
+      <description>Use generateObject with Zod schemas for structured outputs when you need JSON. Validate model responses strictly and handle parsing errors gracefully.</description>
+      <examples>
+        <example title="Structured output with Zod">
+          <correct-example title="Zod schema + generateObject" conditions="Getting structured data" expected-result="Parsed, validated object" correctness-criteria="Defines zod schema, handles errors"><![CDATA[
+import { z } from 'zod';
+import { generateObject } from 'ai';
+import { openai } from '@ai-sdk/openai';
+
+const schema = z.object({
+  title: z.string(),
+  severity: z.enum(['LOW','MEDIUM','HIGH','CRITICAL']),
+  tags: z.array(z.string()).default([]),
+});
+
+export async function extractIncident(text: string) {
+  const { object, warnings } = await generateObject({
+    model: openai('gpt-4o-mini'),
+    schema,
+    prompt: `Extract incident fields from: ${text}`,
+  });
+  // Optionally log warnings.length without sensitive content
+  return object; // typed per schema
+}]]></correct-example>
+          <incorrect-example title="Free-form JSON parsing" conditions="Getting structured data" expected-result="Valid structured JSON" incorrectness-criteria="Parses raw JSON from text without validation"><![CDATA[
+// BAD: Unvalidated JSON from model text
+const { text } = await generateText({ model, prompt });
+const obj = JSON.parse(text); // may throw or be malformed]]></incorrect-example>
+        </example>
+      </examples>
+    </requirement>
+
+    <requirement priority="high">
+      <description>Implement tool/function calling with explicit, validated tool schemas. Guard execution with timeouts and argument validation before invoking external systems.</description>
+      <examples>
+        <example title="Safe tool calling pattern">
+          <correct-example title="Validated tools" conditions="Using function calling" expected-result="Safe execution of tools" correctness-criteria="Defines tools with schema, validates args, timeouts"><![CDATA[
+import { streamText, tool } from 'ai';
+import { openai } from '@ai-sdk/openai';
+import { z } from 'zod';
+
+const getWeather = tool({
+  description: 'Get weather by city',
+  parameters: z.object({ city: z.string().min(1) }),
+  execute: async ({ city }) => {
+    const controller = new AbortController();
+    const timeout = setTimeout(() => controller.abort(), 5000);
+    try {
+      const res = await fetch(`https://api.weather.example?q=${encodeURIComponent(city)}`, { signal: controller.signal });
+      const data = await res.json();
+      return { tempC: data.temp_c, condition: data.condition };
+    } finally {
+      clearTimeout(timeout);
+    }
+  },
+});
+
+export async function handler() {
+  const result = await streamText({
+    model: openai('gpt-4o-mini'),
+    tools: { getWeather },
+    messages: [{ role: 'user', content: 'Is it sunny in Madrid?' }],
+  });
+  return result;
+}]]></correct-example>
+          <incorrect-example title="Unvalidated tool invocation" conditions="Using function calling" expected-result="Safe execution" incorrectness-criteria="Executes arbitrary commands or unvalidated args from model"><![CDATA[
+// BAD: Do not execute arbitrary system commands from model output
+const tools = { run: async ({ cmd }) => exec(cmd) }; // dangerous
+// Missing schema validation and safety guards]]></incorrect-example>
+        </example>
+      </examples>
+    </requirement>
+
+    <requirement priority="high">
+      <description>Frontend integration: use ai/react helpers (e.g., useChat) for chat UIs. Debounce input, show incremental tokens, handle abort, and surface loading/error states.</description>
+      <examples>
+        <example title="React chat hook usage">
+          <correct-example title="useChat with streaming" conditions="Building chat UI" expected-result="Responsive streaming chat" correctness-criteria="Streams, aborts, handles errors"><![CDATA[
+import { useChat } from 'ai/react';
+
+export function Chat() {
+  const { messages, input, setInput, append, isLoading, error, stop } = useChat({ api: '/api/ai/chat' });
+  return (
+    <div>
+      <div>{messages.map(m => <p key={m.id}><strong>{m.role}:</strong> {m.content}</p>)}</div>
+      <input value={input} onChange={(e) => setInput(e.target.value)} placeholder="Type..." />
+      <button disabled={isLoading} onClick={() => append({ role: 'user', content: input })}>Send</button>
+      {isLoading && <button onClick={stop}>Stop</button>}
+      {error && <div role="alert">{error.message}</div>}
+    </div>
+  );
+}]]></correct-example>
+          <incorrect-example title="Blocking request without streaming" conditions="Building chat UI" expected-result="Responsive streaming chat" incorrectness-criteria="Single JSON response, no progressive UI"><![CDATA[
+// BAD: Calls non-streaming endpoint and waits
+const res = await fetch('/api/ai/chat', { method: 'POST', body: JSON.stringify({ prompt }) });
+const data = await res.json();
+setMessages([...messages, { role: 'assistant', content: data.text }]);]]></incorrect-example>
+        </example>
+      </examples>
+    </requirement>
+
+    <requirement priority="high">
+      <description>Operational safeguards: set temperature/maxTokens, add timeouts/retries, and redact sensitive content from logs. Do not log full prompts or model outputs containing PII.</description>
+      <examples>
+        <example title="Guardrails and observability">
+          <correct-example title="Bounded generation with safe logging" conditions="Productionizing endpoints" expected-result="Stable endpoints" correctness-criteria="Limits generation, redacts logs, handles errors with 5xx"><![CDATA[
+try {
+  const { text } = await generateText({ model, prompt, temperature: 0.2, maxTokens: 600 });
+  // Log metadata only
+  console.info('ai.complete', { provider: 'openai', tokens: text.length });
+  return res.json({ text });
+} catch (error) {
+  console.error('ai.error', { msg: String(error) });
+  return res.status(500).json({ error: 'AI_GENERATION_FAILED' });
+}]]></correct-example>
+          <incorrect-example title="Verbose sensitive logging" conditions="Productionizing endpoints" expected-result="Redacted logs" incorrectness-criteria="Logs raw prompts/outputs with PII"><![CDATA[
+// BAD: Avoid logging raw prompts/outputs
+console.debug('prompt', prompt);
+console.debug('output', text);]]></incorrect-example>
+        </example>
+      </examples>
+    </requirement>
+  </requirements>
+
+  <grammar>
+    <grammar-entry title="Provider import pattern">
+      <pattern description="Must import from 'ai' and '@ai-sdk/*'">import\s+\{.*\}\s+from\s+'ai';[\s\S]*import\s+\{.*\}\s+from\s+'@ai-sdk\/.+';</pattern>
+    </grammar-entry>
+    <grammar-entry title="Forbidden client secrets">
+      <pattern description="Disallow VITE_* secrets for providers in client">VITE_.*(OPENAI|ANTHROPIC|GEMINI|AI)_KEY</pattern>
+    </grammar-entry>
+  </grammar>
+
+  <context description="Vercel AI SDK adoption notes">
+    The Vercel AI SDK provides provider-agnostic, typed primitives for text, streaming, tool calling, and structured outputs. Use providers like @ai-sdk/openai and call core APIs from 'ai'. Prefer streaming (SSE) for interactive UIs, and use Zod for validating structured outputs.
+  </context>
+
+  <references>
+    <reference as="dependency" href=".cursor/rules/000-core/002-cursor-rules-creation.mdc" reason="Follows standard rule format">Base rule format definition</reference>
+    <reference as="context" href="https://ai-sdk.dev/docs/introduction" reason="Official Vercel AI SDK documentation">Vercel AI SDK Docs</reference>
+  </references>
+</rule>
+

@@ -1,0 +1,814 @@
+---
+description: "Comprehensive PostgreSQL best practices for performance, security, and modern development following expert community standards and CIS security guidelines"
+globs: ["**/*.sql", "**/migrations/**/*", "**/schema.sql", "**/models/**/*", "**/database/**/*", "**/db/**/*", "**/*postgresql*", "**/*postgres*", "**/alembic/**/*", "**/prisma/**/*"]
+alwaysApply: false
+---
+
+<rule>
+  <meta>
+    <title>PostgreSQL Core Standards - Comprehensive Best Practices</title>
+    <description>Expert-level PostgreSQL standards covering security, performance optimization, schema design, query optimization, monitoring, and modern PostgreSQL 16+ features following CIS security guidelines and community best practices.</description>
+    <created-at utc-timestamp="1744157700">January 25, 2025, 10:15 AM</created-at>
+    <last-updated-at utc-timestamp="1744157700">January 25, 2025, 10:15 AM</last-updated-at>
+    <applies-to>
+      <file-matcher glob="**/*.sql">All SQL files and database-related code</file-matcher>
+      <file-matcher glob="**/migrations/**/*">Database migration files</file-matcher>
+      <file-matcher glob="**/schema.sql">Database schema definitions</file-matcher>
+      <file-matcher glob="**/models/**/*">Database model files</file-matcher>
+      <action-matcher action="database-development">All database development activities</action-matcher>
+    </applies-to>
+  </meta>
+
+  <requirements>
+    <!-- CRITICAL SECURITY REQUIREMENTS -->
+    <non-negotiable priority="critical">
+      <description>NEVER store passwords or sensitive data in plaintext. Use strong hashing algorithms like bcrypt, scrypt, or Argon2 with appropriate salt rounds. Follow CIS security guidelines for password storage.</description>
+      <examples>
+        <example title="Secure Password Storage">
+          <correct-example title="Proper password hashing" conditions="Creating user authentication table" expected-result="Passwords are properly hashed with salt" correctness-criteria="Uses bcrypt or similar with salt rounds 12-16">
+            <![CDATA[
+-- Use proper hashing in application code, never store plaintext
+CREATE TABLE users (
+    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    email VARCHAR(255) UNIQUE NOT NULL,
+    password_hash VARCHAR(255) NOT NULL, -- Store bcrypt hash, never plaintext
+    salt VARCHAR(255) NOT NULL,
+    created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP,
+    last_login TIMESTAMP WITH TIME ZONE,
+    failed_login_attempts INTEGER DEFAULT 0,
+    locked_until TIMESTAMP WITH TIME ZONE,
+    CONSTRAINT email_format CHECK (email ~* '^[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Za-z]{2,}$')
+);
+
+-- Use row-level security for additional protection
+ALTER TABLE users ENABLE ROW LEVEL SECURITY;
+CREATE POLICY user_policy ON users FOR ALL USING (id = current_setting('app.current_user_id')::UUID);
+            ]]>
+          </correct-example>
+          <incorrect-example title="Plaintext password storage" conditions="Creating user authentication table" expected-result="Passwords are properly hashed" incorrectness-criteria="Stores passwords in plaintext or uses weak hashing">
+            <![CDATA[
+-- NEVER do this - security vulnerability
+CREATE TABLE users (
+    id SERIAL PRIMARY KEY,
+    email VARCHAR(255),
+    password VARCHAR(255), -- CRITICAL: Never store plaintext passwords
+    created_at TIMESTAMP
+);
+
+-- NEVER use weak hashing
+UPDATE users SET password = MD5(password); -- MD5 is cryptographically broken
+            ]]>
+          </incorrect-example>
+        </example>
+      </examples>
+    </non-negotiable>
+
+    <non-negotiable priority="critical">
+      <description>ALWAYS use parameterized queries or prepared statements to prevent SQL injection attacks. Never concatenate user input directly into SQL strings.</description>
+      <examples>
+        <example title="SQL Injection Prevention">
+          <correct-example title="Parameterized queries" conditions="Accepting user input for database queries" expected-result="Safe parameter binding prevents injection" correctness-criteria="Uses $1, $2 placeholders or prepared statements">
+            <![CDATA[
+-- PostgreSQL parameterized query (safe)
+PREPARE get_user_orders AS 
+    SELECT o.*, p.name AS product_name 
+    FROM orders o 
+    JOIN products p ON o.product_id = p.id 
+    WHERE o.user_id = $1 AND o.created_at >= $2;
+
+EXECUTE get_user_orders(123, '2024-01-01');
+
+-- Application code example (Python with psycopg2)
+cursor.execute("""
+    SELECT * FROM users 
+    WHERE email = %s AND status = %s
+""", (user_email, 'active'))
+            ]]>
+          </correct-example>
+          <incorrect-example title="SQL injection vulnerability" conditions="Accepting user input for database queries" expected-result="Safe parameter binding" incorrectness-criteria="Concatenates user input directly into SQL">
+            <![CDATA[
+-- CRITICAL SECURITY FLAW - SQL injection vulnerability
+query = f"SELECT * FROM users WHERE email = '{user_email}'"  -- Python f-string injection risk
+query = "SELECT * FROM users WHERE email = '" + user_email + "'"  -- Direct concatenation risk
+
+-- Vulnerable dynamic SQL
+EXECUTE 'SELECT * FROM users WHERE id = ' || user_id;  -- Dynamic SQL injection risk
+            ]]>
+          </incorrect-example>
+        </example>
+      </examples>
+    </non-negotiable>
+
+    <non-negotiable priority="critical">
+      <description>Implement least privilege access control. Grant minimum necessary permissions and use role-based access control (RBAC) with proper role inheritance. Follow CIS guideline recommendations for user privilege management.</description>
+      <examples>
+        <example title="Role-Based Access Control">
+          <correct-example title="Least privilege implementation" conditions="Setting up database access control" expected-result="Users have minimal required permissions" correctness-criteria="Uses roles with specific grants, no superuser access for application users">
+            <![CDATA[
+-- Create application-specific roles with minimal privileges
+CREATE ROLE app_reader;
+CREATE ROLE app_writer;
+CREATE ROLE app_admin;
+
+-- Grant specific permissions only
+GRANT CONNECT ON DATABASE myapp TO app_reader;
+GRANT USAGE ON SCHEMA public TO app_reader;
+GRANT SELECT ON ALL TABLES IN SCHEMA public TO app_reader;
+
+-- Writer role inherits reader permissions
+GRANT app_reader TO app_writer;
+GRANT INSERT, UPDATE, DELETE ON ALL TABLES IN SCHEMA public TO app_writer;
+GRANT USAGE, SELECT ON ALL SEQUENCES IN SCHEMA public TO app_writer;
+
+-- Admin role for schema changes (not superuser)
+GRANT app_writer TO app_admin;
+GRANT CREATE ON SCHEMA public TO app_admin;
+
+-- Create application user with specific role
+CREATE USER app_service_user WITH PASSWORD 'strong_random_password';
+GRANT app_writer TO app_service_user;
+
+-- Use row-level security for data isolation
+ALTER TABLE orders ENABLE ROW LEVEL SECURITY;
+CREATE POLICY user_orders ON orders FOR ALL 
+    USING (user_id = current_setting('app.current_user_id')::INTEGER);
+            ]]>
+          </correct-example>
+          <incorrect-example title="Excessive privileges" conditions="Setting up database access control" expected-result="Minimal required permissions" incorrectness-criteria="Grants superuser or excessive permissions">
+            <![CDATA[
+-- SECURITY RISK - Excessive privileges
+CREATE USER app_user WITH SUPERUSER PASSWORD 'password123';  -- Never give superuser to apps
+GRANT ALL PRIVILEGES ON DATABASE myapp TO app_user;  -- Too broad permissions
+
+-- SECURITY RISK - No role separation
+CREATE USER public_user;
+GRANT ALL ON ALL TABLES TO public_user;  -- Public access to everything
+
+-- SECURITY RISK - Shared accounts
+CREATE USER shared_app_user;  -- Multiple apps sharing same user
+            ]]>
+          </incorrect-example>
+        </example>
+      </examples>
+    </non-negotiable>
+
+    <non-negotiable priority="critical">
+      <description>Enable comprehensive authentication and encryption. Use SCRAM-SHA-256 authentication, enforce SSL/TLS encryption for all connections, and implement proper certificate management following CIS security standards.</description>
+      <examples>
+        <example title="Secure Authentication and Encryption">
+          <correct-example title="SCRAM-SHA-256 and SSL configuration" conditions="Configuring PostgreSQL security" expected-result="Strong authentication and encryption enabled" correctness-criteria="Uses SCRAM-SHA-256, SSL required, proper certificate setup">
+            <![CDATA[
+-- postgresql.conf security configuration
+ssl = on
+ssl_cert_file = '/path/to/server.crt'
+ssl_key_file = '/path/to/server.key'
+ssl_ca_file = '/path/to/ca.crt'
+ssl_crl_file = '/path/to/ca.crl'
+
+-- Force SSL and SCRAM authentication
+password_encryption = 'scram-sha-256'
+scram_iterations = 10000  -- Minimum recommended iterations
+
+-- pg_hba.conf - require SSL and SCRAM
+hostssl all all 0.0.0.0/0 scram-sha-256
+hostssl all all ::0/0 scram-sha-256
+
+-- Audit logging configuration
+log_connections = on
+log_disconnections = on
+log_statement = 'ddl'  -- Log schema changes
+log_min_duration_statement = 1000  -- Log slow queries
+log_line_prefix = '%t [%p]: [%l-1] user=%u,db=%d,app=%a,client=%h '
+            ]]>
+          </correct-example>
+          <incorrect-example title="Weak authentication and no encryption" conditions="Configuring PostgreSQL security" expected-result="Strong authentication and encryption" incorrectness-criteria="Uses weak authentication, allows unencrypted connections">
+            <![CDATA[
+-- SECURITY RISK - Weak authentication
+password_encryption = 'md5'  -- MD5 is cryptographically broken
+
+-- SECURITY RISK - Unencrypted connections allowed
+host all all 0.0.0.0/0 md5  -- No SSL requirement
+host all all 0.0.0.0/0 trust  -- No authentication required
+
+-- SECURITY RISK - Disabled logging
+log_connections = off
+log_statement = 'none'  -- No audit trail
+            ]]>
+          </incorrect-example>
+        </example>
+      </examples>
+    </non-negotiable>
+
+    <!-- PERFORMANCE AND SCHEMA DESIGN REQUIREMENTS -->
+    <requirement priority="high">
+      <description>Use consistent naming conventions following PostgreSQL community standards. Use snake_case for all identifiers, plural nouns for table names, and descriptive column names. Avoid reserved keywords and ensure cross-platform compatibility.</description>
+      <examples>
+        <example title="PostgreSQL Naming Conventions">
+          <correct-example title="Standard naming conventions" conditions="Creating database objects" expected-result="Consistent, readable naming" correctness-criteria="Uses snake_case, descriptive names, avoids reserved keywords">
+            <![CDATA[
+-- Table names: plural nouns in snake_case
+CREATE TABLE user_profiles (
+    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    user_id UUID NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+    first_name VARCHAR(100) NOT NULL,
+    last_name VARCHAR(100) NOT NULL,
+    date_of_birth DATE,
+    created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP,
+    updated_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP
+);
+
+-- Index naming: table_column(s)_type
+CREATE INDEX idx_user_profiles_user_id ON user_profiles(user_id);
+CREATE INDEX idx_user_profiles_created_at_btree ON user_profiles(created_at);
+CREATE UNIQUE INDEX uniq_user_profiles_user_id ON user_profiles(user_id);
+
+-- Function naming: descriptive action
+CREATE OR REPLACE FUNCTION calculate_user_age(birth_date DATE)
+RETURNS INTEGER AS $$
+BEGIN
+    RETURN EXTRACT(YEAR FROM age(birth_date));
+END;
+$$ LANGUAGE plpgsql IMMUTABLE;
+            ]]>
+          </correct-example>
+          <incorrect-example title="Inconsistent naming" conditions="Creating database objects" expected-result="Consistent naming conventions" incorrectness-criteria="Mixed case, unclear names, reserved keywords">
+            <![CDATA[
+-- POOR NAMING - Mixed case and unclear names
+CREATE TABLE UserProfiles (  -- Should be snake_case
+    ID INT PRIMARY KEY,  -- Should be descriptive
+    uid INT,  -- Unclear abbreviation
+    firstName VARCHAR(50),  -- Should be snake_case
+    LastName VARCHAR(50),  -- Inconsistent case
+    DOB DATE,  -- Unclear abbreviation
+    "user" VARCHAR(100)  -- Reserved keyword without proper handling
+);
+
+-- POOR NAMING - Non-descriptive index names
+CREATE INDEX i1 ON UserProfiles(ID);  -- Unclear name
+CREATE INDEX user_idx ON UserProfiles("user");  -- Poor naming
+            ]]>
+          </incorrect-example>
+        </example>
+      </examples>
+    </requirement>
+
+    <requirement priority="high">
+      <description>Choose appropriate data types for optimal storage and performance. Use UUID for primary keys when global uniqueness is needed, proper numeric types to avoid precision issues, and TIMESTAMP WITH TIME ZONE for datetime values. Leverage PostgreSQL 16+ enhanced data types.</description>
+      <examples>
+        <example title="Optimal Data Type Selection">
+          <correct-example title="Modern PostgreSQL data types" conditions="Designing table schema" expected-result="Optimal storage and performance" correctness-criteria="Uses appropriate types, considers storage efficiency">
+            <![CDATA[
+-- Optimal data type selection for PostgreSQL 16+
+CREATE TABLE products (
+    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),  -- Global uniqueness
+    sku VARCHAR(50) UNIQUE NOT NULL,  -- Fixed reasonable length
+    name TEXT NOT NULL,  -- Variable length text
+    description TEXT,
+    price NUMERIC(10,2) NOT NULL CHECK (price >= 0),  -- Exact decimal precision
+    weight_kg NUMERIC(8,3) CHECK (weight_kg > 0),  -- Precise measurements
+    is_active BOOLEAN DEFAULT true,
+    categories TEXT[] DEFAULT '{}',  -- Array for multiple categories
+    metadata JSONB DEFAULT '{}',  -- Binary JSON for performance
+    created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP,
+    updated_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP,
+    
+    -- Advanced constraints
+    CONSTRAINT valid_sku CHECK (sku ~ '^[A-Z0-9-]+$'),
+    CONSTRAINT reasonable_price CHECK (price <= 1000000)
+);
+
+-- Use appropriate indexes for data types
+CREATE INDEX idx_products_metadata_gin ON products USING GIN (metadata);
+CREATE INDEX idx_products_categories_gin ON products USING GIN (categories);
+CREATE INDEX idx_products_created_at_brin ON products USING BRIN (created_at);  -- For time-series data
+            ]]>
+          </correct-example>
+          <incorrect-example title="Poor data type choices" conditions="Designing table schema" expected-result="Optimal data types" incorrectness-criteria="Uses inappropriate types, lacks precision">
+            <![CDATA[
+-- POOR DATA TYPE CHOICES
+CREATE TABLE products (
+    id SERIAL PRIMARY KEY,  -- Limited range, not globally unique
+    sku TEXT,  -- No length limit, inefficient
+    name VARCHAR(50),  -- Too restrictive for product names
+    price FLOAT,  -- Precision issues with currency
+    weight REAL,  -- Precision issues for measurements
+    is_active VARCHAR(5),  -- Should be BOOLEAN
+    categories VARCHAR(1000),  -- Should be array or normalized
+    metadata TEXT,  -- Should be JSONB for querying
+    created_at TIMESTAMP,  -- Missing timezone info
+    
+    -- Missing constraints
+    -- No validation on SKU format
+    -- No price validation
+);
+            ]]>
+          </incorrect-example>
+        </example>
+      </examples>
+    </requirement>
+
+    <requirement priority="high">
+      <description>Implement comprehensive indexing strategy for query performance. Use B-tree indexes for equality and range queries, GIN indexes for full-text search and JSONB, BRIN indexes for large time-series tables, and partial indexes for filtered queries. Monitor index usage and remove unused indexes.</description>
+      <examples>
+        <example title="Strategic Indexing">
+          <correct-example title="Comprehensive indexing strategy" conditions="Optimizing query performance" expected-result="Fast query execution with minimal storage overhead" correctness-criteria="Uses appropriate index types, includes partial and composite indexes">
+            <![CDATA[
+-- Strategic indexing for different query patterns
+
+-- B-tree indexes for equality and range queries
+CREATE INDEX idx_orders_user_id ON orders(user_id);
+CREATE INDEX idx_orders_created_at ON orders(created_at);
+
+-- Composite index for multi-column queries (order matters!)
+CREATE INDEX idx_orders_user_status_date ON orders(user_id, status, created_at);
+
+-- Partial index for frequently filtered data
+CREATE INDEX idx_orders_pending ON orders(created_at) 
+WHERE status = 'pending';
+
+-- GIN index for JSONB queries
+CREATE INDEX idx_products_metadata ON products USING GIN (metadata);
+
+-- GIN index for full-text search
+CREATE INDEX idx_products_search ON products USING GIN (to_tsvector('english', name || ' ' || description));
+
+-- BRIN index for large time-series tables (much smaller than B-tree)
+CREATE INDEX idx_logs_timestamp_brin ON application_logs USING BRIN (timestamp)
+WHERE timestamp >= '2024-01-01';
+
+-- Expression index for case-insensitive searches
+CREATE INDEX idx_users_email_lower ON users(lower(email));
+
+-- Unique constraint with index
+CREATE UNIQUE INDEX uniq_users_email ON users(email);
+
+-- Monitor index usage
+SELECT schemaname, tablename, indexname, idx_scan, idx_tup_read, idx_tup_fetch
+FROM pg_stat_user_indexes
+WHERE idx_scan = 0;  -- Find unused indexes
+            ]]>
+          </correct-example>
+          <incorrect-example title="Poor indexing strategy" conditions="Optimizing query performance" expected-result="Strategic index placement" incorrectness-criteria="Over-indexing, wrong index types, missing key indexes">
+            <![CDATA[
+-- POOR INDEXING STRATEGIES
+
+-- Over-indexing - impacts write performance
+CREATE INDEX idx_users_first_name ON users(first_name);  -- Rarely useful alone
+CREATE INDEX idx_users_last_name ON users(last_name);   -- Rarely useful alone
+CREATE INDEX idx_users_created_at ON users(created_at); -- May not be needed
+CREATE INDEX idx_users_updated_at ON users(updated_at); -- Likely unnecessary
+
+-- Wrong index type for use case
+CREATE INDEX idx_products_metadata_btree ON products(metadata);  -- Should use GIN
+CREATE INDEX idx_large_table_timestamp ON large_time_series(timestamp);  -- Should use BRIN
+
+-- Missing compound indexes for common query patterns
+-- If queries use WHERE user_id = ? AND status = ?, need compound index
+
+-- Generic text search without proper full-text search setup
+CREATE INDEX idx_products_name ON products(name);  -- Should use GIN with tsvector
+            ]]>
+          </incorrect-example>
+        </example>
+      </examples>
+    </requirement>
+
+    <requirement priority="high">
+      <description>Design schema with proper normalization and denormalization balance. Use foreign key constraints for data integrity, implement check constraints for data validation, and employ table partitioning for large datasets following PostgreSQL 16+ enhancements.</description>
+      <examples>
+        <example title="Advanced Schema Design">
+          <correct-example title="Balanced normalization with modern features" conditions="Designing complex database schema" expected-result="Maintainable, performant schema" correctness-criteria="Proper relationships, constraints, partitioning where appropriate">
+            <![CDATA[
+-- Advanced schema design with PostgreSQL 16+ features
+
+-- Normalized base tables with proper constraints
+CREATE TABLE users (
+    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    email VARCHAR(255) UNIQUE NOT NULL,
+    username VARCHAR(50) UNIQUE NOT NULL,
+    password_hash VARCHAR(255) NOT NULL,
+    email_verified BOOLEAN DEFAULT false,
+    created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP,
+    updated_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP,
+    
+    CONSTRAINT valid_email CHECK (email ~* '^[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Za-z]{2,}$'),
+    CONSTRAINT valid_username CHECK (username ~ '^[a-zA-Z0-9_]{3,50}$')
+);
+
+-- Partitioned table for large time-series data (PostgreSQL 16+ improvements)
+CREATE TABLE application_logs (
+    id UUID DEFAULT gen_random_uuid(),
+    user_id UUID REFERENCES users(id),
+    action VARCHAR(100) NOT NULL,
+    details JSONB DEFAULT '{}',
+    ip_address INET,
+    timestamp TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP,
+    
+    CONSTRAINT valid_action CHECK (action ~ '^[A-Z_]+$')
+) PARTITION BY RANGE (timestamp);
+
+-- Create partitions for current and future months
+CREATE TABLE application_logs_2024_01 PARTITION OF application_logs
+    FOR VALUES FROM ('2024-01-01') TO ('2024-02-01');
+    
+CREATE TABLE application_logs_2024_02 PARTITION OF application_logs
+    FOR VALUES FROM ('2024-02-01') TO ('2024-03-01');
+
+-- Denormalized view for common queries
+CREATE MATERIALIZED VIEW user_activity_summary AS
+SELECT 
+    u.id,
+    u.username,
+    u.email,
+    COUNT(l.id) as total_actions,
+    MAX(l.timestamp) as last_activity,
+    COUNT(DISTINCT DATE(l.timestamp)) as active_days
+FROM users u
+LEFT JOIN application_logs l ON u.id = l.user_id
+WHERE l.timestamp >= CURRENT_DATE - INTERVAL '30 days'
+GROUP BY u.id, u.username, u.email;
+
+-- Create index on materialized view
+CREATE INDEX idx_user_activity_last_activity ON user_activity_summary(last_activity);
+
+-- Generated columns for computed values (PostgreSQL 16+)
+CREATE TABLE orders (
+    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    user_id UUID NOT NULL REFERENCES users(id),
+    subtotal NUMERIC(10,2) NOT NULL,
+    tax_rate NUMERIC(5,4) NOT NULL DEFAULT 0.0875,
+    tax_amount NUMERIC(10,2) GENERATED ALWAYS AS (subtotal * tax_rate) STORED,
+    total_amount NUMERIC(10,2) GENERATED ALWAYS AS (subtotal + (subtotal * tax_rate)) STORED,
+    created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP
+);
+            ]]>
+          </correct-example>
+          <incorrect-example title="Poor schema design" conditions="Designing database schema" expected-result="Well-structured schema" incorrectness-criteria="Missing constraints, poor relationships, no partitioning for large tables">
+            <![CDATA[
+-- POOR SCHEMA DESIGN
+
+-- No constraints or relationships
+CREATE TABLE users (
+    id SERIAL PRIMARY KEY,
+    email VARCHAR(255),  -- No uniqueness constraint
+    username VARCHAR(255),  -- No validation
+    password VARCHAR(255),  -- Plaintext password storage
+    created_at TIMESTAMP  -- No timezone
+);
+
+-- Denormalized but inefficient for large data
+CREATE TABLE application_logs (
+    id SERIAL PRIMARY KEY,
+    user_email VARCHAR(255),  -- Should reference users table
+    action TEXT,  -- No validation
+    timestamp TIMESTAMP,  -- No timezone
+    details TEXT  -- Should be JSONB
+    -- No partitioning for potentially large table
+);
+
+-- Overly normalized for simple data
+CREATE TABLE user_first_names (
+    id SERIAL PRIMARY KEY,
+    name VARCHAR(50)
+);
+
+CREATE TABLE user_last_names (
+    id SERIAL PRIMARY KEY,
+    name VARCHAR(50)
+);
+
+CREATE TABLE users_names (
+    user_id INTEGER,
+    first_name_id INTEGER,
+    last_name_id INTEGER
+);  -- Unnecessary over-normalization
+            ]]>
+          </incorrect-example>
+        </example>
+      </examples>
+    </requirement>
+
+    <!-- QUERY OPTIMIZATION AND PERFORMANCE -->
+    <requirement priority="high">
+      <description>Write optimized queries using modern PostgreSQL features. Use window functions, CTEs, and proper JOIN strategies. Leverage PostgreSQL 16+ query optimizations including parallel processing, and always use EXPLAIN ANALYZE for performance analysis.</description>
+      <examples>
+        <example title="Query Optimization">
+          <correct-example title="Modern PostgreSQL query techniques" conditions="Writing complex analytical queries" expected-result="Optimal query performance" correctness-criteria="Uses efficient patterns, proper indexing, parallel processing">
+            <![CDATA[
+-- Optimized query using modern PostgreSQL features
+
+-- Use CTEs for readability and performance
+WITH monthly_sales AS (
+    SELECT 
+        DATE_TRUNC('month', created_at) as month,
+        user_id,
+        SUM(total_amount) as monthly_total,
+        COUNT(*) as order_count,
+        AVG(total_amount) as avg_order_value
+    FROM orders 
+    WHERE created_at >= CURRENT_DATE - INTERVAL '12 months'
+    GROUP BY 1, 2
+),
+user_rankings AS (
+    SELECT 
+        *,
+        ROW_NUMBER() OVER (PARTITION BY month ORDER BY monthly_total DESC) as rank_in_month,
+        LAG(monthly_total) OVER (PARTITION BY user_id ORDER BY month) as prev_month_total
+    FROM monthly_sales
+)
+SELECT 
+    u.username,
+    ur.month,
+    ur.monthly_total,
+    ur.rank_in_month,
+    CASE 
+        WHEN ur.prev_month_total IS NULL THEN 'New Customer'
+        WHEN ur.monthly_total > ur.prev_month_total THEN 'Growing'
+        WHEN ur.monthly_total < ur.prev_month_total THEN 'Declining'
+        ELSE 'Stable'
+    END as growth_status
+FROM user_rankings ur
+JOIN users u ON ur.user_id = u.id
+WHERE ur.rank_in_month <= 10  -- Top 10 customers per month
+ORDER BY ur.month DESC, ur.rank_in_month;
+
+-- Use prepared statements for repeated queries
+PREPARE get_user_orders(UUID, DATE) AS
+SELECT 
+    o.id,
+    o.total_amount,
+    o.created_at,
+    ARRAY_AGG(
+        JSON_BUILD_OBJECT(
+            'product_name', p.name,
+            'quantity', oi.quantity,
+            'price', oi.price
+        )
+    ) as items
+FROM orders o
+JOIN order_items oi ON o.id = oi.order_id
+JOIN products p ON oi.product_id = p.id
+WHERE o.user_id = $1 
+  AND o.created_at >= $2
+GROUP BY o.id, o.total_amount, o.created_at
+ORDER BY o.created_at DESC;
+
+-- Use parallel query processing for large datasets
+SET max_parallel_workers_per_gather = 4;
+
+-- Analyze query performance
+EXPLAIN (ANALYZE, BUFFERS, FORMAT JSON) 
+SELECT * FROM large_table WHERE indexed_column = 'value';
+            ]]>
+          </correct-example>
+          <incorrect-example title="Inefficient query patterns" conditions="Writing analytical queries" expected-result="Optimal query performance" incorrectness-criteria="Poor JOIN patterns, missing indexes, inefficient subqueries">
+            <![CDATA[
+-- INEFFICIENT QUERY PATTERNS
+
+-- N+1 query pattern (should use JOINs)
+SELECT id, name FROM users;
+-- Then for each user:
+SELECT * FROM orders WHERE user_id = ?;  -- Repeated query
+
+-- Inefficient correlated subquery
+SELECT 
+    u.username,
+    (SELECT COUNT(*) FROM orders WHERE user_id = u.id) as order_count,
+    (SELECT SUM(total_amount) FROM orders WHERE user_id = u.id) as total_spent
+FROM users u;  -- Should be a single JOIN with GROUP BY
+
+-- Missing WHERE clause on large table
+SELECT * FROM application_logs ORDER BY timestamp DESC;  -- No date filtering
+
+-- Inefficient LIKE patterns
+SELECT * FROM products WHERE name LIKE '%search%';  -- Can't use index
+
+-- Using functions on indexed columns
+SELECT * FROM orders WHERE DATE(created_at) = '2024-01-01';  -- Should use range
+
+-- Inefficient data type casting
+SELECT * FROM orders WHERE user_id = '123';  -- String comparison on UUID/INT
+            ]]>
+          </incorrect-example>
+        </example>
+      </examples>
+    </requirement>
+
+    <!-- MONITORING AND MAINTENANCE -->
+    <requirement priority="high">
+      <description>Implement comprehensive monitoring and maintenance procedures. Use PostgreSQL 16+ monitoring features including pg_stat_io, configure proper logging, set up automated VACUUM and ANALYZE, and monitor query performance with pg_stat_statements.</description>
+      <examples>
+        <example title="Database Monitoring and Maintenance">
+          <correct-example title="Comprehensive monitoring setup" conditions="Setting up production database monitoring" expected-result="Proactive database health monitoring" correctness-criteria="Uses pg_stat_statements, proper logging, automated maintenance">
+            <![CDATA[
+-- PostgreSQL 16+ monitoring configuration
+
+-- Enable query statistics tracking
+CREATE EXTENSION IF NOT EXISTS pg_stat_statements;
+
+-- Configure comprehensive logging (postgresql.conf)
+log_destination = 'csvlog'
+logging_collector = on
+log_directory = 'pg_log'
+log_filename = 'postgresql-%Y-%m-%d_%H%M%S.log'
+log_rotation_age = 1d
+log_rotation_size = 100MB
+log_min_duration_statement = 250ms  -- Log slow queries
+log_checkpoints = on
+log_connections = on
+log_disconnections = on
+log_line_prefix = '%t [%p]: [%l-1] user=%u,db=%d,app=%a,client=%h '
+log_statement = 'ddl'  -- Log schema changes
+
+-- Monitor query performance
+SELECT 
+    query,
+    calls,
+    total_exec_time,
+    mean_exec_time,
+    rows,
+    100.0 * shared_blks_hit / nullif(shared_blks_hit + shared_blks_read, 0) AS hit_percent
+FROM pg_stat_statements 
+ORDER BY total_exec_time DESC 
+LIMIT 10;
+
+-- Monitor I/O statistics (PostgreSQL 16+)
+SELECT 
+    object,
+    context,
+    reads,
+    writes,
+    read_time,
+    write_time
+FROM pg_stat_io
+WHERE reads > 0 OR writes > 0
+ORDER BY read_time + write_time DESC;
+
+-- Monitor database size and growth
+SELECT 
+    datname,
+    pg_size_pretty(pg_database_size(datname)) as size,
+    (pg_database_size(datname) / (1024^3))::numeric(10,2) as size_gb
+FROM pg_database 
+WHERE datname NOT IN ('template0', 'template1', 'postgres')
+ORDER BY pg_database_size(datname) DESC;
+
+-- Monitor table and index usage
+SELECT 
+    schemaname,
+    tablename,
+    seq_scan,
+    seq_tup_read,
+    idx_scan,
+    idx_tup_fetch,
+    n_tup_ins,
+    n_tup_upd,
+    n_tup_del
+FROM pg_stat_user_tables
+ORDER BY seq_scan DESC;
+
+-- Automated maintenance with proper configuration
+-- Configure autovacuum for optimal performance
+ALTER SYSTEM SET autovacuum_vacuum_scale_factor = 0.1;
+ALTER SYSTEM SET autovacuum_analyze_scale_factor = 0.05;
+ALTER SYSTEM SET autovacuum_vacuum_cost_delay = 2;
+ALTER SYSTEM SET autovacuum_work_mem = '256MB';
+
+-- Manual VACUUM for critical tables
+VACUUM (VERBOSE, ANALYZE, BUFFER_USAGE_LIMIT '256MB') critical_table;
+            ]]>
+          </correct-example>
+          <incorrect-example title="Poor monitoring setup" conditions="Setting up database monitoring" expected-result="Comprehensive monitoring" incorrectness-criteria="Missing extensions, minimal logging, no performance monitoring">
+            <![CDATA[
+-- POOR MONITORING SETUP
+
+-- No query performance tracking
+-- Missing: CREATE EXTENSION pg_stat_statements;
+
+-- Minimal logging configuration
+log_min_duration_statement = -1  -- No slow query logging
+log_connections = off
+log_statement = 'none'  -- No statement logging
+log_checkpoints = off
+
+-- No monitoring queries or dashboards
+-- Missing performance monitoring
+
+-- No automated maintenance configuration
+-- Default autovacuum settings may be inadequate
+
+-- Manual maintenance without proper options
+VACUUM;  -- No options for optimization
+ANALYZE;  -- Not combined with VACUUM
+            ]]>
+          </incorrect-example>
+        </example>
+      </examples>
+    </requirement>
+
+    <!-- BACKUP AND RECOVERY -->
+    <requirement priority="critical">
+      <description>Implement robust backup and recovery strategy using PostgreSQL 16+ features. Use pg_basebackup for full backups, WAL archiving for point-in-time recovery, and test recovery procedures regularly. Implement both local and remote backup storage.</description>
+      <examples>
+        <example title="Backup and Recovery Strategy">
+          <correct-example title="Comprehensive backup strategy" conditions="Setting up production backup system" expected-result="Reliable data protection and recovery" correctness-criteria="Multiple backup types, tested recovery procedures, WAL archiving">
+            <![CDATA[
+-- Comprehensive backup and recovery configuration
+
+-- WAL archiving configuration (postgresql.conf)
+wal_level = replica
+archive_mode = on
+archive_command = 'test ! -f /backup/wal/%f && cp %p /backup/wal/%f'
+archive_timeout = 300  -- Archive WAL every 5 minutes
+
+-- Backup configuration
+max_wal_senders = 3
+wal_keep_size = '1GB'
+
+-- Full backup script using pg_basebackup
+#!/bin/bash
+BACKUP_DIR="/backup/full/$(date +%Y%m%d_%H%M%S)"
+pg_basebackup -D "$BACKUP_DIR" \
+  -Ft -z -P \
+  --wal-method=stream \
+  --checkpoint=fast \
+  --label="full_backup_$(date +%Y%m%d_%H%M%S)"
+
+-- Logical backup for specific databases
+pg_dump -Fc -v --lock-wait-timeout=120 \
+  --dbname=myapp \
+  --file="/backup/logical/myapp_$(date +%Y%m%d_%H%M%S).dump"
+
+-- Point-in-time recovery setup
+-- recovery.conf (for standby/recovery)
+restore_command = 'cp /backup/wal/%f %p'
+recovery_target_time = '2024-01-15 14:30:00'
+recovery_target_action = promote
+
+-- Test recovery procedure (script)
+#!/bin/bash
+# 1. Stop PostgreSQL
+sudo systemctl stop postgresql
+
+# 2. Backup current data directory
+sudo mv /var/lib/postgresql/16/main /var/lib/postgresql/16/main.backup
+
+# 3. Restore from backup
+sudo -u postgres pg_basebackup -D /var/lib/postgresql/16/main \
+  --checkpoint=fast --wal-method=stream
+
+# 4. Configure recovery
+sudo -u postgres cat > /var/lib/postgresql/16/main/recovery.signal
+
+# 5. Start PostgreSQL
+sudo systemctl start postgresql
+
+-- Monitor backup status
+SELECT 
+    pg_current_wal_lsn() as current_wal,
+    pg_last_wal_receive_lsn() as last_received,
+    pg_last_wal_replay_lsn() as last_replayed;
+            ]]>
+          </correct-example>
+          <incorrect-example title="Inadequate backup strategy" conditions="Setting up backup system" expected-result="Comprehensive backup strategy" incorrectness-criteria="Missing WAL archiving, no testing, single backup type">
+            <![CDATA[
+-- INADEQUATE BACKUP STRATEGY
+
+-- No WAL archiving configuration
+wal_level = minimal  -- Insufficient for PITR
+archive_mode = off  -- No WAL archiving
+
+-- Simple backup without compression or verification
+pg_dump myapp > backup.sql  -- No compression, single format
+
+-- No testing of recovery procedures
+-- No documentation of recovery steps
+
+-- No monitoring of backup success/failure
+-- Missing backup retention policies
+
+-- No offsite backup storage
+-- Single point of failure
+            ]]>
+          </incorrect-example>
+        </example>
+      </examples>
+    </requirement>
+  </requirements>
+
+  <context description="PostgreSQL development best practices">
+    These standards are based on PostgreSQL 16+ features, CIS security guidelines, and community best practices. They emphasize security-first design, performance optimization, and operational excellence. All recommendations are derived from official PostgreSQL documentation, security frameworks, and expert community knowledge.
+  </context>
+
+  <references>
+    <reference as="authority" href="https://www.postgresql.org/docs/16/" reason="Official PostgreSQL 16 documentation">PostgreSQL 16 Official Documentation</reference>
+    <reference as="authority" href="https://www.cisecurity.org/benchmark/postgresql" reason="Security baseline standards">CIS PostgreSQL Security Benchmark</reference>
+    <reference as="expert-source" href="https://postgresqlco.nf/" reason="Performance tuning guidelines">PostgreSQL Configuration Generator</reference>
+    <reference as="expert-source" href="https://github.com/darold/pgbadger" reason="Query analysis and optimization">pgBadger PostgreSQL Log Analyzer</reference>
+    <reference as="dependency" href=".cursor/rules/000-core/002-cursor-rules-creation.mdc" reason="Follows standard rule format">Base rule format definition</reference>
+  </references>
+</rule>
+description:
+globs:
+alwaysApply: false
+---

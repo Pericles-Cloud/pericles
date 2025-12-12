@@ -1,0 +1,1466 @@
+---
+description: Comprehensive TypeScript monorepo project setup with modern tooling, file system layout, build tools, linters, and Lerna best practices
+globs: ["*.{ts,tsx,js,jsx,json,md}"]
+alwaysApply: false
+---
+
+<rule>
+  <meta>
+    <title>TypeScript Monorepo Core Project Rules</title>
+    <description>Comprehensive TypeScript monorepo project setup with modern tooling, file system layout, build tools, linters, and Lerna best practices</description>
+    <created-at utc-timestamp="1744244920">January 27, 2025, 11:35 AM</created-at>
+    <last-updated-at utc-timestamp="1744244920">January 27, 2025, 11:35 AM</last-updated-at>
+    <applies-to>
+      <file-matcher glob="*.{ts,tsx,js,jsx,json,md}">All TypeScript, JavaScript, JSON, and Markdown files in monorepo</file-matcher>
+      <action-matcher action="monorepo-setup">Triggered when setting up or maintaining TypeScript monorepo</action-matcher>
+    </applies-to>
+  </meta>
+  <requirements>
+    <non-negotiable priority="critical">
+      <description>Use proper monorepo file system layout with clear separation of packages, shared utilities, and configuration files.</description>
+      <examples>
+        <example title="Monorepo Directory Structure">
+          <correct-example title="Proper monorepo structure" conditions="Setting up new monorepo project" expected-result="Well-organized monorepo with clear boundaries" correctness-criteria="Uses conventional directory structure with packages, apps, and shared resources"><![CDATA[my-monorepo/
+├── packages/
+│   ├── shared/
+│   │   ├── ui/
+│   │   │   ├── src/
+│   │   │   │   ├── components/
+│   │   │   │   │   ├── Button/
+│   │   │   │   │   │   ├── Button.tsx
+│   │   │   │   │   │   ├── Button.module.css
+│   │   │   │   │   │   ├── Button.test.tsx
+│   │   │   │   │   │   └── index.ts
+│   │   │   │   │   └── index.ts
+│   │   │   │   ├── hooks/
+│   │   │   │   ├── utils/
+│   │   │   │   └── index.ts
+│   │   │   ├── package.json
+│   │   │   ├── tsconfig.json
+│   │   │   └── vite.config.ts
+│   │   ├── types/
+│   │   │   ├── src/
+│   │   │   │   ├── api/
+│   │   │   │   ├── domain/
+│   │   │   │   └── index.ts
+│   │   │   ├── package.json
+│   │   │   └── tsconfig.json
+│   │   └── utils/
+│   │       ├── src/
+│   │       │   ├── string/
+│   │       │   ├── date/
+│   │       │   ├── validation/
+│   │       │   └── index.ts
+│   │       ├── package.json
+│   │       └── tsconfig.json
+│   └── services/
+│       ├── auth-service/
+│       │   ├── src/
+│       │   │   ├── controllers/
+│       │   │   ├── services/
+│       │   │   ├── models/
+│       │   │   ├── middleware/
+│       │   │   └── index.ts
+│       │   ├── package.json
+│       │   ├── tsconfig.json
+│       │   └── vite.config.ts
+│       └── api-gateway/
+├── apps/
+│   ├── web/
+│   │   ├── src/
+│   │   │   ├── pages/
+│   │   │   ├── components/
+│   │   │   ├── hooks/
+│   │   │   ├── services/
+│   │   │   ├── App.tsx
+│   │   │   └── main.tsx
+│   │   ├── public/
+│   │   ├── package.json
+│   │   ├── tsconfig.json
+│   │   ├── vite.config.ts
+│   │   └── index.html
+│   ├── admin/
+│   └── mobile/
+├── tools/
+│   ├── build/
+│   ├── scripts/
+│   └── config/
+├── docs/
+│   ├── api/
+│   ├── guides/
+│   └── README.md
+├── .github/
+│   └── workflows/
+├── lerna.json
+├── package.json
+├── tsconfig.json
+├── eslint.config.js
+├── prettier.config.js
+├── jest.config.js
+├── .gitignore
+├── .nvmrc
+└── README.md]]></correct-example>
+          <incorrect-example title="Poor monorepo structure" conditions="Setting up new monorepo project" expected-result="Well-organized monorepo with clear boundaries" incorrectness-criteria="No clear separation, mixed concerns, poor naming"><![CDATA[my-project/
+├── src/
+│   ├── app1/
+│   ├── app2/
+│   ├── shared/
+│   └── lib/
+├── config/
+├── package.json
+└── tsconfig.json
+
+# Problems:
+# - No clear apps vs packages separation
+# - Mixed application and library code
+# - No proper package boundaries
+# - Missing tools and documentation structure]]></incorrect-example>
+        </example>
+      </examples>
+    </non-negotiable>
+
+    <non-negotiable priority="critical">
+      <description>Configure Lerna with proper versioning, publishing, and workspace management for efficient monorepo operations.</description>
+      <examples>
+        <example title="Lerna Configuration">
+          <correct-example title="Proper Lerna setup" conditions="Configuring Lerna for monorepo" expected-result="Efficient monorepo management" correctness-criteria="Uses independent versioning, proper command configuration, and workspace integration"><![CDATA[// lerna.json
+{
+  "version": "independent",
+  "npmClient": "npm",
+  "command": {
+    "publish": {
+      "conventionalCommits": true,
+      "message": "chore(release): publish",
+      "registry": "https://registry.npmjs.org/",
+      "ignoreChanges": [
+        "*.md",
+        "*.test.ts",
+        "*.test.tsx",
+        "*.spec.ts",
+        "*.spec.tsx",
+        "**/__tests__/**",
+        "**/__mocks__/**"
+      ]
+    },
+    "bootstrap": {
+      "ignore": "component-*",
+      "npmClientArgs": ["--no-package-lock"]
+    },
+    "run": {
+      "stream": true
+    }
+  },
+  "packages": [
+    "packages/*",
+    "apps/*"
+  ],
+  "useWorkspaces": true,
+  "stream": true,
+  "conventionalCommits": true
+}
+
+// package.json (root)
+{
+  "name": "my-monorepo",
+  "private": true,
+  "workspaces": [
+    "packages/*",
+    "apps/*"
+  ],
+  "scripts": {
+    "bootstrap": "lerna bootstrap",
+    "build": "lerna run build",
+    "test": "lerna run test",
+    "lint": "lerna run lint",
+    "clean": "lerna clean",
+    "publish": "lerna publish",
+    "version": "lerna version",
+    "dev": "lerna run dev --parallel",
+    "build:changed": "lerna run build --since HEAD~1",
+    "test:changed": "lerna run test --since HEAD~1",
+    "precommit": "lint-staged"
+  },
+  "devDependencies": {
+    "lerna": "^6.6.2",
+    "@typescript-eslint/eslint-plugin": "^6.0.0",
+    "@typescript-eslint/parser": "^6.0.0",
+    "eslint": "^8.45.0",
+    "prettier": "^3.0.0",
+    "husky": "^8.0.3",
+    "lint-staged": "^13.2.3",
+    "typescript": "^5.0.0"
+  },
+  "lint-staged": {
+    "*.{ts,tsx,js,jsx}": [
+      "eslint --fix",
+      "prettier --write"
+    ],
+    "*.{json,md}": [
+      "prettier --write"
+    ]
+  }
+}]]></correct-example>
+          <incorrect-example title="Poor Lerna configuration" conditions="Configuring Lerna for monorepo" expected-result="Efficient monorepo management" incorrectness-criteria="Missing key configuration, no workspace integration, poor scripts"><![CDATA[// lerna.json
+{
+  "version": "1.0.0",
+  "packages": [
+    "packages/*"
+  ]
+}
+
+// package.json (root)
+{
+  "name": "my-monorepo",
+  "scripts": {
+    "build": "lerna run build"
+  },
+  "devDependencies": {
+    "lerna": "^6.6.2"
+  }
+}
+
+# Problems:
+# - Fixed versioning instead of independent
+# - No workspace configuration
+# - Missing essential scripts
+# - No conventional commits
+# - No proper tooling setup]]></incorrect-example>
+        </example>
+      </examples>
+    </non-negotiable>
+
+    <requirement priority="critical">
+      <description>Configure TypeScript with proper project references and path mapping for efficient builds and imports across packages.</description>
+      <examples>
+        <example title="TypeScript Project Configuration">
+          <correct-example title="Proper TypeScript config" conditions="Setting up TypeScript in monorepo" expected-result="Efficient builds with proper type checking" correctness-criteria="Uses project references, path mapping, and composite builds"><![CDATA[// tsconfig.json (root)
+{
+  "compilerOptions": {
+    "target": "ES2020",
+    "module": "ESNext",
+    "lib": ["ES2020", "DOM", "DOM.Iterable"],
+    "allowJs": true,
+    "skipLibCheck": true,
+    "esModuleInterop": true,
+    "allowSyntheticDefaultImports": true,
+    "strict": true,
+    "forceConsistentCasingInFileNames": true,
+    "moduleResolution": "node",
+    "resolveJsonModule": true,
+    "isolatedModules": true,
+    "noEmit": true,
+    "jsx": "react-jsx",
+    "declaration": true,
+    "declarationMap": true,
+    "composite": true,
+    "baseUrl": ".",
+    "paths": {
+      "@my-monorepo/shared-ui": ["packages/shared/ui/src"],
+      "@my-monorepo/shared-utils": ["packages/shared/utils/src"],
+      "@my-monorepo/shared-types": ["packages/shared/types/src"],
+      "@my-monorepo/auth-service": ["packages/services/auth-service/src"],
+      "@my-monorepo/*": ["packages/*/src"]
+    }
+  },
+  "include": [],
+  "exclude": ["node_modules", "dist", "build"],
+  "references": [
+    { "path": "./packages/shared/ui" },
+    { "path": "./packages/shared/utils" },
+    { "path": "./packages/shared/types" },
+    { "path": "./packages/services/auth-service" },
+    { "path": "./apps/web" },
+    { "path": "./apps/admin" }
+  ]
+}
+
+// tsconfig.json (package level - e.g., packages/shared/ui)
+{
+  "extends": "../../../tsconfig.json",
+  "compilerOptions": {
+    "outDir": "./dist",
+    "rootDir": "./src",
+    "composite": true,
+    "declaration": true,
+    "declarationMap": true
+  },
+  "include": ["src/**/*"],
+  "exclude": ["**/*.test.ts", "**/*.test.tsx", "**/*.spec.ts", "**/*.spec.tsx"],
+  "references": [
+    { "path": "../types" },
+    { "path": "../utils" }
+  ]
+}
+
+// tsconfig.json (app level - e.g., apps/web)
+{
+  "extends": "../../tsconfig.json",
+  "compilerOptions": {
+    "outDir": "./dist",
+    "rootDir": "./src",
+    "noEmit": true
+  },
+  "include": ["src/**/*", "../../packages/shared/types/src/**/*"],
+  "references": [
+    { "path": "../../packages/shared/ui" },
+    { "path": "../../packages/shared/utils" },
+    { "path": "../../packages/shared/types" }
+  ]
+}]]></correct-example>
+          <incorrect-example title="Poor TypeScript configuration" conditions="Setting up TypeScript in monorepo" expected-result="Efficient builds with proper type checking" incorrectness-criteria="No project references, missing path mapping, inefficient builds"><![CDATA[// tsconfig.json (root)
+{
+  "compilerOptions": {
+    "target": "ES5",
+    "module": "CommonJS",
+    "strict": true
+  },
+  "include": ["**/*"]
+}
+
+// No package-specific tsconfig files
+// No project references
+// No path mapping
+// No composite builds
+
+# Problems:
+# - No project references for incremental builds
+# - Missing path mapping for clean imports
+# - No composite builds
+# - Poor module resolution
+# - Missing modern TypeScript features]]></incorrect-example>
+        </example>
+      </examples>
+    </requirement>
+
+    <requirement priority="critical">
+      <description>Configure Vite for each package and app with proper build optimization, environment handling, and plugin configuration.</description>
+      <examples>
+        <example title="Vite Configuration">
+          <correct-example title="Proper Vite setup" conditions="Configuring Vite for monorepo packages" expected-result="Optimized builds with proper environment handling" correctness-criteria="Uses library mode for packages, proper externalization, and environment-specific configs"><![CDATA[// vite.config.ts (shared UI library)
+import { defineConfig } from 'vite';
+import react from '@vitejs/plugin-react';
+import { resolve } from 'path';
+import dts from 'vite-plugin-dts';
+
+export default defineConfig({
+  plugins: [
+    react(),
+    dts({
+      insertTypesEntry: true,
+      exclude: ['**/*.test.ts', '**/*.test.tsx', '**/*.spec.ts', '**/*.spec.tsx']
+    })
+  ],
+  build: {
+    lib: {
+      entry: resolve(__dirname, 'src/index.ts'),
+      name: 'SharedUI',
+      formats: ['es', 'cjs'],
+      fileName: (format) => `index.${format}.js`
+    },
+    rollupOptions: {
+      external: ['react', 'react-dom', 'react/jsx-runtime'],
+      output: {
+        globals: {
+          react: 'React',
+          'react-dom': 'ReactDOM',
+          'react/jsx-runtime': 'jsx'
+        }
+      }
+    },
+    sourcemap: true,
+    emptyOutDir: true
+  },
+  resolve: {
+    alias: {
+      '@': resolve(__dirname, 'src'),
+      '@my-monorepo/shared-types': resolve(__dirname, '../types/src'),
+      '@my-monorepo/shared-utils': resolve(__dirname, '../utils/src')
+    }
+  }
+});
+
+// vite.config.ts (web app)
+import { defineConfig } from 'vite';
+import react from '@vitejs/plugin-react';
+import { resolve } from 'path';
+
+export default defineConfig({
+  plugins: [react()],
+  build: {
+    outDir: 'dist',
+    sourcemap: true,
+    rollupOptions: {
+      output: {
+        manualChunks: {
+          vendor: ['react', 'react-dom'],
+          ui: ['@my-monorepo/shared-ui']
+        }
+      }
+    }
+  },
+  resolve: {
+    alias: {
+      '@': resolve(__dirname, 'src'),
+      '@my-monorepo/shared-ui': resolve(__dirname, '../../packages/shared/ui/src'),
+      '@my-monorepo/shared-utils': resolve(__dirname, '../../packages/shared/utils/src'),
+      '@my-monorepo/shared-types': resolve(__dirname, '../../packages/shared/types/src')
+    }
+  },
+  server: {
+    port: 3000,
+    host: true
+  },
+  preview: {
+    port: 3000,
+    host: true
+  },
+  define: {
+    __APP_VERSION__: JSON.stringify(process.env.npm_package_version)
+  }
+});
+
+// vite.config.ts (service/API)
+import { defineConfig } from 'vite';
+import { resolve } from 'path';
+
+export default defineConfig({
+  build: {
+    lib: {
+      entry: resolve(__dirname, 'src/index.ts'),
+      name: 'AuthService',
+      formats: ['cjs'],
+      fileName: () => 'index.js'
+    },
+    rollupOptions: {
+      external: ['express', 'jsonwebtoken', 'bcryptjs']
+    },
+    sourcemap: true,
+    emptyOutDir: true,
+    target: 'node18'
+  },
+  resolve: {
+    alias: {
+      '@': resolve(__dirname, 'src'),
+      '@my-monorepo/shared-types': resolve(__dirname, '../../shared/types/src'),
+      '@my-monorepo/shared-utils': resolve(__dirname, '../../shared/utils/src')
+    }
+  }
+});]]></correct-example>
+          <incorrect-example title="Poor Vite configuration" conditions="Configuring Vite for monorepo packages" expected-result="Optimized builds with proper environment handling" incorrectness-criteria="No library mode, missing externalization, poor alias setup"><![CDATA[// vite.config.ts (shared library)
+import { defineConfig } from 'vite';
+
+export default defineConfig({
+  plugins: [],
+  build: {
+    outDir: 'dist'
+  }
+});
+
+// vite.config.ts (web app)
+import { defineConfig } from 'vite';
+
+export default defineConfig({
+  plugins: [],
+  build: {
+    outDir: 'dist'
+  }
+});
+
+# Problems:
+# - No library mode for packages
+# - Missing externalization
+# - No proper alias configuration
+# - No source maps
+# - Missing optimization]]></incorrect-example>
+        </example>
+      </examples>
+    </requirement>
+
+    <requirement priority="critical">
+      <description>Configure ESLint with proper rules for monorepo, TypeScript, and React with shared configurations and package-specific overrides.</description>
+      <examples>
+        <example title="ESLint Configuration">
+          <correct-example title="Proper ESLint setup" conditions="Configuring ESLint for monorepo" expected-result="Consistent code quality across packages" correctness-criteria="Uses shared configuration, proper TypeScript rules, and package-specific overrides"><![CDATA[// eslint.config.js (root)
+import js from '@eslint/js';
+import typescript from '@typescript-eslint/eslint-plugin';
+import typescriptParser from '@typescript-eslint/parser';
+import react from 'eslint-plugin-react';
+import reactHooks from 'eslint-plugin-react-hooks';
+import reactRefresh from 'eslint-plugin-react-refresh';
+import prettier from 'eslint-plugin-prettier';
+
+export default [
+  js.configs.recommended,
+  {
+    files: ['**/*.{ts,tsx}'],
+    plugins: {
+      '@typescript-eslint': typescript,
+      react,
+      'react-hooks': reactHooks,
+      'react-refresh': reactRefresh,
+      prettier
+    },
+    languageOptions: {
+      parser: typescriptParser,
+      parserOptions: {
+        ecmaVersion: 'latest',
+        sourceType: 'module',
+        ecmaFeatures: {
+          jsx: true
+        },
+        project: './tsconfig.json'
+      }
+    },
+    rules: {
+      // TypeScript rules
+      '@typescript-eslint/no-unused-vars': 'error',
+      '@typescript-eslint/no-explicit-any': 'warn',
+      '@typescript-eslint/explicit-function-return-type': 'off',
+      '@typescript-eslint/explicit-module-boundary-types': 'off',
+      '@typescript-eslint/no-non-null-assertion': 'warn',
+      '@typescript-eslint/prefer-const': 'error',
+      '@typescript-eslint/no-var-requires': 'error',
+      
+      // React rules
+      'react/react-in-jsx-scope': 'off',
+      'react/prop-types': 'off',
+      'react/display-name': 'off',
+      'react-hooks/rules-of-hooks': 'error',
+      'react-hooks/exhaustive-deps': 'warn',
+      'react-refresh/only-export-components': 'warn',
+      
+      // General rules
+      'no-console': 'warn',
+      'no-debugger': 'error',
+      'prefer-const': 'error',
+      'no-var': 'error',
+      
+      // Prettier integration
+      'prettier/prettier': 'error'
+    },
+    settings: {
+      react: {
+        version: 'detect'
+      }
+    }
+  },
+  {
+    files: ['packages/*/src/**/*.{ts,tsx}'],
+    rules: {
+      // Library-specific rules
+      'no-console': 'error',
+      '@typescript-eslint/explicit-function-return-type': 'warn'
+    }
+  },
+  {
+    files: ['apps/*/src/**/*.{ts,tsx}'],
+    rules: {
+      // App-specific rules
+      'no-console': 'warn',
+      'react-refresh/only-export-components': 'error'
+    }
+  },
+  {
+    files: ['**/*.test.{ts,tsx}', '**/*.spec.{ts,tsx}'],
+    rules: {
+      // Test-specific rules
+      'no-console': 'off',
+      '@typescript-eslint/no-explicit-any': 'off'
+    }
+  }
+];
+
+// .eslintignore
+node_modules
+dist
+build
+coverage
+.env
+.env.local
+.env.production.local
+.env.development.local
+*.log
+.DS_Store]]></correct-example>
+          <incorrect-example title="Poor ESLint configuration" conditions="Configuring ESLint for monorepo" expected-result="Consistent code quality across packages" incorrectness-criteria="Basic configuration, no TypeScript support, missing React rules"><![CDATA[// .eslintrc.js (root)
+module.exports = {
+  extends: ['eslint:recommended'],
+  rules: {
+    'no-console': 'warn'
+  }
+};
+
+# Problems:
+# - No TypeScript support
+# - Missing React rules
+# - No package-specific overrides
+# - No proper parser configuration
+# - Missing modern ESLint flat config]]></incorrect-example>
+        </example>
+      </examples>
+    </requirement>
+
+    <requirement priority="high">
+      <description>Configure Prettier with consistent formatting rules and integration with ESLint for automatic code formatting.</description>
+      <examples>
+        <example title="Prettier Configuration">
+          <correct-example title="Proper Prettier setup" conditions="Configuring Prettier for monorepo" expected-result="Consistent code formatting" correctness-criteria="Uses proper configuration, integrates with ESLint, and supports all file types"><![CDATA[// prettier.config.js
+export default {
+  printWidth: 80,
+  tabWidth: 2,
+  useTabs: false,
+  semi: true,
+  singleQuote: true,
+  quoteProps: 'as-needed',
+  jsxSingleQuote: true,
+  trailingComma: 'es5',
+  bracketSpacing: true,
+  bracketSameLine: false,
+  arrowParens: 'avoid',
+  rangeStart: 0,
+  rangeEnd: Infinity,
+  requirePragma: false,
+  insertPragma: false,
+  proseWrap: 'preserve',
+  htmlWhitespaceSensitivity: 'css',
+  vueIndentScriptAndStyle: false,
+  endOfLine: 'lf',
+  embeddedLanguageFormatting: 'auto',
+  singleAttributePerLine: false,
+  overrides: [
+    {
+      files: '*.json',
+      options: {
+        printWidth: 200
+      }
+    },
+    {
+      files: '*.md',
+      options: {
+        proseWrap: 'always',
+        printWidth: 80
+      }
+    }
+  ]
+};
+
+// .prettierignore
+node_modules
+dist
+build
+coverage
+.env
+.env.local
+.env.production.local
+.env.development.local
+*.log
+.DS_Store
+pnpm-lock.yaml
+package-lock.json
+yarn.lock]]></correct-example>
+          <incorrect-example title="Poor Prettier configuration" conditions="Configuring Prettier for monorepo" expected-result="Consistent code formatting" incorrectness-criteria="Basic configuration, no overrides, missing integration"><![CDATA[// .prettierrc
+{
+  "semi": true,
+  "singleQuote": true
+}
+
+# Problems:
+# - Missing comprehensive configuration
+# - No file-specific overrides
+# - No proper ignore patterns
+# - Missing integration with build tools]]></incorrect-example>
+        </example>
+      </examples>
+    </requirement>
+
+    <requirement priority="high">
+      <description>Configure Jest with proper test setup, coverage reporting, and package-specific test configurations.</description>
+      <examples>
+        <example title="Jest Configuration">
+          <correct-example title="Proper Jest setup" conditions="Configuring Jest for monorepo testing" expected-result="Comprehensive test coverage and efficient testing" correctness-criteria="Uses proper test environment, coverage reporting, and package-specific configs"><![CDATA[// jest.config.js (root)
+export default {
+  projects: [
+    '<rootDir>/packages/*/jest.config.js',
+    '<rootDir>/apps/*/jest.config.js'
+  ],
+  collectCoverageFrom: [
+    '<rootDir>/packages/*/src/**/*.{ts,tsx}',
+    '<rootDir>/apps/*/src/**/*.{ts,tsx}',
+    '!**/*.d.ts',
+    '!**/*.test.{ts,tsx}',
+    '!**/*.spec.{ts,tsx}',
+    '!**/node_modules/**'
+  ],
+  coverageDirectory: '<rootDir>/coverage',
+  coverageReporters: ['text', 'lcov', 'html'],
+  coverageThreshold: {
+    global: {
+      branches: 80,
+      functions: 80,
+      lines: 80,
+      statements: 80
+    }
+  }
+};
+
+// jest.config.js (shared UI package)
+export default {
+  displayName: 'Shared UI',
+  preset: 'ts-jest',
+  testEnvironment: 'jsdom',
+  setupFilesAfterEnv: ['<rootDir>/src/setupTests.ts'],
+  moduleNameMapping: {
+    '^@/(.*)$': '<rootDir>/src/$1',
+    '^@my-monorepo/shared-types/(.*)$': '<rootDir>/../types/src/$1',
+    '^@my-monorepo/shared-utils/(.*)$': '<rootDir>/../utils/src/$1',
+    '\\.(css|less|scss|sass)$': 'identity-obj-proxy'
+  },
+  transform: {
+    '^.+\\.(ts|tsx)$': 'ts-jest'
+  },
+  collectCoverageFrom: [
+    'src/**/*.{ts,tsx}',
+    '!src/**/*.d.ts',
+    '!src/**/*.test.{ts,tsx}',
+    '!src/**/*.spec.{ts,tsx}',
+    '!src/index.ts'
+  ],
+  coverageDirectory: 'coverage',
+  coverageReporters: ['text', 'lcov'],
+  testMatch: [
+    '<rootDir>/src/**/*.test.{ts,tsx}',
+    '<rootDir>/src/**/*.spec.{ts,tsx}'
+  ]
+};
+
+// jest.config.js (web app)
+export default {
+  displayName: 'Web App',
+  preset: 'ts-jest',
+  testEnvironment: 'jsdom',
+  setupFilesAfterEnv: ['<rootDir>/src/setupTests.ts'],
+  moduleNameMapping: {
+    '^@/(.*)$': '<rootDir>/src/$1',
+    '^@my-monorepo/shared-ui/(.*)$': '<rootDir>/../../packages/shared/ui/src/$1',
+    '^@my-monorepo/shared-types/(.*)$': '<rootDir>/../../packages/shared/types/src/$1',
+    '^@my-monorepo/shared-utils/(.*)$': '<rootDir>/../../packages/shared/utils/src/$1',
+    '\\.(css|less|scss|sass)$': 'identity-obj-proxy'
+  },
+  transform: {
+    '^.+\\.(ts|tsx)$': 'ts-jest'
+  },
+  collectCoverageFrom: [
+    'src/**/*.{ts,tsx}',
+    '!src/**/*.d.ts',
+    '!src/**/*.test.{ts,tsx}',
+    '!src/**/*.spec.{ts,tsx}',
+    '!src/main.tsx'
+  ],
+  coverageDirectory: 'coverage',
+  testMatch: [
+    '<rootDir>/src/**/*.test.{ts,tsx}',
+    '<rootDir>/src/**/*.spec.{ts,tsx}'
+  ]
+};
+
+// setupTests.ts
+import '@testing-library/jest-dom';
+
+// Mock environment variables
+process.env.NODE_ENV = 'test';
+
+// Global test utilities
+global.ResizeObserver = jest.fn().mockImplementation(() => ({
+  observe: jest.fn(),
+  unobserve: jest.fn(),
+  disconnect: jest.fn(),
+}));]]></correct-example>
+          <incorrect-example title="Poor Jest configuration" conditions="Configuring Jest for monorepo testing" expected-result="Comprehensive test coverage and efficient testing" incorrectness-criteria="Basic configuration, no coverage, missing setup"><![CDATA[// jest.config.js (root)
+export default {
+  testEnvironment: 'jsdom',
+  transform: {
+    '^.+\\.(ts|tsx)$': 'ts-jest'
+  }
+};
+
+# Problems:
+# - No project-specific configurations
+# - Missing coverage reporting
+# - No proper module mapping
+# - Missing test setup files
+# - No coverage thresholds]]></incorrect-example>
+        </example>
+      </examples>
+    </requirement>
+
+    <requirement priority="high">
+      <description>Configure Husky and lint-staged for pre-commit hooks with proper code quality checks and formatting.</description>
+      <examples>
+        <example title="Git Hooks Configuration">
+          <correct-example title="Proper Husky and lint-staged setup" conditions="Setting up pre-commit hooks" expected-result="Consistent code quality enforcement" correctness-criteria="Uses proper hooks, staged file processing, and comprehensive checks"><![CDATA[// package.json (root) - scripts and configuration
+{
+  "scripts": {
+    "prepare": "husky install",
+    "precommit": "lint-staged"
+  },
+  "lint-staged": {
+    "*.{ts,tsx}": [
+      "eslint --fix",
+      "prettier --write",
+      "jest --findRelatedTests --passWithNoTests"
+    ],
+    "*.{js,jsx}": [
+      "eslint --fix",
+      "prettier --write"
+    ],
+    "*.{json,md,yml,yaml}": [
+      "prettier --write"
+    ],
+    "package.json": [
+      "npm run sort-package-json"
+    ]
+  },
+  "devDependencies": {
+    "husky": "^8.0.3",
+    "lint-staged": "^13.2.3",
+    "sort-package-json": "^2.5.1"
+  }
+}
+
+// .husky/pre-commit
+#!/usr/bin/env sh
+. "$(dirname -- "$0")/_/husky.sh"
+
+npm run precommit
+
+// .husky/pre-push
+#!/usr/bin/env sh
+. "$(dirname -- "$0")/_/husky.sh"
+
+npm run test:changed
+npm run build:changed
+
+// .husky/commit-msg
+#!/usr/bin/env sh
+. "$(dirname -- "$0")/_/husky.sh"
+
+npx --no-install commitlint --edit "$1"
+
+// commitlint.config.js
+export default {
+  extends: ['@commitlint/config-conventional'],
+  rules: {
+    'type-enum': [
+      2,
+      'always',
+      [
+        'feat',
+        'fix',
+        'docs',
+        'style',
+        'refactor',
+        'perf',
+        'test',
+        'build',
+        'ci',
+        'chore',
+        'revert'
+      ]
+    ],
+    'scope-enum': [
+      2,
+      'always',
+      [
+        'ui',
+        'utils',
+        'types',
+        'auth-service',
+        'web',
+        'admin',
+        'mobile',
+        'docs',
+        'tools',
+        'ci'
+      ]
+    ]
+  }
+};]]></correct-example>
+          <incorrect-example title="Poor git hooks setup" conditions="Setting up pre-commit hooks" expected-result="Consistent code quality enforcement" incorrectness-criteria="Basic setup, no comprehensive checks, missing configuration"><![CDATA[// package.json (root)
+{
+  "scripts": {
+    "prepare": "husky install"
+  },
+  "lint-staged": {
+    "*.ts": "eslint --fix"
+  }
+}
+
+// .husky/pre-commit
+#!/usr/bin/env sh
+. "$(dirname -- "$0")/_/husky.sh"
+
+npm run lint
+
+# Problems:
+# - No comprehensive file type handling
+# - Missing prettier integration
+# - No test running on changed files
+# - No commit message validation
+# - Missing pre-push hooks]]></incorrect-example>
+        </example>
+      </examples>
+    </requirement>
+
+    <requirement priority="high">
+      <description>Configure proper package.json files for each package with correct dependencies, scripts, and publishing configuration.</description>
+      <examples>
+        <example title="Package Configuration">
+          <correct-example title="Proper package.json setup" conditions="Configuring packages in monorepo" expected-result="Proper dependency management and publishing" correctness-criteria="Uses correct peer dependencies, proper scripts, and publishing configuration"><![CDATA[// package.json (shared UI library)
+{
+  "name": "@my-monorepo/shared-ui",
+  "version": "1.0.0",
+  "description": "Shared UI components for my monorepo",
+  "main": "dist/index.cjs.js",
+  "module": "dist/index.es.js",
+  "types": "dist/index.d.ts",
+  "exports": {
+    ".": {
+      "import": "./dist/index.es.js",
+      "require": "./dist/index.cjs.js",
+      "types": "./dist/index.d.ts"
+    }
+  },
+  "files": [
+    "dist",
+    "README.md"
+  ],
+  "scripts": {
+    "build": "vite build",
+    "dev": "vite build --watch",
+    "test": "jest",
+    "test:watch": "jest --watch",
+    "test:coverage": "jest --coverage",
+    "lint": "eslint src --ext .ts,.tsx",
+    "lint:fix": "eslint src --ext .ts,.tsx --fix",
+    "type-check": "tsc --noEmit",
+    "clean": "rm -rf dist"
+  },
+  "peerDependencies": {
+    "react": "^18.0.0",
+    "react-dom": "^18.0.0"
+  },
+  "dependencies": {
+    "@my-monorepo/shared-types": "^1.0.0",
+    "@my-monorepo/shared-utils": "^1.0.0"
+  },
+  "devDependencies": {
+    "@types/react": "^18.0.0",
+    "@types/react-dom": "^18.0.0",
+    "@vitejs/plugin-react": "^4.0.0",
+    "vite": "^4.0.0",
+    "vite-plugin-dts": "^3.0.0"
+  },
+  "publishConfig": {
+    "access": "public"
+  },
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/my-org/my-monorepo.git",
+    "directory": "packages/shared/ui"
+  },
+  "keywords": [
+    "react",
+    "components",
+    "ui",
+    "typescript"
+  ],
+  "author": "Your Name",
+  "license": "MIT"
+}
+
+// package.json (web app)
+{
+  "name": "@my-monorepo/web",
+  "version": "1.0.0",
+  "type": "module",
+  "private": true,
+  "scripts": {
+    "dev": "vite",
+    "build": "tsc && vite build",
+    "preview": "vite preview",
+    "test": "jest",
+    "test:watch": "jest --watch",
+    "test:coverage": "jest --coverage",
+    "lint": "eslint src --ext .ts,.tsx",
+    "lint:fix": "eslint src --ext .ts,.tsx --fix",
+    "type-check": "tsc --noEmit"
+  },
+  "dependencies": {
+    "react": "^18.0.0",
+    "react-dom": "^18.0.0",
+    "react-router-dom": "^6.0.0",
+    "@my-monorepo/shared-ui": "^1.0.0",
+    "@my-monorepo/shared-types": "^1.0.0",
+    "@my-monorepo/shared-utils": "^1.0.0"
+  },
+  "devDependencies": {
+    "@types/react": "^18.0.0",
+    "@types/react-dom": "^18.0.0",
+    "@vitejs/plugin-react": "^4.0.0",
+    "vite": "^4.0.0"
+  }
+}
+
+// package.json (utility library)
+{
+  "name": "@my-monorepo/shared-utils",
+  "version": "1.0.0",
+  "description": "Shared utility functions for my monorepo",
+  "main": "dist/index.cjs.js",
+  "module": "dist/index.es.js",
+  "types": "dist/index.d.ts",
+  "exports": {
+    ".": {
+      "import": "./dist/index.es.js",
+      "require": "./dist/index.cjs.js",
+      "types": "./dist/index.d.ts"
+    }
+  },
+  "files": [
+    "dist",
+    "README.md"
+  ],
+  "scripts": {
+    "build": "vite build",
+    "dev": "vite build --watch",
+    "test": "jest",
+    "test:watch": "jest --watch",
+    "test:coverage": "jest --coverage",
+    "lint": "eslint src --ext .ts",
+    "lint:fix": "eslint src --ext .ts --fix",
+    "type-check": "tsc --noEmit"
+  },
+  "dependencies": {
+    "@my-monorepo/shared-types": "^1.0.0"
+  },
+  "devDependencies": {
+    "vite": "^4.0.0",
+    "vite-plugin-dts": "^3.0.0"
+  },
+  "publishConfig": {
+    "access": "public"
+  }
+}]]></correct-example>
+          <incorrect-example title="Poor package configuration" conditions="Configuring packages in monorepo" expected-result="Proper dependency management and publishing" incorrectness-criteria="Missing exports, wrong dependencies, poor scripts"><![CDATA[// package.json (shared UI library)
+{
+  "name": "shared-ui",
+  "version": "1.0.0",
+  "main": "src/index.ts",
+  "scripts": {
+    "build": "tsc"
+  },
+  "dependencies": {
+    "react": "^18.0.0",
+    "react-dom": "^18.0.0"
+  }
+}
+
+# Problems:
+# - Missing proper exports configuration
+# - Wrong main entry point
+# - React should be peer dependency
+# - Missing build tools configuration
+# - No TypeScript declaration files
+# - Poor script setup]]></incorrect-example>
+        </example>
+      </examples>
+    </requirement>
+
+    <requirement priority="medium">
+      <description>Configure proper environment variables and configuration management across packages and applications.</description>
+      <examples>
+        <example title="Environment Configuration">
+          <correct-example title="Proper environment setup" conditions="Managing environment variables in monorepo" expected-result="Secure and flexible configuration" correctness-criteria="Uses proper environment files, validation, and type safety"><![CDATA[// .env.example (root)
+# Database
+DATABASE_URL=postgresql://localhost:5432/myapp
+DATABASE_SSL=false
+
+# API
+API_BASE_URL=http://localhost:3001
+API_TIMEOUT=30000
+
+# Auth
+JWT_SECRET=your-jwt-secret-here
+JWT_EXPIRES_IN=7d
+
+# External Services
+STRIPE_PUBLIC_KEY=pk_test_...
+STRIPE_SECRET_KEY=sk_test_...
+
+# Build
+NODE_ENV=development
+PORT=3000
+
+# apps/web/.env.example
+VITE_API_BASE_URL=http://localhost:3001
+VITE_APP_NAME=My Web App
+VITE_APP_VERSION=1.0.0
+VITE_STRIPE_PUBLIC_KEY=pk_test_...
+
+// packages/shared/types/src/env.ts
+export interface EnvironmentConfig {
+  NODE_ENV: 'development' | 'production' | 'test';
+  API_BASE_URL: string;
+  API_TIMEOUT: number;
+  JWT_SECRET: string;
+  JWT_EXPIRES_IN: string;
+  DATABASE_URL: string;
+  DATABASE_SSL: boolean;
+  STRIPE_PUBLIC_KEY: string;
+  STRIPE_SECRET_KEY: string;
+  PORT: number;
+}
+
+export interface WebEnvironmentConfig {
+  VITE_API_BASE_URL: string;
+  VITE_APP_NAME: string;
+  VITE_APP_VERSION: string;
+  VITE_STRIPE_PUBLIC_KEY: string;
+}
+
+// packages/shared/utils/src/env.ts
+import { z } from 'zod';
+import type { EnvironmentConfig, WebEnvironmentConfig } from '@my-monorepo/shared-types';
+
+const envSchema = z.object({
+  NODE_ENV: z.enum(['development', 'production', 'test']).default('development'),
+  API_BASE_URL: z.string().url(),
+  API_TIMEOUT: z.coerce.number().positive().default(30000),
+  JWT_SECRET: z.string().min(32),
+  JWT_EXPIRES_IN: z.string().default('7d'),
+  DATABASE_URL: z.string().url(),
+  DATABASE_SSL: z.coerce.boolean().default(false),
+  STRIPE_PUBLIC_KEY: z.string().startsWith('pk_'),
+  STRIPE_SECRET_KEY: z.string().startsWith('sk_'),
+  PORT: z.coerce.number().positive().default(3000),
+});
+
+const webEnvSchema = z.object({
+  VITE_API_BASE_URL: z.string().url(),
+  VITE_APP_NAME: z.string().min(1),
+  VITE_APP_VERSION: z.string().min(1),
+  VITE_STRIPE_PUBLIC_KEY: z.string().startsWith('pk_'),
+});
+
+export function validateEnv(): EnvironmentConfig {
+  const result = envSchema.safeParse(process.env);
+  
+  if (!result.success) {
+    console.error('Environment validation failed:', result.error.format());
+    throw new Error('Invalid environment configuration');
+  }
+  
+  return result.data;
+}
+
+export function validateWebEnv(): WebEnvironmentConfig {
+  const result = webEnvSchema.safeParse(import.meta.env);
+  
+  if (!result.success) {
+    console.error('Web environment validation failed:', result.error.format());
+    throw new Error('Invalid web environment configuration');
+  }
+  
+  return result.data;
+}
+
+// apps/web/src/config/env.ts
+import { validateWebEnv } from '@my-monorepo/shared-utils';
+
+export const env = validateWebEnv();
+
+// packages/services/auth-service/src/config/env.ts
+import { validateEnv } from '@my-monorepo/shared-utils';
+
+export const env = validateEnv();]]></correct-example>
+          <incorrect-example title="Poor environment configuration" conditions="Managing environment variables in monorepo" expected-result="Secure and flexible configuration" incorrectness-criteria="No validation, unsafe access, missing types"><![CDATA[// No environment validation
+// Direct process.env access everywhere
+// No type safety
+
+// apps/web/src/config.ts
+export const config = {
+  apiUrl: process.env.VITE_API_BASE_URL || 'http://localhost:3001',
+  appName: process.env.VITE_APP_NAME || 'My App'
+};
+
+// packages/services/auth-service/src/config.ts
+export const config = {
+  jwtSecret: process.env.JWT_SECRET,
+  port: process.env.PORT || 3000
+};
+
+# Problems:
+# - No environment validation
+# - Direct process.env access
+# - No type safety
+# - Missing error handling
+# - No shared configuration]]></incorrect-example>
+        </example>
+      </examples>
+    </requirement>
+
+    <requirement priority="medium">
+      <description>Configure proper documentation structure with automated API documentation and comprehensive README files.</description>
+      <examples>
+        <example title="Documentation Structure">
+          <correct-example title="Proper documentation setup" conditions="Setting up documentation for monorepo" expected-result="Comprehensive and maintainable documentation" correctness-criteria="Uses automated API docs, proper README structure, and documentation tools"><![CDATA[// README.md (root)
+# My Monorepo
+
+A modern TypeScript monorepo built with Lerna, Vite, and React.
+
+## Structure
+
+```
+my-monorepo/
+├── packages/          # Shared libraries and services
+├── apps/             # Applications
+├── tools/            # Build tools and scripts
+└── docs/            # Documentation
+```
+
+## Getting Started
+
+### Prerequisites
+
+- Node.js 18+ 
+- npm 8+
+
+### Installation
+
+```bash
+# Clone the repository
+git clone https://github.com/my-org/my-monorepo.git
+cd my-monorepo
+
+# Install dependencies
+npm install
+
+# Bootstrap packages
+npm run bootstrap
+
+# Build all packages
+npm run build
+```
+
+### Development
+
+```bash
+# Start development servers
+npm run dev
+
+# Run tests
+npm run test
+
+# Lint code
+npm run lint
+```
+
+## Packages
+
+### Shared Libraries
+
+- [`@my-monorepo/shared-ui`](./packages/shared/ui) - Reusable React components
+- [`@my-monorepo/shared-utils`](./packages/shared/utils) - Utility functions
+- [`@my-monorepo/shared-types`](./packages/shared/types) - TypeScript type definitions
+
+### Services
+
+- [`@my-monorepo/auth-service`](./packages/services/auth-service) - Authentication service
+
+### Applications
+
+- [`@my-monorepo/web`](./apps/web) - Main web application
+- [`@my-monorepo/admin`](./apps/admin) - Admin dashboard
+
+## Scripts
+
+| Script | Description |
+|--------|-------------|
+| `npm run bootstrap` | Install and link dependencies |
+| `npm run build` | Build all packages |
+| `npm run dev` | Start development servers |
+| `npm run test` | Run all tests |
+| `npm run lint` | Lint all code |
+| `npm run clean` | Clean build artifacts |
+
+## Contributing
+
+Please read our [Contributing Guide](./CONTRIBUTING.md) for details on our code of conduct and the process for submitting pull requests.
+
+## License
+
+This project is licensed under the MIT License - see the [LICENSE](./LICENSE) file for details.
+
+// packages/shared/ui/README.md
+# @my-monorepo/shared-ui
+
+Shared UI components for the monorepo.
+
+## Installation
+
+```bash
+npm install @my-monorepo/shared-ui
+```
+
+## Usage
+
+```tsx
+import { Button, Input } from '@my-monorepo/shared-ui';
+
+function App() {
+  return (
+    <div>
+      <Button variant="primary">Click me</Button>
+      <Input placeholder="Enter text" />
+    </div>
+  );
+}
+```
+
+## Components
+
+### Button
+
+A reusable button component with multiple variants.
+
+#### Props
+
+| Prop | Type | Default | Description |
+|------|------|---------|-------------|
+| variant | 'primary' \| 'secondary' \| 'danger' | 'primary' | Button style variant |
+| size | 'small' \| 'medium' \| 'large' | 'medium' | Button size |
+| disabled | boolean | false | Whether button is disabled |
+| onClick | () => void | - | Click handler |
+
+#### Examples
+
+```tsx
+<Button variant="primary" size="large">
+  Primary Button
+</Button>
+
+<Button variant="secondary" disabled>
+  Disabled Button
+</Button>
+```
+
+## Development
+
+```bash
+# Install dependencies
+npm install
+
+# Start development mode
+npm run dev
+
+# Run tests
+npm run test
+
+# Build package
+npm run build
+```
+
+// docs/api/README.md
+# API Documentation
+
+This directory contains automatically generated API documentation for all packages.
+
+## Generated Documentation
+
+- [Shared UI Components](./ui.md)
+- [Shared Utilities](./utils.md)
+- [Shared Types](./types.md)
+
+## Generating Documentation
+
+```bash
+npm run docs:generate
+```
+
+Documentation is automatically generated from TypeScript comments and JSDoc annotations.
+
+// typedoc.json
+{
+  "entryPoints": [
+    "packages/shared/ui/src/index.ts",
+    "packages/shared/utils/src/index.ts",
+    "packages/shared/types/src/index.ts"
+  ],
+  "out": "docs/api",
+  "theme": "default",
+  "readme": "none",
+  "excludePrivate": true,
+  "excludeProtected": true,
+  "excludeInternal": true,
+  "categorizeByGroup": true,
+  "categoryOrder": [
+    "Components",
+    "Utilities",
+    "Types",
+    "Other"
+  ]
+}]]></correct-example>
+          <incorrect-example title="Poor documentation setup" conditions="Setting up documentation for monorepo" expected-result="Comprehensive and maintainable documentation" incorrectness-criteria="Missing README files, no API docs, poor structure"><![CDATA[// README.md (root)
+# My Project
+
+A TypeScript project.
+
+## Installation
+
+npm install
+
+## Usage
+
+Run the app.
+
+# Problems:
+# - No comprehensive documentation
+# - Missing package descriptions
+# - No API documentation
+# - Poor structure
+# - No development instructions]]></incorrect-example>
+        </example>
+      </examples>
+    </requirement>
+  </requirements>
+
+  <context description="TypeScript monorepo development with modern tooling">
+    TypeScript monorepos have become the standard for large-scale JavaScript applications, providing code sharing, consistent tooling, and efficient development workflows. Modern tooling like Lerna, Vite, and comprehensive linting setups enable teams to maintain multiple packages and applications in a single repository while ensuring code quality and consistency.
+
+    Key principles for TypeScript monorepos include:
+    - Clear package boundaries and dependencies
+    - Consistent tooling and configuration across packages
+    - Efficient build processes with incremental builds
+    - Proper version management and publishing workflows
+    - Comprehensive testing and code quality enforcement
+    - Documentation and developer experience optimization
+
+    Lerna provides powerful monorepo management with features like independent versioning, selective publishing, and parallel command execution. When combined with npm workspaces, it offers an efficient development experience.
+
+    Vite serves as the build tool of choice for modern TypeScript projects, offering fast development servers, optimized production builds, and excellent TypeScript support. Its plugin ecosystem enables easy integration with React, Vue, and other frameworks.
+
+    ESLint and Prettier ensure consistent code quality and formatting across all packages, while Jest provides comprehensive testing capabilities with proper monorepo support.
+
+    This setup enables teams to build scalable applications while maintaining code quality, consistency, and developer productivity.
+  </context>
+
+  <references>
+    <reference as="dependency" href=".cursor/rules/000-core/002-cursor-rules-creation.mdc" reason="Follows standard rule format">Base rule format definition</reference>
+    <reference as="dependency" href=".cursor/rules/300-languages/307-typescript-core-standards-auto.mdc" reason="Core TypeScript standards">TypeScript coding standards and best practices</reference>
+    <reference as="dependency" href=".cursor/rules/600-tooling/618-vite-core-standards-auto.mdc" reason="Vite build configuration">Vite build tool best practices</reference>
+    <reference as="context" href=".cursor/rules/400-frameworks/402-react-core-standards-auto.mdc" reason="React development patterns">React development best practices</reference>
+    <reference as="context" href=".cursor/rules/200-quality/205-prettier-core-standards-auto.mdc" reason="Style guide standards">Code style and formatting guidelines</reference>
+    <reference as="context" href="https://lerna.js.org/docs/getting-started" reason="Lerna documentation">Lerna monorepo management</reference>
+    <reference as="context" href="https://vitejs.dev/guide/" reason="Vite documentation">Vite build tool guide</reference>
+    <reference as="context" href="https://www.typescriptlang.org/docs/handbook/project-references.html" reason="TypeScript project references">TypeScript project references for monorepos</reference>
+  </references>
+</rule>

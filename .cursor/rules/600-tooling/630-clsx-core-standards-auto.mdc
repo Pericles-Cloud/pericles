@@ -1,0 +1,1036 @@
+<rule>
+  <meta>
+    <title>CLSX Core Standards</title>
+    <description>Comprehensive clsx utility standards for conditional CSS class names, performance optimization, TypeScript integration, and component styling patterns following modern React and CSS-in-JS best practices</description>
+    <created-at utc-timestamp="1744157700">January 25, 2025, 10:15 AM</created-at>
+    <last-updated-at utc-timestamp="1744157700">January 25, 2025, 10:15 AM</last-updated-at>
+    <applies-to>
+      <file-matcher glob="**/*.{ts,tsx,js,jsx}">TypeScript and JavaScript files using clsx</file-matcher>
+      <file-matcher glob="**/components/**/*">React component files</file-matcher>
+      <file-matcher glob="**/styles/**/*">Styling-related files</file-matcher>
+      <file-matcher glob="**/*component*">Component implementation files</file-matcher>
+      <action-matcher action="styling">Triggered when working with CSS class manipulation</action-matcher>
+    </applies-to>
+  </meta>
+  <requirements>
+    <non-negotiable priority="critical">
+      <description>Use clsx for all conditional CSS class name construction with proper TypeScript typing, performance optimization, and consistent patterns. Implement class name composition strategies for reusable styling systems and component libraries.</description>
+      <examples>
+        <example title="Comprehensive CLSX Usage Patterns">
+          <correct-example title="Proper clsx implementation with TypeScript and performance optimization" conditions="Building React components with conditional styling" expected-result="Type-safe, performant class name composition with maintainable patterns" correctness-criteria="TypeScript integration, performance optimization, consistent patterns, reusable utilities"><![CDATA[// TypeScript - Comprehensive clsx usage patterns
+import clsx from 'clsx';
+import React from 'react';
+
+// Type definitions for consistent styling patterns
+type Size = 'xs' | 'sm' | 'md' | 'lg' | 'xl';
+type Variant = 'primary' | 'secondary' | 'success' | 'warning' | 'error' | 'info';
+type Position = 'top' | 'right' | 'bottom' | 'left' | 'center';
+
+interface BaseStyleProps {
+  size?: Size;
+  variant?: Variant;
+  disabled?: boolean;
+  loading?: boolean;
+  fullWidth?: boolean;
+  className?: string;
+}
+
+// Utility functions for consistent class name generation
+const createSizeClasses = (size: Size = 'md'): Record<Size, string> => ({
+  xs: 'text-xs px-2 py-1',
+  sm: 'text-sm px-3 py-1.5',
+  md: 'text-base px-4 py-2',
+  lg: 'text-lg px-6 py-3',
+  xl: 'text-xl px-8 py-4'
+});
+
+const createVariantClasses = (variant: Variant = 'primary'): Record<Variant, string> => ({
+  primary: 'bg-blue-600 text-white hover:bg-blue-700 focus:ring-blue-500',
+  secondary: 'bg-gray-600 text-white hover:bg-gray-700 focus:ring-gray-500',
+  success: 'bg-green-600 text-white hover:bg-green-700 focus:ring-green-500',
+  warning: 'bg-yellow-600 text-white hover:bg-yellow-700 focus:ring-yellow-500',
+  error: 'bg-red-600 text-white hover:bg-red-700 focus:ring-red-500',
+  info: 'bg-indigo-600 text-white hover:bg-indigo-700 focus:ring-indigo-500'
+});
+
+// Memoized class generation for performance
+const generateButtonClasses = React.useMemo(() => {
+  const cache = new Map<string, string>();
+  
+  return (props: BaseStyleProps): string => {
+    const cacheKey = JSON.stringify(props);
+    
+    if (cache.has(cacheKey)) {
+      return cache.get(cacheKey)!;
+    }
+    
+    const sizeClasses = createSizeClasses();
+    const variantClasses = createVariantClasses();
+    
+    const classes = clsx(
+      // Base classes
+      'inline-flex items-center justify-center',
+      'font-medium rounded-md',
+      'border border-transparent',
+      'transition-colors duration-200',
+      'focus:outline-none focus:ring-2 focus:ring-offset-2',
+      
+      // Size classes
+      sizeClasses[props.size || 'md'],
+      
+      // Variant classes
+      variantClasses[props.variant || 'primary'],
+      
+      // State classes with complex conditionals
+      {
+        'opacity-50 cursor-not-allowed': props.disabled,
+        'animate-pulse pointer-events-none': props.loading,
+        'w-full': props.fullWidth,
+        'shadow-sm hover:shadow-md': !props.disabled && !props.loading
+      },
+      
+      // Custom className override
+      props.className
+    );
+    
+    cache.set(cacheKey, classes);
+    return classes;
+  };
+}, []);
+
+// Advanced button component with comprehensive clsx usage
+interface ButtonProps extends BaseStyleProps {
+  children: React.ReactNode;
+  type?: 'button' | 'submit' | 'reset';
+  onClick?: (event: React.MouseEvent<HTMLButtonElement>) => void;
+  icon?: React.ReactNode;
+  iconPosition?: 'left' | 'right';
+  tooltip?: string;
+  'data-testid'?: string;
+}
+
+export const Button: React.FC<ButtonProps> = ({
+  children,
+  type = 'button',
+  onClick,
+  icon,
+  iconPosition = 'left',
+  tooltip,
+  'data-testid': testId,
+  ...styleProps
+}) => {
+  const buttonClasses = generateButtonClasses(styleProps);
+  
+  const iconClasses = clsx(
+    'flex-shrink-0',
+    {
+      'mr-2': iconPosition === 'left' && children,
+      'ml-2': iconPosition === 'right' && children,
+      'w-4 h-4': styleProps.size === 'sm' || styleProps.size === 'xs',
+      'w-5 h-5': styleProps.size === 'md',
+      'w-6 h-6': styleProps.size === 'lg' || styleProps.size === 'xl'
+    }
+  );
+  
+  return (
+    <button
+      type={type}
+      className={buttonClasses}
+      onClick={onClick}
+      disabled={styleProps.disabled || styleProps.loading}
+      title={tooltip}
+      data-testid={testId}
+      aria-label={typeof children === 'string' ? children : tooltip}
+    >
+      {icon && iconPosition === 'left' && (
+        <span className={iconClasses}>{icon}</span>
+      )}
+      
+      {styleProps.loading ? (
+        <span className="flex items-center">
+          <svg
+            className={clsx(
+              'animate-spin mr-2',
+              {
+                'w-3 h-3': styleProps.size === 'xs',
+                'w-4 h-4': styleProps.size === 'sm' || styleProps.size === 'md',
+                'w-5 h-5': styleProps.size === 'lg',
+                'w-6 h-6': styleProps.size === 'xl'
+              }
+            )}
+            fill="none"
+            viewBox="0 0 24 24"
+          >
+            <circle
+              className="opacity-25"
+              cx="12"
+              cy="12"
+              r="10"
+              stroke="currentColor"
+              strokeWidth="4"
+            />
+            <path
+              className="opacity-75"
+              fill="currentColor"
+              d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"
+            />
+          </svg>
+          Loading...
+        </span>
+      ) : (
+        children
+      )}
+      
+      {icon && iconPosition === 'right' && !styleProps.loading && (
+        <span className={iconClasses}>{icon}</span>
+      )}
+    </button>
+  );
+};
+
+// Advanced card component with complex conditional styling
+interface CardProps {
+  children: React.ReactNode;
+  variant?: 'default' | 'outlined' | 'elevated' | 'filled';
+  padding?: Size;
+  radius?: 'none' | 'sm' | 'md' | 'lg' | 'xl' | 'full';
+  hover?: boolean;
+  clickable?: boolean;
+  selected?: boolean;
+  className?: string;
+  onClick?: () => void;
+}
+
+export const Card: React.FC<CardProps> = ({
+  children,
+  variant = 'default',
+  padding = 'md',
+  radius = 'md',
+  hover = false,
+  clickable = false,
+  selected = false,
+  className,
+  onClick
+}) => {
+  const cardClasses = clsx(
+    // Base classes
+    'block transition-all duration-200',
+    
+    // Variant classes
+    {
+      'bg-white shadow-sm border border-gray-200': variant === 'default',
+      'bg-transparent border border-gray-300': variant === 'outlined',
+      'bg-white shadow-lg border-0': variant === 'elevated',
+      'bg-gray-50 border-0': variant === 'filled'
+    },
+    
+    // Padding classes
+    {
+      'p-2': padding === 'xs',
+      'p-3': padding === 'sm',
+      'p-4': padding === 'md',
+      'p-6': padding === 'lg',
+      'p-8': padding === 'xl'
+    },
+    
+    // Radius classes
+    {
+      'rounded-none': radius === 'none',
+      'rounded-sm': radius === 'sm',
+      'rounded-md': radius === 'md',
+      'rounded-lg': radius === 'lg',
+      'rounded-xl': radius === 'xl',
+      'rounded-full': radius === 'full'
+    },
+    
+    // Interactive states
+    {
+      'hover:shadow-md': hover && variant !== 'elevated',
+      'hover:shadow-xl': hover && variant === 'elevated',
+      'cursor-pointer': clickable,
+      'ring-2 ring-blue-500 ring-opacity-50': selected,
+      'hover:bg-gray-50': clickable && variant === 'default',
+      'transform hover:scale-[1.02]': clickable && hover
+    },
+    
+    // Custom className
+    className
+  );
+  
+  const Component = clickable ? 'button' : 'div';
+  
+  return (
+    <Component
+      className={cardClasses}
+      onClick={onClick}
+      role={clickable ? 'button' : undefined}
+      tabIndex={clickable ? 0 : undefined}
+    >
+      {children}
+    </Component>
+  );
+};
+
+// Form input component with comprehensive validation styling
+interface InputProps {
+  label?: string;
+  placeholder?: string;
+  value?: string;
+  onChange?: (value: string) => void;
+  type?: 'text' | 'email' | 'password' | 'number' | 'tel' | 'url';
+  size?: Size;
+  variant?: 'default' | 'filled' | 'outlined';
+  state?: 'default' | 'error' | 'success' | 'warning';
+  disabled?: boolean;
+  required?: boolean;
+  helpText?: string;
+  errorMessage?: string;
+  leftIcon?: React.ReactNode;
+  rightIcon?: React.ReactNode;
+  className?: string;
+}
+
+export const Input: React.FC<InputProps> = ({
+  label,
+  placeholder,
+  value,
+  onChange,
+  type = 'text',
+  size = 'md',
+  variant = 'default',
+  state = 'default',
+  disabled = false,
+  required = false,
+  helpText,
+  errorMessage,
+  leftIcon,
+  rightIcon,
+  className
+}) => {
+  const inputId = React.useId();
+  const helpTextId = React.useId();
+  const errorId = React.useId();
+  
+  const containerClasses = clsx(
+    'relative',
+    className
+  );
+  
+  const labelClasses = clsx(
+    'block font-medium mb-1',
+    {
+      'text-sm': size === 'xs' || size === 'sm',
+      'text-base': size === 'md',
+      'text-lg': size === 'lg' || size === 'xl',
+      'text-gray-700': state === 'default',
+      'text-red-700': state === 'error',
+      'text-green-700': state === 'success',
+      'text-yellow-700': state === 'warning',
+      'text-gray-400': disabled
+    }
+  );
+  
+  const inputClasses = clsx(
+    // Base classes
+    'w-full transition-colors duration-200',
+    'border focus:outline-none focus:ring-2 focus:ring-offset-0',
+    
+    // Size classes
+    {
+      'text-xs px-2 py-1': size === 'xs',
+      'text-sm px-3 py-1.5': size === 'sm',
+      'text-base px-3 py-2': size === 'md',
+      'text-lg px-4 py-2.5': size === 'lg',
+      'text-xl px-5 py-3': size === 'xl'
+    },
+    
+    // Variant classes
+    {
+      'bg-white border-gray-300 rounded-md': variant === 'default',
+      'bg-gray-50 border-gray-200 rounded-md': variant === 'filled',
+      'bg-transparent border-0 border-b-2 rounded-none': variant === 'outlined'
+    },
+    
+    // State classes
+    {
+      'border-gray-300 focus:border-blue-500 focus:ring-blue-500': 
+        state === 'default' && !disabled,
+      'border-red-300 focus:border-red-500 focus:ring-red-500 bg-red-50': 
+        state === 'error',
+      'border-green-300 focus:border-green-500 focus:ring-green-500 bg-green-50': 
+        state === 'success',
+      'border-yellow-300 focus:border-yellow-500 focus:ring-yellow-500 bg-yellow-50': 
+        state === 'warning',
+      'bg-gray-100 border-gray-200 text-gray-500 cursor-not-allowed': 
+        disabled
+    },
+    
+    // Icon spacing
+    {
+      'pl-10': leftIcon && (size === 'md' || size === 'lg' || size === 'xl'),
+      'pl-8': leftIcon && (size === 'xs' || size === 'sm'),
+      'pr-10': rightIcon && (size === 'md' || size === 'lg' || size === 'xl'),
+      'pr-8': rightIcon && (size === 'xs' || size === 'sm')
+    }
+  );
+  
+  const iconClasses = clsx(
+    'absolute top-1/2 transform -translate-y-1/2 text-gray-400',
+    {
+      'w-4 h-4': size === 'xs' || size === 'sm',
+      'w-5 h-5': size === 'md',
+      'w-6 h-6': size === 'lg' || size === 'xl',
+      'left-2': leftIcon && (size === 'xs' || size === 'sm'),
+      'left-3': leftIcon && (size === 'md' || size === 'lg' || size === 'xl'),
+      'right-2': rightIcon && (size === 'xs' || size === 'sm'),
+      'right-3': rightIcon && (size === 'md' || size === 'lg' || size === 'xl')
+    }
+  );
+  
+  const messageClasses = clsx(
+    'mt-1 text-sm',
+    {
+      'text-gray-600': state === 'default',
+      'text-red-600': state === 'error',
+      'text-green-600': state === 'success',
+      'text-yellow-600': state === 'warning'
+    }
+  );
+  
+  return (
+    <div className={containerClasses}>
+      {label && (
+        <label htmlFor={inputId} className={labelClasses}>
+          {label}
+          {required && <span className="text-red-500 ml-1">*</span>}
+        </label>
+      )}
+      
+      <div className="relative">
+        {leftIcon && <div className={clsx(iconClasses, 'left-2')}>{leftIcon}</div>}
+        
+        <input
+          id={inputId}
+          type={type}
+          placeholder={placeholder}
+          value={value}
+          onChange={(e) => onChange?.(e.target.value)}
+          disabled={disabled}
+          required={required}
+          className={inputClasses}
+          aria-describedby={clsx({
+            [helpTextId]: helpText,
+            [errorId]: errorMessage
+          })}
+          aria-invalid={state === 'error'}
+        />
+        
+        {rightIcon && <div className={clsx(iconClasses, 'right-2')}>{rightIcon}</div>}
+      </div>
+      
+      {errorMessage && (
+        <p id={errorId} className={messageClasses} role="alert">
+          {errorMessage}
+        </p>
+      )}
+      
+      {helpText && !errorMessage && (
+        <p id={helpTextId} className={messageClasses}>
+          {helpText}
+        </p>
+      )}
+    </div>
+  );
+};
+
+// Utility functions for complex class composition
+export const createResponsiveClasses = (
+  baseClasses: string,
+  breakpoints: Partial<Record<'sm' | 'md' | 'lg' | 'xl' | '2xl', string>>
+): string => {
+  return clsx(
+    baseClasses,
+    Object.entries(breakpoints).map(([breakpoint, classes]) => 
+      classes?.split(' ').map(cls => `${breakpoint}:${cls}`).join(' ')
+    )
+  );
+};
+
+export const createThemeClasses = (
+  lightClasses: string,
+  darkClasses: string,
+  systemClasses?: string
+): string => {
+  return clsx(
+    lightClasses,
+    `dark:${darkClasses}`,
+    systemClasses && `@media (prefers-color-scheme: dark) { ${systemClasses} }`
+  );
+};
+
+export const createAnimationClasses = (
+  trigger: boolean,
+  enterClasses: string,
+  exitClasses: string,
+  duration: string = 'duration-200'
+): string => {
+  return clsx(
+    'transition-all',
+    duration,
+    {
+      [enterClasses]: trigger,
+      [exitClasses]: !trigger
+    }
+  );
+};
+
+// Performance optimization utility
+export const clsxMemo = React.memo(
+  ({ children, ...props }: { children: (classes: string) => React.ReactNode } & any) => {
+    const classes = React.useMemo(() => clsx(props), [props]);
+    return <>{children(classes)}</>;
+  }
+);
+
+// Custom hook for managing dynamic classes
+export const useClsx = (
+  staticClasses: string,
+  dynamicClasses: () => string | object,
+  dependencies: React.DependencyList
+): string => {
+  return React.useMemo(
+    () => clsx(staticClasses, dynamicClasses()),
+    [staticClasses, ...dependencies]
+  );
+};
+
+// Testing utilities for clsx
+export const testClassNames = {
+  hasClass: (element: HTMLElement, className: string): boolean => {
+    return element.classList.contains(className);
+  },
+  
+  hasAnyClass: (element: HTMLElement, classNames: string[]): boolean => {
+    return classNames.some(className => element.classList.contains(className));
+  },
+  
+  hasAllClasses: (element: HTMLElement, classNames: string[]): boolean => {
+    return classNames.every(className => element.classList.contains(className));
+  },
+  
+  getClassList: (element: HTMLElement): string[] => {
+    return Array.from(element.classList);
+  }
+};]]></correct-example>
+          <incorrect-example title="Poor clsx usage without optimization or type safety" conditions="Using clsx for styling" expected-result="Proper clsx implementation" incorrectness-criteria="No TypeScript integration, poor performance, inconsistent patterns, no reusability"><![CDATA[// BAD: Poor clsx usage
+
+import clsx from 'clsx';
+
+// No TypeScript types
+function BadButton({ size, variant, disabled, className, children }) {
+  // Inline class generation without memoization
+  const buttonClass = clsx(
+    'btn',
+    size === 'small' && 'btn-sm',
+    size === 'large' && 'btn-lg',
+    variant === 'primary' && 'btn-primary',
+    variant === 'secondary' && 'btn-secondary',
+    disabled && 'disabled',
+    className
+  );
+  
+  return (
+    <button className={buttonClass}>
+      {children}
+    </button>
+  );
+}
+
+// No reusable patterns
+function BadCard({ highlighted, urgent, className }) {
+  // Inconsistent class patterns
+  return (
+    <div className={clsx(
+      'card',
+      highlighted ? 'highlighted' : null,
+      urgent ? 'urgent' : '',
+      className
+    )}>
+      Content
+    </div>
+  );
+}
+
+// No performance optimization
+function BadList({ items }) {
+  return (
+    <ul>
+      {items.map(item => (
+        <li 
+          key={item.id}
+          className={clsx(
+            'list-item',
+            // Expensive calculation in render
+            item.priority > 5 && 'high-priority',
+            item.category === 'urgent' && 'urgent-item'
+          )}
+        >
+          {item.text}
+        </li>
+      ))}
+    </ul>
+  );
+}
+
+// No testing utilities
+// No type safety
+// No consistent patterns
+// No performance considerations]]></incorrect-example>
+        </example>
+      </examples>
+    </non-negotiable>
+
+    <requirement priority="high">
+      <description>Implement comprehensive testing strategies for clsx usage including unit tests for class generation, integration tests for component styling, and visual regression tests for UI consistency.</description>
+      <examples>
+        <example title="CLSX Testing Patterns">
+          <correct-example title="Comprehensive testing for clsx implementations" conditions="Testing components using clsx" expected-result="Thorough test coverage with proper class validation" correctness-criteria="Unit tests, integration tests, visual tests, performance validation"><![CDATA[// TypeScript - Comprehensive clsx testing patterns
+import { render, screen } from '@testing-library/react';
+import userEvent from '@testing-library/user-event';
+import { Button, Card, Input, testClassNames } from '../components';
+
+describe('CLSX Component Testing', () => {
+  
+  describe('Button Component', () => {
+    it('should apply base classes correctly', () => {
+      render(<Button>Test Button</Button>);
+      const button = screen.getByRole('button');
+      
+      const expectedBaseClasses = [
+        'inline-flex',
+        'items-center',
+        'justify-center',
+        'font-medium',
+        'rounded-md',
+        'border',
+        'border-transparent',
+        'transition-colors',
+        'duration-200'
+      ];
+      
+      expectedBaseClasses.forEach(className => {
+        expect(testClassNames.hasClass(button, className)).toBe(true);
+      });
+    });
+
+    it('should apply size classes correctly', () => {
+      const { rerender } = render(<Button size="sm">Small Button</Button>);
+      let button = screen.getByRole('button');
+      
+      expect(testClassNames.hasClass(button, 'text-sm')).toBe(true);
+      expect(testClassNames.hasClass(button, 'px-3')).toBe(true);
+      expect(testClassNames.hasClass(button, 'py-1.5')).toBe(true);
+      
+      rerender(<Button size="lg">Large Button</Button>);
+      button = screen.getByRole('button');
+      
+      expect(testClassNames.hasClass(button, 'text-lg')).toBe(true);
+      expect(testClassNames.hasClass(button, 'px-6')).toBe(true);
+      expect(testClassNames.hasClass(button, 'py-3')).toBe(true);
+    });
+
+    it('should apply variant classes correctly', () => {
+      const variants = [
+        { variant: 'primary', expectedClasses: ['bg-blue-600', 'text-white', 'hover:bg-blue-700'] },
+        { variant: 'secondary', expectedClasses: ['bg-gray-600', 'text-white', 'hover:bg-gray-700'] },
+        { variant: 'success', expectedClasses: ['bg-green-600', 'text-white', 'hover:bg-green-700'] },
+        { variant: 'error', expectedClasses: ['bg-red-600', 'text-white', 'hover:bg-red-700'] }
+      ];
+
+      variants.forEach(({ variant, expectedClasses }) => {
+        const { unmount } = render(<Button variant={variant}>{variant} Button</Button>);
+        const button = screen.getByRole('button');
+        
+        expectedClasses.forEach(className => {
+          expect(testClassNames.hasClass(button, className)).toBe(true);
+        });
+        
+        unmount();
+      });
+    });
+
+    it('should handle disabled state correctly', () => {
+      render(<Button disabled>Disabled Button</Button>);
+      const button = screen.getByRole('button');
+      
+      expect(button).toBeDisabled();
+      expect(testClassNames.hasClass(button, 'opacity-50')).toBe(true);
+      expect(testClassNames.hasClass(button, 'cursor-not-allowed')).toBe(true);
+    });
+
+    it('should handle loading state correctly', () => {
+      render(<Button loading>Loading Button</Button>);
+      const button = screen.getByRole('button');
+      
+      expect(button).toBeDisabled();
+      expect(testClassNames.hasClass(button, 'animate-pulse')).toBe(true);
+      expect(testClassNames.hasClass(button, 'pointer-events-none')).toBe(true);
+      expect(screen.getByText('Loading...')).toBeInTheDocument();
+    });
+
+    it('should apply custom className correctly', () => {
+      const customClass = 'custom-test-class';
+      render(<Button className={customClass}>Custom Button</Button>);
+      const button = screen.getByRole('button');
+      
+      expect(testClassNames.hasClass(button, customClass)).toBe(true);
+    });
+
+    it('should handle icon positioning correctly', () => {
+      const { rerender } = render(
+        <Button icon={<span data-testid="icon">Icon</span>} iconPosition="left">
+          With Icon
+        </Button>
+      );
+      
+      let icon = screen.getByTestId('icon');
+      expect(testClassNames.hasClass(icon.parentElement!, 'mr-2')).toBe(true);
+      
+      rerender(
+        <Button icon={<span data-testid="icon">Icon</span>} iconPosition="right">
+          With Icon
+        </Button>
+      );
+      
+      icon = screen.getByTestId('icon');
+      expect(testClassNames.hasClass(icon.parentElement!, 'ml-2')).toBe(true);
+    });
+  });
+
+  describe('Card Component', () => {
+    it('should apply variant classes correctly', () => {
+      const variants = [
+        { variant: 'default', expectedClasses: ['bg-white', 'shadow-sm', 'border', 'border-gray-200'] },
+        { variant: 'outlined', expectedClasses: ['bg-transparent', 'border', 'border-gray-300'] },
+        { variant: 'elevated', expectedClasses: ['bg-white', 'shadow-lg', 'border-0'] },
+        { variant: 'filled', expectedClasses: ['bg-gray-50', 'border-0'] }
+      ];
+
+      variants.forEach(({ variant, expectedClasses }) => {
+        const { unmount } = render(<Card variant={variant}>Card Content</Card>);
+        const card = screen.getByText('Card Content').parentElement!;
+        
+        expectedClasses.forEach(className => {
+          expect(testClassNames.hasClass(card, className)).toBe(true);
+        });
+        
+        unmount();
+      });
+    });
+
+    it('should handle clickable state correctly', () => {
+      const handleClick = jest.fn();
+      render(
+        <Card clickable onClick={handleClick}>
+          Clickable Card
+        </Card>
+      );
+      
+      const card = screen.getByRole('button');
+      expect(testClassNames.hasClass(card, 'cursor-pointer')).toBe(true);
+      expect(card.tagName).toBe('BUTTON');
+    });
+
+    it('should apply padding classes correctly', () => {
+      const paddingSizes = [
+        { padding: 'xs', expectedClass: 'p-2' },
+        { padding: 'sm', expectedClass: 'p-3' },
+        { padding: 'md', expectedClass: 'p-4' },
+        { padding: 'lg', expectedClass: 'p-6' },
+        { padding: 'xl', expectedClass: 'p-8' }
+      ];
+
+      paddingSizes.forEach(({ padding, expectedClass }) => {
+        const { unmount } = render(<Card padding={padding}>Card Content</Card>);
+        const card = screen.getByText('Card Content').parentElement!;
+        
+        expect(testClassNames.hasClass(card, expectedClass)).toBe(true);
+        
+        unmount();
+      });
+    });
+
+    it('should handle selected state correctly', () => {
+      render(<Card selected>Selected Card</Card>);
+      const card = screen.getByText('Selected Card').parentElement!;
+      
+      expect(testClassNames.hasAnyClass(card, ['ring-2', 'ring-blue-500'])).toBe(true);
+    });
+  });
+
+  describe('Input Component', () => {
+    it('should apply state classes correctly', () => {
+      const states = [
+        { state: 'error', expectedClasses: ['border-red-300', 'bg-red-50'] },
+        { state: 'success', expectedClasses: ['border-green-300', 'bg-green-50'] },
+        { state: 'warning', expectedClasses: ['border-yellow-300', 'bg-yellow-50'] }
+      ];
+
+      states.forEach(({ state, expectedClasses }) => {
+        const { unmount } = render(<Input state={state} />);
+        const input = screen.getByRole('textbox');
+        
+        expectedClasses.forEach(className => {
+          expect(testClassNames.hasClass(input, className)).toBe(true);
+        });
+        
+        unmount();
+      });
+    });
+
+    it('should handle disabled state correctly', () => {
+      render(<Input disabled label="Disabled Input" />);
+      const input = screen.getByRole('textbox');
+      const label = screen.getByText('Disabled Input');
+      
+      expect(input).toBeDisabled();
+      expect(testClassNames.hasAnyClass(input, ['bg-gray-100', 'cursor-not-allowed'])).toBe(true);
+      expect(testClassNames.hasClass(label, 'text-gray-400')).toBe(true);
+    });
+
+    it('should display error message correctly', () => {
+      const errorMessage = 'This field is required';
+      render(<Input state="error" errorMessage={errorMessage} />);
+      
+      const errorElement = screen.getByRole('alert');
+      expect(errorElement).toHaveTextContent(errorMessage);
+      expect(testClassNames.hasClass(errorElement, 'text-red-600')).toBe(true);
+    });
+
+    it('should handle icon spacing correctly', () => {
+      render(
+        <Input 
+          leftIcon={<span data-testid="left-icon">Left</span>}
+          rightIcon={<span data-testid="right-icon">Right</span>}
+          size="md"
+        />
+      );
+      
+      const input = screen.getByRole('textbox');
+      expect(testClassNames.hasClass(input, 'pl-10')).toBe(true);
+      expect(testClassNames.hasClass(input, 'pr-10')).toBe(true);
+    });
+  });
+
+  describe('Performance Testing', () => {
+    it('should not regenerate classes unnecessarily', () => {
+      const mockClsx = jest.fn().mockImplementation((...args) => 
+        args.filter(Boolean).join(' ')
+      );
+      
+      // Mock clsx to track calls
+      jest.mock('clsx', () => mockClsx);
+      
+      const { rerender } = render(<Button>Test</Button>);
+      const initialCallCount = mockClsx.mock.calls.length;
+      
+      // Rerender with same props
+      rerender(<Button>Test</Button>);
+      
+      // Should use memoized result
+      expect(mockClsx.mock.calls.length).toBe(initialCallCount);
+      
+      jest.clearAllMocks();
+    });
+
+    it('should handle large class lists efficiently', () => {
+      const startTime = performance.now();
+      
+      const manyClasses = Array.from({ length: 100 }, (_, i) => `class-${i}`);
+      render(<Button className={manyClasses.join(' ')}>Many Classes</Button>);
+      
+      const endTime = performance.now();
+      const renderTime = endTime - startTime;
+      
+      // Should render quickly even with many classes
+      expect(renderTime).toBeLessThan(100); // 100ms threshold
+    });
+  });
+
+  describe('Integration Testing', () => {
+    it('should work correctly in complex component hierarchies', async () => {
+      const user = userEvent.setup();
+      
+      render(
+        <Card clickable hover>
+          <Input 
+            label="Email"
+            state="default"
+            onChange={() => {}}
+          />
+          <Button variant="primary" size="lg">
+            Submit
+          </Button>
+        </Card>
+      );
+      
+      const card = screen.getByRole('button');
+      const input = screen.getByLabelText('Email');
+      const button = screen.getByRole('button', { name: 'Submit' });
+      
+      // Test card interaction
+      await user.hover(card);
+      expect(testClassNames.hasAnyClass(card, ['hover:shadow-md', 'transform'])).toBe(true);
+      
+      // Test input interaction
+      await user.type(input, 'test@example.com');
+      expect(input).toHaveValue('test@example.com');
+      
+      // Test button interaction
+      expect(testClassNames.hasAllClasses(button, ['bg-blue-600', 'text-lg', 'px-6'])).toBe(true);
+    });
+
+    it('should handle responsive class application', () => {
+      const responsiveClasses = 'block sm:inline-block md:flex lg:grid xl:contents';
+      render(<Card className={responsiveClasses}>Responsive Card</Card>);
+      
+      const card = screen.getByText('Responsive Card').parentElement!;
+      const classList = testClassNames.getClassList(card);
+      
+      expect(classList).toContain('block');
+      expect(classList).toContain('sm:inline-block');
+      expect(classList).toContain('md:flex');
+      expect(classList).toContain('lg:grid');
+      expect(classList).toContain('xl:contents');
+    });
+  });
+
+  describe('Accessibility Testing', () => {
+    it('should maintain accessibility with dynamic classes', () => {
+      render(
+        <Button 
+          disabled 
+          aria-label="Disabled submit button"
+          data-testid="submit-button"
+        >
+          Submit
+        </Button>
+      );
+      
+      const button = screen.getByTestId('submit-button');
+      
+      expect(button).toBeDisabled();
+      expect(button).toHaveAttribute('aria-label', 'Disabled submit button');
+      expect(testClassNames.hasClass(button, 'cursor-not-allowed')).toBe(true);
+    });
+
+    it('should provide proper focus indicators', async () => {
+      const user = userEvent.setup();
+      
+      render(<Input label="Focus Test" />);
+      const input = screen.getByLabelText('Focus Test');
+      
+      await user.tab();
+      expect(input).toHaveFocus();
+      
+      // Focus classes should be applied
+      expect(testClassNames.hasAnyClass(input, ['focus:ring-2', 'focus:ring-blue-500'])).toBe(true);
+    });
+  });
+
+  describe('Visual Regression Prevention', () => {
+    it('should maintain consistent class order', () => {
+      const { rerender } = render(
+        <Button variant="primary" size="md" disabled>
+          Test Button
+        </Button>
+      );
+      
+      const button = screen.getByRole('button');
+      const initialClassList = testClassNames.getClassList(button).join(' ');
+      
+      // Rerender multiple times
+      for (let i = 0; i < 5; i++) {
+        rerender(
+          <Button variant="primary" size="md" disabled>
+            Test Button
+          </Button>
+        );
+      }
+      
+      const finalClassList = testClassNames.getClassList(button).join(' ');
+      expect(finalClassList).toBe(initialClassList);
+    });
+
+    it('should handle edge cases gracefully', () => {
+      // Test with undefined/null values
+      render(
+        <Button 
+          variant={undefined}
+          size={null}
+          className=""
+        >
+          Edge Case Button
+        </Button>
+      );
+      
+      const button = screen.getByRole('button');
+      const classList = testClassNames.getClassList(button);
+      
+      // Should still have base classes
+      expect(classList.length).toBeGreaterThan(0);
+      expect(testClassNames.hasClass(button, 'inline-flex')).toBe(true);
+    });
+  });
+});]]></correct-example>
+          <incorrect-example title="Poor clsx testing without proper validation" conditions="Testing clsx components" expected-result="Comprehensive clsx testing" incorrectness-criteria="No class validation, poor test coverage, no integration tests, missing edge cases"><![CDATA[// BAD: Poor clsx testing
+
+describe('Bad Component Tests', () => {
+  
+  // No class validation
+  it('should render button', () => {
+    render(<Button>Test</Button>);
+    const button = screen.getByRole('button');
+    
+    expect(button).toBeInTheDocument();
+    // No class assertions
+    // No styling validation
+  });
+
+  // No variant testing
+  // No state testing
+  // No performance testing
+  // No accessibility testing
+  
+  it('should work', () => {
+    const result = true;
+    expect(result).toBe(true);
+    // Meaningless test
+  });
+});]]></incorrect-example>
+        </example>
+      </examples>
+    </requirement>
+  </requirements>
+  
+  <context description="CLSX utility development considerations">
+    CLSX is a tiny utility for constructing className strings conditionally. It serves as a faster and smaller alternative to classnames, providing efficient conditional class name composition for React applications and CSS-in-JS patterns.
+
+    Key considerations include:
+    - Performance optimization through memoization and efficient class generation
+    - TypeScript integration for type-safe styling patterns and component APIs
+    - Consistent patterns for reusable component libraries and design systems
+    - Testing strategies for class name validation and visual regression prevention
+    - Integration with CSS frameworks like Tailwind CSS for utility-first styling
+    - Responsive design patterns and conditional styling based on component state
+
+    CLSX is particularly valuable in component libraries, design systems, and applications requiring dynamic styling based on props, state, or user interactions.
+  </context>
+  
+  <references>
+    <reference as="dependency" href=".cursor/rules/000-core/002-cursor-rules-creation.mdc" reason="Follows standard rule format">Base rule format definition</reference>
+    <reference as="context" href="https://www.npmjs.com/package/clsx" reason="Official package documentation">CLSX Package Documentation</reference>
+    <reference as="context" href="https://tailwindcss.com/" reason="CSS framework integration">Tailwind CSS Integration</reference>
+  </references>
+</rule>
+ 

@@ -1,0 +1,1566 @@
+---
+description: Comprehensive development and deployment standards for SaaS applications with TypeScript, React, local Docker development, Neon serverless PostgreSQL, and Vercel deployment
+globs: "*"
+alwaysApply: true
+---
+
+<rule>
+  <meta>
+    <title>SaaS App Comprehensive Standards</title>
+    <description>Complete development and deployment standards for SaaS applications, Progressive Web Applications with mobile-first design, local Docker development, Neon serverless PostgreSQL production database, Vercel deployment, and comprehensive authentication system.</description>
+    <created-at utc-timestamp="1737923400">January 26, 2025, 3:30 PM UTC</created-at>
+    <last-updated-at utc-timestamp="1737923500">January 26, 2025, 3:31 PM UTC</last-updated-at>
+    <applies-to>
+      <file-matcher glob="*">All files in SaaS application projects</file-matcher>
+      <action-matcher action="development">All development activities for SaaS applications</action-matcher>
+      <action-matcher action="deployment">All deployment activities to Vercel platform</action-matcher>
+      <action-matcher action="testing">All testing activities including Playwright E2E tests</action-matcher>
+    </applies-to>
+  </meta>
+  <requirements>
+    <!-- TypeScript and Code Quality Standards -->
+    <non-negotiable priority="critical">
+      <description>Follow TypeScript 5.8.3 strict mode standards with complete type safety. Reference 300-languages/307-typescript-core-standards-auto.mdc for base TypeScript practices and extend with application-specific patterns.</description>
+      <examples>
+        <example title="TypeScript Configuration">
+          <correct-example title="Strict TypeScript configuration with SaaS app settings" conditions="Configuring TypeScript compiler" expected-result="Type-safe codebase optimized for React and Vite" correctness-criteria="Uses established tsconfig.json with strict mode, ESNext modules, and React JSX"><![CDATA[{
+  "compilerOptions": {
+    "target": "ES2022",
+    "module": "ESNext",
+    "lib": ["ES2022", "DOM", "DOM.Iterable"],
+    "moduleResolution": "bundler",
+    "jsx": "react-jsx",
+    "strict": true,
+    "noUnusedLocals": true,
+    "noUnusedParameters": true,
+    "noFallthroughCasesInSwitch": true
+  },
+  "include": ["src"]
+}]]></correct-example>
+          <incorrect-example title="Loose TypeScript configuration" conditions="Configuring TypeScript compiler" expected-result="Type-safe codebase" incorrectness-criteria="Missing strict mode or incorrect module resolution for Vite"><![CDATA[{
+  "compilerOptions": {
+    "target": "ES5",
+    "strict": false,
+    "moduleResolution": "node"
+  }
+}]]></incorrect-example>
+        </example>
+      </examples>
+    </non-negotiable>
+
+    <!-- React 19 and Component Architecture -->
+    <requirement priority="critical">
+      <description>Use React 19.1.0 functional components with hooks and TypeScript. Follow established component patterns with proper state management and modern design integration.</description>
+      <examples>
+        <example title="React Component Structure">
+          <correct-example title="Typed functional component with modern styling" conditions="Creating a new component" expected-result="Type-safe, styled component following app patterns" correctness-criteria="Uses proper TypeScript interface, functional component with hooks, modern CSS classes"><![CDATA[import React, { useState } from 'react';
+import type { User } from '../types/user';
+
+interface UserDetailComponentProps {
+  user: User;
+  onBack: () => void;
+}
+
+const UserDetailComponent: React.FC<UserDetailComponentProps> = ({ user, onBack }) => {
+  const [isLoading, setIsLoading] = useState(false);
+
+  return (
+    <div className="min-h-screen bg-gray-50 safe-area-top safe-area-bottom">
+      <div className="w-full max-w-4xl mx-auto">
+        <div className="container p-6">
+          <button 
+            onClick={onBack}
+            className="flex items-center text-blue-500 font-semibold transition-transform active:scale-95"
+          >
+            Back to Results
+          </button>
+        </div>
+      </div>
+    </div>
+  );
+};
+
+export default UserDetailComponent;]]></correct-example>
+          <incorrect-example title="Untyped component without proper styling" conditions="Creating a new component" expected-result="Type-safe, styled component" incorrectness-criteria="Missing TypeScript types, class components, or non-modern styling"><![CDATA[import React from 'react';
+
+class UserDetail extends React.Component {
+  render() {
+    return (
+      <div className="container">
+        <button onClick={this.props.onBack}>Back</button>
+      </div>
+    );
+  }
+}]]></incorrect-example>
+        </example>
+      </examples>
+    </requirement>
+
+    <!-- Modern Design System -->
+    <non-negotiable priority="critical">
+      <description>Use modern design system with Tailwind CSS. Maintain mobile-first responsive design with proper safe area handling for PWA functionality.</description>
+      <examples>
+        <example title="Modern Design System Usage">
+          <correct-example title="Proper modern component styling" conditions="Styling a results component" expected-result="Modern appearance with proper mobile support" correctness-criteria="Uses Tailwind classes, safe area support, mobile-first approach with responsive containers"><![CDATA[<div className="min-h-screen bg-gray-50 safe-area-top safe-area-bottom">
+  <div className="w-full max-w-4xl mx-auto">
+    <div className="container p-6">
+      <button className="flex items-center text-blue-500 font-semibold mb-6 transition-transform active:scale-95">
+        <svg className="w-5 h-5 mr-2" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 19l-7-7 7-7" />
+        </svg>
+        Back to Search
+      </button>
+    </div>
+    <div className="bg-white rounded-lg shadow-sm border p-6">
+      <div className="border-b pb-4">
+        <h3 className="text-lg font-semibold text-gray-900">User Information</h3>
+      </div>
+    </div>
+  </div>
+</div>]]></correct-example>
+          <incorrect-example title="Generic styling without design system" conditions="Styling a results component" expected-result="Modern appearance" incorrectness-criteria="Uses generic Bootstrap or basic classes without modern design patterns"><![CDATA[<div className="container-fluid">
+  <div className="row">
+    <div className="col-12">
+      <button className="btn btn-primary">Back</button>
+      <div className="card">
+        <div className="card-body">Content</div>
+      </div>
+    </div>
+  </div>
+</div>]]></incorrect-example>
+        </example>
+      </examples>
+    </non-negotiable>
+
+    <!-- Authentication System -->
+    <non-negotiable priority="critical">
+      <description>Implement comprehensive multi-user authentication system with JWT tokens, bcrypt password hashing, role-based access control, and Google OAuth integration. Use established authentication patterns with proper security measures including audit logging and email verification workflow.</description>
+      <examples>
+        <example title="Authentication Implementation">
+          <correct-example title="Complete authentication system with JWT and role-based access" conditions="Implementing user authentication" expected-result="Secure authentication system with proper role management" correctness-criteria="Uses bcrypt with 12 rounds, JWT with refresh tokens, proper role checking, and audit logging"><![CDATA[// api/auth/login.ts
+import type { VercelRequest, VercelResponse } from '@vercel/node';
+import bcrypt from 'bcrypt';
+import jwt from 'jsonwebtoken';
+import { PrismaClient } from '@prisma/client';
+
+const prisma = new PrismaClient();
+
+export default async function handler(req: VercelRequest, res: VercelResponse) {
+  if (req.method !== 'POST') {
+    return res.status(405).json({ error: 'Method not allowed' });
+  }
+
+  const { email, password } = req.body;
+
+  try {
+    const user = await prisma.users.findUnique({
+      where: { email: email.toLowerCase() }
+    });
+
+    if (!user) {
+      return res.status(401).json({
+        success: false,
+        error: 'INVALID_CREDENTIALS',
+        message: 'Invalid email or password'
+      });
+    }
+
+    const isValidPassword = await bcrypt.compare(password, user.password_hash);
+    if (!isValidPassword) {
+      return res.status(401).json({
+        success: false,
+        error: 'INVALID_CREDENTIALS',
+        message: 'Invalid email or password'
+      });
+    }
+
+    // Check account status
+    if (user.account_status !== 'ACTIVE') {
+      return res.status(401).json({
+        success: false,
+        error: 'ACCOUNT_PENDING',
+        message: 'Your account is pending approval.'
+      });
+    }
+
+    // Generate JWT tokens
+    const jwtSecret = process.env.JWT_SECRET!;
+    const accessToken = jwt.sign(
+      { userId: user.id, email: user.email, role: user.role },
+      jwtSecret,
+      { expiresIn: '15m' }
+    );
+
+    const refreshToken = jwt.sign(
+      { userId: user.id, email: user.email, type: 'refresh' },
+      process.env.JWT_REFRESH_SECRET!,
+      { expiresIn: '7d' }
+    );
+
+    // Create audit log entry
+    await prisma.audit_logs.create({
+      data: {
+        user_id: user.id,
+        action: 'USER_LOGIN_SUCCESS',
+        resource_type: 'authentication',
+        success: true,
+        ip_address: req.headers['x-forwarded-for'] as string || 'unknown',
+        user_agent: req.headers['user-agent'] || 'unknown'
+      }
+    });
+
+    return res.json({
+      success: true,
+      user: {
+        id: user.id,
+        email: user.email,
+        role: user.role,
+        firstName: user.first_name,
+        lastName: user.last_name
+      },
+      accessToken,
+      refreshToken,
+      message: 'Login successful'
+    });
+  } catch (error) {
+    console.error('Login error:', error);
+    return res.status(500).json({ error: 'Internal server error' });
+  } finally {
+    await prisma.$disconnect();
+  }
+}]]></correct-example>
+          <incorrect-example title="Insecure authentication without proper validation" conditions="Implementing user authentication" expected-result="Secure authentication system" incorrectness-criteria="Missing password hashing, no role checking, insecure JWT handling, or missing audit logging"><![CDATA[// WRONG - insecure authentication
+export default async function handler(req, res) {
+  const { email, password } = req.body;
+  
+  const user = await db.query('SELECT * FROM users WHERE email = ?', [email]);
+  
+  if (user.password === password) { // Plain text comparison - WRONG!
+    const token = jwt.sign({ userId: user.id }, 'secret'); // Hardcoded secret - WRONG!
+    res.json({ token }); // No role checking or audit logging - WRONG!
+  }
+}]]></incorrect-example>
+        </example>
+      </examples>
+    </non-negotiable>
+
+    <!-- Prisma ORM Integration -->
+    <non-negotiable priority="critical">
+      <description>Use Prisma 6.12.0 for all database operations with type-safe queries, automated migrations, and proper schema management. Implement established Prisma patterns for authentication tables and application data operations with proper connection handling for serverless environments.</description>
+      <examples>
+        <example title="Prisma Database Operations">
+          <correct-example title="Type-safe Prisma operations with proper connection management" conditions="Implementing database operations" expected-result="Type-safe database operations with proper error handling" correctness-criteria="Uses generated Prisma client, proper error handling, connection cleanup, and type safety"><![CDATA[// prisma/schema.prisma - Authentication schema
+model User {
+  id                          String   @id @default(cuid())
+  email                       String   @unique
+  password_hash               String
+  password_salt               String
+  first_name                  String
+  last_name                   String
+  role                        Role     @default(GUEST)
+  account_status              AccountStatus @default(PENDING)
+  email_status               EmailStatus @default(UNVERIFIED)
+  email_verification_token    String?
+  created_at                  DateTime @default(now())
+  updated_at                  DateTime @updatedAt
+
+  // Relations
+  sessions                    UserSession[]
+  audit_logs                  AuditLog[]
+
+  @@map("users")
+}
+
+enum Role {
+  OWNER
+  ADMIN  
+  MEMBER
+  GUEST
+}
+
+// Database operations with Prisma
+import { PrismaClient } from '@prisma/client';
+import type { User, Role } from '@prisma/client';
+
+const prisma = new PrismaClient({
+  log: process.env.NODE_ENV === 'development' ? ['query', 'error'] : ['error']
+});
+
+export const createUser = async (userData: {
+  email: string;
+  password_hash: string;
+  password_salt: string;
+  first_name: string;
+  last_name: string;
+  role?: Role;
+}): Promise<User> => {
+  try {
+    const user = await prisma.user.create({
+      data: {
+        ...userData,
+        role: userData.role || 'GUEST'
+      }
+    });
+    return user;
+  } catch (error) {
+    console.error('Error creating user:', error);
+    throw error;
+  } finally {
+    await prisma.$disconnect();
+  }
+};
+
+// Migration and seeding commands
+// package.json scripts:
+{
+  "scripts": {
+    "prisma:generate": "npx prisma generate",
+    "prisma:migrate:deploy": "npx prisma migrate deploy", 
+    "prisma:seed": "npx tsx prisma/seed.ts",
+    "build": "npm run prisma:generate && npm run prisma:migrate:deploy && tsc && vite build"
+  }
+}]]></correct-example>
+          <incorrect-example title="Raw SQL without type safety or proper schema management" conditions="Implementing database operations" expected-result="Type-safe Prisma operations" incorrectness-criteria="Uses raw SQL instead of Prisma, missing type safety, no migration management, or improper connection handling"><![CDATA[// WRONG - raw SQL without Prisma
+const client = new Client(process.env.DATABASE_URL);
+
+const createUser = async (email, password) => {
+  // No type safety, SQL injection risk, no schema management
+  const result = await client.query(
+    `INSERT INTO users (email, password) VALUES ('${email}', '${password}')` // SQL injection risk!
+  );
+  return result.rows[0]; // No type safety
+};
+
+// Missing: Prisma schema, migrations, type generation]]></incorrect-example>
+        </example>
+      </examples>
+    </non-negotiable>
+
+    <!-- Neon Serverless PostgreSQL Production Database -->
+    <non-negotiable priority="critical">
+      <description>Use Neon serverless PostgreSQL for production database following 500-architecture/524-neon-core-standards-auto.mdc standards. Implement proper connection pooling, autoscaling configuration, database branching for development workflows, Row-Level Security (RLS) policies, Neon Data API integration for edge functions, and comprehensive security practices including encryption and audit logging.</description>
+      <examples>
+        <example title="Neon Production Configuration">
+          <correct-example title="Proper Neon connection and autoscaling setup" conditions="Configuring production Neon database" expected-result="Efficient serverless database with proper pooling and security" correctness-criteria="Uses pooled connections, proper autoscaling settings, RLS policies, branch management, security measures"><![CDATA[// lib/neon.ts - Production Neon configuration
+import { neon } from '@neondatabase/serverless';
+import { Pool } from '@neondatabase/serverless';
+
+// Edge Runtime compatible for Vercel Edge Functions
+export const sql = neon(process.env.DATABASE_URL!, {
+  arrayMode: false,
+  fullResults: true
+});
+
+// Node.js Runtime with connection pooling for Vercel Functions
+let pool: Pool | null = null;
+
+export function getNeonPool(): Pool {
+  if (!pool) {
+    pool = new Pool({
+      connectionString: process.env.DATABASE_URL,
+      // Optimized for Vercel serverless functions
+      max: 1, // Single connection per serverless function
+      idleTimeoutMillis: 0, // No idle timeout for short-lived functions
+      connectionTimeoutMillis: 10000,
+      ssl: { rejectUnauthorized: false }
+    });
+  }
+  return pool;
+}
+
+// Environment variables for different environments
+// .env.local (Local Development - Docker PostgreSQL)
+DATABASE_URL=postgresql://postgres:dev_password_2025@localhost:5433/saas_app_dev
+
+// .env.production (Vercel Production - Neon)
+DATABASE_URL=postgresql://username:password@ep-xxx.pooler.us-east-1.neon.tech/saas_app_prod?sslmode=require
+DIRECT_DATABASE_URL=postgresql://username:password@ep-xxx.us-east-1.neon.tech/saas_app_prod?sslmode=require
+
+// Prisma schema for Neon production
+// prisma/schema.prisma
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider  = "postgresql"
+  url       = env("DATABASE_URL")      // Pooled connection for normal operations
+  directUrl = env("DIRECT_DATABASE_URL") // Direct connection for migrations
+}
+
+// RLS implementation for multi-tenant security
+-- Enable RLS on sensitive tables
+ALTER TABLE users ENABLE ROW LEVEL SECURITY;
+ALTER TABLE projects ENABLE ROW LEVEL SECURITY;
+
+-- Create policies using JWT claims
+CREATE POLICY users_own_data ON users
+  FOR ALL
+  USING (auth.uid() = id);
+
+CREATE POLICY tenant_isolation ON projects
+  FOR ALL
+  USING (tenant_id = auth.jwt() ->> 'tenant_id');
+
+// Neon branch management for feature development
+// .github/workflows/neon-branch.yml
+name: Neon Branch Management
+on:
+  pull_request:
+    types: [opened, synchronize, closed]
+
+jobs:
+  manage-db-branch:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Create Neon Branch
+        if: github.event.action != 'closed'
+        run: |
+          BRANCH_NAME="pr-${{ github.event.number }}"
+          neon branches create \
+            --name "$BRANCH_NAME" \
+            --parent main \
+            --project-id ${{ vars.NEON_PROJECT_ID }}
+          
+          # Update environment for this PR
+          BRANCH_URL=$(neon connection-string --branch "$BRANCH_NAME")
+          echo "DATABASE_URL=$BRANCH_URL" >> $GITHUB_ENV
+
+      - name: Cleanup Branch
+        if: github.event.action == 'closed'
+        run: |
+          neon branches delete "pr-${{ github.event.number }}" \
+            --project-id ${{ vars.NEON_PROJECT_ID }}]]></correct-example>
+          <incorrect-example title="Basic PostgreSQL without Neon optimization" conditions="Configuring production database" expected-result="Optimized serverless database setup" incorrectness-criteria="No connection pooling, missing autoscaling, no branch management, poor security practices"><![CDATA[// WRONG - Basic PostgreSQL client without Neon optimization
+import { Client } from 'pg';
+
+const client = new Client({
+  host: 'localhost',
+  port: 5432,
+  database: 'myapp',
+  user: 'postgres',
+  password: 'password',
+  // No SSL configuration
+  // No connection pooling
+  // No autoscaling consideration
+});
+
+await client.connect();
+const result = await client.query('SELECT * FROM users');
+await client.end(); // Creates new connection for each request
+
+// Missing: Neon-specific optimizations, RLS policies, branch management, proper environment handling]]></incorrect-example>
+        </example>
+      </examples>
+    </non-negotiable>
+
+    <!-- Vercel Deployment Configuration -->
+    <non-negotiable priority="critical">
+      <description>Configure vercel.json for optimal TypeScript/React/Vite deployment following 500-architecture/526-vercel-deployment-core-standards-auto.mdc standards. Implement comprehensive Git integration, serverless function optimization, security headers, performance optimization, and production deployment workflows with proper monitoring and CI/CD integration.</description>
+      <examples>
+        <example title="Vercel Configuration">
+          <correct-example title="Optimal vercel.json following Vercel deployment standards" conditions="Configuring Vercel deployment" expected-result="Production-ready Vercel deployment with comprehensive optimization" correctness-criteria="Follows 526-vercel-deployment-core-standards-auto.mdc, includes security headers, function optimization, Git integration, monitoring"><![CDATA[{
+  "version": 2,
+  "buildCommand": "npm run build",
+  "outputDirectory": "dist",
+  "installCommand": "npm ci",
+  "nodeVersion": "20.x",
+  "functions": {
+    "api/**/*.ts": {
+      "runtime": "@vercel/node@3.1.7",
+      "maxDuration": 10,
+      "memory": 1024,
+      "regions": ["iad1", "sfo1"]
+    }
+  },
+  "routes": [
+    {
+      "src": "/api/(.*)",
+      "dest": "/api/$1"
+    },
+    {
+      "handle": "filesystem"
+    },
+    {
+      "src": "/(.*)",
+      "dest": "/index.html"
+    }
+  ],
+  "headers": [
+    {
+      "source": "/api/(.*)",
+      "headers": [
+        {
+          "key": "Access-Control-Allow-Origin",
+          "value": "*"
+        },
+        {
+          "key": "Access-Control-Allow-Methods",
+          "value": "GET,OPTIONS,PATCH,DELETE,POST,PUT"
+        },
+        {
+          "key": "Access-Control-Allow-Headers",
+          "value": "X-CSRF-Token, X-Requested-With, Accept, Accept-Version, Content-Length, Content-MD5, Content-Type, Date, X-Api-Version, Authorization"
+        }
+      ]
+    },
+    {
+      "source": "/(.*)",
+      "headers": [
+        {
+          "key": "Content-Security-Policy",
+          "value": "default-src 'self'; script-src 'self' 'unsafe-inline' 'unsafe-eval' https://vercel.live; style-src 'self' 'unsafe-inline'; img-src 'self' data: https:; connect-src 'self' https:; font-src 'self'; object-src 'none'; frame-ancestors 'none';"
+        },
+        {
+          "key": "X-Content-Type-Options",
+          "value": "nosniff"
+        },
+        {
+          "key": "X-Frame-Options",
+          "value": "DENY"
+        },
+        {
+          "key": "X-XSS-Protection",
+          "value": "1; mode=block"
+        },
+        {
+          "key": "Referrer-Policy",
+          "value": "strict-origin-when-cross-origin"
+        },
+        {
+          "key": "Strict-Transport-Security",
+          "value": "max-age=63072000; includeSubDomains; preload"
+        }
+      ]
+    },
+    {
+      "source": "/static/(.*)",
+      "headers": [
+        {
+          "key": "Cache-Control",
+          "value": "public, max-age=31536000, immutable"
+        }
+      ]
+    }
+  ],
+  "github": {
+    "enabled": true,
+    "autoAlias": false,
+    "silent": false
+  }
+}
+
+// package.json build scripts with Prisma integration
+{
+  "scripts": {
+    "build": "npm run prisma:generate && npm run prisma:migrate:deploy && tsc && vite build",
+    "build:analyze": "npm run prisma:generate && tsc && vite build --mode analyze",
+    "preview": "vite preview",
+    "vercel-build": "npm run prisma:generate && npm run prisma:migrate:deploy && npm run build",
+    "prisma:generate": "npx prisma generate",
+    "prisma:migrate:deploy": "npx prisma migrate deploy"
+  }
+}]]></correct-example>
+          <incorrect-example title="Basic vercel.json without Vercel deployment standards" conditions="Configuring Vercel deployment" expected-result="Comprehensive Vercel deployment following standards" incorrectness-criteria="Doesn't follow 526-vercel-deployment-core-standards-auto.mdc, missing security headers, function optimization, Git integration, monitoring"><![CDATA[{
+  "version": 2,
+  "builds": [
+    {
+      "src": "package.json",
+      "use": "@vercel/static-build"
+    }
+  ]
+}
+
+// Missing: Function optimization, security headers (CSP, HSTS), Git integration, performance optimization, monitoring integration, proper build configuration]]></incorrect-example>
+        </example>
+      </examples>
+    </non-negotiable>
+
+    <!-- Environment Variables and Security Configuration -->
+    <non-negotiable priority="critical">
+      <description>Configure comprehensive environment variables for authentication, dual database setup (local Docker PostgreSQL and production Neon), Google OAuth, and security features. Support both local development with Docker Compose and Vercel production environments with Neon serverless PostgreSQL using proper secret management.</description>
+      <examples>
+        <example title="Environment Configuration">
+          <correct-example title="Complete environment variable setup for dual database environments" conditions="Configuring application environment" expected-result="Secure configuration management across local Docker and production Neon environments" correctness-criteria="Includes all required variables for auth, dual database setup, OAuth, email, and security with proper naming conventions"><![CDATA[// .env.local (Local Development - Docker PostgreSQL)
+# Local Docker PostgreSQL Database
+DATABASE_URL=postgresql://postgres:dev_password_2025@localhost:5433/saas_app_dev
+DB_HOST=localhost
+DB_PORT=5433
+DB_NAME=saas_app_dev
+DB_USER=postgres
+DB_PASSWORD=dev_password_2025
+DB_SSL=false
+
+# JWT Configuration
+JWT_SECRET=local_dev_secret_key_2025_saas_app
+JWT_REFRESH_SECRET=local_dev_refresh_secret_key_2025
+
+# Google OAuth
+GOOGLE_CLIENT_ID=your_local_client_id
+GOOGLE_CLIENT_SECRET=your_local_client_secret
+GOOGLE_OAUTH_REDIRECT_URI=http://localhost:5173/auth/google/callback
+
+# Email Configuration
+SMTP_HOST=smtp.gmail.com
+SMTP_PORT=587
+SMTP_USER=your_email@gmail.com
+SMTP_PASSWORD=your_app_password
+FROM_EMAIL=noreply@saas-app.com
+
+# Client-side Environment Variables (VITE_ prefix)
+VITE_GOOGLE_MAPS_API_KEY=your_maps_api_key
+VITE_APP_URL=http://localhost:5173
+VITE_API_URL=http://localhost:3001
+
+# Docker Compose Configuration
+DOCKER_POSTGRES_PASSWORD=dev_password_2025
+DOCKER_PGADMIN_EMAIL=admin@saas-app.dev
+DOCKER_PGADMIN_PASSWORD=admin_password_2025
+DOCKER_REDIS_PASSWORD=redis_password_2025
+
+# Vercel Production Environment Variables (Neon Serverless PostgreSQL)
+# Set via Vercel Dashboard or CLI:
+vercel env add DATABASE_URL production
+vercel env add DIRECT_DATABASE_URL production
+vercel env add NEON_PROJECT_ID production
+vercel env add JWT_SECRET production
+vercel env add JWT_REFRESH_SECRET production
+vercel env add GOOGLE_CLIENT_ID production
+vercel env add GOOGLE_CLIENT_SECRET production
+vercel env add GOOGLE_OAUTH_REDIRECT_URI production
+vercel env add SMTP_HOST production
+vercel env add SMTP_PORT production
+vercel env add SMTP_USER production
+vercel env add SMTP_PASSWORD production
+vercel env add FROM_EMAIL production
+vercel env add VITE_GOOGLE_MAPS_API_KEY production
+vercel env add VITE_APP_URL production
+vercel env add VITE_API_URL production
+
+# Production Neon Values:
+# DATABASE_URL=postgresql://user:pass@ep-xxx.pooler.us-east-1.neon.tech/saas_app_prod?sslmode=require
+# DIRECT_DATABASE_URL=postgresql://user:pass@ep-xxx.us-east-1.neon.tech/saas_app_prod?sslmode=require
+
+// Database configuration with dual environment handling
+const isDevelopment = process.env.NODE_ENV === 'development';
+const isLocalDocker = process.env.DB_HOST === 'localhost';
+
+const dbConfig = isDevelopment && isLocalDocker ? {
+  // Local Docker PostgreSQL configuration
+  host: process.env.DB_HOST,
+  port: parseInt(process.env.DB_PORT || '5433'),
+  database: process.env.DB_NAME,
+  user: process.env.DB_USER,
+  password: process.env.DB_PASSWORD,
+  ssl: false
+} : {
+  // Production Neon serverless PostgreSQL configuration
+  connectionString: process.env.DATABASE_URL,
+  ssl: { rejectUnauthorized: false }
+};]]></correct-example>
+          <incorrect-example title="Incomplete or insecure environment configuration" conditions="Configuring application environment" expected-result="Secure configuration management" incorrectness-criteria="Missing required variables, hardcoded secrets, wrong VITE_ prefix usage, or insecure local development setup"><![CDATA[// WRONG - incomplete and insecure configuration
+DB_PASSWORD=password123 // Weak password
+JWT_SECRET=secret // Hardcoded weak secret
+GOOGLE_MAPS_API_KEY=abc123 // Missing VITE_ prefix for client variables
+
+// Missing: Most authentication variables, email configuration, proper local/production separation]]></incorrect-example>
+        </example>
+      </examples>
+    </non-negotiable>
+
+    <!-- Testing Infrastructure with Authentication -->
+    <requirement priority="critical">
+      <description>Implement comprehensive Playwright testing infrastructure for end-to-end testing across mobile and desktop devices. Include critical deployment-blocking tests, accessibility testing with @axe-core/playwright, and proper test user authentication setup for testing protected routes.</description>
+      <examples>
+        <example title="Playwright Testing Implementation">
+          <correct-example title="Comprehensive E2E testing with authentication and accessibility" conditions="Setting up testing infrastructure" expected-result="Complete testing coverage with critical deployment gates" correctness-criteria="Includes mobile/desktop testing, accessibility compliance, authentication testing, proper test isolation, and test user management"><![CDATA[// playwright.config.ts
+import { defineConfig, devices } from '@playwright/test';
+
+export default defineConfig({
+  testDir: './tests/e2e',
+  timeout: 30000,
+  expect: { timeout: 15000 },
+  fullyParallel: true,
+  forbidOnly: !!process.env.CI,
+  retries: process.env.CI ? 2 : 0,
+  workers: process.env.CI ? 1 : undefined,
+  reporter: [
+    ['html'],
+    ['json', { outputFile: 'test-results/results.json' }],
+    ['junit', { outputFile: 'test-results/junit.xml' }]
+  ],
+  use: {
+    baseURL: process.env.PLAYWRIGHT_TEST_BASE_URL || 'https://saas-app.vercel.app',
+    trace: 'on-first-retry',
+    screenshot: 'only-on-failure'
+  },
+  projects: [
+    {
+      name: 'mobile-chrome-pixel5',
+      use: { ...devices['Pixel 5'] }
+    },
+    {
+      name: 'mobile-safari-iphone12', 
+      use: { ...devices['iPhone 12'] }
+    },
+    {
+      name: 'desktop-chrome',
+      use: { ...devices['Desktop Chrome'] }
+    },
+    {
+      name: 'desktop-safari',
+      use: { ...devices['Desktop Safari'] }
+    }
+  ]
+});
+
+// tests/e2e/critical/auth-accessibility.spec.ts
+import { test, expect } from '@playwright/test';
+import AxeBuilder from '@axe-core/playwright';
+
+test.describe('CRITICAL: Authentication Accessibility Compliance', () => {
+  test('should meet WCAG 2.1 AA standards for authentication', async ({ page }) => {
+    await page.goto('/login');
+    
+    // Run accessibility scan
+    const accessibilityScanResults = await new AxeBuilder({ page })
+      .withTags(['wcag2a', 'wcag2aa', 'wcag21aa'])
+      .analyze();
+
+    expect(accessibilityScanResults.violations).toEqual([]);
+  });
+
+  test('should authenticate test user successfully', async ({ page }) => {
+    await page.goto('/login');
+    
+    // Use test user credentials (created via prisma/seed.ts)
+    await page.fill('input[type="email"]', 'test@saas-app.com');
+    await page.fill('input[type="password"]', 'testpass123');
+    await page.click('button[type="submit"]');
+    
+    // Verify successful authentication
+    await expect(page.locator('#dashboard')).toBeVisible();
+  });
+});
+
+// prisma/seed.ts - Test user creation
+import { PrismaClient } from '@prisma/client';
+import bcrypt from 'bcrypt';
+
+const prisma = new PrismaClient();
+
+async function createTestUser() {
+  const existingTestUser = await prisma.users.findUnique({
+    where: { email: 'test@saas-app.com' },
+  });
+
+  if (!existingTestUser) {
+    const { hash, salt } = await hashPassword('testpass123');
+    
+    await prisma.users.create({
+      data: {
+        email: 'test@saas-app.com',
+        password_hash: hash,
+        password_salt: salt,
+        first_name: 'Test',
+        last_name: 'User',
+        role: 'OWNER',
+        account_status: 'ACTIVE',
+        email_status: 'VERIFIED',
+      },
+    });
+    
+    console.log('✅ Test user created for Playwright authentication');
+  }
+}
+
+// package.json test scripts
+{
+  "scripts": {
+    "test:e2e:critical": "playwright test tests/e2e/critical/",
+    "test:e2e:mobile": "playwright test --project=mobile-chrome-pixel5 --project=mobile-safari-iphone12", 
+    "test:e2e:desktop": "playwright test --project=desktop-chrome --project=desktop-safari",
+    "test:pre-deploy": "npm run test:e2e:critical"
+  }
+}]]></correct-example>
+          <incorrect-example title="Basic testing without proper device coverage or authentication" conditions="Setting up testing infrastructure" expected-result="Comprehensive testing coverage" incorrectness-criteria="Missing mobile testing, no accessibility testing, inadequate authentication testing, missing test user setup, or missing critical test gates"><![CDATA[// WRONG - basic testing without comprehensive coverage
+// playwright.config.ts
+export default defineConfig({
+  testDir: './tests',
+  projects: [
+    { name: 'chromium', use: { ...devices['Desktop Chrome'] } }
+    // Missing: mobile devices, accessibility testing, authentication setup
+  ]
+});
+
+// WRONG - no accessibility or authentication testing
+test('basic test', async ({ page }) => {
+  await page.goto('/');
+  await expect(page.locator('h1')).toBeVisible();
+  // Missing: accessibility scans, authentication testing, device-specific testing, test user setup
+});]]></incorrect-example>
+        </example>
+      </examples>
+    </requirement>
+
+    <!-- Local Docker Development Environment -->
+    <non-negotiable priority="critical">
+      <description>Use Docker Compose for local development environment following 500-architecture/517-docker-core-standards-auto.mdc standards. Implement secure multi-stage builds, comprehensive service orchestration with PostgreSQL 16, pgAdmin 4, Redis, health checks, resource limits, network isolation, and persistent volumes. Support both local development and CI/CD testing environments with proper security measures.</description>
+      <examples>
+        <example title="Docker Development Setup">
+          <correct-example title="Complete Docker Compose configuration for local development" conditions="Setting up local development environment" expected-result="Fully functional local development environment with database, admin tools, and caching" correctness-criteria="Includes PostgreSQL with proper configuration, pgAdmin for database management, Redis for sessions, health checks, proper networking, and test user seeding"><![CDATA[// docker-compose.dev.yml
+version: '3.8'
+
+services:
+  postgres:
+    image: postgres:16-alpine
+    container_name: saas-app-db-dev
+    environment:
+      POSTGRES_DB: saas_app_dev
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: dev_password_2025
+      POSTGRES_HOST_AUTH_METHOD: scram-sha-256
+    ports:
+      - "5433:5432"
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+      - ./docker/postgres/conf/postgresql.dev.conf:/etc/postgresql/postgresql.conf
+      - ./docker/postgres/init:/docker-entrypoint-initdb.d
+    networks:
+      - saas-app-dev
+    deploy:
+      resources:
+        limits:
+          memory: 1G
+          cpus: '1.0'
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U postgres -d saas_app_dev"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 40s
+
+  pgadmin:
+    image: dpage/pgadmin4:latest
+    container_name: saas-app-pgadmin-dev
+    environment:
+      PGADMIN_DEFAULT_EMAIL: admin@saas-app.dev
+      PGADMIN_DEFAULT_PASSWORD: admin_password_2025
+      PGADMIN_CONFIG_SERVER_MODE: 'False'
+    ports:
+      - "5050:80"
+    volumes:
+      - pgadmin_data:/var/lib/pgadmin
+      - ./docker/pgadmin/servers.json:/pgadmin4/servers.json
+    networks:
+      - saas-app-dev
+    depends_on:
+      postgres:
+        condition: service_healthy
+
+  redis:
+    image: redis:7-alpine
+    container_name: saas-app-redis-dev
+    command: redis-server --requirepass redis_password_2025 --appendonly yes
+    ports:
+      - "6380:6379"
+    volumes:
+      - redis_data:/data
+    networks:
+      - saas-app-dev
+    deploy:
+      resources:
+        limits:
+          memory: 256M
+          cpus: '0.5'
+
+volumes:
+  postgres_data:
+  pgadmin_data:
+  redis_data:
+
+networks:
+  saas-app-dev:
+    driver: bridge
+
+// package.json Docker scripts with test user seeding
+{
+  "scripts": {
+    "docker:up": "docker-compose -f docker-compose.dev.yml --env-file .env.local up -d",
+    "docker:down": "docker-compose -f docker-compose.dev.yml down",
+    "docker:logs": "docker-compose -f docker-compose.dev.yml logs -f",
+    "docker:reset": "docker-compose -f docker-compose.dev.yml down -v && docker-compose -f docker-compose.dev.yml up -d",
+    "dev:setup": "npm run docker:up && sleep 10 && npm run prisma:generate && npm run prisma:migrate:dev && npm run prisma:seed",
+    "dev:local": "npm run dev:setup && npm run dev",
+    "prisma:seed:local": "DATABASE_URL='postgresql://postgres:dev_password_2025@localhost:5433/saas_app_dev' npx tsx prisma/seed.ts"
+  }
+}]]></correct-example>
+          <incorrect-example title="Basic Docker setup without proper configuration" conditions="Setting up local development" expected-result="Complete development environment" incorrectness-criteria="Missing health checks, no resource limits, improper networking, missing development tools, or no test user setup"><![CDATA[// WRONG - basic Docker without proper development setup
+version: '3.8'
+services:
+  postgres:
+    image: postgres
+    environment:
+      POSTGRES_PASSWORD: password
+    ports:
+      - "5432:5432"
+    # Missing: health checks, resource limits, proper configuration, admin tools, test data
+
+// Missing: pgAdmin, Redis, proper networking, development scripts, test user seeding]]></incorrect-example>
+        </example>
+      </examples>
+    </requirement>
+
+    <!-- API Endpoints and Serverless Functions -->
+    <requirement priority="critical">
+      <description>Structure Vercel API endpoints using @vercel/node 5.3.7 with proper CORS, error handling, and TypeScript typing. Follow the established pattern for all /api routes including authentication, admin functionality, and application data operations.</description>
+      <examples>
+        <example title="Vercel API Endpoint Structure">
+          <correct-example title="Properly structured Vercel API function with authentication" conditions="Creating new API endpoint" expected-result="Production-ready serverless function with CORS, authentication, and error handling" correctness-criteria="Includes CORS headers, OPTIONS handling, proper HTTP method validation, JWT authentication, role-based access control, error handling, and TypeScript types"><![CDATA[import type { VercelRequest, VercelResponse } from '@vercel/node';
+import jwt from 'jsonwebtoken';
+import { PrismaClient } from '@prisma/client';
+
+const prisma = new PrismaClient();
+
+interface AuthenticatedRequest extends VercelRequest {
+  user?: {
+    userId: string;
+    email: string;
+    role: string;
+  };
+}
+
+export default async function handler(req: AuthenticatedRequest, res: VercelResponse) {
+  // Enable CORS
+  res.setHeader('Access-Control-Allow-Credentials', 'true');
+  res.setHeader('Access-Control-Allow-Origin', '*');
+  res.setHeader('Access-Control-Allow-Methods', 'GET,OPTIONS,PATCH,DELETE,POST,PUT');
+  res.setHeader('Access-Control-Allow-Headers', 'X-CSRF-Token, X-Requested-With, Accept, Accept-Version, Content-Length, Content-MD5, Content-Type, Date, X-Api-Version, Authorization');
+
+  if (req.method === 'OPTIONS') {
+    res.status(200).end();
+    return;
+  }
+
+  // Authentication middleware
+  const authHeader = req.headers.authorization;
+  if (!authHeader || !authHeader.startsWith('Bearer ')) {
+    return res.status(401).json({ error: 'No valid authorization token provided' });
+  }
+
+  try {
+    const token = authHeader.substring(7);
+    const decoded = jwt.verify(token, process.env.JWT_SECRET!) as any;
+    req.user = {
+      userId: decoded.userId,
+      email: decoded.email,
+      role: decoded.role
+    };
+  } catch (error) {
+    return res.status(401).json({ error: 'Invalid or expired token' });
+  }
+
+  // Role-based access control
+  if (req.user.role !== 'OWNER' && req.user.role !== 'ADMIN') {
+    return res.status(403).json({ error: 'Insufficient permissions' });
+  }
+
+  if (req.method !== 'GET') {
+    res.status(405).json({ error: 'Method not allowed' });
+    return;
+  }
+
+  try {
+    // Implementation here
+    const data = await prisma.users.findMany({
+      select: {
+        id: true,
+        email: true,
+        first_name: true,
+        last_name: true,
+        role: true,
+        account_status: true,
+        created_at: true
+      }
+    });
+
+    // Create audit log
+    await prisma.audit_logs.create({
+      data: {
+        user_id: req.user.userId,
+        action: 'ADMIN_USERS_LIST',
+        resource_type: 'users',
+        success: true,
+        ip_address: req.headers['x-forwarded-for'] as string || 'unknown',
+        user_agent: req.headers['user-agent'] || 'unknown'
+      }
+    });
+
+    return res.json({ success: true, data });
+  } catch (error) {
+    console.error('API Error:', error);
+    return res.status(500).json({ error: 'Internal server error' });
+  } finally {
+    await prisma.$disconnect();
+  }
+}]]></correct-example>
+          <incorrect-example title="Basic endpoint without proper structure" conditions="Creating new API endpoint" expected-result="Production-ready serverless function" incorrectness-criteria="Missing CORS, authentication, error handling, role-based access control, audit logging, or proper HTTP method validation"><![CDATA[// WRONG - insecure endpoint without proper structure
+export default function handler(req, res) {
+  const data = getDataFromDatabase();
+  res.json(data);
+  // Missing: CORS, authentication, authorization, error handling, audit logging, Prisma integration
+}]]></incorrect-example>
+        </example>
+      </examples>
+    </requirement>
+
+    <!-- Application Data Types and Domain Logic -->
+    <requirement priority="high">
+      <description>Use established TypeScript interfaces and domain logic patterns. Maintain consistency with application data structures and business logic specific to the SaaS application domain.</description>
+      <examples>
+        <example title="Application Type and Domain Logic">
+          <correct-example title="Proper application type usage with domain logic" conditions="Working with application data" expected-result="Type-safe operations with correct business logic" correctness-criteria="Uses established interfaces, proper domain logic, and type-safe operations"><![CDATA[import type { User, Organization } from '../types/user';
+
+// Application-specific domain logic
+const formatUserName = (user: User): string => {
+  return [user.title, user.firstName, user.middleName, user.lastName]
+    .filter(Boolean)
+    .join(' ');
+};
+
+const formatUserRole = (role: string): string => {
+  return role.charAt(0).toUpperCase() + role.slice(1).toLowerCase();
+};
+
+const canAccessResource = (user: User, resource: string): boolean => {
+  const roleHierarchy = {
+    'OWNER': 4,
+    'ADMIN': 3,
+    'MEMBER': 2,
+    'GUEST': 1
+  };
+  
+  const requiredLevel = getRequiredLevelForResource(resource);
+  return roleHierarchy[user.role] >= requiredLevel;
+};
+
+const getRequiredLevelForResource = (resource: string): number => {
+  const resourcePermissions = {
+    'admin': 3,
+    'settings': 2,
+    'dashboard': 1
+  };
+  
+  return resourcePermissions[resource] || 1;
+};]]></correct-example>
+          <incorrect-example title="Inconsistent data handling" conditions="Working with application data" expected-result="Type-safe operations" incorrectness-criteria="Uses different type definitions, ignores domain logic, or incorrect data formatting"><![CDATA[const user = { name: 'John Doe', level: 'admin' }; // Wrong structure
+const canAccess = user.level === 'admin'; // No proper role hierarchy
+const fullName = user.first + ' ' + user.last; // Ignores established interface]]></incorrect-example>
+        </example>
+      </examples>
+    </requirement>
+
+    <!-- Progressive Web App Features -->
+    <requirement priority="high">
+      <description>Maintain PWA functionality with service worker, manifest.json, and mobile installation features. Ensure offline capability and native app-like experience using established PWA patterns.</description>
+      <examples>
+        <example title="PWA Configuration">
+          <correct-example title="Proper PWA setup with service worker registration" conditions="Configuring PWA features" expected-result="Installable web app with offline support" correctness-criteria="Includes manifest, service worker registration, mobile meta tags, and proper viewport configuration"><![CDATA[// In src/main.tsx
+useEffect(() => {
+  // Set up PWA
+  if ('serviceWorker' in navigator) {
+    navigator.serviceWorker.register('/sw.js')
+      .then(registration => {
+        console.log('SW registered: ', registration);
+      })
+      .catch(registrationError => {
+        console.log('SW registration failed: ', registrationError);
+      });
+  }
+}, []);
+
+// In index.html
+<meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no, viewport-fit=cover" />
+<meta name="theme-color" content="#007AFF" />
+<meta name="apple-mobile-web-app-capable" content="yes" />
+<meta name="apple-mobile-web-app-status-bar-style" content="default" />
+<meta name="apple-mobile-web-app-title" content="SaaS App" />
+<link rel="apple-touch-icon" href="/apple-touch-icon.png" />
+<link rel="manifest" href="/manifest.json" />]]></correct-example>
+          <incorrect-example title="Missing PWA configuration" conditions="Configuring PWA features" expected-result="Installable web app" incorrectness-criteria="Missing service worker, manifest, or proper mobile meta tags"><![CDATA[// No service worker registration
+// Missing PWA meta tags
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+// No manifest or app icons]]></incorrect-example>
+        </example>
+      </examples>
+    </requirement>
+
+    <!-- Google Maps Integration -->
+    <requirement priority="medium">
+      <description>Use Google Maps API with @googlemaps/js-api-loader 1.16.10 and proper TypeScript typing. Implement the GoogleMap component pattern for location-based features.</description>
+      <examples>
+        <example title="Google Maps Integration">
+          <correct-example title="Typed Google Maps component" conditions="Adding map functionality" expected-result="Functional map with proper typing and error handling" correctness-criteria="Uses @googlemaps/js-api-loader, TypeScript interfaces, proper API key handling, and error states"><![CDATA[import React, { useEffect, useRef, useState } from 'react';
+import { Loader } from '@googlemaps/js-api-loader';
+
+interface GoogleMapProps {
+  address: string;
+  className?: string;
+}
+
+const GoogleMap: React.FC<GoogleMapProps> = ({ address, className }) => {
+  const mapRef = useRef<HTMLDivElement>(null);
+  const [isLoaded, setIsLoaded] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+
+  useEffect(() => {
+    const apiKey = import.meta.env.VITE_GOOGLE_MAPS_API_KEY;
+    if (!apiKey) {
+      setError('Google Maps API key not configured');
+      return;
+    }
+
+    const loader = new Loader({
+      apiKey,
+      version: 'weekly',
+      libraries: ['places']
+    });
+
+    loader.load().then(() => {
+      if (mapRef.current && window.google) {
+        setIsLoaded(true);
+        // Initialize map here
+      }
+    }).catch(err => {
+      setError('Failed to load Google Maps');
+      console.error('Google Maps loading error:', err);
+    });
+  }, [address]);
+
+  if (error) {
+    return <div className={`${className} flex items-center justify-center bg-gray-100`}>
+      <p className="text-gray-500">Map unavailable</p>
+    </div>;
+  }
+
+  return <div ref={mapRef} className={className} />;
+};
+
+export default GoogleMap;]]></correct-example>
+          <incorrect-example title="Untyped maps integration" conditions="Adding map functionality" expected-result="Functional map with proper typing" incorrectness-criteria="Missing TypeScript types, improper API key handling, or no error states"><![CDATA[const GoogleMap = ({ address }) => {
+  return <div id="map"></div>;
+};]]></incorrect-example>
+        </example>
+      </examples>
+    </requirement>
+
+    <!-- Search and Performance -->
+    <requirement priority="high">
+      <description>Implement efficient search patterns with proper debouncing, loading states, and optimized database queries. Handle large datasets with performant pagination and proper indexing strategies.</description>
+      <examples>
+        <example title="Search Implementation">
+          <correct-example title="Optimized search with loading states and error handling" conditions="Implementing search functionality" expected-result="Responsive search experience with proper state management" correctness-criteria="Includes loading states, error handling, debouncing, efficient queries with LIMIT clauses"><![CDATA[const handleSearch = async (query: string) => {
+  setIsLoading(true);
+  try {
+    // Get search suggestions
+    const suggestions = await searchService.searchItems(query);
+    
+    // Get items for all suggestions
+    let allItems: ItemWithSearchInfo[] = [];
+    
+    for (const suggestion of suggestions) {
+      let items: Item[] = [];
+      
+      if (suggestion.type === 'name') {
+        items = await searchService.getItemsByName(suggestion.value);
+      } else if (suggestion.type === 'category') {
+        items = await searchService.getItemsByCategory(suggestion.value);
+      } else if (suggestion.type === 'tag') {
+        items = await searchService.getItemsByTag(suggestion.value);
+      }
+      
+      // Add items with suggestion info for grouping
+      const itemsWithType = items.map(item => ({
+        ...item,
+        searchType: suggestion.type,
+        searchValue: suggestion.value
+      }));
+      
+      allItems = [...allItems, ...itemsWithType];
+    }
+    
+    setSearchResults(allItems);
+    setCurrentScreen('results');
+  } catch (error) {
+    console.error('Search failed:', error);
+    setSearchResults([]);
+    setCurrentScreen('results');
+  } finally {
+    setIsLoading(false);
+  }
+};]]></correct-example>
+          <incorrect-example title="Basic search without optimization" conditions="Implementing search" expected-result="Responsive search experience" incorrectness-criteria="Missing loading states, error handling, or efficient query patterns"><![CDATA[const handleSearch = (query) => {
+  const results = database.findAll(query); // No limits or optimization
+  setResults(results);
+};]]></incorrect-example>
+        </example>
+      </examples>
+    </requirement>
+
+    <!-- State Management -->
+    <requirement priority="medium">
+      <description>Use React hooks for state management with proper TypeScript typing. Implement screen navigation patterns and maintain proper component state isolation.</description>
+      <examples>
+        <example title="State Management Pattern">
+          <correct-example title="Proper state management with TypeScript" conditions="Managing application state" expected-result="Type-safe state with proper screen navigation" correctness-criteria="Uses useState with proper types, screen navigation pattern, and isolated component state"><![CDATA[type Screen = 'dashboard' | 'search' | 'results' | 'detail';
+
+type ItemWithSearchInfo = Item & {
+  searchType?: 'name' | 'category' | 'tag';
+  searchValue?: string;
+};
+
+const SaasApp: React.FC = () => {
+  const [currentScreen, setCurrentScreen] = useState<Screen>('dashboard');
+  const [searchResults, setSearchResults] = useState<ItemWithSearchInfo[]>([]);
+  const [selectedItem, setSelectedItem] = useState<Item | null>(null);
+  const [isLoading, setIsLoading] = useState(false);
+  const [searchService] = useState(() => SearchService.getInstance());
+
+  const handleBack = () => {
+    if (currentScreen === 'detail') {
+      setCurrentScreen('results');
+    } else if (currentScreen === 'results') {
+      setCurrentScreen('search');
+    } else if (currentScreen === 'search') {
+      setCurrentScreen('dashboard');
+    }
+  };
+
+  return (
+    <>
+      {currentScreen === 'dashboard' && (
+        <DashboardComponent onNavigate={setCurrentScreen} />
+      )}
+      {currentScreen === 'search' && (
+        <SearchComponent onSearch={handleSearch} isLoading={isLoading} />
+      )}
+      {currentScreen === 'results' && (
+        <ResultsComponent 
+          items={searchResults} 
+          onSelect={handleSelectItem}
+          onBack={handleBack}
+        />
+      )}
+    </>
+  );
+};]]></correct-example>
+          <incorrect-example title="Untyped state management" conditions="Managing application state" expected-result="Type-safe state management" incorrectness-criteria="Missing TypeScript types, improper state structure, or coupling between components"><![CDATA[const App = () => {
+  const [screen, setScreen] = useState('dashboard'); // No type
+  const [data, setData] = useState({}); // Unclear structure
+  
+  return <div>{/* components */}</div>;
+};]]></incorrect-example>
+        </example>
+      </examples>
+    </requirement>
+
+    <!-- Version Management and Release Process -->
+    <non-negotiable priority="critical">
+      <description>Follow strict version management and release process for SaaS applications. Package.json version MUST match GitHub releases. Before ANY release or deployment, ALWAYS ask the user what type of release this is (major/minor/patch) and increment accordingly. AboutComponent MUST dynamically display version from package.json.</description>
+      <examples>
+        <example title="Version Synchronization">
+          <correct-example title="Synchronized versions across package.json and Git tags" conditions="Preparing for release" expected-result="Consistent version tracking" correctness-criteria="Package.json version matches latest Git tag, AboutComponent displays dynamic version"><![CDATA[// package.json
+{
+  "name": "saas-app",
+  "version": "3.1.1"
+}
+
+// src/components/AboutComponent.tsx
+import packageJson from '../../package.json';
+const packageVersion = packageJson.version;
+
+// Git tag
+git tag v3.1.1
+
+// Display in About page
+<p className="text-gray-600 mt-2">Version {packageVersion}</p>]]></correct-example>
+          <incorrect-example title="Mismatched versions" conditions="Preparing for release" expected-result="Consistent version tracking" incorrectness-criteria="Package.json and Git tags don't match, or AboutComponent shows hardcoded version"><![CDATA[// package.json
+{
+  "name": "saas-app",
+  "version": "3.1.0"
+}
+
+// Git tag is v3.1.1 (MISMATCH!)
+
+// AboutComponent.tsx
+const packageVersion = '2.5.0'; // Hardcoded version (WRONG!)]]></incorrect-example>
+        </example>
+        <example title="Release Type Classification and Process">
+          <correct-example title="Proper release process with user confirmation" conditions="Before any release or deployment" expected-result="Correctly incremented version with proper release type" correctness-criteria="Always asks user for release type, increments version correctly, follows complete release process"><![CDATA[// AI MUST ALWAYS ASK FIRST:
+AI: "What type of release is this? (major/minor/patch)"
+User: "minor"
+
+// Then AI increments version: 3.1.1 → 3.2.0
+// package.json update
+{
+  "version": "3.2.0"
+}
+
+// Complete release process:
+git add package.json
+git commit -m "chore: bump version to 3.2.0 for minor release"
+git tag v3.2.0
+git push && git push --tags
+gh release create v3.2.0 --title "v3.2.0 - New Features" 
+npx vercel --prod]]></correct-example>
+          <incorrect-example title="Automatic version increment without user confirmation" conditions="Before any release or deployment" expected-result="User-confirmed release type" incorrectness-criteria="AI automatically increments version without asking user, or skips release process steps"><![CDATA[// WRONG - AI automatically increments without asking:
+// package.json (AI changed without asking)
+{
+  "version": "3.2.0"  // Changed automatically - FORBIDDEN!
+}
+
+// Or skipping release process:
+git push  // Missing version bump, tagging, GitHub release creation]]></incorrect-example>
+        </example>
+        <example title="Release Type Guidelines">
+          <correct-example title="Proper release type classification" conditions="Determining release increment type" expected-result="Correctly classified release type" correctness-criteria="Follows semantic versioning rules for major/minor/patch classification"><![CDATA[// MAJOR Release (x.0.0) - Breaking changes:
+- API changes requiring user action
+- Database schema changes affecting compatibility  
+- New major features changing core functionality
+Example: 2.5.3 → 3.0.0
+
+// MINOR Release (x.x.0) - New features, backward compatible:
+- New dashboard functionality
+- New search features
+- Enhanced PWA capabilities  
+Example: 2.0.0 → 2.1.0
+
+// PATCH Release (x.x.x) - Bug fixes and patches:
+- UI styling fixes
+- TypeScript compilation errors
+- Performance improvements
+- Documentation updates
+Example: 2.1.0 → 2.1.1]]></correct-example>
+          <incorrect-example title="Incorrect release type classification" conditions="Determining release increment type" expected-result="Correctly classified release type" incorrectness-criteria="Wrong semantic versioning application or skipping user confirmation"><![CDATA[// WRONG - Major release for minor changes:
+AI: "This UI fix will be a major release" // Should be patch
+
+// WRONG - Automatic decision without user input:
+// AI decides release type without asking user preference
+
+// WRONG - Inconsistent incrementing:
+2.1.0 → 2.3.0  // Skipped 2.2.0 without major breaking change]]></incorrect-example>
+        </example>
+      </examples>
+    </non-negotiable>
+
+    <!-- CI/CD and Deployment Pipeline -->
+    <requirement priority="high">
+      <description>Implement comprehensive CI/CD pipeline for Vercel deployment with automated testing, security checks, and database migrations. Include pre-deployment testing gates and automated release management.</description>
+      <examples>
+        <example title="CI/CD Pipeline Configuration">
+          <correct-example title="Complete GitHub Actions workflow for Vercel deployment" conditions="Setting up deployment pipeline" expected-result="Automated testing and deployment with proper gates" correctness-criteria="Includes dependency caching, critical test gates, Vercel deployment, and proper secrets management"><![CDATA[# .github/workflows/deploy.yml
+name: Deploy to Vercel
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    
+    services:
+      postgres:
+        image: postgres:16
+        env:
+          POSTGRES_PASSWORD: postgres
+          POSTGRES_DB: test_db
+        options: >-
+          --health-cmd pg_isready
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
+        ports:
+          - 5432:5432
+
+    steps:
+      - uses: actions/checkout@v4
+      
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+          cache: 'npm'
+          
+      - name: Install dependencies
+        run: npm ci
+        
+      - name: Setup test environment
+        run: |
+          cp .env.example .env.test
+          echo "DATABASE_URL=postgresql://postgres:postgres@localhost:5432/test_db" >> .env.test
+          
+      - name: Run Prisma operations
+        run: |
+          npx prisma migrate deploy
+          npx prisma generate
+          
+      - name: Run critical E2E tests
+        run: npm run test:e2e:critical
+        
+      - name: Run accessibility tests
+        run: npm run test:a11y
+        
+  deploy:
+    needs: test
+    runs-on: ubuntu-latest
+    if: github.ref == 'refs/heads/main'
+    
+    steps:
+      - uses: actions/checkout@v4
+      
+      - name: Deploy to Vercel
+        uses: amondnet/vercel-action@v25
+        with:
+          vercel-token: ${{ secrets.VERCEL_TOKEN }}
+          vercel-args: '--prod'
+          vercel-org-id: ${{ secrets.ORG_ID }}
+          vercel-project-id: ${{ secrets.PROJECT_ID }}
+
+# package.json deployment scripts
+{
+  "scripts": {
+    "test:e2e:critical": "playwright test tests/e2e/critical/",
+    "test:a11y": "playwright test tests/e2e/accessibility/",
+    "test:pre-deploy": "npm run test:e2e:critical && npm run test:a11y",
+    "deploy:staging": "vercel",
+    "deploy:production": "npm run test:pre-deploy && vercel --prod"
+  }
+}]]></correct-example>
+          <incorrect-example title="Basic deployment without proper testing gates" conditions="Setting up deployment pipeline" expected-result="Comprehensive CI/CD pipeline" incorrectness-criteria="Missing test gates, no accessibility testing, improper secret management, or no database migration handling"><![CDATA[# WRONG - basic deployment without proper testing
+name: Deploy
+on:
+  push:
+    branches: [main]
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - run: npm install
+      - run: npm run build
+      # Missing: testing gates, database migrations, accessibility testing, security checks]]></incorrect-example>
+        </example>
+      </examples>
+    </requirement>
+
+    <!-- Testing and Quality Assurance -->
+    <requirement priority="medium">
+      <description>Implement comprehensive testing for search functionality, data operations, and PWA features. Test API endpoints and database operations thoroughly using appropriate testing frameworks.</description>
+    </requirement>
+
+    <!-- Documentation and Comments -->
+    <requirement priority="medium">
+      <description>Maintain clear documentation for application-specific domain logic, data models, and API endpoint usage. Document PWA installation process and mobile-specific features with proper TypeScript JSDoc comments.</description>
+    </requirement>
+  </requirements>
+  <context description="SaaS Application comprehensive development context">
+    This Progressive Web Application serves as a modern SaaS platform with mobile-first design, comprehensive multi-user authentication system, and dual database architecture. The application features real-time search, Google Maps integration, role-based access control, and scalable data management architecture with local Docker development and production Neon serverless deployment.
+
+    Key architectural decisions:
+    - React 19.1.0 with TypeScript 5.8.3 for type safety throughout frontend and backend
+    - Vite 7.0.4 for modern build tooling and development experience with HMR
+    - Tailwind CSS 3.4.17 with modern component system and responsive design
+    - Dual database architecture: Local Docker PostgreSQL 16 + Production Neon serverless PostgreSQL
+    - Prisma 6.12.0 ORM for type-safe database operations and automated migrations
+    - Multi-user authentication with JWT tokens, bcrypt password hashing (12 rounds), and Google OAuth
+    - Role-based access control: Owner, Admin, Member, Guest with comprehensive permission system
+    - Audit logging and email verification workflow for security compliance
+    - Vercel serverless functions (@vercel/node 5.3.7) for scalable API deployment
+    - Progressive Web App features for mobile installation with proper viewport and safe area handling
+    - Google Maps integration (@googlemaps/js-api-loader 1.16.10) for location-based features
+    - Local development: Docker Compose with PostgreSQL 16, pgAdmin 4, and Redis following 500-architecture/517-docker-core-standards-auto.mdc
+    - Production database: Neon serverless PostgreSQL following 500-architecture/524-neon-core-standards-auto.mdc
+    - Comprehensive Playwright testing infrastructure with accessibility testing (@axe-core/playwright)
+    - Application-specific data models and business logic
+    - Mobile-first responsive design with modern component styling
+    - Environment variable configuration supporting dual database environments
+
+    Development should prioritize mobile user experience, PWA functionality, efficient database operations, security best practices, comprehensive testing coverage, and maintaining modern design aesthetics across both local Docker and production Neon environments.
+
+    Authentication Architecture:
+    - Multi-user system with role-based permissions (Owner > Admin > Member > Guest)
+    - JWT authentication with access tokens (15min) and refresh tokens (7 days)
+    - bcrypt password hashing with 12 rounds and salt generation
+    - Google OAuth integration for single sign-on
+    - Email verification workflow with approval process
+    - Comprehensive audit logging for security events
+    - Account lockout protection and session management
+    - Test user system for Playwright authentication testing (test@saas-app.com / testpass123)
+
+    Database Architecture:
+    - Local Development: Docker PostgreSQL 16 with pgAdmin 4 and Redis for full-stack development
+    - Production: Neon serverless PostgreSQL with autoscaling, connection pooling, and database branching
+    - Prisma ORM for type-safe operations across both environments
+    - Automated database migrations with version control
+    - Authentication tables: users, user_sessions, audit_logs, email_queue
+    - Application data tables with optimized search indexes
+    - Row-Level Security (RLS) policies for multi-tenant applications in production
+    - Proper foreign key relationships and constraints
+    - Connection pooling optimization for serverless deployment
+    - Database seeding with owner and test user accounts
+    - Neon branch management for feature development and testing
+
+    Testing Infrastructure:
+    - Playwright E2E testing across mobile (Pixel 5, iPhone 12) and desktop (Chrome, Safari)
+    - Critical deployment-blocking tests in tests/e2e/critical/
+    - Accessibility testing with @axe-core/playwright for WCAG 2.1 AA compliance
+    - Authentication testing with test user (test@saas-app.com / testpass123)
+    - Visual regression testing and responsive layout testing
+    - CI/CD integration with test reports and failure artifacts
+    - Docker-based testing environment for consistent local testing
+
+    Deployment and DevOps:
+    - Local Development: Docker Compose with secure multi-service orchestration
+    - Production: Vercel serverless platform with Neon database integration
+    - Environment variable management for dual database setup
+    - Automated CI/CD pipeline with GitHub Actions
+    - Database migration automation during deployment
+    - Neon database branching for feature development
+    - Performance monitoring and error tracking
+    - PWA optimization for mobile installation
+    - Docker security scanning and optimization
+
+    Version Management:
+    - Semantic versioning with package.json version synchronization
+    - Package.json version MUST always match the latest GitHub release tag
+    - AboutComponent dynamically displays version from package.json import
+    - Before ANY release, AI MUST ask user for release type (major/minor/patch)
+    - Follow complete release process: version bump → commit → tag → GitHub release → Vercel deploy
+    - Use semantic versioning: major (breaking changes), minor (new features), patch (bug fixes)
+  </context>
+  <references>
+    <reference as="dependency" href=".cursor/rules/000-core/002-cursor-rules-creation.mdc" reason="Follows standard rule format">Base rule format definition</reference>
+    <reference as="dependency" href="300-languages/307-typescript-core-standards-auto.mdc" reason="TypeScript development standards">Core TypeScript best practices and coding standards</reference>
+    <reference as="dependency" href="500-architecture/517-docker-core-standards-auto.mdc" reason="Docker development standards">Comprehensive Docker containerization standards for local development environment</reference>
+    <reference as="dependency" href="500-architecture/524-neon-core-standards-auto.mdc" reason="Neon serverless PostgreSQL standards">Comprehensive Neon serverless PostgreSQL best practices for production database</reference>
+    <reference as="dependency" href="500-architecture/526-vercel-deployment-core-standards-auto.mdc" reason="Vercel deployment standards">Comprehensive Vercel deployment best practices and configuration standards</reference>
+    <reference as="context" href="README.md" reason="Project overview and setup instructions">Comprehensive project documentation and features</reference>
+    <reference as="context" href="DATABASE_SETUP.md" reason="Database configuration and setup">Database setup and configuration guide for dual environment PostgreSQL with Prisma</reference>
+    <reference as="context" href="TESTING_SETUP.md" reason="Testing infrastructure documentation">Playwright E2E testing setup and configuration</reference>
+    <reference as="context" href="ENVIRONMENT_SETUP.md" reason="Environment variable configuration">Environment setup for authentication and dual database connections</reference>
+    <reference as="context" href="VERCEL_DEPLOY_INSTRUCTIONS.md" reason="Deployment procedures and configuration">Comprehensive Vercel deployment guide with Neon integration</reference>
+    <reference as="context" href="package.json" reason="Project dependencies and scripts">Project configuration including authentication, testing, Docker, Neon, and deployment dependencies</reference>
+    <reference as="context" href="src/types/" reason="Core data types and domain logic">Application interfaces and data model definitions</reference>
+    <reference as="context" href="prisma/schema.prisma" reason="Database schema definition">Prisma ORM schema for authentication and application data tables with dual environment support</reference>
+    <reference as="context" href="playwright.config.ts" reason="Testing configuration">Playwright configuration for E2E testing across devices</reference>
+    <reference as="context" href="docker-compose.dev.yml" reason="Development environment setup">Docker Compose configuration for local development following Docker core standards</reference>
+    <reference as="context" href="lib/neon.ts" reason="Neon database integration">Neon serverless PostgreSQL connection and configuration patterns</reference>
+    <reference as="context" href="api/auth/login.ts" reason="Authentication implementation example">JWT authentication pattern implementation</reference>
+    <reference as="context" href="vercel.json" reason="Deployment configuration">Vercel platform configuration for serverless functions and static assets</reference>
+    <reference as="context" href="tests/e2e/critical/" reason="Critical testing patterns">Deployment-blocking test examples for authentication and accessibility</reference>
+  </references>
+</rule>

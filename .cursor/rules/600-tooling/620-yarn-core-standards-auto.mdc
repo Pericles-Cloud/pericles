@@ -1,0 +1,711 @@
+---
+description: Comprehensive Yarn package management standards with modern dependency management, workspace configuration, and performance optimization following Yarn best practices
+globs: ["yarn.lock"]
+alwaysApply: false
+---
+
+<rule>
+  <meta>
+    <title>Yarn Core Standards Auto</title>
+    <description>Comprehensive Yarn package management standards with modern dependency management, workspace configuration, and performance optimization following Yarn best practices</description>
+    <created-at utc-timestamp="1744253880">January 27, 2025, 1:58 PM</created-at>
+    <last-updated-at utc-timestamp="1744253880">January 27, 2025, 1:58 PM</last-updated-at>
+    <applies-to>
+      <file-matcher glob="yarn.lock">Yarn lock files</file-matcher>
+      <action-matcher action="yarn-configuration">Triggered when configuring Yarn package management</action-matcher>
+    </applies-to>
+  </meta>
+  <requirements>
+    <non-negotiable priority="critical">
+      <description>Use Yarn with Zero-Installs strategy, proper workspace configuration, and comprehensive security practices following Yarn 4+ modern standards and expert recommendations.</description>
+      <examples>
+        <example title="Modern Yarn Configuration">
+          <correct-example title="Comprehensive Yarn setup with workspaces" conditions="Setting up Yarn for modern development" expected-result="Optimized Yarn configuration" correctness-criteria="Uses Yarn 4+, Zero-Installs, workspace management, security practices"><![CDATA[// package.json - Yarn workspace configuration
+{
+  "name": "my-monorepo",
+  "private": true,
+  "packageManager": "yarn@4.0.2",
+  "workspaces": [
+    "apps/*",
+    "packages/*",
+    "tools/*"
+  ],
+  "scripts": {
+    // Yarn management
+    "postinstall": "yarn dlx @yarnpkg/sdks vscode",
+    "check-install": "yarn install --check-cache",
+    "dedupe": "yarn dedupe",
+    
+    // Workspace scripts
+    "build": "yarn workspaces foreach -Apt run build",
+    "test": "yarn workspaces foreach -Apt run test",
+    "lint": "yarn workspaces foreach -Apt run lint",
+    "clean": "yarn workspaces foreach -Apt run clean",
+    
+    // Development scripts
+    "dev": "yarn workspace @myapp/web dev",
+    "dev:api": "yarn workspace @myapp/api dev",
+    "dev:all": "yarn workspaces foreach -pi run dev",
+    
+    // Dependency management
+    "add:shared": "yarn workspace @myapp/shared add",
+    "upgrade:interactive": "yarn upgrade-interactive",
+    "outdated": "yarn outdated",
+    "audit": "yarn npm audit --all --recursive",
+    
+    // Release management
+    "version:patch": "yarn workspaces foreach version patch",
+    "version:minor": "yarn workspaces foreach version minor",
+    "changeset": "changeset",
+    "release": "changeset publish"
+  },
+  "devDependencies": {
+    "@changesets/cli": "^2.27.0",
+    "@yarnpkg/sdks": "^3.1.0",
+    "typescript": "^5.3.0"
+  }
+}
+
+// .yarnrc.yml - Yarn 4+ configuration
+nodeLinker: pnp
+
+enableGlobalCache: true
+enableMirror: true
+enableImmutableInstalls: true
+
+compressionLevel: mixed
+
+# Package extensions for better compatibility
+packageExtensions:
+  "@babel/core@*":
+    peerDependencies:
+      "@babel/types": "*"
+
+# Plugin configuration
+plugins:
+  - path: .yarn/plugins/@yarnpkg/plugin-interactive-tools.cjs
+    spec: "@yarnpkg/plugin-interactive-tools"
+  - path: .yarn/plugins/@yarnpkg/plugin-workspace-tools.cjs
+    spec: "@yarnpkg/plugin-workspace-tools"
+  - path: .yarn/plugins/@yarnpkg/plugin-version.cjs
+    spec: "@yarnpkg/plugin-version"
+
+# Performance optimization
+preferInteractive: true
+progressBarStyle: patrick
+
+# Security settings
+enableScripts: false
+enableStrictSsl: true
+checksumBehavior: update
+
+# Network configuration
+httpTimeout: 60000
+httpRetry: 3
+networkTimeout: 60000
+
+# Workspace configuration
+workspaceRootSize: 1
+
+# .gitignore additions for Yarn
+.yarn/*
+!.yarn/patches
+!.yarn/plugins
+!.yarn/releases
+!.yarn/sdks
+!.yarn/versions
+
+# Dependency cache
+.pnp.*
+
+// apps/web/package.json - Workspace package
+{
+  "name": "@myapp/web",
+  "version": "1.0.0",
+  "private": true,
+  "dependencies": {
+    "@myapp/shared": "workspace:*",
+    "@myapp/ui": "workspace:*",
+    "react": "^18.2.0",
+    "react-dom": "^18.2.0"
+  },
+  "devDependencies": {
+    "vite": "^5.0.0",
+    "typescript": "^5.3.0"
+  },
+  "scripts": {
+    "dev": "vite",
+    "build": "tsc && vite build",
+    "test": "jest",
+    "lint": "eslint src"
+  }
+}
+
+// packages/shared/package.json - Shared package
+{
+  "name": "@myapp/shared",
+  "version": "1.0.0",
+  "main": "./dist/index.js",
+  "types": "./dist/index.d.ts",
+  "exports": {
+    ".": {
+      "import": "./dist/index.mjs",
+      "require": "./dist/index.js",
+      "types": "./dist/index.d.ts"
+    }
+  },
+  "dependencies": {
+    "date-fns": "^2.30.0",
+    "zod": "^3.22.0"
+  },
+  "devDependencies": {
+    "tsup": "^8.0.0",
+    "typescript": "^5.3.0"
+  },
+  "scripts": {
+    "build": "tsup src/index.ts --format cjs,esm --dts",
+    "dev": "tsup src/index.ts --format cjs,esm --dts --watch",
+    "test": "jest",
+    "lint": "eslint src"
+  }
+}
+
+// scripts/workspace-health-check.js
+#!/usr/bin/env node
+const { execSync } = require('child_process');
+const fs = require('fs');
+const path = require('path');
+
+console.log('🏥 Running Yarn workspace health check...');
+
+const healthChecks = [
+  {
+    name: 'Yarn Version',
+    check: () => {
+      const yarnVersion = execSync('yarn --version', { encoding: 'utf8' }).trim();
+      if (!yarnVersion.startsWith('4.')) {
+        throw new Error(`Expected Yarn 4.x, found ${yarnVersion}`);
+      }
+      console.log(`✅ Yarn version: ${yarnVersion}`);
+    }
+  },
+  {
+    name: 'PnP Installation',
+    check: () => {
+      if (!fs.existsSync('.pnp.cjs')) {
+        throw new Error('PnP file not found - run yarn install');
+      }
+      console.log('✅ PnP installation verified');
+    }
+  },
+  {
+    name: 'Workspace Dependencies',
+    check: () => {
+      const result = execSync('yarn workspaces list --json', { encoding: 'utf8' });
+      const workspaces = result.trim().split('\n').map(line => JSON.parse(line));
+      console.log(`✅ Found ${workspaces.length} workspaces`);
+      
+      // Check for dependency conflicts
+      execSync('yarn install --check-cache', { stdio: 'pipe' });
+      console.log('✅ No dependency conflicts detected');
+    }
+  },
+  {
+    name: 'Security Audit',
+    check: () => {
+      try {
+        execSync('yarn npm audit --all --recursive', { stdio: 'pipe' });
+        console.log('✅ Security audit passed');
+      } catch (error) {
+        console.warn('⚠️  Security vulnerabilities detected - review required');
+      }
+    }
+  }
+];
+
+let hasErrors = false;
+
+healthChecks.forEach(check => {
+  try {
+    check.check();
+  } catch (error) {
+    console.error(`❌ ${check.name}: ${error.message}`);
+    hasErrors = true;
+  }
+});
+
+if (hasErrors) {
+  console.error('\n❌ Workspace health check failed');
+  process.exit(1);
+} else {
+  console.log('\n✅ Workspace health check passed!');
+}]]></correct-example>
+          <incorrect-example title="Basic Yarn configuration without modern features" conditions="Setting up Yarn for modern development" expected-result="Optimized Yarn configuration" incorrectness-criteria="Uses outdated Yarn version, no workspaces, poor performance configuration"><![CDATA[// package.json - Basic Yarn setup
+{
+  "name": "my-app",
+  "version": "1.0.0",
+  "scripts": {
+    "install": "yarn install",
+    "build": "yarn build"
+  },
+  "dependencies": {
+    "react": "*"
+  }
+}
+
+// .yarnrc - Outdated configuration
+registry "https://registry.yarnpkg.com"
+
+// Missing:
+// - Yarn 4+ features
+// - Workspace configuration
+// - PnP (Plug'n'Play)
+// - Performance optimization
+// - Security practices
+// - Modern dependency management]]></incorrect-example>
+        </example>
+      </examples>
+    </non-negotiable>
+
+    <non-negotiable priority="critical">
+      <description>Implement Yarn workspaces with proper dependency management, version constraints, and cross-workspace dependency resolution following monorepo best practices.</description>
+      <examples>
+        <example title="Yarn Workspaces Management">
+          <correct-example title="Advanced workspace configuration" conditions="Managing monorepo with Yarn workspaces" expected-result="Efficient workspace management" correctness-criteria="Proper workspace structure, dependency management, build orchestration"><![CDATA[// package.json - Advanced workspace configuration
+{
+  "name": "@company/monorepo",
+  "private": true,
+  "workspaces": {
+    "packages": [
+      "apps/*",
+      "packages/*",
+      "tools/*"
+    ],
+    "nohoist": [
+      "**/electron",
+      "**/electron/**"
+    ]
+  },
+  "scripts": {
+    // Workspace management
+    "workspace:list": "yarn workspaces list",
+    "workspace:info": "yarn workspaces info",
+    "workspace:run": "yarn workspaces run",
+    
+    // Dependency management
+    "deps:check": "yarn workspaces foreach -A exec yarn outdated",
+    "deps:upgrade": "yarn workspaces foreach -A exec yarn upgrade",
+    "deps:dedupe": "yarn dedupe",
+    
+    // Build orchestration
+    "build": "yarn workspaces foreach -Apt --exclude @company/monorepo run build",
+    "build:changed": "yarn workspaces foreach -Apt --since=origin/main run build",
+    "build:apps": "yarn workspaces foreach -Apt --include '@company/app-*' run build",
+    
+    // Testing orchestration
+    "test": "yarn workspaces foreach -Apt run test",
+    "test:changed": "yarn workspaces foreach -Apt --since=origin/main run test",
+    "test:coverage": "yarn workspaces foreach -Apt run test:coverage",
+    
+    // Code quality
+    "lint": "yarn workspaces foreach -Apt run lint",
+    "lint:fix": "yarn workspaces foreach -Apt run lint:fix",
+    "type-check": "yarn workspaces foreach -Apt run type-check",
+    
+    // Development
+    "dev": "yarn workspaces foreach -pi --include '@company/app-*' run dev",
+    "clean": "yarn workspaces foreach -Apt run clean",
+    "reset": "yarn workspaces foreach -Apt exec rm -rf node_modules dist .turbo && yarn install"
+  }
+}
+
+// .yarnrc.yml - Advanced workspace configuration
+workspaceRootSize: 1
+
+# Workspace-specific settings
+workspaces:
+  "@company/app-web":
+    enableScripts: true
+    packageExtensions:
+      "react-scripts@*":
+        dependencies:
+          "@babel/plugin-proposal-private-property-in-object": "*"
+
+# Version management
+bstatePath: .yarn/berry/cache
+installStatePath: .yarn/install-state.gz
+
+# Performance for large workspaces
+enableGlobalCache: true
+globalFolder: ~/.yarn/berry/cache
+
+# scripts/workspace-dependencies.js
+#!/usr/bin/env node
+const { execSync } = require('child_process');
+const fs = require('fs');
+
+console.log('🔗 Analyzing workspace dependencies...');
+
+// Get workspace information
+const workspacesOutput = execSync('yarn workspaces list --json', { encoding: 'utf8' });
+const workspaces = workspacesOutput.trim().split('\n').map(line => JSON.parse(line));
+
+console.log(`Found ${workspaces.length} workspaces:`);
+
+workspaces.forEach(workspace => {
+  if (workspace.name !== '.') {
+    console.log(`  📦 ${workspace.name} (${workspace.location})`);
+  }
+});
+
+// Check for circular dependencies
+console.log('\n🔄 Checking for circular dependencies...');
+try {
+  execSync('yarn workspaces foreach -A exec yarn why --json', { stdio: 'pipe' });
+  console.log('✅ No circular dependencies detected');
+} catch (error) {
+  console.warn('⚠️  Potential circular dependencies detected');
+}
+
+// Check for workspace protocol usage
+console.log('\n🔗 Checking workspace protocol usage...');
+workspaces.forEach(workspace => {
+  if (workspace.name === '.') return;
+  
+  const packageJsonPath = `${workspace.location}/package.json`;
+  if (fs.existsSync(packageJsonPath)) {
+    const packageJson = JSON.parse(fs.readFileSync(packageJsonPath, 'utf8'));
+    const deps = { ...packageJson.dependencies, ...packageJson.devDependencies };
+    
+    Object.entries(deps).forEach(([name, version]) => {
+      if (version.startsWith('workspace:')) {
+        console.log(`  📦 ${workspace.name} → ${name} (${version})`);
+      }
+    });
+  }
+});
+
+// scripts/workspace-version-sync.js
+#!/usr/bin/env node
+const fs = require('fs');
+const path = require('path');
+const { execSync } = require('child_process');
+
+console.log('🔄 Synchronizing workspace versions...');
+
+// Get all workspace package.json files
+const workspacesOutput = execSync('yarn workspaces list --json', { encoding: 'utf8' });
+const workspaces = workspacesOutput.trim().split('\n')
+  .map(line => JSON.parse(line))
+  .filter(ws => ws.name !== '.');
+
+// Read root package.json for version
+const rootPackage = JSON.parse(fs.readFileSync('package.json', 'utf8'));
+const targetVersion = rootPackage.version;
+
+console.log(`Target version: ${targetVersion}`);
+
+workspaces.forEach(workspace => {
+  const packagePath = path.join(workspace.location, 'package.json');
+  const packageJson = JSON.parse(fs.readFileSync(packagePath, 'utf8'));
+  
+  if (packageJson.version !== targetVersion) {
+    console.log(`📦 Updating ${workspace.name}: ${packageJson.version} → ${targetVersion}`);
+    packageJson.version = targetVersion;
+    fs.writeFileSync(packagePath, JSON.stringify(packageJson, null, 2) + '\n');
+  }
+});
+
+console.log('✅ Version synchronization complete');
+
+// Docker configuration for Yarn workspaces
+FROM node:18-alpine AS base
+
+# Install Yarn 4
+RUN corepack enable
+RUN corepack prepare yarn@4.0.2 --activate
+
+# Set working directory
+WORKDIR /app
+
+# Copy package manager files
+COPY package.json yarn.lock .yarnrc.yml ./
+COPY .yarn .yarn
+
+# Multi-stage build for workspaces
+FROM base AS deps
+COPY packages/*/package.json packages/*/
+COPY apps/*/package.json apps/*/
+RUN yarn install --immutable
+
+FROM base AS builder
+COPY --from=deps /app/node_modules ./node_modules
+COPY --from=deps /app/.yarn ./.yarn
+COPY . .
+RUN yarn build
+
+# Production image
+FROM base AS runner
+COPY --from=builder /app/apps/web/dist ./dist
+COPY --from=deps /app/node_modules ./node_modules
+CMD ["yarn", "start"]]]></correct-example>
+          <incorrect-example title="Poor workspace configuration" conditions="Managing monorepo with Yarn workspaces" expected-result="Efficient workspace management" incorrectness-criteria="No proper workspace structure, missing dependency management, poor build orchestration"><![CDATA[// package.json - Poor workspace setup
+{
+  "workspaces": ["packages/*"],
+  "scripts": {
+    "build": "yarn run build"
+  }
+}
+
+// Missing:
+// - Proper workspace organization
+// - Dependency management scripts
+// - Build orchestration
+// - Testing coordination
+// - Version management
+// - Performance optimization]]></incorrect-example>
+        </example>
+      </examples>
+    </non-negotiable>
+
+    <requirement priority="critical">
+      <description>Configure Yarn with Zero-Installs strategy, PnP (Plug'n'Play) for optimal performance, and comprehensive caching mechanisms for CI/CD environments.</description>
+      <examples>
+        <example title="Yarn Performance Optimization">
+          <correct-example title="Zero-Installs and PnP configuration" conditions="Optimizing Yarn for performance" expected-result="Fast and reliable Yarn operations" correctness-criteria="Uses Zero-Installs, PnP optimization, CI caching, performance monitoring"><![CDATA[// .yarnrc.yml - Performance-optimized configuration
+# Enable PnP for better performance
+nodeLinker: pnp
+
+# Zero-Installs configuration
+enableGlobalCache: false
+enableMirror: false
+enableImmutableInstalls: true
+
+# Cache optimization
+compressionLevel: mixed
+enableOfflineMode: true
+
+# Network optimization
+httpTimeout: 60000
+httpRetry: 3
+networkConcurrency: 8
+
+# Performance settings
+enableProgressBars: true
+progressBarStyle: patrick
+preferInteractive: false
+
+# scripts/yarn-performance-monitor.js
+#!/usr/bin/env node
+const { performance } = require('perf_hooks');
+const { execSync } = require('child_process');
+const fs = require('fs');
+
+console.log('📊 Monitoring Yarn performance...');
+
+const measureYarnCommand = (name, command, options = {}) => {
+  const start = performance.now();
+  try {
+    const output = execSync(command, { 
+      encoding: 'utf8', 
+      stdio: options.silent ? 'pipe' : 'inherit',
+      ...options 
+    });
+    const end = performance.now();
+    return { 
+      name, 
+      duration: end - start, 
+      success: true, 
+      output: output || 'Command completed' 
+    };
+  } catch (error) {
+    const end = performance.now();
+    return { 
+      name, 
+      duration: end - start, 
+      success: false, 
+      error: error.message 
+    };
+  }
+};
+
+const performanceTests = [
+  {
+    name: 'yarn install (cold)',
+    setup: () => {
+      if (fs.existsSync('node_modules')) {
+        execSync('rm -rf node_modules');
+      }
+      if (fs.existsSync('.pnp.cjs')) {
+        fs.unlinkSync('.pnp.cjs');
+      }
+    },
+    command: 'yarn install',
+    options: { silent: true }
+  },
+  {
+    name: 'yarn install (warm)',
+    setup: () => {
+      if (fs.existsSync('node_modules')) {
+        execSync('rm -rf node_modules');
+      }
+    },
+    command: 'yarn install',
+    options: { silent: true }
+  },
+  {
+    name: 'yarn workspaces list',
+    setup: () => {},
+    command: 'yarn workspaces list',
+    options: { silent: true }
+  },
+  {
+    name: 'yarn dedupe',
+    setup: () => {},
+    command: 'yarn dedupe',
+    options: { silent: true }
+  }
+];
+
+const results = [];
+
+performanceTests.forEach(test => {
+  console.log(`\n🔍 Testing: ${test.name}`);
+  test.setup();
+  const result = measureYarnCommand(test.name, test.command, test.options);
+  results.push(result);
+  
+  if (result.success) {
+    console.log(`✅ ${test.name}: ${Math.round(result.duration)}ms`);
+  } else {
+    console.log(`❌ ${test.name}: Failed after ${Math.round(result.duration)}ms`);
+  }
+});
+
+// Generate performance report
+const report = {
+  timestamp: new Date().toISOString(),
+  nodeVersion: process.version,
+  yarnVersion: execSync('yarn --version', { encoding: 'utf8' }).trim(),
+  results,
+  summary: {
+    totalTests: results.length,
+    successful: results.filter(r => r.success).length,
+    averageDuration: results.reduce((sum, r) => sum + r.duration, 0) / results.length
+  }
+};
+
+fs.writeFileSync('.yarn-performance.json', JSON.stringify(report, null, 2));
+console.log('\n📊 Performance report saved to .yarn-performance.json');
+
+// GitHub Actions with Yarn optimization
+name: Yarn CI
+on: [push, pull_request]
+
+jobs:
+  install-and-build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '18'
+          cache: 'yarn'
+      
+      - name: Enable Corepack
+        run: corepack enable
+      
+      # Zero-Installs with cache
+      - name: Restore Yarn cache
+        uses: actions/cache@v3
+        with:
+          path: |
+            .yarn/cache
+            .yarn/unplugged
+            .yarn/install-state.gz
+          key: yarn-${{ hashFiles('yarn.lock') }}
+          restore-keys: yarn-
+      
+      - name: Install dependencies
+        run: yarn install --immutable
+      
+      - name: Build workspaces
+        run: yarn build
+      
+      - name: Run tests
+        run: yarn test
+      
+      - name: Performance report
+        run: node scripts/yarn-performance-monitor.js
+      
+      - name: Upload performance artifacts
+        uses: actions/upload-artifact@v3
+        if: always()
+        with:
+          name: yarn-performance
+          path: .yarn-performance.json
+
+# .gitignore - Yarn Zero-Installs
+# Yarn files
+.yarn/*
+!.yarn/cache
+!.yarn/patches
+!.yarn/plugins
+!.yarn/releases
+!.yarn/sdks
+!.yarn/versions
+
+# PnP files
+.pnp.*
+
+# VS Code integration
+.vscode/settings.json]]></correct-example>
+          <incorrect-example title="Unoptimized Yarn configuration" conditions="Optimizing Yarn for performance" expected-result="Fast and reliable Yarn operations" incorrectness-criteria="No PnP, poor caching, missing performance optimization"><![CDATA[// .yarnrc.yml - Basic configuration
+registry: "https://registry.yarnpkg.com"
+
+// package.json - No performance considerations
+{
+  "scripts": {
+    "install": "yarn",
+    "build": "yarn build"
+  }
+}
+
+// Missing:
+// - PnP configuration
+// - Zero-Installs strategy
+// - Performance monitoring
+// - CI optimization
+// - Caching strategy
+// - Workspace performance optimization]]></incorrect-example>
+        </example>
+      </examples>
+    </requirement>
+  </requirements>
+  
+  <context description="Modern Yarn development considerations">
+    Yarn has evolved significantly with version 4.x, introducing Plug'n'Play (PnP), Zero-Installs, and advanced workspace management. Modern Yarn usage emphasizes performance, security, and sophisticated monorepo management capabilities.
+
+    Key considerations for modern Yarn usage:
+    - Yarn 4+ with PnP for superior performance and disk space efficiency
+    - Zero-Installs strategy for faster CI/CD and better reproducibility
+    - Advanced workspace management for complex monorepo architectures
+    - Comprehensive security practices with audit capabilities
+    - Performance optimization through intelligent caching and offline mode
+    - Integration with modern development tools and IDE support
+    - Sophisticated dependency resolution and version management
+
+    Expert insights from the Yarn team and JavaScript community emphasize the importance of embracing modern Yarn features like PnP and Zero-Installs while maintaining backward compatibility and providing excellent developer experience across different development environments.
+  </context>
+  
+  <references>
+    <reference as="dependency" href=".cursor/rules/000-core/002-cursor-rules-creation.mdc" reason="Follows standard rule format">Base rule format definition</reference>
+    <reference as="context" href="https://yarnpkg.com/" reason="Official Yarn documentation">Yarn Official Documentation</reference>
+    <reference as="context" href="https://yarnpkg.com/features/pnp" reason="PnP documentation">Yarn Plug'n'Play Documentation</reference>
+    <reference as="context" href="https://yarnpkg.com/features/zero-installs" reason="Zero-Installs strategy">Yarn Zero-Installs Documentation</reference>
+    <reference as="context" href="https://yarnpkg.com/features/workspaces" reason="Workspace management">Yarn Workspaces Documentation</reference>
+    <reference as="context" href="https://yarnpkg.com/cli" reason="CLI reference">Yarn CLI Documentation</reference>
+  </references>
+</rule>

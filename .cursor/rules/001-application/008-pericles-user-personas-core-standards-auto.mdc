@@ -1,0 +1,155 @@
+---
+description: Defines Pericles User Personas and their core capabilities across Atlas, Insights, Plans, and Co-Pilot experiences.
+globs: ".cursor/rules/pericles-user-personas.mdc"
+alwaysApply: false
+---
+
+<rule>
+  <meta>
+    <title>Pericles User Personas</title>
+    <description>Defines core personas (Global Risk Manager, Supply Chain Manager, Business Stakeholder) and their required interactions with Atlas, Insights, Plans, and Co-Pilot.</description>
+    <created-at utc-timestamp="1761004800">October 21, 2025, 00:00 UTC</created-at>
+    <last-updated-at utc-timestamp="1761004800">October 21, 2025, 00:00 UTC</last-updated-at>
+    <applies-to>
+      <file-matcher glob="**/*">Product requirements that implement persona-driven UX and capabilities across Pericles.</file-matcher>
+      <action-matcher action="define-personas">Triggered when defining, validating, or updating user personas and capabilities.</action-matcher>
+    </applies-to>
+  </meta>
+
+  <requirements>
+    <non-negotiable priority="critical">
+      <description>Atlas interaction must mirror Google Maps patterns with map and satellite views, smooth zoom and pan, and responsive performance.</description>
+      <examples>
+        <example title="Map UX parity">
+          <correct-example title="Map + satellite + zoom/pan" conditions="Atlas rendering" expected-result="Smooth interactions" correctness-criteria="Supports satellite toggle, zoom, pan at 60 FPS"><![CDATA[
+AtlasMap: { viewToggle:['MAP','SATELLITE'], pan:true, zoom:true, fps>=60 }
+]]></correct-example>
+          <incorrect-example title="Limited map" conditions="Atlas rendering" expected-result="Full interactions" incorrectness-criteria="No satellite mode or stuttery pan/zoom"><![CDATA[
+AtlasMap: { viewToggle:[], pan:false, zoom:false }
+]]></incorrect-example>
+        </example>
+      </examples>
+    </non-negotiable>
+
+    <non-negotiable priority="critical">
+      <description>Display on Atlas: all suppliers (primary, secondary, tertiary), all shipments with origin/destination, and full routes including distance covered and remaining.</description>
+      <examples>
+        <example title="Shipment progress">
+          <correct-example title="Route progress" conditions="Trans-Pacific leg" expected-result="Shows covered/remaining distances" correctness-criteria="Progress metrics visible on route"><![CDATA[
+ShipmentRoute: { covered_km: 4500, remaining_km: 4300, percent: 51.1 }
+]]></correct-example>
+          <incorrect-example title="Missing route detail" conditions="Long-haul route" expected-result="Progress shown" incorrectness-criteria="No covered/remaining metrics"><![CDATA[
+ShipmentRoute: { route: [...], progress: null }
+]]></incorrect-example>
+        </example>
+      </examples>
+    </non-negotiable>
+
+    <requirement priority="high">
+      <description>Atlas filters: transit type (air, maritime, rail, ground); origin; destination; supplier; goods type; supplier tier (primary, secondary, tertiary); timeliness (on-time, delayed, blocked).</description>
+      <examples>
+        <example title="Comprehensive filter bar">
+          <correct-example title="All required filters" conditions="Filter config" expected-result="Full filter set" correctness-criteria="Includes transit, origin/destination, supplier, goods, tier, timeliness"><![CDATA[
+filters = { transit:['AIR','SEA','RAIL','GROUND'], origin:[], destination:[], supplier:[], goods:[], tier:['PRIMARY','SECONDARY','TERTIARY'], timeliness:['ON_TIME','DELAYED','BLOCKED'] }
+]]></correct-example>
+          <incorrect-example title="Partial filters" conditions="Filter config" expected-result="Full filter set" incorrectness-criteria="Missing transit or tier or timeliness"><![CDATA[
+filters = { origin:[], destination:[] } // too limited
+]]></incorrect-example>
+        </example>
+      </examples>
+    </requirement>
+
+    <requirement priority="high">
+      <description>Country Insights: clicking a country in Atlas opens risk insights for that country (navigates to Insights with preserved context).</description>
+      <examples>
+        <example title="Atlas→Insights drill-through">
+          <correct-example title="Context preserved" conditions="Country click" expected-result="Insights view" correctness-criteria="Country code and filters propagated"><![CDATA[
+onCountryClick('CN') => navigate('/insights?country=CN&from=atlas')
+]]></correct-example>
+          <incorrect-example title="Context lost" conditions="Country click" expected-result="Contextualized insights" incorrectness-criteria="Opens generic Insights with no country"><![CDATA[
+onCountryClick('CN') => navigate('/insights') // missing country
+]]></incorrect-example>
+        </example>
+      </examples>
+    </requirement>
+
+    <requirement priority="high">
+      <description>Incident→Plans drill-through: from an incident in Atlas, open mitigation plan status in Plans with ability to view plan details.</description>
+      <examples>
+        <example title="Atlas→Plans drill-through">
+          <correct-example title="Plan detail access" conditions="Incident click" expected-result="Plans detail" correctness-criteria="IncidentId and planId propagated"><![CDATA[
+onIncidentClick('evt_123') => navigate('/plans?incident=evt_123')
+]]></correct-example>
+          <incorrect-example title="No plan context" conditions="Incident click" expected-result="Plan detail" incorrectness-criteria="Navigates without incident context"><![CDATA[
+onIncidentClick('evt_123') => navigate('/plans')
+]]></incorrect-example>
+        </example>
+      </examples>
+    </requirement>
+
+    <requirement priority="high">
+      <description>Areas of interest: users can define/add/change/remove cities, regions, and countries of interest; support manual configuration when ERP integration is not present.</description>
+      <examples>
+        <example title="Manual AOI management">
+          <correct-example title="No ERP fallback" conditions="ERP absent" expected-result="Allows AOI editing" correctness-criteria="Create/update/delete AOIs in UI"><![CDATA[
+if !hasERP: enableAOIEditor()
+]]></correct-example>
+          <incorrect-example title="ERP hard dependency" conditions="ERP absent" expected-result="Allow manual" incorrectness-criteria="Block AOI editing without ERP"><![CDATA[
+if !hasERP: disableAOIEditor()
+]]></incorrect-example>
+        </example>
+      </examples>
+    </requirement>
+
+    <requirement priority="high">
+      <description>Co-Pilot interaction: personas can query Co-Pilot for supply chain, event, and risk information; responses are context-aware to current map view and filters.</description>
+      <examples>
+        <example title="Context-aware Co-Pilot">
+          <correct-example title="Map/filter context" conditions="User query" expected-result="Contextual response" correctness-criteria="Includes bounds, zoom, active filters"><![CDATA[
+copilot.ask({ query:'Which suppliers are delayed?', context:{ bounds, zoom, filters } })
+]]></correct-example>
+          <incorrect-example title="No context" conditions="User query" expected-result="Contextual response" incorrectness-criteria="Omits current map/filters"><![CDATA[
+copilot.ask({ query:'Which suppliers are delayed?' }) // missing context
+]]></incorrect-example>
+        </example>
+      </examples>
+    </requirement>
+  </requirements>
+
+  <grammar>
+    <schema title="Persona Schema (conceptual)" description="Standard persona and capability mapping."><![CDATA[
+Persona {
+  id: 'GLOBAL_RISK_MANAGER' | 'SUPPLY_CHAIN_MANAGER' | 'BUSINESS_STAKEHOLDER'
+  displayName: string
+  capabilities: Capability[]
+}
+
+Capability {
+  id: string
+  area: 'ATLAS' | 'INSIGHTS' | 'PLANS' | 'COPILOT'
+  description: string
+  required: boolean
+}
+]]></schema>
+
+    <grammar-entry title="Atlas Interaction">
+      <pattern description="Map behavior">pan=true, zoom=true, viewToggle=['MAP','SATELLITE'], fps>=60</pattern>
+      <example description="Route visualization">show covered_km, remaining_km, percent_complete</example>
+    </grammar-entry>
+  </grammar>
+
+  <context description="Personas and Product Areas">
+    <![CDATA[
+Personas: Global Risk Manager, Supply Chain Manager, Business Stakeholder.
+Product Areas: Atlas (map, suppliers, shipments, routes, filters), Insights (country risk), Plans (mitigation status), Co-Pilot (context-aware assistance).
+    ]]>
+  </context>
+
+  <references>
+    <reference as="dependency" href=".cursor/rules/000-core/002-cursor-rules-creation.mdc" reason="Follows standard rule format">Cursor Rule File Format (.mdc)</reference>
+    <reference as="context" href=".cursor/rules/001-application-pericles/004-pericles-atlas-core-standards-auto.mdc" reason="Atlas UX and data standards">Atlas Core Standards</reference>
+    <reference as="context" href=".cursor/rules/001-application-pericles/005-pericles-insights-core-standards-auto.mdc" reason="Insights navigation and context">Insights Core Standards</reference>
+    <reference as="context" href=".cursor/rules/001-application-pericles/006-pericles-plans-core-standards-auto.mdc" reason="Plans drill-through and status">Plans Core Standards</reference>
+  </references>
+</rule>
+

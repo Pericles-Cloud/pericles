@@ -1,0 +1,513 @@
+<rule>
+  <meta>
+    <title>MobX Core Standards</title>
+    <description>MobX state management best practices with TypeScript, observables, computed values, actions, and performance optimization following MobX community standards</description>
+    <created-at utc-timestamp="1744157700">January 25, 2025, 10:15 AM</created-at>
+    <last-updated-at utc-timestamp="1744157700">January 25, 2025, 10:15 AM</last-updated-at>
+    <applies-to>
+      <file-matcher glob="**/*.{ts,tsx,js,jsx}">TypeScript and JavaScript files using MobX</file-matcher>
+      <file-matcher glob="**/store/**/*">Store implementation files</file-matcher>
+      <file-matcher glob="**/*store*">Store-related files</file-matcher>
+      <action-matcher action="state-management">Triggered when working with state management</action-matcher>
+    </applies-to>
+  </meta>
+  <requirements>
+    <non-negotiable priority="critical">
+      <description>Use proper MobX patterns with observables, computed values, and actions. Implement strict mode and proper TypeScript integration for type safety and predictable state management.</description>
+      <examples>
+        <example title="MobX Store Implementation">
+          <correct-example title="Proper MobX store with TypeScript" conditions="Creating a MobX store" expected-result="Type-safe, observable store with proper actions" correctness-criteria="Uses makeObservable, proper action decorators, computed values, TypeScript types"><![CDATA[// TypeScript - Proper MobX store implementation
+import { makeObservable, observable, computed, action, runInAction } from 'mobx';
+
+interface User {
+  id: string;
+  name: string;
+  email: string;
+  isActive: boolean;
+}
+
+interface UserFilters {
+  searchTerm: string;
+  showActive: boolean;
+}
+
+class UserStore {
+  users: User[] = [];
+  filters: UserFilters = {
+    searchTerm: '',
+    showActive: true
+  };
+  isLoading = false;
+  error: string | null = null;
+
+  constructor() {
+    makeObservable(this, {
+      // Observable state
+      users: observable,
+      filters: observable,
+      isLoading: observable,
+      error: observable,
+      
+      // Computed values
+      filteredUsers: computed,
+      userCount: computed,
+      hasUsers: computed,
+      
+      // Actions
+      setUsers: action,
+      addUser: action,
+      updateUser: action,
+      removeUser: action,
+      setFilters: action,
+      setLoading: action,
+      setError: action,
+      clearError: action
+    });
+  }
+
+  // Computed values for derived state
+  get filteredUsers(): User[] {
+    return this.users.filter(user => {
+      const matchesSearch = user.name.toLowerCase().includes(
+        this.filters.searchTerm.toLowerCase()
+      );
+      const matchesActive = !this.filters.showActive || user.isActive;
+      return matchesSearch && matchesActive;
+    });
+  }
+
+  get userCount(): number {
+    return this.filteredUsers.length;
+  }
+
+  get hasUsers(): boolean {
+    return this.users.length > 0;
+  }
+
+  // Actions for state mutations
+  setUsers = (users: User[]): void => {
+    this.users = users;
+  };
+
+  addUser = (user: User): void => {
+    this.users.push(user);
+  };
+
+  updateUser = (id: string, updates: Partial<User>): void => {
+    const userIndex = this.users.findIndex(u => u.id === id);
+    if (userIndex !== -1) {
+      Object.assign(this.users[userIndex], updates);
+    }
+  };
+
+  removeUser = (id: string): void => {
+    this.users = this.users.filter(u => u.id !== id);
+  };
+
+  setFilters = (filters: Partial<UserFilters>): void => {
+    Object.assign(this.filters, filters);
+  };
+
+  setLoading = (loading: boolean): void => {
+    this.isLoading = loading;
+  };
+
+  setError = (error: string | null): void => {
+    this.error = error;
+  };
+
+  clearError = (): void => {
+    this.error = null;
+  };
+
+  // Async actions using runInAction
+  fetchUsers = async (): Promise<void> => {
+    this.setLoading(true);
+    this.clearError();
+
+    try {
+      const response = await fetch('/api/users');
+      if (!response.ok) {
+        throw new Error(`Failed to fetch users: ${response.statusText}`);
+      }
+      
+      const users = await response.json();
+      
+      runInAction(() => {
+        this.setUsers(users);
+        this.setLoading(false);
+      });
+    } catch (error) {
+      runInAction(() => {
+        this.setError(error instanceof Error ? error.message : 'Unknown error');
+        this.setLoading(false);
+      });
+    }
+  };
+
+  createUser = async (userData: Omit<User, 'id'>): Promise<void> => {
+    this.setLoading(true);
+    this.clearError();
+
+    try {
+      const response = await fetch('/api/users', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(userData)
+      });
+
+      if (!response.ok) {
+        throw new Error(`Failed to create user: ${response.statusText}`);
+      }
+
+      const newUser = await response.json();
+      
+      runInAction(() => {
+        this.addUser(newUser);
+        this.setLoading(false);
+      });
+    } catch (error) {
+      runInAction(() => {
+        this.setError(error instanceof Error ? error.message : 'Unknown error');
+        this.setLoading(false);
+      });
+    }
+  };
+}
+
+// Create and export store instance
+export const userStore = new UserStore();]]></correct-example>
+          <incorrect-example title="Poor MobX implementation without proper patterns" conditions="Creating a MobX store" expected-result="Proper MobX store implementation" incorrectness-criteria="No makeObservable, direct state mutation, missing actions, no TypeScript types"><![CDATA[// BAD: Poor MobX implementation
+import { observable } from 'mobx';
+
+// No TypeScript interfaces
+const userStore = {
+  users: observable([]),
+  filters: observable({
+    searchTerm: '',
+    showActive: true
+  }),
+
+  // No computed values
+  // Direct mutations without actions
+  addUser(user) {
+    this.users.push(user); // Direct mutation
+  },
+
+  // No proper async handling
+  async fetchUsers() {
+    // No loading state management
+    const users = await fetch('/api/users').then(r => r.json());
+    this.users.replace(users); // Direct mutation
+    // No error handling
+  }
+};
+
+// No makeObservable setup
+// No type safety
+// No proper action decorators]]></incorrect-example>
+        </example>
+      </examples>
+    </non-negotiable>
+
+    <requirement priority="high">
+      <description>Configure MobX with strict mode and proper development tools. Use observer components and implement proper React integration with mobx-react-lite.</description>
+      <examples>
+        <example title="MobX Configuration and React Integration">
+          <correct-example title="Proper MobX configuration with React integration" conditions="Setting up MobX in a React application" expected-result="Properly configured MobX with React components" correctness-criteria="Strict mode enabled, observer components, proper hooks usage"><![CDATA[// MobX configuration (src/config/mobx.ts)
+import { configure } from 'mobx';
+
+// Enable strict mode for production
+configure({
+  enforceActions: 'always',
+  computedRequiresReaction: true,
+  reactionRequiresObservable: true,
+  observableRequiresReaction: true,
+  disableErrorBoundaries: true
+});
+
+// React component integration (src/components/UserList.tsx)
+import React from 'react';
+import { observer } from 'mobx-react-lite';
+import { userStore } from '../stores/UserStore';
+
+interface UserListProps {
+  className?: string;
+}
+
+export const UserList: React.FC<UserListProps> = observer(({ className }) => {
+  const { filteredUsers, isLoading, error, userCount } = userStore;
+
+  React.useEffect(() => {
+    userStore.fetchUsers();
+  }, []);
+
+  if (isLoading) {
+    return <div className="loading">Loading users...</div>;
+  }
+
+  if (error) {
+    return (
+      <div className="error">
+        <p>Error: {error}</p>
+        <button onClick={() => userStore.clearError()}>Dismiss</button>
+      </div>
+    );
+  }
+
+  return (
+    <div className={className}>
+      <h2>Users ({userCount})</h2>
+      
+      <div className="filters">
+        <input
+          type="text"
+          placeholder="Search users..."
+          value={userStore.filters.searchTerm}
+          onChange={(e) => userStore.setFilters({ searchTerm: e.target.value })}
+        />
+        
+        <label>
+          <input
+            type="checkbox"
+            checked={userStore.filters.showActive}
+            onChange={(e) => userStore.setFilters({ showActive: e.target.checked })}
+          />
+          Show active only
+        </label>
+      </div>
+
+      <ul className="user-list">
+        {filteredUsers.map(user => (
+          <li key={user.id} className={user.isActive ? 'active' : 'inactive'}>
+            <span>{user.name}</span>
+            <span>{user.email}</span>
+            <button onClick={() => userStore.removeUser(user.id)}>
+              Remove
+            </button>
+          </li>
+        ))}
+      </ul>
+    </div>
+  );
+});
+
+// Custom hook for store access (src/hooks/useUserStore.ts)
+import { userStore } from '../stores/UserStore';
+
+export const useUserStore = () => {
+  return userStore;
+};]]></correct-example>
+          <incorrect-example title="Poor React integration without observer" conditions="Using MobX with React" expected-result="Proper React-MobX integration" incorrectness-criteria="No observer wrapper, direct store access, missing strict mode"><![CDATA[// BAD: Poor React integration
+import React from 'react';
+import { userStore } from '../stores/UserStore';
+
+// No observer wrapper - component won't re-render
+export const UserList: React.FC = () => {
+  // Direct store access without observer
+  const users = userStore.users;
+
+  return (
+    <div>
+      {users.map(user => (
+        <div key={user.id}>{user.name}</div>
+      ))}
+    </div>
+  );
+};
+
+// No MobX configuration
+// No strict mode
+// Component won't react to store changes]]></incorrect-example>
+        </example>
+      </examples>
+    </requirement>
+
+    <requirement priority="high">
+      <description>Implement proper testing strategies for MobX stores including unit testing with proper mocking and integration testing for store interactions.</description>
+      <examples>
+        <example title="MobX Store Testing">
+          <correct-example title="Comprehensive MobX store testing" conditions="Testing MobX stores" expected-result="Thorough test coverage with proper assertions" correctness-criteria="Tests observables, computed values, actions, async operations, proper mocking"><![CDATA[// MobX store testing (src/stores/__tests__/UserStore.test.ts)
+import { when } from 'mobx';
+import { UserStore } from '../UserStore';
+
+// Mock fetch
+global.fetch = jest.fn();
+const mockFetch = fetch as jest.MockedFunction<typeof fetch>;
+
+describe('UserStore', () => {
+  let store: UserStore;
+
+  beforeEach(() => {
+    store = new UserStore();
+    mockFetch.mockClear();
+  });
+
+  describe('Observable state', () => {
+    test('should initialize with empty state', () => {
+      expect(store.users).toEqual([]);
+      expect(store.isLoading).toBe(false);
+      expect(store.error).toBeNull();
+      expect(store.filters.searchTerm).toBe('');
+      expect(store.filters.showActive).toBe(true);
+    });
+
+    test('should update observable state through actions', () => {
+      const testUser = { id: '1', name: 'John', email: 'john@test.com', isActive: true };
+      
+      store.addUser(testUser);
+      expect(store.users).toContain(testUser);
+      
+      store.setLoading(true);
+      expect(store.isLoading).toBe(true);
+    });
+  });
+
+  describe('Computed values', () => {
+    beforeEach(() => {
+      store.setUsers([
+        { id: '1', name: 'John Doe', email: 'john@test.com', isActive: true },
+        { id: '2', name: 'Jane Smith', email: 'jane@test.com', isActive: false },
+        { id: '3', name: 'Bob Johnson', email: 'bob@test.com', isActive: true }
+      ]);
+    });
+
+    test('should filter users by search term', () => {
+      store.setFilters({ searchTerm: 'john' });
+      expect(store.filteredUsers).toHaveLength(2);
+      expect(store.filteredUsers.map(u => u.name)).toEqual(['John Doe', 'Bob Johnson']);
+    });
+
+    test('should filter users by active status', () => {
+      store.setFilters({ showActive: true });
+      expect(store.filteredUsers).toHaveLength(2);
+      expect(store.filteredUsers.every(u => u.isActive)).toBe(true);
+    });
+
+    test('should compute user count correctly', () => {
+      expect(store.userCount).toBe(3);
+      
+      store.setFilters({ searchTerm: 'john' });
+      expect(store.userCount).toBe(2);
+    });
+
+    test('should compute hasUsers correctly', () => {
+      expect(store.hasUsers).toBe(true);
+      
+      store.setUsers([]);
+      expect(store.hasUsers).toBe(false);
+    });
+  });
+
+  describe('Actions', () => {
+    test('should add user through action', () => {
+      const user = { id: '1', name: 'Test', email: 'test@test.com', isActive: true };
+      
+      store.addUser(user);
+      expect(store.users).toContain(user);
+    });
+
+    test('should update user through action', () => {
+      const user = { id: '1', name: 'Test', email: 'test@test.com', isActive: true };
+      store.addUser(user);
+      
+      store.updateUser('1', { name: 'Updated Test' });
+      expect(store.users[0].name).toBe('Updated Test');
+    });
+
+    test('should remove user through action', () => {
+      const user = { id: '1', name: 'Test', email: 'test@test.com', isActive: true };
+      store.addUser(user);
+      
+      store.removeUser('1');
+      expect(store.users).not.toContain(user);
+    });
+  });
+
+  describe('Async actions', () => {
+    test('should fetch users successfully', async () => {
+      const mockUsers = [
+        { id: '1', name: 'User 1', email: 'user1@test.com', isActive: true }
+      ];
+
+      mockFetch.mockResolvedValueOnce({
+        ok: true,
+        json: async () => mockUsers
+      } as Response);
+
+      const fetchPromise = store.fetchUsers();
+      
+      // Check loading state
+      expect(store.isLoading).toBe(true);
+      
+      await fetchPromise;
+      
+      expect(store.users).toEqual(mockUsers);
+      expect(store.isLoading).toBe(false);
+      expect(store.error).toBeNull();
+    });
+
+    test('should handle fetch errors', async () => {
+      mockFetch.mockRejectedValueOnce(new Error('Network error'));
+
+      await store.fetchUsers();
+      
+      expect(store.error).toBe('Network error');
+      expect(store.isLoading).toBe(false);
+      expect(store.users).toEqual([]);
+    });
+
+    test('should wait for observable changes', async () => {
+      mockFetch.mockResolvedValueOnce({
+        ok: true,
+        json: async () => [{ id: '1', name: 'Test', email: 'test@test.com', isActive: true }]
+      } as Response);
+
+      store.fetchUsers();
+      
+      // Wait for loading to become false
+      await when(() => !store.isLoading);
+      
+      expect(store.users).toHaveLength(1);
+    });
+  });
+});]]></correct-example>
+          <incorrect-example title="Poor MobX testing without proper patterns" conditions="Testing MobX stores" expected-result="Comprehensive store testing" incorrectness-criteria="No observable testing, missing async test patterns, poor assertions, no computed value testing"><![CDATA[// BAD: Poor MobX testing
+describe('UserStore', () => {
+  test('should work', () => {
+    const store = new UserStore();
+    
+    // No proper observable testing
+    store.users.push({ id: '1', name: 'Test' }); // Direct mutation
+    
+    expect(store.users.length).toBe(1); // Weak assertion
+    // No computed value testing
+    // No async action testing
+    // No proper MobX patterns
+  });
+});]]></incorrect-example>
+        </example>
+      </examples>
+    </requirement>
+  </requirements>
+  
+  <context description="MobX state management considerations">
+    MobX is a simple, scalable state management library that makes state management simple and scalable by transparently applying functional reactive programming. It provides observable state, computed values, and actions for predictable state updates.
+
+    Key considerations include:
+    - Proper observable setup with makeObservable for class-based stores
+    - Computed values for derived state that automatically update when dependencies change
+    - Actions for state mutations to maintain predictability and debugging
+    - Strict mode configuration for production applications
+    - React integration with observer components and mobx-react-lite
+    - Testing strategies for observables, computed values, and async actions
+
+    MobX works well with TypeScript and provides excellent performance through fine-grained reactivity and automatic dependency tracking.
+  </context>
+  
+  <references>
+    <reference as="dependency" href=".cursor/rules/000-core/002-cursor-rules-creation.mdc" reason="Follows standard rule format">Base rule format definition</reference>
+    <reference as="context" href="https://mobx.js.org/README.html" reason="Official MobX documentation">MobX Documentation</reference>
+    <reference as="context" href="https://github.com/mobxjs/mobx-react-lite" reason="React integration">MobX React Lite</reference>
+  </references>
+</rule>

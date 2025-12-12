@@ -1,0 +1,776 @@
+---
+description: Best practices for developing applications with Vite, including optimized configuration, plugin management, and performance optimization following modern Vite standards
+globs: ["vite.config.*"]
+alwaysApply: false
+---
+
+<rule>
+  <meta>
+    <title>Vite Core Standards Auto</title>
+    <description>Best practices for developing applications with Vite, including optimized configuration, plugin management, and performance optimization following modern Vite standards</description>
+    <created-at utc-timestamp="1744255080">January 27, 2025, 2:18 PM</created-at>
+    <last-updated-at utc-timestamp="1744255080">January 27, 2025, 2:18 PM</last-updated-at>
+    <applies-to>
+      <file-matcher glob="vite.config.*">Vite configuration files</file-matcher>
+      <action-matcher action="vite-configuration">Triggered when configuring Vite build system</action-matcher>
+    </applies-to>
+  </meta>
+  <requirements>
+    <non-negotiable priority="critical">
+      <description>Use Vite 5+ with optimized configuration, proper plugin management, and comprehensive build optimization following modern Vite best practices and expert recommendations.</description>
+      <examples>
+        <example title="Modern Vite Configuration">
+          <correct-example title="Comprehensive Vite setup with optimization" conditions="Setting up Vite for modern development" expected-result="Optimized Vite configuration" correctness-criteria="Uses Vite 5+, proper plugin configuration, performance optimization, development experience"><![CDATA[// vite.config.ts - Modern Vite configuration
+import { defineConfig, loadEnv, UserConfig } from 'vite';
+import react from '@vitejs/plugin-react-swc';
+import { resolve } from 'path';
+import { visualizer } from 'rollup-plugin-visualizer';
+import { splitVendorChunkPlugin } from 'vite';
+import million from 'million/compiler';
+
+export default defineConfig(({ command, mode }) => {
+  // Load environment variables
+  const env = loadEnv(mode, process.cwd(), '');
+  
+  const isProduction = mode === 'production';
+  const isDevelopment = mode === 'development';
+  
+  const config: UserConfig = {
+    // Plugin configuration
+    plugins: [
+      // React with SWC for faster builds
+      million.vite({ auto: true }),
+      react({
+        // Enable React Fast Refresh
+        fastRefresh: true,
+        // SWC configuration
+        jsxImportSource: '@emotion/react',
+        babel: {
+          plugins: ['@emotion/babel-plugin'],
+        },
+      }),
+      
+      // Vendor chunk splitting for better caching
+      splitVendorChunkPlugin(),
+      
+      // Bundle analyzer for production builds
+      isProduction && visualizer({
+        filename: 'dist/stats.html',
+        open: false,
+        gzipSize: true,
+        brotliSize: true,
+      }),
+    ].filter(Boolean),
+    
+    // Development server configuration
+    server: {
+      port: 3000,
+      host: true,
+      open: true,
+      cors: true,
+      hmr: {
+        overlay: true,
+      },
+      proxy: {
+        '/api': {
+          target: env.VITE_API_URL || 'http://localhost:3001',
+          changeOrigin: true,
+          secure: false,
+          rewrite: (path) => path.replace(/^\/api/, ''),
+        },
+      },
+    },
+    
+    // Preview server for production testing
+    preview: {
+      port: 4173,
+      host: true,
+      cors: true,
+    },
+    
+    // Build configuration
+    build: {
+      target: 'esnext',
+      outDir: 'dist',
+      assetsDir: 'assets',
+      sourcemap: !isProduction,
+      minify: isProduction ? 'esbuild' : false,
+      
+      // Bundle size optimization
+      chunkSizeWarningLimit: 1000,
+      
+      // Rollup options
+      rollupOptions: {
+        input: {
+          main: resolve(__dirname, 'index.html'),
+          // Add additional entry points if needed
+        },
+        output: {
+          // Manual chunk splitting for better caching
+          manualChunks: (id) => {
+            // Vendor chunks
+            if (id.includes('node_modules')) {
+              if (id.includes('react') || id.includes('react-dom')) {
+                return 'react-vendor';
+              }
+              if (id.includes('@emotion') || id.includes('styled-components')) {
+                return 'styles-vendor';
+              }
+              if (id.includes('lodash') || id.includes('date-fns')) {
+                return 'utils-vendor';
+              }
+              return 'vendor';
+            }
+            
+            // Feature-based chunks
+            if (id.includes('/components/')) {
+              return 'components';
+            }
+            if (id.includes('/utils/')) {
+              return 'utils';
+            }
+          },
+          
+          // File naming strategy
+          chunkFileNames: isProduction ? 'js/[name]-[hash].js' : 'js/[name].js',
+          entryFileNames: isProduction ? 'js/[name]-[hash].js' : 'js/[name].js',
+          assetFileNames: (assetInfo) => {
+            const extType = assetInfo.name?.split('.').at(1);
+            if (/png|jpe?g|svg|gif|tiff|bmp|ico/i.test(extType ?? '')) {
+              return `images/[name]-[hash][extname]`;
+            }
+            if (/woff2?|eot|ttf|otf/i.test(extType ?? '')) {
+              return `fonts/[name]-[hash][extname]`;
+            }
+            return `assets/[name]-[hash][extname]`;
+          },
+        },
+        
+        // External dependencies (for library builds)
+        external: isDevelopment ? [] : [
+          // Externalize peer dependencies for library builds
+          // 'react', 'react-dom'
+        ],
+      },
+      
+      // CSS optimization
+      cssCodeSplit: true,
+      cssMinify: isProduction,
+    },
+    
+    // Path resolution
+    resolve: {
+      alias: {
+        '@': resolve(__dirname, './src'),
+        '@components': resolve(__dirname, './src/components'),
+        '@utils': resolve(__dirname, './src/utils'),
+        '@assets': resolve(__dirname, './src/assets'),
+        '@types': resolve(__dirname, './src/types'),
+        '@hooks': resolve(__dirname, './src/hooks'),
+        '@stores': resolve(__dirname, './src/stores'),
+        '@api': resolve(__dirname, './src/api'),
+      },
+    },
+    
+    // Environment variables
+    define: {
+      __APP_VERSION__: JSON.stringify(process.env.npm_package_version),
+      __BUILD_TIME__: JSON.stringify(new Date().toISOString()),
+    },
+    
+    // CSS configuration
+    css: {
+      modules: {
+        localsConvention: 'camelCaseOnly',
+        generateScopedName: isProduction 
+          ? '[hash:base64:5]' 
+          : '[name]__[local]___[hash:base64:5]',
+      },
+      preprocessorOptions: {
+        scss: {
+          additionalData: `@import "@/styles/variables.scss";`,
+        },
+      },
+      devSourcemap: true,
+    },
+    
+    // Optimization configuration
+    optimizeDeps: {
+      include: [
+        'react',
+        'react-dom',
+        'react-router-dom',
+        '@emotion/react',
+        '@emotion/styled',
+      ],
+      exclude: [
+        // Exclude packages that cause issues
+      ],
+    },
+    
+    // ESBuild configuration
+    esbuild: {
+      target: 'esnext',
+      drop: isProduction ? ['console', 'debugger'] : [],
+      legalComments: 'none',
+    },
+    
+    // Worker configuration
+    worker: {
+      format: 'es',
+    },
+  };
+  
+  return config;
+});
+
+// package.json - Vite project configuration
+{
+  "name": "vite-app",
+  "private": true,
+  "version": "0.0.0",
+  "type": "module",
+  "scripts": {
+    // Development
+    "dev": "vite",
+    "dev:host": "vite --host",
+    "dev:debug": "vite --debug",
+    
+    // Building
+    "build": "tsc && vite build",
+    "build:analyze": "npm run build && npx vite-bundle-analyzer dist/stats.html",
+    "build:profile": "tsc && vite build --profile",
+    "build:watch": "vite build --watch",
+    
+    // Preview and testing
+    "preview": "vite preview",
+    "preview:host": "vite preview --host",
+    
+    // Type checking
+    "type-check": "tsc --noEmit",
+    "type-check:watch": "tsc --noEmit --watch",
+    
+    // Linting and formatting
+    "lint": "eslint . --ext ts,tsx --report-unused-disable-directives --max-warnings 0",
+    "lint:fix": "eslint . --ext ts,tsx --fix",
+    "format": "prettier --write .",
+    "format:check": "prettier --check .",
+    
+    // Testing
+    "test": "vitest",
+    "test:ui": "vitest --ui",
+    "test:coverage": "vitest --coverage",
+    
+    // Optimization and analysis
+    "optimize": "npm run build && npm run analyze",
+    "analyze": "npx vite-bundle-analyzer dist/stats.html"
+  },
+  "dependencies": {
+    "react": "^18.2.0",
+    "react-dom": "^18.2.0"
+  },
+  "devDependencies": {
+    "@types/react": "^18.2.43",
+    "@types/react-dom": "^18.2.17",
+    "@vitejs/plugin-react-swc": "^3.5.0",
+    "vite": "^5.0.8",
+    "typescript": "^5.2.2",
+    "million": "^3.0.0",
+    "rollup-plugin-visualizer": "^5.12.0"
+  }
+}
+
+// tsconfig.json - TypeScript configuration for Vite
+{
+  "compilerOptions": {
+    "target": "ES2020",
+    "useDefineForClassFields": true,
+    "lib": ["ES2020", "DOM", "DOM.Iterable"],
+    "module": "ESNext",
+    "skipLibCheck": true,
+    
+    /* Bundler mode */
+    "moduleResolution": "bundler",
+    "allowImportingTsExtensions": true,
+    "resolveJsonModule": true,
+    "isolatedModules": true,
+    "noEmit": true,
+    "jsx": "react-jsx",
+    
+    /* Linting */
+    "strict": true,
+    "noUnusedLocals": true,
+    "noUnusedParameters": true,
+    "noFallthroughCasesInSwitch": true,
+    
+    /* Path mapping */
+    "baseUrl": ".",
+    "paths": {
+      "@/*": ["./src/*"],
+      "@components/*": ["./src/components/*"],
+      "@utils/*": ["./src/utils/*"],
+      "@types/*": ["./src/types/*"]
+    }
+  },
+  "include": ["src"],
+  "references": [{ "path": "./tsconfig.node.json" }]
+}
+
+// index.html - Optimized HTML template
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <link rel="icon" type="image/svg+xml" href="/vite.svg" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Vite + React + TS</title>
+    
+    <!-- Preload critical resources -->
+    <link rel="preload" href="/fonts/inter.woff2" as="font" type="font/woff2" crossorigin>
+    
+    <!-- Performance hints -->
+    <meta name="theme-color" content="#646cff" />
+    <meta name="description" content="Modern web application built with Vite" />
+  </head>
+  <body>
+    <div id="root"></div>
+    <script type="module" src="/src/main.tsx"></script>
+  </body>
+</html>
+
+// .env.example - Environment variables template
+# API Configuration
+VITE_API_URL=http://localhost:3001
+VITE_API_TIMEOUT=5000
+
+# Application Configuration
+VITE_APP_TITLE=My Vite App
+VITE_APP_VERSION=1.0.0
+
+# Feature Flags
+VITE_ENABLE_ANALYTICS=false
+VITE_ENABLE_PWA=true
+
+# Development
+VITE_DEV_TOOLS=true]]></correct-example>
+          <incorrect-example title="Basic Vite configuration without optimization" conditions="Setting up Vite for modern development" expected-result="Optimized Vite configuration" incorrectness-criteria="Missing optimization features, poor plugin configuration, no performance considerations"><![CDATA[// vite.config.js - Basic configuration
+import { defineConfig } from 'vite';
+import react from '@vitejs/plugin-react';
+
+export default defineConfig({
+  plugins: [react()],
+});
+
+// Missing:
+// - Environment-based configuration
+// - Build optimization
+// - Bundle analysis
+// - Chunk splitting
+// - Path aliases
+// - CSS optimization
+// - Performance monitoring]]></incorrect-example>
+        </example>
+      </examples>
+    </non-negotiable>
+
+    <requirement priority="critical">
+      <description>Configure Vite with performance optimization, intelligent bundling, and comprehensive development experience enhancements following Vite team recommendations.</description>
+      <examples>
+        <example title="Vite Performance Optimization">
+          <correct-example title="Advanced Vite performance configuration" conditions="Optimizing Vite for production builds" expected-result="High-performance Vite setup" correctness-criteria="Uses bundle optimization, code splitting, caching strategies, performance monitoring"><![CDATA[// vite.config.performance.ts - Performance-focused configuration
+import { defineConfig } from 'vite';
+import react from '@vitejs/plugin-react-swc';
+import { splitVendorChunkPlugin } from 'vite';
+import { resolve } from 'path';
+
+export default defineConfig({
+  plugins: [
+    react({
+      // Use SWC for faster compilation
+      fastRefresh: true,
+    }),
+    
+    // Intelligent vendor chunking
+    splitVendorChunkPlugin(),
+    
+    // Custom plugin for performance monitoring
+    {
+      name: 'performance-monitor',
+      buildStart() {
+        this.buildStartTime = Date.now();
+      },
+      buildEnd() {
+        const duration = Date.now() - this.buildStartTime;
+        console.log(`Build completed in ${duration}ms`);
+      },
+      generateBundle(options, bundle) {
+        // Analyze bundle composition
+        const chunks = Object.entries(bundle);
+        const totalSize = chunks.reduce((sum, [, chunk]) => {
+          return sum + (chunk.type === 'chunk' ? chunk.code.length : 0);
+        }, 0);
+        
+        console.log(`Total bundle size: ${(totalSize / 1024).toFixed(2)}KB`);
+        
+        // Warn about large chunks
+        chunks.forEach(([fileName, chunk]) => {
+          if (chunk.type === 'chunk' && chunk.code.length > 500 * 1024) {
+            console.warn(`Large chunk detected: ${fileName} (${(chunk.code.length / 1024).toFixed(2)}KB)`);
+          }
+        });
+      },
+    },
+  ],
+  
+  build: {
+    // Target modern browsers for smaller bundles
+    target: ['es2020', 'chrome80', 'firefox78', 'safari14'],
+    
+    // Optimize bundle size
+    minify: 'esbuild',
+    sourcemap: false, // Disable in production for smaller builds
+    
+    // Advanced rollup options
+    rollupOptions: {
+      output: {
+        // Aggressive chunk splitting for better caching
+        manualChunks: {
+          // Framework chunks
+          'react-vendor': ['react', 'react-dom'],
+          'router-vendor': ['react-router-dom'],
+          
+          // UI library chunks
+          'ui-vendor': ['@mui/material', '@emotion/react', '@emotion/styled'],
+          
+          // Utility chunks
+          'utils-vendor': ['lodash', 'date-fns', 'axios'],
+          
+          // Feature-based chunks
+          'components': ['./src/components/index.ts'],
+          'utils': ['./src/utils/index.ts'],
+        },
+        
+        // Optimize chunk file names for caching
+        chunkFileNames: (chunkInfo) => {
+          const facadeModuleId = chunkInfo.facadeModuleId 
+            ? chunkInfo.facadeModuleId.split('/').pop() 
+            : 'chunk';
+          return `js/${facadeModuleId}-[hash].js`;
+        },
+      },
+      
+      // Tree shaking optimization
+      treeshake: {
+        preset: 'recommended',
+        manualPureFunctions: ['console.log', 'console.info'],
+      },
+    },
+    
+    // CSS optimization
+    cssCodeSplit: true,
+    cssMinify: 'esbuild',
+  },
+  
+  // Dependency optimization
+  optimizeDeps: {
+    include: [
+      // Pre-bundle these dependencies
+      'react',
+      'react-dom',
+      'react-router-dom',
+    ],
+    exclude: [
+      // Don't pre-bundle these
+      '@vite/client',
+      '@vite/env',
+    ],
+  },
+  
+  // ESBuild configuration for faster builds
+  esbuild: {
+    // Remove console logs and debugger in production
+    drop: process.env.NODE_ENV === 'production' ? ['console', 'debugger'] : [],
+    // Optimize for speed
+    target: 'es2020',
+    format: 'esm',
+    platform: 'browser',
+    treeShaking: true,
+  },
+  
+  // Worker configuration
+  worker: {
+    format: 'es',
+    plugins: [
+      // Use SWC for worker files too
+      react(),
+    ],
+  },
+});
+
+// scripts/build-analysis.js - Build performance analysis
+#!/usr/bin/env node
+const fs = require('fs');
+const path = require('path');
+const { execSync } = require('child_process');
+
+class ViteBuildAnalyzer {
+  constructor() {
+    this.distDir = 'dist';
+    this.reportFile = 'build-report.json';
+  }
+  
+  async analyzeBuild() {
+    console.log('📊 Analyzing Vite build...');
+    
+    if (!fs.existsSync(this.distDir)) {
+      throw new Error('Build directory not found. Run build first.');
+    }
+    
+    const analysis = {
+      timestamp: new Date().toISOString(),
+      buildSize: this.calculateBuildSize(),
+      chunkAnalysis: this.analyzeChunks(),
+      assetAnalysis: this.analyzeAssets(),
+      recommendations: this.generateRecommendations(),
+    };
+    
+    fs.writeFileSync(this.reportFile, JSON.stringify(analysis, null, 2));
+    
+    this.printSummary(analysis);
+    return analysis;
+  }
+  
+  calculateBuildSize() {
+    const getBuildSize = (dir) => {
+      let size = 0;
+      const items = fs.readdirSync(dir, { withFileTypes: true });
+      
+      for (const item of items) {
+        const fullPath = path.join(dir, item.name);
+        if (item.isDirectory()) {
+          size += getBuildSize(fullPath);
+        } else {
+          size += fs.statSync(fullPath).size;
+        }
+      }
+      
+      return size;
+    };
+    
+    const totalSize = getBuildSize(this.distDir);
+    return {
+      total: totalSize,
+      totalHuman: `${(totalSize / 1024 / 1024).toFixed(2)}MB`,
+    };
+  }
+  
+  analyzeChunks() {
+    const jsDir = path.join(this.distDir, 'js');
+    if (!fs.existsSync(jsDir)) return [];
+    
+    const chunks = fs.readdirSync(jsDir)
+      .filter(file => file.endsWith('.js'))
+      .map(file => {
+        const filePath = path.join(jsDir, file);
+        const size = fs.statSync(filePath).size;
+        return {
+          name: file,
+          size,
+          sizeHuman: `${(size / 1024).toFixed(2)}KB`,
+          type: this.classifyChunk(file),
+        };
+      })
+      .sort((a, b) => b.size - a.size);
+    
+    return chunks;
+  }
+  
+  analyzeAssets() {
+    const assetsDir = path.join(this.distDir, 'assets');
+    if (!fs.existsSync(assetsDir)) return [];
+    
+    const assets = fs.readdirSync(assetsDir, { withFileTypes: true })
+      .filter(item => item.isFile())
+      .map(item => {
+        const filePath = path.join(assetsDir, item.name);
+        const size = fs.statSync(filePath).size;
+        const ext = path.extname(item.name);
+        
+        return {
+          name: item.name,
+          size,
+          sizeHuman: `${(size / 1024).toFixed(2)}KB`,
+          type: this.classifyAsset(ext),
+        };
+      })
+      .sort((a, b) => b.size - a.size);
+    
+    return assets;
+  }
+  
+  classifyChunk(filename) {
+    if (filename.includes('vendor')) return 'vendor';
+    if (filename.includes('react')) return 'framework';
+    if (filename.includes('components')) return 'components';
+    if (filename.includes('utils')) return 'utilities';
+    return 'application';
+  }
+  
+  classifyAsset(extension) {
+    const imageExts = ['.png', '.jpg', '.jpeg', '.gif', '.svg', '.webp'];
+    const fontExts = ['.woff', '.woff2', '.ttf', '.otf', '.eot'];
+    const styleExts = ['.css', '.scss', '.less'];
+    
+    if (imageExts.includes(extension)) return 'image';
+    if (fontExts.includes(extension)) return 'font';
+    if (styleExts.includes(extension)) return 'style';
+    return 'other';
+  }
+  
+  generateRecommendations() {
+    const recommendations = [];
+    
+    // Check for large chunks
+    const chunks = this.analyzeChunks();
+    const largeChunks = chunks.filter(chunk => chunk.size > 500 * 1024);
+    
+    if (largeChunks.length > 0) {
+      recommendations.push({
+        type: 'warning',
+        message: `Found ${largeChunks.length} large chunks. Consider code splitting.`,
+        files: largeChunks.map(c => c.name),
+      });
+    }
+    
+    // Check total bundle size
+    const buildSize = this.calculateBuildSize();
+    if (buildSize.total > 5 * 1024 * 1024) { // 5MB
+      recommendations.push({
+        type: 'warning',
+        message: 'Total bundle size is large. Consider lazy loading and tree shaking.',
+        size: buildSize.totalHuman,
+      });
+    }
+    
+    return recommendations;
+  }
+  
+  printSummary(analysis) {
+    console.log('\n📋 Build Analysis Summary:');
+    console.log(`   Total size: ${analysis.buildSize.totalHuman}`);
+    console.log(`   JS chunks: ${analysis.chunkAnalysis.length}`);
+    console.log(`   Assets: ${analysis.assetAnalysis.length}`);
+    
+    if (analysis.recommendations.length > 0) {
+      console.log('\n⚠️  Recommendations:');
+      analysis.recommendations.forEach(rec => {
+        console.log(`   ${rec.type}: ${rec.message}`);
+      });
+    } else {
+      console.log('\n✅ Build looks optimized!');
+    }
+  }
+}
+
+// CLI usage
+if (require.main === module) {
+  const analyzer = new ViteBuildAnalyzer();
+  analyzer.analyzeBuild().catch(console.error);
+}
+
+module.exports = ViteBuildAnalyzer;
+
+// GitHub Actions workflow for Vite optimization
+name: Vite Build Optimization
+on:
+  pull_request:
+    branches: [main]
+
+jobs:
+  build-analysis:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '18'
+          cache: 'npm'
+      
+      - run: npm ci
+      
+      # Build and analyze
+      - name: Build application
+        run: npm run build
+      
+      - name: Analyze build
+        run: node scripts/build-analysis.js
+      
+      - name: Upload build analysis
+        uses: actions/upload-artifact@v3
+        with:
+          name: build-analysis
+          path: |
+            build-report.json
+            dist/stats.html
+      
+      # Performance budget check
+      - name: Check performance budget
+        run: |
+          BUNDLE_SIZE=$(du -sb dist | cut -f1)
+          MAX_SIZE=$((5 * 1024 * 1024)) # 5MB
+          
+          if [ $BUNDLE_SIZE -gt $MAX_SIZE ]; then
+            echo "Bundle size ($BUNDLE_SIZE bytes) exceeds budget ($MAX_SIZE bytes)"
+            exit 1
+          fi
+          
+          echo "Bundle size OK: $(echo $BUNDLE_SIZE | numfmt --to=iec-i --suffix=B)"]]></correct-example>
+          <incorrect-example title="Unoptimized Vite configuration" conditions="Optimizing Vite for production builds" expected-result="High-performance Vite setup" incorrectness-criteria="No performance optimization, poor chunking, missing analysis"><![CDATA[// vite.config.js - Basic configuration without optimization
+import { defineConfig } from 'vite';
+import react from '@vitejs/plugin-react';
+
+export default defineConfig({
+  plugins: [react()],
+  build: {
+    minify: false,
+    sourcemap: true,
+  },
+});
+
+// Missing:
+// - Bundle optimization
+// - Chunk splitting
+// - Performance monitoring
+// - Build analysis
+// - Caching strategies
+// - Target optimization]]></incorrect-example>
+        </example>
+      </examples>
+    </requirement>
+  </requirements>
+  
+  <context description="Modern Vite development considerations">
+    Vite has revolutionized frontend build tooling with its lightning-fast development server and optimized production builds. Modern Vite usage emphasizes performance, developer experience, and intelligent bundling strategies.
+
+    Key considerations for modern Vite usage:
+    - Lightning-fast development server with HMR and instant server start
+    - Optimized production builds with intelligent code splitting and tree shaking
+    - Plugin ecosystem for specialized tooling and framework integration
+    - Performance optimization through bundle analysis and optimization strategies
+    - Modern JavaScript features with esbuild compilation
+    - Comprehensive development experience with TypeScript integration
+    - Advanced configuration for complex applications and monorepos
+
+    Expert insights from the Vite team emphasize the importance of leveraging modern JavaScript features, intelligent bundling, and performance monitoring to create optimal web applications.
+  </context>
+  
+  <references>
+    <reference as="dependency" href=".cursor/rules/000-core/002-cursor-rules-creation.mdc" reason="Follows standard rule format">Base rule format definition</reference>
+    <reference as="context" href="https://vitejs.dev/" reason="Official Vite documentation">Vite Official Documentation</reference>
+    <reference as="context" href="https://vitejs.dev/config/" reason="Configuration reference">Vite Configuration Guide</reference>
+    <reference as="context" href="https://vitejs.dev/guide/build.html" reason="Build optimization">Vite Build Guide</reference>
+    <reference as="context" href="https://vitejs.dev/plugins/" reason="Plugin ecosystem">Vite Plugins Documentation</reference>
+    <reference as="context" href="https://github.com/vitejs/awesome-vite" reason="Community resources">Awesome Vite Resources</reference>
+  </references>
+</rule>

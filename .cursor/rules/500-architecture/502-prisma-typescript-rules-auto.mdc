@@ -1,0 +1,66 @@
+---
+description: "Comprehensive Prisma ORM best practices with TypeScript integration, security, performance optimization, and testing following modern database development standards"
+globs:
+  - "**/*.{ts,js,prisma}"
+  - "**/prisma/**/*"
+  - "**/*prisma*"
+  - "**/migrations/**/*"
+alwaysApply: false
+---
+
+<rule>
+  <meta>
+    <title>Prisma ORM Best Practices</title>
+    <description>A rule to enforce best practices for using Prisma ORM, including schema design, query optimization, security, and performance.</description>
+    <created-at utc-timestamp="1744326000">April 11, 2025, 11:00 AM AEST</created-at>
+    <last-updated-at utc-timestamp="1744326000">April 11, 2025, 11:00 AM AEST</last-updated-at>
+    <applies-to>
+      <file-matcher glob="*.ts,*.js,*.prisma">All relevant application and schema files</file-matcher>
+      <action-matcher action="code-commit">Triggered when committing code changes</action-matcher>
+    </applies-to>
+  </meta>
+  <requirements>
+    <requirement priority="critical">
+        <description>Never expose the raw Prisma client directly in APIs. Use abstraction layers like repositories or services.</description>
+    </requirement>
+    <requirement priority="critical">
+        <description>Always use input validation (e.g., with Zod or Yup) before performing any database operations to prevent injection attacks and data corruption.</description>
+    </requirement>
+     <requirement priority="critical">
+        <description>Sanitize and validate all user inputs to prevent injection attacks, such as SQL injection.</description>
+    </requirement>
+    <requirement priority="high">
+        <description>Implement row-level security (RLS) where applicable using Prisma policies or database-level RLS to restrict data access.</description>
+    </requirement>
+    <requirement priority="high">
+        <description>Use a consistent directory structure, with a central module for the Prisma client instance (e.g., `src/lib/prisma.ts`).</description>
+    </requirement>
+    <requirement priority="high">
+        <description>Abstract data access logic into repositories and business logic into services.</description>
+    </requirement>
+    <requirement priority="high">
+        <description>Use `prisma.$transaction` to ensure atomicity for operations that must succeed or fail together.</description>
+    </requirement>
+    <requirement priority="medium">
+        <description>Optimize queries by selecting only necessary fields with `select` and fetching related data with `include` to avoid N+1 problems.</description>
+    </requirement>
+    <requirement priority="high">
+        <description>Use Prisma Migrate to manage database schema changes and `prisma migrate deploy` in production.</description>
+    </requirement>
+    <requirement priority="high">
+        <description>Use Prismas connection pooling to efficiently manage database connections.</description>
+    </requirement>
+    <requirement priority="high">
+        <description>Implement comprehensive testing, including unit tests with mocking and integration tests with a test database.</description>
+    </requirement>
+    <requirement priority="medium">
+        <description>Use Prismas query logging feature for monitoring and debugging during development.</description>
+    </requirement>
+    <requirement priority="medium">
+        <description>Create a seed script to populate the database with initial data for development and testing.</description>
+    </requirement>
+  </requirements>
+  <references>
+    <reference as="dependency" href=".cursor/rules/rules.mdc" reason="Follows standard rule format">Base rule format definition</reference>
+  </references>
+</rule>

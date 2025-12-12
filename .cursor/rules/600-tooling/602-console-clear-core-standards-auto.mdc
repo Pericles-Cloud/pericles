@@ -1,0 +1,767 @@
+---
+description: "Comprehensive console-clear utility standards for terminal clearing, development workflow integration, and cross-platform compatibility following expert best practices"
+globs: ["**/*.{js,ts,mjs,cjs}", "**/build/**/*.{js,ts}", "**/scripts/**/*.{js,ts}", "**/*.json"]
+alwaysApply: false
+---
+
+<rule>
+  <meta>
+    <title>Console-Clear Core Standards</title>
+    <description>Comprehensive console-clear utility standards for terminal clearing, development workflow integration, and cross-platform compatibility following expert best practices</description>
+    <created-at utc-timestamp="1744400000">January 29, 2025, 3:00 PM</created-at>
+    <last-updated-at utc-timestamp="1744400000">January 29, 2025, 3:00 PM</last-updated-at>
+    <applies-to>
+      <file-matcher glob="**/*.{js,ts,mjs,cjs}">JavaScript and TypeScript files using console-clear</file-matcher>
+      <file-matcher glob="**/build/**/*.{js,ts}">Build scripts and development tools</file-matcher>
+      <action-matcher action="terminal-utilities">Triggered when working with terminal clearing utilities</action-matcher>
+    </applies-to>
+  </meta>
+
+  <requirements>
+    <non-negotiable priority="critical">
+      <description>Use console-clear appropriately for development workflows with proper cross-platform support and conditional clearing based on environment and user preferences.</description>
+      <examples>
+        <example title="Proper Console-Clear Usage">
+          <correct-example title="Environment-aware console clearing" conditions="Implementing console clearing in development tools" expected-result="Cross-platform compatible console clearing" correctness-criteria="Uses environment checks, respects user preferences, handles errors gracefully"><![CDATA[// utils/console.ts
+import clear from 'console-clear'
+
+interface ClearOptions {
+  force?: boolean
+  respectCI?: boolean
+  respectDebug?: boolean
+}
+
+export class ConsoleManager {
+  private static shouldClear(options: ClearOptions = {}): boolean {
+    const {
+      force = false,
+      respectCI = true,
+      respectDebug = true,
+    } = options
+
+    // Force clear if explicitly requested
+    if (force) return true
+
+    // Respect CI environment
+    if (respectCI && process.env.CI) {
+      return false
+    }
+
+    // Respect debug mode
+    if (respectDebug && (process.env.DEBUG || process.env.NODE_ENV === 'test')) {
+      return false
+    }
+
+    // Don't clear if output is redirected (not a TTY)
+    if (!process.stdout.isTTY) {
+      return false
+    }
+
+    // Respect user preference
+    if (process.env.NO_CLEAR === 'true') {
+      return false
+    }
+
+    return true
+  }
+
+  static clearConsole(options?: ClearOptions): void {
+    try {
+      if (this.shouldClear(options)) {
+        clear()
+      }
+    } catch (error) {
+      // Gracefully handle clearing errors
+      console.warn('Failed to clear console:', error)
+    }
+  }
+
+  static clearWithMessage(message: string, options?: ClearOptions): void {
+    this.clearConsole(options)
+    if (message) {
+      console.log(message)
+    }
+  }
+
+  static clearWithBanner(title: string, subtitle?: string, options?: ClearOptions): void {
+    this.clearConsole(options)
+    console.log(`\n╭─── ${title} ───╮`)
+    if (subtitle) {
+      console.log(`│ ${subtitle.padEnd(title.length + 6)} │`)
+    }
+    console.log(`╰${'─'.repeat(title.length + 8)}╯\n`)
+  }
+}
+
+// Development server usage
+// scripts/dev-server.ts
+import { ConsoleManager } from '../utils/console'
+
+class DevServer {
+  start() {
+    // Clear console when starting dev server
+    ConsoleManager.clearWithBanner(
+      'Development Server',
+      'Starting application...',
+      { respectCI: true, respectDebug: true }
+    )
+
+    // Server startup logic
+    this.initializeServer()
+  }
+
+  onReload() {
+    // Clear on hot reload
+    ConsoleManager.clearWithMessage(
+      '🔄 Reloading application...',
+      { respectDebug: false } // Allow clearing during development
+    )
+  }
+
+  onError(error: Error) {
+    // Don't clear on errors to preserve error context
+    console.error('❌ Server error:', error.message)
+  }
+}
+
+// Build script usage
+// scripts/build.ts
+import { ConsoleManager } from '../utils/console'
+
+async function build() {
+  ConsoleManager.clearWithBanner(
+    'Production Build',
+    'Compiling application...'
+  )
+
+  try {
+    await runBuildSteps()
+    
+    ConsoleManager.clearWithBanner(
+      'Build Complete',
+      '✅ Successfully compiled'
+    )
+  } catch (error) {
+    // Don't clear on build errors
+    console.error('❌ Build failed:', error)
+    process.exit(1)
+  }
+}
+
+// Test runner integration
+// scripts/test.ts
+import { ConsoleManager } from '../utils/console'
+
+class TestRunner {
+  async runTests() {
+    // Only clear if not in CI and not debugging
+    ConsoleManager.clearConsole({
+      respectCI: true,
+      respectDebug: true
+    })
+
+    console.log('🧪 Running tests...\n')
+    
+    // Test execution logic
+    const results = await this.executeTests()
+    
+    // Don't clear after tests to show results
+    this.displayResults(results)
+  }
+
+  onWatchMode() {
+    // Clear between test runs in watch mode
+    ConsoleManager.clearWithMessage(
+      '🔍 Re-running tests...',
+      { respectDebug: false }
+    )
+  }
+}
+
+// Package.json scripts integration
+// package.json
+{
+  "scripts": {
+    "dev": "node scripts/dev-server.js",
+    "build": "node scripts/build.js",
+    "test": "node scripts/test.js",
+    "clear": "node -e \"require('console-clear')()\""
+  }
+}]]></correct-example>
+          <incorrect-example title="Improper console clearing" conditions="Implementing console clearing" expected-result="Cross-platform compatible console clearing" incorrectness-criteria="Ignores environment context, no error handling, clears inappropriately"><![CDATA[// Bad: Unconditional clearing
+import clear from 'console-clear'
+
+// Bad: Always clears regardless of environment
+function startApp() {
+  clear() // This will clear in CI, tests, and when debugging
+  console.log('App started')
+}
+
+// Bad: No error handling
+function buildApp() {
+  clear() // Could throw errors in some environments
+  // Build logic
+}
+
+// Bad: Clearing after errors (loses context)
+function handleError(error) {
+  clear() // Removes important error context
+  console.error('Error occurred:', error)
+}
+
+// Bad: Clearing in test environments
+function runTests() {
+  clear() // Interferes with test output and CI logging
+  // Test logic
+}]]></incorrect-example>
+        </example>
+      </examples>
+    </non-negotiable>
+
+    <requirement priority="high">
+      <description>Implement smart clearing strategies for different development contexts including watch mode, build processes, and interactive development servers.</description>
+      <examples>
+        <example title="Smart Clearing Strategies">
+          <correct-example title="Context-aware clearing implementation" conditions="Implementing clearing in development tools" expected-result="Intelligent clearing based on context" correctness-criteria="Different strategies for different contexts, user preferences respected"><![CDATA[// utils/smart-clear.ts
+import clear from 'console-clear'
+
+export enum ClearContext {
+  DEV_SERVER = 'dev-server',
+  BUILD = 'build',
+  TEST = 'test',
+  WATCH = 'watch',
+  LINT = 'lint',
+  DEPLOY = 'deploy'
+}
+
+interface ClearStrategy {
+  shouldClear: boolean
+  preserveContext?: boolean
+  showTimestamp?: boolean
+  customMessage?: string
+}
+
+export class SmartConsoleManager {
+  private static strategies: Record<ClearContext, ClearStrategy> = {
+    [ClearContext.DEV_SERVER]: {
+      shouldClear: true,
+      showTimestamp: true,
+      customMessage: '🚀 Development server'
+    },
+    [ClearContext.BUILD]: {
+      shouldClear: true,
+      showTimestamp: true,
+      customMessage: '🏗️  Building application'
+    },
+    [ClearContext.TEST]: {
+      shouldClear: false, // Preserve test output
+      preserveContext: true
+    },
+    [ClearContext.WATCH]: {
+      shouldClear: true,
+      preserveContext: false,
+      showTimestamp: true
+    },
+    [ClearContext.LINT]: {
+      shouldClear: true,
+      customMessage: '🔍 Linting code'
+    },
+    [ClearContext.DEPLOY]: {
+      shouldClear: false, // Preserve deployment logs
+      preserveContext: true
+    }
+  }
+
+  static clearForContext(context: ClearContext, options?: {
+    force?: boolean
+    customMessage?: string
+  }): void {
+    const strategy = this.strategies[context]
+    const { force = false, customMessage } = options || {}
+
+    // Check if clearing is appropriate
+    if (!force && !strategy.shouldClear) {
+      return
+    }
+
+    // Respect environment constraints
+    if (!this.canClear()) {
+      return
+    }
+
+    try {
+      clear()
+
+      // Show context message
+      const message = customMessage || strategy.customMessage
+      if (message) {
+        if (strategy.showTimestamp) {
+          const timestamp = new Date().toLocaleTimeString()
+          console.log(`${message} (${timestamp})`)
+        } else {
+          console.log(message)
+        }
+        console.log() // Add spacing
+      }
+    } catch (error) {
+      console.warn('Console clear failed:', error)
+    }
+  }
+
+  private static canClear(): boolean {
+    // Don't clear in CI
+    if (process.env.CI) return false
+    
+    // Don't clear in test environment
+    if (process.env.NODE_ENV === 'test') return false
+    
+    // Don't clear if debugging
+    if (process.env.DEBUG) return false
+    
+    // Don't clear if output is redirected
+    if (!process.stdout.isTTY) return false
+    
+    // Respect user preference
+    if (process.env.NO_CLEAR === 'true') return false
+
+    return true
+  }
+
+  static createContextClearer(context: ClearContext) {
+    return (message?: string) => {
+      this.clearForContext(context, { customMessage: message })
+    }
+  }
+}
+
+// Usage in different contexts
+// dev-server.ts
+const clearForDev = SmartConsoleManager.createContextClearer(ClearContext.DEV_SERVER)
+
+class DevServer {
+  start() {
+    clearForDev('Starting development server...')
+    // Server logic
+  }
+
+  onFileChange(file: string) {
+    clearForDev(`File changed: ${file}`)
+    // Reload logic
+  }
+}
+
+// build.ts
+const clearForBuild = SmartConsoleManager.createContextClearer(ClearContext.BUILD)
+
+async function build() {
+  clearForBuild('Starting production build...')
+  
+  try {
+    await compile()
+    clearForBuild('Build completed successfully ✅')
+  } catch (error) {
+    // Don't clear on error to preserve context
+    console.error('Build failed:', error)
+  }
+}
+
+// watch.ts
+const clearForWatch = SmartConsoleManager.createContextClearer(ClearContext.WATCH)
+
+class FileWatcher {
+  onFileChange(files: string[]) {
+    clearForWatch(`Files changed: ${files.join(', ')}`)
+    this.processChanges(files)
+  }
+}
+
+// lint.ts
+const clearForLint = SmartConsoleManager.createContextClearer(ClearContext.LINT)
+
+async function lintCode() {
+  clearForLint('Checking code quality...')
+  
+  const results = await runLinter()
+  
+  if (results.errors.length > 0) {
+    // Don't clear - show lint errors
+    console.error('Lint errors found:', results.errors)
+  } else {
+    clearForLint('Code quality check passed ✅')
+  }
+}
+
+// Interactive clearing utility
+// scripts/interactive-clear.ts
+import readline from 'readline'
+
+class InteractiveClearer {
+  private rl = readline.createInterface({
+    input: process.stdin,
+    output: process.stdout
+  })
+
+  async promptClear(message: string): Promise<void> {
+    return new Promise((resolve) => {
+      this.rl.question(`${message} Clear console? (y/N): `, (answer) => {
+        if (answer.toLowerCase() === 'y' || answer.toLowerCase() === 'yes') {
+          SmartConsoleManager.clearForContext(ClearContext.DEV_SERVER, { force: true })
+        }
+        resolve()
+      })
+    })
+  }
+
+  close() {
+    this.rl.close()
+  }
+}]]></correct-example>
+          <incorrect-example title="Poor clearing strategy" conditions="Implementing clearing in development tools" expected-result="Intelligent clearing based on context" incorrectness-criteria="One-size-fits-all approach, no context awareness, poor user experience"><![CDATA[// Bad: Single strategy for all contexts
+import clear from 'console-clear'
+
+// Bad: Always clear everything
+function clearConsole() {
+  clear() // No context awareness
+}
+
+// Bad: Used everywhere without consideration
+function startDev() {
+  clearConsole() // Inappropriate for some contexts
+}
+
+function runTests() {
+  clearConsole() // Loses test output
+}
+
+function deploy() {
+  clearConsole() // Loses deployment context
+}
+
+function handleError() {
+  clearConsole() // Loses error context
+}]]></incorrect-example>
+        </example>
+      </examples>
+    </requirement>
+
+    <requirement priority="medium">
+      <description>Implement configuration and customization options for console clearing behavior including user preferences, project settings, and team consistency.</description>
+      <examples>
+        <example title="Configuration and Customization">
+          <correct-example title="Configurable console clearing system" conditions="Setting up configurable clearing behavior" expected-result="Flexible and customizable clearing system" correctness-criteria="Supports configuration files, environment variables, and runtime options"><![CDATA[// config/console.config.ts
+export interface ConsoleConfig {
+  clear: {
+    enabled: boolean
+    contexts: {
+      devServer: boolean
+      build: boolean
+      test: boolean
+      watch: boolean
+      lint: boolean
+    }
+    respectCI: boolean
+    respectDebug: boolean
+    preserveErrors: boolean
+    showTimestamps: boolean
+    customMessages: Record<string, string>
+    animations: {
+      enabled: boolean
+      duration: number
+    }
+  }
+}
+
+export const defaultConfig: ConsoleConfig = {
+  clear: {
+    enabled: true,
+    contexts: {
+      devServer: true,
+      build: true,
+      test: false,
+      watch: true,
+      lint: true
+    },
+    respectCI: true,
+    respectDebug: true,
+    preserveErrors: true,
+    showTimestamps: true,
+    customMessages: {
+      devServer: '🚀 Development Server',
+      build: '🏗️  Building Application',
+      watch: '👀 Watching Files',
+      lint: '🔍 Checking Code Quality'
+    },
+    animations: {
+      enabled: true,
+      duration: 100
+    }
+  }
+}
+
+// utils/config-loader.ts
+import { readFileSync, existsSync } from 'fs'
+import { join } from 'path'
+import type { ConsoleConfig } from '../config/console.config'
+
+export class ConfigLoader {
+  private static cache: ConsoleConfig | null = null
+
+  static loadConfig(): ConsoleConfig {
+    if (this.cache) return this.cache
+
+    const config = { ...defaultConfig }
+
+    // Load from package.json
+    this.mergePackageJsonConfig(config)
+
+    // Load from dedicated config file
+    this.mergeConfigFile(config)
+
+    // Override with environment variables
+    this.mergeEnvironmentConfig(config)
+
+    this.cache = config
+    return config
+  }
+
+  private static mergePackageJsonConfig(config: ConsoleConfig): void {
+    const packagePath = join(process.cwd(), 'package.json')
+    if (existsSync(packagePath)) {
+      try {
+        const packageJson = JSON.parse(readFileSync(packagePath, 'utf8'))
+        const consoleConfig = packageJson.consoleClear
+        if (consoleConfig) {
+          this.deepMerge(config, { clear: consoleConfig })
+        }
+      } catch (error) {
+        console.warn('Failed to load console config from package.json:', error)
+      }
+    }
+  }
+
+  private static mergeConfigFile(config: ConsoleConfig): void {
+    const configPaths = [
+      'console.config.js',
+      'console.config.json',
+      '.consolerc.json',
+      '.consolerc.js'
+    ]
+
+    for (const configPath of configPaths) {
+      const fullPath = join(process.cwd(), configPath)
+      if (existsSync(fullPath)) {
+        try {
+          let fileConfig
+          if (configPath.endsWith('.json')) {
+            fileConfig = JSON.parse(readFileSync(fullPath, 'utf8'))
+          } else {
+            fileConfig = require(fullPath)
+          }
+          this.deepMerge(config, fileConfig)
+          break
+        } catch (error) {
+          console.warn(`Failed to load config from ${configPath}:`, error)
+        }
+      }
+    }
+  }
+
+  private static mergeEnvironmentConfig(config: ConsoleConfig): void {
+    // Environment variable overrides
+    if (process.env.CONSOLE_CLEAR_ENABLED !== undefined) {
+      config.clear.enabled = process.env.CONSOLE_CLEAR_ENABLED === 'true'
+    }
+
+    if (process.env.CONSOLE_CLEAR_TIMESTAMPS !== undefined) {
+      config.clear.showTimestamps = process.env.CONSOLE_CLEAR_TIMESTAMPS === 'true'
+    }
+
+    if (process.env.CONSOLE_CLEAR_ANIMATIONS !== undefined) {
+      config.clear.animations.enabled = process.env.CONSOLE_CLEAR_ANIMATIONS === 'true'
+    }
+  }
+
+  private static deepMerge(target: any, source: any): void {
+    for (const key in source) {
+      if (source[key] && typeof source[key] === 'object' && !Array.isArray(source[key])) {
+        if (!target[key]) target[key] = {}
+        this.deepMerge(target[key], source[key])
+      } else {
+        target[key] = source[key]
+      }
+    }
+  }
+
+  static reloadConfig(): ConsoleConfig {
+    this.cache = null
+    return this.loadConfig()
+  }
+}
+
+// utils/configurable-clear.ts
+import clear from 'console-clear'
+import { ConfigLoader } from './config-loader'
+import type { ClearContext } from './smart-clear'
+
+export class ConfigurableClear {
+  private static config = ConfigLoader.loadConfig()
+
+  static clearWithConfig(context: ClearContext, message?: string): void {
+    const { clear: clearConfig } = this.config
+
+    // Check if clearing is globally enabled
+    if (!clearConfig.enabled) return
+
+    // Check if clearing is enabled for this context
+    const contextEnabled = clearConfig.contexts[context as keyof typeof clearConfig.contexts]
+    if (!contextEnabled) return
+
+    // Respect environment settings
+    if (clearConfig.respectCI && process.env.CI) return
+    if (clearConfig.respectDebug && process.env.DEBUG) return
+    if (!process.stdout.isTTY) return
+
+    try {
+      // Animate clearing if enabled
+      if (clearConfig.animations.enabled) {
+        this.animatedClear(clearConfig.animations.duration)
+      } else {
+        clear()
+      }
+
+      // Show message
+      const finalMessage = message || clearConfig.customMessages[context]
+      if (finalMessage) {
+        if (clearConfig.showTimestamps) {
+          const timestamp = new Date().toLocaleTimeString()
+          console.log(`${finalMessage} (${timestamp})`)
+        } else {
+          console.log(finalMessage)
+        }
+        console.log()
+      }
+    } catch (error) {
+      if (!clearConfig.preserveErrors) {
+        console.warn('Console clear failed:', error)
+      }
+    }
+  }
+
+  private static animatedClear(duration: number): void {
+    const frames = ['⠋', '⠙', '⠹', '⠸', '⠼', '⠴', '⠦', '⠧', '⠇', '⠏']
+    let i = 0
+    
+    const interval = setInterval(() => {
+      process.stdout.write(`\r${frames[i]} Clearing console...`)
+      i = (i + 1) % frames.length
+    }, 80)
+
+    setTimeout(() => {
+      clearInterval(interval)
+      clear()
+    }, duration)
+  }
+
+  static updateConfig(newConfig: Partial<ConsoleConfig>): void {
+    ConfigLoader.reloadConfig()
+    this.config = ConfigLoader.loadConfig()
+  }
+}
+
+// Example configuration files
+
+// package.json
+{
+  "name": "my-app",
+  "consoleClear": {
+    "enabled": true,
+    "contexts": {
+      "devServer": true,
+      "build": true,
+      "test": false
+    },
+    "showTimestamps": true,
+    "customMessages": {
+      "devServer": "🚀 Dev Server Ready",
+      "build": "📦 Building for Production"
+    }
+  }
+}
+
+// console.config.js
+module.exports = {
+  clear: {
+    enabled: process.env.NODE_ENV !== 'test',
+    contexts: {
+      devServer: true,
+      build: true,
+      test: false,
+      watch: true,
+      lint: true
+    },
+    animations: {
+      enabled: !process.env.CI,
+      duration: 150
+    },
+    customMessages: {
+      devServer: '🚀 Development server starting...',
+      build: '🏗️  Building application...',
+      watch: '👀 Watching for changes...',
+      lint: '🔍 Analyzing code quality...'
+    }
+  }
+}
+
+// .consolerc.json
+{
+  "clear": {
+    "enabled": true,
+    "showTimestamps": false,
+    "animations": {
+      "enabled": false
+    }
+  }
+}]]></correct-example>
+          <incorrect-example title="No configuration support" conditions="Setting up clearing behavior" expected-result="Flexible and customizable clearing system" incorrectness-criteria="Hardcoded behavior, no customization options, poor team consistency"><![CDATA[// Bad: Hardcoded behavior
+import clear from 'console-clear'
+
+// Bad: No configuration options
+function clearConsole() {
+  clear() // Always the same behavior
+  console.log('Console cleared') // Hardcoded message
+}
+
+// Bad: No way to customize per project
+function startDev() {
+  clearConsole() // No project-specific behavior
+}
+
+// Bad: No environment awareness
+function build() {
+  clearConsole() // Same behavior everywhere
+}]]></incorrect-example>
+        </example>
+      </examples>
+    </requirement>
+  </requirements>
+
+  <context description="Console clearing utility considerations">
+    Console-clear is a lightweight utility for clearing terminal output, commonly used in development workflows, build processes, and interactive applications. Proper usage requires understanding when clearing is appropriate and when it should be avoided to preserve important context.
+
+    Key considerations for console-clear usage:
+    - Respect different development environments (CI, testing, debugging)
+    - Preserve important context like error messages and logs
+    - Provide configuration options for team consistency
+    - Handle cross-platform compatibility gracefully
+    - Integrate appropriately with development tools and workflows
+    - Consider user experience and accessibility
+
+    Modern development workflows benefit from intelligent clearing strategies that adapt to context rather than blanket clearing approaches. The utility should enhance developer experience without interfering with debugging or continuous integration processes.
+  </context>
+
+  <references>
+    <reference as="dependency" href=".cursor/rules/000-core/002-cursor-rules-creation.mdc" reason="Follows standard rule format">Base rule format definition</reference>
+    <reference as="context" href="https://www.npmjs.com/package/console-clear" reason="Official package documentation">Console-Clear NPM Package</reference>
+    <reference as="context" href="https://nodejs.org/api/console.html" reason="Node.js console API">Node.js Console API</reference>
+  </references>
+</rule>

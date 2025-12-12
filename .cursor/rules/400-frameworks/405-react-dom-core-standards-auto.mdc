@@ -1,0 +1,520 @@
+---
+description: React DOM integration best practices with React 18 features, SSR, and performance optimization
+globs: "*.{ts,tsx,js,jsx}"
+alwaysApply: false
+---
+
+<rule>
+  <meta>
+    <title>React DOM Core Standards Auto</title>
+    <description>React DOM integration best practices with React 18 features, SSR, and performance optimization</description>
+    <created-at utc-timestamp="1744164400">July 16, 2025, 5:33 PM</created-at>
+    <last-updated-at utc-timestamp="1744164400">July 16, 2025, 5:33 PM</last-updated-at>
+    <applies-to>
+      <file-matcher glob="*.{ts,tsx,js,jsx}">React application entry points and DOM manipulation files</file-matcher>
+      <action-matcher action="react-dom-setup">Triggered when setting up React DOM applications</action-matcher>
+    </applies-to>
+  </meta>
+  <requirements>
+    <non-negotiable priority="critical">
+      <description>Use createRoot for React 18+ applications instead of ReactDOM.render, and implement proper Concurrent Features support.</description>
+      <examples>
+        <example title="React 18 Root API">
+          <correct-example title="Modern React 18 app initialization" conditions="Setting up React application entry point" expected-result="React 18 compatible application with Concurrent Features" correctness-criteria="Uses createRoot, proper TypeScript typing, Strict Mode enabled"><![CDATA[// src/main.tsx
+import React from 'react';
+import { createRoot } from 'react-dom/client';
+import App from './App';
+import './index.css';
+
+const container = document.getElementById('root');
+if (!container) {
+  throw new Error('Failed to find the root element');
+}
+
+const root = createRoot(container);
+
+root.render(
+  <React.StrictMode>
+    <App />
+  </React.StrictMode>
+);
+
+// Optional: Cleanup for hot module replacement
+if (import.meta.hot) {
+  import.meta.hot.dispose(() => {
+    root.unmount();
+  });
+}]]></correct-example>
+          <incorrect-example title="Legacy ReactDOM.render usage" conditions="Setting up React application entry point" expected-result="React 18 compatible application with Concurrent Features" incorrectness-criteria="Uses deprecated ReactDOM.render, missing error handling, no Strict Mode"><![CDATA[// Bad: Using deprecated ReactDOM.render
+import React from 'react';
+import ReactDOM from 'react-dom'; // Legacy import
+import App from './App';
+
+ReactDOM.render( // Deprecated in React 18
+  <App />, // Missing StrictMode
+  document.getElementById('root') // No error handling
+);]]></incorrect-example>
+        </example>
+      </examples>
+    </non-negotiable>
+    <requirement priority="critical">
+      <description>Implement proper SSR hydration using hydrateRoot for server-rendered applications, ensuring hydration mismatch prevention and error handling.</description>
+      <examples>
+        <example title="SSR Hydration Pattern">
+          <correct-example title="Proper SSR hydration with error handling" conditions="Hydrating server-rendered React application" expected-result="Smooth client-side hydration with error recovery" correctness-criteria="Uses hydrateRoot, hydration error handling, fallback recovery"><![CDATA[// src/client.tsx
+import React from 'react';
+import { hydrateRoot } from 'react-dom/client';
+import { BrowserRouter } from 'react-router-dom';
+import App from './App';
+
+const container = document.getElementById('root');
+if (!container) {
+  throw new Error('Failed to find the root element');
+}
+
+// Check if the app was server-rendered
+const isServerRendered = container.hasAttribute('data-server-rendered');
+
+if (isServerRendered) {
+  // Hydrate server-rendered content
+  const root = hydrateRoot(
+    container,
+    <React.StrictMode>
+      <BrowserRouter>
+        <App />
+      </BrowserRouter>
+    </React.StrictMode>,
+    {
+      onRecoverableError: (error, errorInfo) => {
+        console.error('Hydration error recovered:', error, errorInfo);
+        // Report to error tracking service
+        // reportError(error, { type: 'hydration', ...errorInfo });
+      },
+    }
+  );
+
+  // Handle hydration errors
+  root.onRecoverableError = (error) => {
+    console.warn('Recoverable hydration error:', error);
+  };
+} else {
+  // Client-side only rendering
+  const { createRoot } = await import('react-dom/client');
+  const root = createRoot(container);
+  
+  root.render(
+    <React.StrictMode>
+      <BrowserRouter>
+        <App />
+      </BrowserRouter>
+    </React.StrictMode>
+  );
+}]]></correct-example>
+          <incorrect-example title="Poor SSR hydration" conditions="Hydrating server-rendered React application" expected-result="Smooth client-side hydration with error recovery" incorrectness-criteria="No hydration error handling, missing environment detection, poor error recovery"><![CDATA[// Bad: No proper hydration handling
+import React from 'react';
+import { hydrateRoot } from 'react-dom/client';
+import App from './App';
+
+const container = document.getElementById('root');
+
+// No error handling or environment detection
+hydrateRoot(container!, <App />); // Dangerous non-null assertion
+
+// No hydration error recovery
+// No distinction between SSR and client-only rendering]]></incorrect-example>
+        </example>
+      </examples>
+    </requirement>
+    <requirement priority="high">
+      <description>Use React Portals for rendering components outside the main component tree, such as modals, tooltips, and notifications.</description>
+      <examples>
+        <example title="Portal Implementation">
+          <correct-example title="Type-safe Portal component" conditions="Creating modal or overlay components" expected-result="Accessible portal component with proper cleanup" correctness-criteria="Uses createPortal, proper TypeScript typing, cleanup on unmount"><![CDATA[// components/Portal.tsx
+import React, { useEffect, useRef, ReactNode } from 'react';
+import { createPortal } from 'react-dom';
+
+interface PortalProps {
+  children: ReactNode;
+  containerId?: string;
+  containerElement?: HTMLElement;
+}
+
+export const Portal: React.FC<PortalProps> = ({
+  children,
+  containerId = 'portal-root',
+  containerElement,
+}) => {
+  const portalRef = useRef<HTMLElement | null>(null);
+
+  useEffect(() => {
+    // Use provided container or find/create one
+    if (containerElement) {
+      portalRef.current = containerElement;
+    } else {
+      let container = document.getElementById(containerId);
+      
+      if (!container) {
+        container = document.createElement('div');
+        container.id = containerId;
+        container.setAttribute('data-portal-container', 'true');
+        document.body.appendChild(container);
+      }
+      
+      portalRef.current = container;
+    }
+
+    return () => {
+      // Cleanup: remove container if it was created and is empty
+      if (
+        portalRef.current && 
+        !containerElement && 
+        portalRef.current.children.length === 0 &&
+        portalRef.current.parentNode
+      ) {
+        portalRef.current.parentNode.removeChild(portalRef.current);
+      }
+    };
+  }, [containerId, containerElement]);
+
+  return portalRef.current 
+    ? createPortal(children, portalRef.current)
+    : null;
+};
+
+// Modal component using Portal
+interface ModalProps {
+  isOpen: boolean;
+  onClose: () => void;
+  children: ReactNode;
+}
+
+export const Modal: React.FC<ModalProps> = ({ isOpen, onClose, children }) => {
+  useEffect(() => {
+    if (isOpen) {
+      document.body.style.overflow = 'hidden';
+      
+      const handleEscape = (e: KeyboardEvent) => {
+        if (e.key === 'Escape') onClose();
+      };
+      
+      document.addEventListener('keydown', handleEscape);
+      
+      return () => {
+        document.body.style.overflow = '';
+        document.removeEventListener('keydown', handleEscape);
+      };
+    }
+  }, [isOpen, onClose]);
+
+  if (!isOpen) return null;
+
+  return (
+    <Portal>
+      <div 
+        className="modal-overlay"
+        onClick={onClose}
+        style={{
+          position: 'fixed',
+          top: 0,
+          left: 0,
+          right: 0,
+          bottom: 0,
+          backgroundColor: 'rgba(0, 0, 0, 0.5)',
+          display: 'flex',
+          alignItems: 'center',
+          justifyContent: 'center',
+          zIndex: 1000,
+        }}
+      >
+        <div 
+          className="modal-content"
+          onClick={(e) => e.stopPropagation()}
+          style={{
+            backgroundColor: 'white',
+            borderRadius: '8px',
+            padding: '24px',
+            maxWidth: '90vw',
+            maxHeight: '90vh',
+            overflow: 'auto',
+          }}
+        >
+          {children}
+        </div>
+      </div>
+    </Portal>
+  );
+};]]></correct-example>
+          <incorrect-example title="Poor portal implementation" conditions="Creating modal or overlay components" expected-result="Accessible portal component with proper cleanup" incorrectness-criteria="No cleanup, missing TypeScript types, poor accessibility"><![CDATA[// Bad: No proper cleanup or typing
+import React from 'react';
+import { createPortal } from 'react-dom';
+
+export const Modal = ({ children, isOpen }) => { // Missing TypeScript
+  if (!isOpen) return null;
+
+  // No container management or cleanup
+  return createPortal(
+    <div className="modal"> {/* No accessibility features */}
+      {children}
+    </div>,
+    document.body // Direct portal to body without cleanup
+  );
+};
+
+// No escape key handling
+// No scroll lock
+// No proper z-index management]]></incorrect-example>
+        </example>
+      </examples>
+    </requirement>
+    <requirement priority="high">
+      <description>Implement proper error boundaries and error handling for React DOM operations, including development vs production behavior.</description>
+      <examples>
+        <example title="Error Boundary with DOM Operations">
+          <correct-example title="Comprehensive error boundary" conditions="Handling React DOM errors and operations" expected-result="Robust error handling with recovery options" correctness-criteria="Error boundary implementation, development vs production handling, error reporting"><![CDATA[// components/DOMErrorBoundary.tsx
+import React, { Component, ErrorInfo, ReactNode } from 'react';
+
+interface Props {
+  children: ReactNode;
+  fallback?: (error: Error, errorInfo: ErrorInfo, reset: () => void) => ReactNode;
+  onError?: (error: Error, errorInfo: ErrorInfo) => void;
+}
+
+interface State {
+  hasError: boolean;
+  error: Error | null;
+  errorInfo: ErrorInfo | null;
+}
+
+export class DOMErrorBoundary extends Component<Props, State> {
+  constructor(props: Props) {
+    super(props);
+    this.state = {
+      hasError: false,
+      error: null,
+      errorInfo: null,
+    };
+  }
+
+  static getDerivedStateFromError(error: Error): Partial<State> {
+    return {
+      hasError: true,
+      error,
+    };
+  }
+
+  componentDidCatch(error: Error, errorInfo: ErrorInfo): void {
+    this.setState({
+      error,
+      errorInfo,
+    });
+
+    // Report error in production
+    if (process.env.NODE_ENV === 'production') {
+      this.props.onError?.(error, errorInfo);
+      // reportError(error, errorInfo);
+    } else {
+      console.error('React Error Boundary caught an error:', error, errorInfo);
+    }
+  }
+
+  resetError = (): void => {
+    this.setState({
+      hasError: false,
+      error: null,
+      errorInfo: null,
+    });
+  };
+
+  render(): ReactNode {
+    if (this.state.hasError && this.state.error) {
+      if (this.props.fallback) {
+        return this.props.fallback(
+          this.state.error,
+          this.state.errorInfo!,
+          this.resetError
+        );
+      }
+
+      return (
+        <div style={{ padding: '20px', border: '1px solid red', margin: '10px' }}>
+          <h2>Something went wrong</h2>
+          {process.env.NODE_ENV === 'development' && (
+            <details style={{ whiteSpace: 'pre-wrap' }}>
+              <summary>Error details (development only)</summary>
+              <p><strong>Error:</strong> {this.state.error.message}</p>
+              <p><strong>Stack:</strong> {this.state.error.stack}</p>
+              {this.state.errorInfo && (
+                <p><strong>Component Stack:</strong> {this.state.errorInfo.componentStack}</p>
+              )}
+            </details>
+          )}
+          <button onClick={this.resetError}>Try again</button>
+        </div>
+      );
+    }
+
+    return this.props.children;
+  }
+}
+
+// Usage with DOM operations
+export const SafeDOMComponent: React.FC = () => {
+  return (
+    <DOMErrorBoundary
+      onError={(error, errorInfo) => {
+        // Send to error reporting service
+        console.error('DOM Error:', error, errorInfo);
+      }}
+      fallback={(error, errorInfo, reset) => (
+        <div>
+          <h3>Component failed to render</h3>
+          <p>Please try refreshing the page or contact support.</p>
+          <button onClick={reset}>Retry</button>
+        </div>
+      )}
+    >
+      <YourComponent />
+    </DOMErrorBoundary>
+  );
+};]]></correct-example>
+          <incorrect-example title="Poor error handling" conditions="Handling React DOM errors and operations" expected-result="Robust error handling with recovery options" incorrectness-criteria="No error boundary, poor error reporting, no recovery mechanism"><![CDATA[// Bad: No error boundary or proper error handling
+export const UnsafeComponent: React.FC = () => {
+  // No error boundary wrapping
+  return <YourComponent />; // Any error will crash the app
+};
+
+// No error reporting
+// No recovery mechanism
+// No distinction between development and production]]></incorrect-example>
+        </example>
+      </examples>
+    </requirement>
+    <requirement priority="medium">
+      <description>Use React.lazy and Suspense for code splitting and dynamic imports, optimizing bundle size and loading performance.</description>
+      <examples>
+        <example title="Code Splitting with Suspense">
+          <correct-example title="Proper lazy loading implementation" conditions="Implementing code splitting for large components" expected-result="Optimized bundle loading with proper fallbacks" correctness-criteria="Uses React.lazy, Suspense boundaries, error handling, TypeScript support"><![CDATA[// App.tsx
+import React, { Suspense } from 'react';
+import { BrowserRouter, Routes, Route } from 'react-router-dom';
+import { DOMErrorBoundary } from './components/DOMErrorBoundary';
+
+// Lazy load route components
+const HomePage = React.lazy(() => 
+  import('./pages/HomePage').then(module => ({
+    default: module.HomePage
+  }))
+);
+
+const DashboardPage = React.lazy(() => 
+  import('./pages/DashboardPage').catch(error => {
+    console.error('Failed to load DashboardPage:', error);
+    // Return fallback component
+    return import('./pages/ErrorPage');
+  })
+);
+
+const UserProfilePage = React.lazy(() => 
+  import('./pages/UserProfilePage')
+);
+
+// Loading component
+const PageLoader: React.FC = () => (
+  <div style={{ 
+    display: 'flex', 
+    justifyContent: 'center', 
+    alignItems: 'center', 
+    height: '200px' 
+  }}>
+    <div>Loading...</div>
+  </div>
+);
+
+// Reusable lazy loading wrapper
+interface LazyWrapperProps {
+  children: React.ReactNode;
+  fallback?: React.ReactNode;
+}
+
+const LazyWrapper: React.FC<LazyWrapperProps> = ({ 
+  children, 
+  fallback = <PageLoader /> 
+}) => (
+  <DOMErrorBoundary>
+    <Suspense fallback={fallback}>
+      {children}
+    </Suspense>
+  </DOMErrorBoundary>
+);
+
+export const App: React.FC = () => {
+  return (
+    <BrowserRouter>
+      <Routes>
+        <Route 
+          path="/" 
+          element={
+            <LazyWrapper>
+              <HomePage />
+            </LazyWrapper>
+          } 
+        />
+        <Route 
+          path="/dashboard" 
+          element={
+            <LazyWrapper fallback={<div>Loading dashboard...</div>}>
+              <DashboardPage />
+            </LazyWrapper>
+          } 
+        />
+        <Route 
+          path="/profile/:userId" 
+          element={
+            <LazyWrapper>
+              <UserProfilePage />
+            </LazyWrapper>
+          } 
+        />
+      </Routes>
+    </BrowserRouter>
+  );
+};]]></correct-example>
+          <incorrect-example title="Poor lazy loading implementation" conditions="Implementing code splitting for large components" expected-result="Optimized bundle loading with proper fallbacks" incorrectness-criteria="No error handling, poor fallbacks, missing TypeScript support"><![CDATA[// Bad: No error handling or proper fallbacks
+import React, { Suspense } from 'react';
+
+// No error handling for failed imports
+const HomePage = React.lazy(() => import('./pages/HomePage'));
+
+export const App: React.FC = () => {
+  return (
+    <Suspense fallback={<div>Loading...</div>}> {/* Generic fallback */}
+      <HomePage />
+    </Suspense>
+    // No error boundary
+    // No loading states
+    // No fallback for failed loads
+  );
+};]]></incorrect-example>
+        </example>
+      </examples>
+    </requirement>
+  </requirements>
+  <context description="React DOM development considerations">
+    React DOM is the package that provides DOM-specific methods for React applications. With React 18, significant changes were introduced including the new Root API, Concurrent Features, and improved SSR support.
+
+    Key React 18 features:
+    - createRoot and hydrateRoot APIs for better Concurrent Features support
+    - Automatic batching for performance improvements  
+    - Suspense improvements for better code splitting
+    - Enhanced SSR with streaming and selective hydration
+
+    Best practices include proper error boundary implementation, strategic use of Portals for overlay components, and effective code splitting with React.lazy and Suspense. Performance considerations include minimizing DOM manipulation, using efficient event handling, and optimizing bundle loading.
+
+    React DOM also provides important utilities for testing, debugging, and server-side rendering that should be used appropriately based on the application context.
+  </context>
+  <references>
+    <reference as="dependency" href=".cursor/rules/000-core/002-cursor-rules-creation.mdc" reason="Follows standard rule format">Base rule format definition</reference>
+    <reference as="context" href=".cursor/rules/400-frameworks/402-react-core-standards-auto.mdc" reason="React development patterns">React component best practices</reference>
+    <reference as="context" href="https://react.dev/reference/react-dom" reason="Official documentation">React DOM API reference</reference>
+    <reference as="context" href="https://react.dev/blog/2022/03/29/react-v18" reason="React 18 features">React 18 release notes and new features</reference>
+  </references>
+</rule>

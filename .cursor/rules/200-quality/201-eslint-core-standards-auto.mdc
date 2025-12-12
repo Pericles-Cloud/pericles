@@ -1,0 +1,905 @@
+---
+description: Comprehensive ESLint configuration standards using modern rules, TypeScript integration, and performance optimization following expert best practices
+globs: ["*.{js,ts,jsx,tsx,json}"]
+alwaysApply: false
+---
+
+<rule>
+  <meta>
+    <title>ESLint Core Standards Auto</title>
+    <description>Comprehensive ESLint configuration standards using modern rules, TypeScript integration, and performance optimization following expert best practices</description>
+    <created-at utc-timestamp="1744251680">January 27, 2025, 1:21 PM</created-at>
+    <last-updated-at utc-timestamp="1744251680">January 27, 2025, 1:21 PM</last-updated-at>
+    <applies-to>
+      <file-matcher glob="*.{js,ts,jsx,tsx,json}">JavaScript, TypeScript, and configuration files</file-matcher>
+      <action-matcher action="eslint-configuration">Triggered when configuring ESLint for code quality</action-matcher>
+    </applies-to>
+  </meta>
+  <requirements>
+    <non-negotiable priority="critical">
+      <description>Use ESLint flat config format with TypeScript integration, modern parser options, and recommended rule sets following ESLint 9+ standards.</description>
+      <examples>
+        <example title="Modern ESLint Configuration">
+          <correct-example title="ESLint flat config with TypeScript" conditions="Setting up ESLint configuration" expected-result="Optimized ESLint setup" correctness-criteria="Uses flat config, TypeScript integration, modern rules, performance optimization"><![CDATA[// eslint.config.js (ESLint 9+ flat config)
+import js from '@eslint/js';
+import typescript from '@typescript-eslint/eslint-plugin';
+import typescriptParser from '@typescript-eslint/parser';
+import react from 'eslint-plugin-react';
+import reactHooks from 'eslint-plugin-react-hooks';
+import reactRefresh from 'eslint-plugin-react-refresh';
+import jsxA11y from 'eslint-plugin-jsx-a11y';
+import importPlugin from 'eslint-plugin-import';
+import prettierConfig from 'eslint-config-prettier';
+import unicorn from 'eslint-plugin-unicorn';
+
+export default [
+  // Base JavaScript configuration
+  js.configs.recommended,
+  
+  // Global ignores
+  {
+    ignores: [
+      'dist/**',
+      'build/**',
+      'node_modules/**',
+      '.next/**',
+      'coverage/**',
+      '*.min.js',
+      'public/**',
+      '.cache/**',
+    ],
+  },
+  
+  // TypeScript files configuration
+  {
+    files: ['**/*.{ts,tsx}'],
+    languageOptions: {
+      parser: typescriptParser,
+      parserOptions: {
+        ecmaVersion: 'latest',
+        sourceType: 'module',
+        ecmaFeatures: {
+          jsx: true,
+        },
+        project: './tsconfig.json',
+      },
+    },
+    plugins: {
+      '@typescript-eslint': typescript,
+      import: importPlugin,
+      unicorn,
+    },
+    rules: {
+      // TypeScript-specific rules
+      ...typescript.configs.recommended.rules,
+      '@typescript-eslint/no-unused-vars': ['error', { argsIgnorePattern: '^_' }],
+      '@typescript-eslint/no-explicit-any': 'error',
+      '@typescript-eslint/no-non-null-assertion': 'error',
+      '@typescript-eslint/prefer-nullish-coalescing': 'error',
+      '@typescript-eslint/prefer-optional-chain': 'error',
+      '@typescript-eslint/strict-boolean-expressions': 'error',
+      '@typescript-eslint/consistent-type-imports': [
+        'error',
+        { prefer: 'type-imports', fixStyle: 'separate-type-imports' },
+      ],
+      '@typescript-eslint/consistent-type-exports': 'error',
+      '@typescript-eslint/no-import-type-side-effects': 'error',
+      
+      // Import rules
+      'import/order': [
+        'error',
+        {
+          groups: [
+            'builtin',
+            'external',
+            'internal',
+            'parent',
+            'sibling',
+            'index',
+            'type',
+          ],
+          'newlines-between': 'always',
+          alphabetize: {
+            order: 'asc',
+            caseInsensitive: true,
+          },
+        },
+      ],
+      'import/no-duplicates': 'error',
+      'import/no-unresolved': 'error',
+      'import/no-cycle': 'error',
+      'import/no-self-import': 'error',
+      
+      // General code quality
+      'prefer-const': 'error',
+      'no-var': 'error',
+      'no-console': ['warn', { allow: ['warn', 'error'] }],
+      'no-debugger': 'error',
+      'no-alert': 'error',
+      'no-eval': 'error',
+      'no-implied-eval': 'error',
+      'no-script-url': 'error',
+      
+      // Unicorn rules for modern JavaScript
+      'unicorn/prefer-node-protocol': 'error',
+      'unicorn/prefer-module': 'error',
+      'unicorn/prefer-top-level-await': 'error',
+      'unicorn/no-array-for-each': 'error',
+      'unicorn/prefer-array-some': 'error',
+      'unicorn/prefer-array-find': 'error',
+      'unicorn/prefer-includes': 'error',
+      'unicorn/prefer-string-starts-ends-with': 'error',
+    },
+    settings: {
+      'import/resolver': {
+        typescript: {
+          alwaysTryTypes: true,
+          project: './tsconfig.json',
+        },
+      },
+    },
+  },
+  
+  // React/JSX files configuration
+  {
+    files: ['**/*.{jsx,tsx}'],
+    languageOptions: {
+      globals: {
+        React: 'readonly',
+      },
+    },
+    plugins: {
+      react,
+      'react-hooks': reactHooks,
+      'react-refresh': reactRefresh,
+      'jsx-a11y': jsxA11y,
+    },
+    rules: {
+      // React rules
+      ...react.configs.recommended.rules,
+      ...reactHooks.configs.recommended.rules,
+      'react/react-in-jsx-scope': 'off', // Not needed with React 17+
+      'react/prop-types': 'off', // Using TypeScript for prop validation
+      'react/jsx-uses-react': 'off', // Not needed with React 17+
+      'react/jsx-uses-vars': 'error',
+      'react/jsx-no-duplicate-props': 'error',
+      'react/jsx-no-undef': 'error',
+      'react/jsx-pascal-case': 'error',
+      'react/no-array-index-key': 'warn',
+      'react/no-danger': 'warn',
+      'react/no-deprecated': 'error',
+      'react/no-direct-mutation-state': 'error',
+      'react/no-unsafe': 'error',
+      'react/self-closing-comp': 'error',
+      'react/jsx-fragments': ['error', 'syntax'],
+      'react/jsx-no-useless-fragment': 'error',
+      'react/jsx-curly-brace-presence': ['error', { props: 'never', children: 'never' }],
+      
+      // React Hooks rules
+      'react-hooks/rules-of-hooks': 'error',
+      'react-hooks/exhaustive-deps': 'warn',
+      
+      // React Refresh for HMR
+      'react-refresh/only-export-components': ['warn', { allowConstantExport: true }],
+      
+      // Accessibility rules
+      ...jsxA11y.configs.recommended.rules,
+      'jsx-a11y/alt-text': 'error',
+      'jsx-a11y/anchor-has-content': 'error',
+      'jsx-a11y/anchor-is-valid': 'error',
+      'jsx-a11y/click-events-have-key-events': 'error',
+      'jsx-a11y/heading-has-content': 'error',
+      'jsx-a11y/no-static-element-interactions': 'error',
+    },
+    settings: {
+      react: {
+        version: 'detect',
+      },
+    },
+  },
+  
+  // Test files configuration
+  {
+    files: ['**/*.{test,spec}.{js,ts,jsx,tsx}', '**/__tests__/**/*.{js,ts,jsx,tsx}'],
+    rules: {
+      '@typescript-eslint/no-explicit-any': 'off',
+      'no-console': 'off',
+      '@typescript-eslint/no-non-null-assertion': 'off',
+    },
+  },
+  
+  // Configuration files
+  {
+    files: ['*.config.{js,ts}', '.*rc.{js,ts}'],
+    rules: {
+      'no-console': 'off',
+      '@typescript-eslint/no-var-requires': 'off',
+    },
+  },
+  
+  // Prettier integration (must be last)
+  prettierConfig,
+];
+
+// package.json scripts
+{
+  "scripts": {
+    "lint": "eslint . --ext js,ts,jsx,tsx --report-unused-disable-directives --max-warnings 0",
+    "lint:fix": "eslint . --ext js,ts,jsx,tsx --fix",
+    "lint:check": "eslint . --ext js,ts,jsx,tsx --max-warnings 0",
+    "lint:cache": "eslint . --ext js,ts,jsx,tsx --cache --cache-location .eslintcache"
+  },
+  "devDependencies": {
+    "@eslint/js": "^9.0.0",
+    "@typescript-eslint/eslint-plugin": "^7.0.0",
+    "@typescript-eslint/parser": "^7.0.0",
+    "eslint": "^9.0.0",
+    "eslint-config-prettier": "^9.0.0",
+    "eslint-plugin-import": "^2.29.0",
+    "eslint-plugin-jsx-a11y": "^6.8.0",
+    "eslint-plugin-react": "^7.33.0",
+    "eslint-plugin-react-hooks": "^4.6.0",
+    "eslint-plugin-react-refresh": "^0.4.0",
+    "eslint-plugin-unicorn": "^50.0.0"
+  }
+}
+
+// .eslintignore (if not using flat config ignores)
+dist/
+build/
+node_modules/
+.next/
+coverage/
+*.min.js
+public/
+.cache/
+*.config.js
+!eslint.config.js
+
+// VS Code settings for ESLint integration
+// .vscode/settings.json
+{
+  "eslint.validate": [
+    "javascript",
+    "javascriptreact",
+    "typescript",
+    "typescriptreact"
+  ],
+  "eslint.format.enable": true,
+  "editor.codeActionsOnSave": {
+    "source.fixAll.eslint": "explicit"
+  },
+  "editor.formatOnSave": true,
+  "editor.defaultFormatter": "esbenp.prettier-vscode",
+  "[javascript]": {
+    "editor.defaultFormatter": "esbenp.prettier-vscode"
+  },
+  "[typescript]": {
+    "editor.defaultFormatter": "esbenp.prettier-vscode"
+  }
+}]]></correct-example>
+          <incorrect-example title="Legacy ESLint configuration" conditions="Setting up ESLint configuration" expected-result="Optimized ESLint setup" incorrectness-criteria="Uses deprecated .eslintrc format, missing TypeScript integration, outdated rules"><![CDATA[// .eslintrc.js (Legacy format - avoid)
+module.exports = {
+  env: {
+    browser: true,
+    es2021: true,
+  },
+  extends: [
+    'eslint:recommended',
+  ],
+  parserOptions: {
+    ecmaVersion: 12,
+    sourceType: 'module',
+  },
+  rules: {
+    // Minimal rules without TypeScript or React support
+    'no-console': 'warn',
+    'no-unused-vars': 'error',
+  },
+};
+
+// Missing:
+// - TypeScript integration
+// - React-specific rules
+// - Import order rules
+// - Accessibility rules
+// - Modern JavaScript features
+// - Performance optimization]]></incorrect-example>
+        </example>
+      </examples>
+    </non-negotiable>
+
+    <non-negotiable priority="critical">
+      <description>Configure ESLint with proper TypeScript integration using @typescript-eslint parser and plugin with strict type checking rules.</description>
+      <examples>
+        <example title="TypeScript ESLint Integration">
+          <correct-example title="Comprehensive TypeScript ESLint setup" conditions="Configuring ESLint for TypeScript projects" expected-result="Type-safe ESLint configuration" correctness-criteria="Uses TypeScript parser, strict rules, proper type checking"><![CDATA[// Advanced TypeScript ESLint configuration
+export default [
+  {
+    files: ['**/*.{ts,tsx}'],
+    languageOptions: {
+      parser: typescriptParser,
+      parserOptions: {
+        ecmaVersion: 'latest',
+        sourceType: 'module',
+        project: ['./tsconfig.json', './tsconfig.node.json'],
+        ecmaFeatures: {
+          jsx: true,
+        },
+      },
+    },
+    plugins: {
+      '@typescript-eslint': typescript,
+    },
+    rules: {
+      // Disable base ESLint rules that are covered by TypeScript
+      'no-unused-vars': 'off',
+      'no-undef': 'off',
+      'no-redeclare': 'off',
+      'no-use-before-define': 'off',
+      
+      // TypeScript-specific rules
+      '@typescript-eslint/no-unused-vars': [
+        'error',
+        {
+          args: 'all',
+          argsIgnorePattern: '^_',
+          caughtErrors: 'all',
+          caughtErrorsIgnorePattern: '^_',
+          destructuredArrayIgnorePattern: '^_',
+          varsIgnorePattern: '^_',
+          ignoreRestSiblings: true,
+        },
+      ],
+      '@typescript-eslint/no-explicit-any': 'error',
+      '@typescript-eslint/no-non-null-assertion': 'error',
+      '@typescript-eslint/no-unnecessary-condition': 'error',
+      '@typescript-eslint/no-unnecessary-type-assertion': 'error',
+      '@typescript-eslint/prefer-nullish-coalescing': 'error',
+      '@typescript-eslint/prefer-optional-chain': 'error',
+      '@typescript-eslint/strict-boolean-expressions': [
+        'error',
+        {
+          allowString: false,
+          allowNumber: false,
+          allowNullableObject: false,
+          allowNullableBoolean: false,
+          allowNullableString: false,
+          allowNullableNumber: false,
+          allowAny: false,
+        },
+      ],
+      '@typescript-eslint/switch-exhaustiveness-check': 'error',
+      '@typescript-eslint/prefer-readonly': 'error',
+      '@typescript-eslint/prefer-readonly-parameter-types': 'off', // Too strict for most projects
+      '@typescript-eslint/explicit-function-return-type': [
+        'error',
+        {
+          allowExpressions: true,
+          allowTypedFunctionExpressions: true,
+          allowHigherOrderFunctions: true,
+          allowDirectConstAssertionInArrowFunctions: true,
+        },
+      ],
+      '@typescript-eslint/explicit-module-boundary-types': 'error',
+      '@typescript-eslint/no-inferrable-types': 'error',
+      '@typescript-eslint/consistent-type-imports': [
+        'error',
+        {
+          prefer: 'type-imports',
+          disallowTypeAnnotations: false,
+          fixStyle: 'separate-type-imports',
+        },
+      ],
+      '@typescript-eslint/consistent-type-exports': [
+        'error',
+        {
+          fixMixedExportsWithInlineTypeSpecifier: true,
+        },
+      ],
+      '@typescript-eslint/no-import-type-side-effects': 'error',
+      '@typescript-eslint/consistent-type-definitions': ['error', 'interface'],
+      '@typescript-eslint/method-signature-style': ['error', 'property'],
+      '@typescript-eslint/array-type': ['error', { default: 'array-simple' }],
+      '@typescript-eslint/ban-tslint-comment': 'error',
+      '@typescript-eslint/class-literal-property-style': ['error', 'fields'],
+      '@typescript-eslint/no-confusing-void-expression': [
+        'error',
+        { ignoreArrowShorthand: true },
+      ],
+      '@typescript-eslint/no-dynamic-delete': 'error',
+      '@typescript-eslint/no-invalid-void-type': 'error',
+      '@typescript-eslint/no-meaningless-void-operator': 'error',
+      '@typescript-eslint/no-mixed-enums': 'error',
+      '@typescript-eslint/no-unnecessary-boolean-literal-compare': 'error',
+      '@typescript-eslint/no-unnecessary-qualifier': 'error',
+      '@typescript-eslint/no-useless-empty-export': 'error',
+      '@typescript-eslint/prefer-enum-initializers': 'error',
+      '@typescript-eslint/prefer-for-of': 'error',
+      '@typescript-eslint/prefer-function-type': 'error',
+      '@typescript-eslint/prefer-includes': 'error',
+      '@typescript-eslint/prefer-literal-enum-member': 'error',
+      '@typescript-eslint/prefer-reduce-type-parameter': 'error',
+      '@typescript-eslint/prefer-return-this-type': 'error',
+      '@typescript-eslint/prefer-string-starts-ends-with': 'error',
+      '@typescript-eslint/prefer-ts-expect-error': 'error',
+      '@typescript-eslint/promise-function-async': 'error',
+      '@typescript-eslint/require-array-sort-compare': [
+        'error',
+        { ignoreStringArrays: true },
+      ],
+      '@typescript-eslint/sort-type-constituents': 'error',
+      '@typescript-eslint/unified-signatures': 'error',
+      
+      // Naming conventions
+      '@typescript-eslint/naming-convention': [
+        'error',
+        {
+          selector: 'variableLike',
+          format: ['camelCase'],
+          leadingUnderscore: 'allow',
+        },
+        {
+          selector: 'typeLike',
+          format: ['PascalCase'],
+        },
+        {
+          selector: 'enumMember',
+          format: ['PascalCase'],
+        },
+        {
+          selector: 'interface',
+          format: ['PascalCase'],
+          custom: {
+            regex: '^I[A-Z]',
+            match: false,
+          },
+        },
+      ],
+    },
+  },
+];
+
+// tsconfig.json ESLint integration
+{
+  "compilerOptions": {
+    "strict": true,
+    "noUnusedLocals": true,
+    "noUnusedParameters": true,
+    "exactOptionalPropertyTypes": true,
+    "noImplicitReturns": true,
+    "noFallthroughCasesInSwitch": true,
+    "noImplicitOverride": true
+  },
+  "include": ["src/**/*", "types/**/*"],
+  "exclude": ["node_modules", "dist", "build"]
+}]]></correct-example>
+          <incorrect-example title="Poor TypeScript ESLint integration" conditions="Configuring ESLint for TypeScript projects" expected-result="Type-safe ESLint configuration" incorrectness-criteria="Missing TypeScript parser, no strict rules, conflicting configurations"><![CDATA[// Bad: Missing TypeScript integration
+module.exports = {
+  extends: ['eslint:recommended'],
+  rules: {
+    'no-unused-vars': 'error', // Conflicts with TypeScript
+    'no-undef': 'error', // Not needed with TypeScript
+  },
+};
+
+// Missing:
+// - @typescript-eslint/parser
+// - TypeScript-specific rules
+// - Type checking integration
+// - Proper TypeScript configuration]]></incorrect-example>
+        </example>
+      </examples>
+    </non-negotiable>
+
+    <requirement priority="critical">
+      <description>Implement performance optimization through ESLint caching, selective linting, and proper ignore patterns for large projects.</description>
+      <examples>
+        <example title="ESLint Performance Optimization">
+          <correct-example title="Optimized ESLint configuration for performance" conditions="Optimizing ESLint for large projects" expected-result="Fast ESLint execution" correctness-criteria="Uses caching, selective linting, proper ignores, performance monitoring"><![CDATA[// Performance-optimized ESLint setup
+export default [
+  {
+    ignores: [
+      // Build outputs
+      'dist/**',
+      'build/**',
+      '.next/**',
+      'out/**',
+      
+      // Dependencies
+      'node_modules/**',
+      'vendor/**',
+      
+      // Generated files
+      '**/*.min.js',
+      '**/*.bundle.js',
+      '**/*.generated.{js,ts}',
+      
+      // Cache directories
+      '.cache/**',
+      '.parcel-cache/**',
+      '.vite/**',
+      
+      // IDE files
+      '.vscode/**',
+      '.idea/**',
+      
+      // OS files
+      '.DS_Store',
+      'Thumbs.db',
+      
+      // Logs
+      '*.log',
+      'logs/**',
+      
+      // Coverage
+      'coverage/**',
+      '.nyc_output/**',
+      
+      // Documentation builds
+      'docs/build/**',
+      'storybook-static/**',
+    ],
+  },
+  
+  // Optimized rules for performance
+  {
+    files: ['**/*.{js,ts,jsx,tsx}'],
+    rules: {
+      // Disable expensive rules for large codebases
+      'import/no-cycle': 'off', // Can be slow on large projects
+      'import/no-deprecated': 'off', // Expensive rule
+      
+      // Use faster alternatives
+      '@typescript-eslint/prefer-nullish-coalescing': 'error',
+      '@typescript-eslint/prefer-optional-chain': 'error',
+    },
+  },
+];
+
+// package.json performance scripts
+{
+  "scripts": {
+    // Basic linting with cache
+    "lint": "eslint . --cache --cache-location .eslintcache",
+    
+    // Lint only changed files
+    "lint:changed": "eslint $(git diff --name-only --diff-filter=ACMR | grep -E '\\.(js|ts|jsx|tsx)$' | xargs)",
+    
+    // Lint with performance timing
+    "lint:perf": "TIMING=1 eslint . --cache",
+    
+    // Lint specific directories
+    "lint:src": "eslint src/ --cache",
+    "lint:components": "eslint src/components/ --cache",
+    
+    // Parallel linting for CI
+    "lint:ci": "eslint . --cache --max-warnings 0 --format json --output-file eslint-report.json",
+    
+    // Quick lint for development
+    "lint:quick": "eslint src/ --cache --ext .ts,.tsx --max-warnings 5",
+  }
+}
+
+// .eslintrc-performance.js (Alternative config for CI)
+export default [
+  {
+    files: ['**/*.{js,ts,jsx,tsx}'],
+    rules: {
+      // Disable slow rules in CI
+      'import/no-cycle': 'off',
+      'jsx-a11y/no-autofocus': 'off',
+      
+      // Keep essential rules only
+      '@typescript-eslint/no-unused-vars': 'error',
+      '@typescript-eslint/no-explicit-any': 'error',
+      'react-hooks/rules-of-hooks': 'error',
+    },
+  },
+];
+
+// GitHub Actions workflow optimization
+name: ESLint
+on: [push, pull_request]
+jobs:
+  lint:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '18'
+          cache: 'npm'
+      
+      # Cache ESLint results
+      - name: Cache ESLint
+        uses: actions/cache@v3
+        with:
+          path: .eslintcache
+          key: eslint-${{ hashFiles('**/package-lock.json') }}-${{ hashFiles('**/*.{js,ts,jsx,tsx}') }}
+          restore-keys: |
+            eslint-${{ hashFiles('**/package-lock.json') }}-
+            eslint-
+      
+      - run: npm ci
+      - run: npm run lint:ci
+
+// ESLint configuration for different environments
+// eslint.config.dev.js (Development - more permissive)
+export default [
+  ...baseConfig,
+  {
+    rules: {
+      'no-console': 'warn',
+      '@typescript-eslint/no-unused-vars': 'warn',
+    },
+  },
+];
+
+// eslint.config.prod.js (Production - strict)
+export default [
+  ...baseConfig,
+  {
+    rules: {
+      'no-console': 'error',
+      'no-debugger': 'error',
+      '@typescript-eslint/no-unused-vars': 'error',
+    },
+  },
+];
+
+// Webpack integration for performance
+module.exports = {
+  module: {
+    rules: [
+      {
+        test: /\.(js|ts|jsx|tsx)$/,
+        exclude: /node_modules/,
+        use: [
+          'babel-loader',
+          {
+            loader: 'eslint-loader',
+            options: {
+              cache: true,
+              cacheLocation: '.eslintcache',
+              failOnError: process.env.NODE_ENV === 'production',
+              failOnWarning: process.env.NODE_ENV === 'production',
+            },
+          },
+        ],
+      },
+    ],
+  },
+};]]></correct-example>
+          <incorrect-example title="Unoptimized ESLint configuration" conditions="Optimizing ESLint for large projects" expected-result="Fast ESLint execution" incorrectness-criteria="No caching, lints everything, slow rules enabled"><![CDATA[// Bad: No performance optimization
+export default [
+  {
+    files: ['**/*'], // Lints all files including node_modules
+    rules: {
+      'import/no-cycle': 'error', // Slow rule
+      'import/no-deprecated': 'error', // Expensive rule
+    },
+  },
+];
+
+// Bad: No caching in scripts
+{
+  "scripts": {
+    "lint": "eslint .", // No cache
+    "lint:fix": "eslint . --fix", // Always lints everything
+  }
+}
+
+// Missing:
+// - Caching configuration
+// - Proper ignore patterns
+// - Performance monitoring
+// - Environment-specific configs]]></incorrect-example>
+        </example>
+      </examples>
+    </requirement>
+
+    <requirement priority="high">
+      <description>Configure ESLint with comprehensive React, accessibility, and import rules using appropriate plugins and modern React patterns.</description>
+      <examples>
+        <example title="React and Accessibility ESLint Rules">
+          <correct-example title="Comprehensive React ESLint configuration" conditions="Setting up ESLint for React projects" expected-result="React-optimized ESLint rules" correctness-criteria="Includes React hooks, accessibility, import order, modern React patterns"><![CDATA[// React-specific ESLint configuration
+{
+  files: ['**/*.{jsx,tsx}'],
+  plugins: {
+    react,
+    'react-hooks': reactHooks,
+    'react-refresh': reactRefresh,
+    'jsx-a11y': jsxA11y,
+  },
+  rules: {
+    // React component rules
+    'react/function-component-definition': [
+      'error',
+      {
+        namedComponents: 'arrow-function',
+        unnamedComponents: 'arrow-function',
+      },
+    ],
+    'react/jsx-no-useless-fragment': ['error', { allowExpressions: true }],
+    'react/jsx-curly-brace-presence': [
+      'error',
+      { props: 'never', children: 'never', propElementValues: 'always' },
+    ],
+    'react/self-closing-comp': ['error', { component: true, html: true }],
+    'react/jsx-boolean-value': ['error', 'never'],
+    'react/jsx-fragments': ['error', 'syntax'],
+    'react/jsx-no-leaked-render': 'error',
+    'react/jsx-no-constructed-context-values': 'error',
+    'react/no-unstable-nested-components': 'error',
+    'react/no-object-type-as-default-prop': 'error',
+    'react/hook-use-state': 'error',
+    
+    // Props and state
+    'react/destructuring-assignment': ['error', 'always'],
+    'react/no-array-index-key': 'warn',
+    'react/prefer-stateless-function': 'error',
+    'react/state-in-constructor': ['error', 'never'],
+    
+    // JSX-specific rules
+    'react/jsx-key': [
+      'error',
+      {
+        checkFragmentShorthand: true,
+        checkKeyMustBeforeSpread: true,
+        warnOnDuplicates: true,
+      },
+    ],
+    'react/jsx-no-bind': [
+      'error',
+      {
+        allowArrowFunctions: true,
+        allowBind: false,
+        allowFunctions: false,
+      },
+    ],
+    'react/jsx-no-script-url': 'error',
+    'react/jsx-no-target-blank': ['error', { enforceDynamicLinks: 'always' }],
+    
+    // Hooks rules
+    'react-hooks/rules-of-hooks': 'error',
+    'react-hooks/exhaustive-deps': [
+      'warn',
+      {
+        additionalHooks: '(useMyCustomHook|useAnotherCustomHook)',
+      },
+    ],
+    
+    // React Refresh for development
+    'react-refresh/only-export-components': [
+      'warn',
+      { allowConstantExport: true },
+    ],
+    
+    // Accessibility rules
+    'jsx-a11y/alt-text': [
+      'error',
+      {
+        elements: ['img', 'object', 'area', 'input[type="image"]'],
+        img: ['Image'],
+        object: ['Object'],
+        area: ['Area'],
+        'input[type="image"]': ['InputImage'],
+      },
+    ],
+    'jsx-a11y/anchor-has-content': 'error',
+    'jsx-a11y/anchor-is-valid': [
+      'error',
+      {
+        components: ['Link'],
+        specialLink: ['hrefLeft', 'hrefRight'],
+        aspects: ['noHref', 'invalidHref', 'preferButton'],
+      },
+    ],
+    'jsx-a11y/aria-activedescendant-has-tabindex': 'error',
+    'jsx-a11y/aria-props': 'error',
+    'jsx-a11y/aria-proptypes': 'error',
+    'jsx-a11y/aria-role': 'error',
+    'jsx-a11y/aria-unsupported-elements': 'error',
+    'jsx-a11y/autocomplete-valid': 'error',
+    'jsx-a11y/click-events-have-key-events': 'error',
+    'jsx-a11y/control-has-associated-label': [
+      'off', // Disabled as it can be overly strict
+      {
+        labelAttributes: ['label'],
+        controlComponents: ['CustomComponent'],
+        ignoreElements: ['audio', 'canvas', 'embed', 'input', 'textarea', 'tr', 'video'],
+        ignoreRoles: ['grid', 'listbox', 'menu', 'menubar', 'radiogroup', 'row', 'tablist', 'toolbar', 'tree', 'treegrid'],
+      },
+    ],
+    'jsx-a11y/heading-has-content': 'error',
+    'jsx-a11y/html-has-lang': 'error',
+    'jsx-a11y/iframe-has-title': 'error',
+    'jsx-a11y/img-redundant-alt': 'error',
+    'jsx-a11y/interactive-supports-focus': 'error',
+    'jsx-a11y/label-has-associated-control': [
+      'error',
+      {
+        labelComponents: ['CustomInputLabel'],
+        labelAttributes: ['label'],
+        controlComponents: ['CustomInput'],
+        assert: 'both',
+        depth: 3,
+      },
+    ],
+    'jsx-a11y/lang': 'error',
+    'jsx-a11y/media-has-caption': 'off', // Can be enabled if captions are required
+    'jsx-a11y/mouse-events-have-key-events': 'error',
+    'jsx-a11y/no-access-key': 'error',
+    'jsx-a11y/no-autofocus': 'warn',
+    'jsx-a11y/no-distracting-elements': 'error',
+    'jsx-a11y/no-interactive-element-to-noninteractive-role': 'error',
+    'jsx-a11y/no-noninteractive-element-interactions': 'error',
+    'jsx-a11y/no-noninteractive-element-to-interactive-role': 'error',
+    'jsx-a11y/no-noninteractive-tabindex': 'error',
+    'jsx-a11y/no-redundant-roles': 'error',
+    'jsx-a11y/no-static-element-interactions': 'error',
+    'jsx-a11y/role-has-required-aria-props': 'error',
+    'jsx-a11y/role-supports-aria-props': 'error',
+    'jsx-a11y/scope': 'error',
+    'jsx-a11y/tabindex-no-positive': 'error',
+  },
+  settings: {
+    react: {
+      version: 'detect',
+    },
+    'import/resolver': {
+      typescript: {
+        alwaysTryTypes: true,
+      },
+    },
+  },
+}]]></correct-example>
+          <incorrect-example title="Minimal React ESLint configuration" conditions="Setting up ESLint for React projects" expected-result="React-optimized ESLint rules" incorrectness-criteria="Missing React hooks rules, no accessibility rules, poor import management"><![CDATA[// Bad: Minimal React configuration
+{
+  extends: ['react-app'],
+  rules: {
+    'react/prop-types': 'off',
+  },
+}
+
+// Missing:
+// - React hooks rules
+// - Accessibility rules
+// - Modern React patterns
+// - Import order rules
+// - TypeScript integration]]></incorrect-example>
+        </example>
+      </examples>
+    </requirement>
+  </requirements>
+  
+  <context description="Modern ESLint development considerations">
+    ESLint has evolved significantly with version 9.0 introducing flat config format, improved performance, and better TypeScript integration. Modern ESLint development emphasizes type safety, accessibility, and developer experience.
+
+    Key considerations for modern ESLint usage:
+    - Flat config format (eslint.config.js) replaces legacy .eslintrc files
+    - TypeScript-first approach with strict type checking rules
+    - Performance optimization through caching and selective linting
+    - Comprehensive React and accessibility rule sets
+    - Integration with modern development tools and CI/CD pipelines
+    - Plugin ecosystem for specialized linting needs
+    - Environment-specific configurations for development vs production
+
+    Expert insights from the ESLint community emphasize the importance of gradual rule adoption, performance monitoring, and balancing strictness with developer productivity. The TypeScript ESLint team provides authoritative guidance on TypeScript-specific linting patterns.
+  </context>
+  
+  <references>
+    <reference as="dependency" href=".cursor/rules/000-core/002-cursor-rules-creation.mdc" reason="Follows standard rule format">Base rule format definition</reference>
+    <reference as="context" href="https://eslint.org/docs/latest/" reason="Official ESLint documentation">ESLint Official Documentation</reference>
+    <reference as="context" href="https://typescript-eslint.io/" reason="TypeScript ESLint integration">TypeScript ESLint Project</reference>
+    <reference as="context" href="https://github.com/jsx-eslint/eslint-plugin-react" reason="React ESLint rules">React ESLint Plugin</reference>
+    <reference as="context" href="https://github.com/jsx-eslint/eslint-plugin-jsx-a11y" reason="Accessibility rules">JSX A11y ESLint Plugin</reference>
+    <reference as="context" href="https://github.com/import-js/eslint-plugin-import" reason="Import management">Import ESLint Plugin</reference>
+    <reference as="context" href="https://github.com/sindresorhus/eslint-plugin-unicorn" reason="Modern JavaScript patterns">Unicorn ESLint Plugin</reference>
+  </references>
+</rule>
+description:
+globs:
+alwaysApply: false
+---

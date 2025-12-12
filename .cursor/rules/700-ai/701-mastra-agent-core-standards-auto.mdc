@@ -1,0 +1,207 @@
+---
+description: Comprehensive Mastra agent best practices for agents, tools/MCP, memory, streaming, workflows, security, and deployment
+globs: ["api/**/*.{ts,js}", "src/**/*.{ts,tsx}"]
+alwaysApply: false
+---
+
+<rule>
+  <meta>
+    <title>Mastra Agent Core Standards (Auto)</title>
+    <description>Standards for building Mastra agents with TypeScript: agent structure, tools/MCP, memory, streaming, workflows, security, observability, and deployment following Mastra docs.</description>
+    <created-at utc-timestamp="1757130120">September 6, 2025, 00:22 UTC</created-at>
+    <last-updated-at utc-timestamp="1757130120">September 6, 2025, 00:22 UTC</last-updated-at>
+    <applies-to>
+      <file-matcher glob="api/**/*.{ts,js}">Server/API handlers defining or invoking Mastra agents</file-matcher>
+      <file-matcher glob="src/**/*.{ts,tsx}">Frontend components/hooks interacting with Mastra endpoints</file-matcher>
+      <action-matcher action="mastra-agent">Triggered when creating or updating a Mastra agent</action-matcher>
+    </applies-to>
+  </meta>
+  <requirements>
+    <non-negotiable priority="critical">
+      <description>Define agents with single responsibility, typed configuration, and explicit model routing via Vercel AI SDK integration. Keep provider config separate from agent logic.</description>
+      <examples>
+        <example title="Agent definition and model routing">
+          <correct-example title="Agent with clear purpose and routed model" conditions="Creating an agent" expected-result="Typed agent using routed model" correctness-criteria="Single responsibility, no inline secrets, provider configured separately"><![CDATA[
+// models/provider.ts (server)
+import { openai } from '@ai-sdk/openai';
+export const defaultModel = openai('gpt-4o-mini', { apiKey: process.env.OPENAI_API_KEY! });
+
+// agents/summarizer.ts
+import { defaultModel } from '../models/provider';
+import { z } from 'zod';
+
+export interface SummarizerConfig { maxTokens: number; temperature: number; }
+
+export class SummarizerAgent {
+  constructor(private readonly config: SummarizerConfig) {}
+  async generate(input: { text: string }): Promise<string> {
+    const schema = z.object({ text: z.string().min(1) });
+    const safe = schema.parse(input);
+    const { generateText } = await import('ai');
+    const { text } = await generateText({
+      model: defaultModel,
+      prompt: `Summarize succinctly in 3 bullets:\n${safe.text}`,
+      temperature: this.config.temperature,
+      maxTokens: this.config.maxTokens,
+    });
+    return text;
+  }
+}]]></correct-example>
+          <incorrect-example title="Inline provider and secrets" conditions="Creating an agent" expected-result="Separated provider config" incorrectness-criteria="Secrets in code, mixed concerns"><![CDATA[
+// BAD: provider + secret inline in agent
+export class Agent {
+  async generate(prompt: string) {
+    const res = await fetch('https://api.openai.com/v1/chat/completions', {
+      headers: { Authorization: `Bearer ${'sk-...hardcoded'}` },
+      body: JSON.stringify({ model: 'gpt-4o-mini', messages: [{ role: 'user', content: prompt }] })
+    });
+    return (await res.json()).choices[0].message.content;
+  }
+}]]></incorrect-example>
+        </example>
+      </examples>
+    </non-negotiable>
+
+    <non-negotiable priority="critical">
+      <description>Define tools with strict schemas (Zod), validate arguments, and guard side-effects with timeouts. Use Mastra tools/MCP where applicable; never execute arbitrary commands from model output.</description>
+      <examples>
+        <example title="Tools and MCP best practices">
+          <correct-example title="Schema-validated tool" conditions="Adding a tool" expected-result="Safe tool execution" correctness-criteria="Zod schema, timeout/abort, minimal return payload"><![CDATA[
+import { z } from 'zod';
+
+export const getStockPrice = {
+  name: 'getStockPrice',
+  description: 'Get latest price for a ticker',
+  parameters: z.object({ ticker: z.string().toUpperCase().min(1) }),
+  execute: async ({ ticker }: { ticker: string }) => {
+    const controller = new AbortController();
+    const t = setTimeout(() => controller.abort(), 5000);
+    try {
+      const res = await fetch(`https://api.example.com/stocks/${encodeURIComponent(ticker)}`, { signal: controller.signal });
+      const json = await res.json();
+      return { ticker, price: json.price, currency: json.currency };
+    } finally { clearTimeout(t); }
+  }
+};]]></correct-example>
+          <incorrect-example title="Arbitrary execution" conditions="Adding a tool" expected-result="Guarded tools" incorrectness-criteria="Executes shell/db without validation"><![CDATA[
+// BAD: arbitrary execution from model-controlled args
+export const run = { execute: async ({ cmd }: any) => await exec(cmd) };]]></incorrect-example>
+        </example>
+      </examples>
+    </non-negotiable>
+
+    <requirement priority="critical">
+      <description>Use memory intentionally: persist by thread/tenant, support semantic recall where needed, and avoid storing PII. Limit retrieval (messages window) and redact sensitive content.</description>
+      <examples>
+        <example title="Working memory and semantic recall">
+          <correct-example title="Scoped memory" conditions="Configuring memory" expected-result="Tenant/thread-scoped memory" correctness-criteria="Limited window, semantic recall opt-in"><![CDATA[
+interface MemoryItem { role: 'user'|'assistant'; content: string; ts: string }
+export class MemoryStore {
+  constructor(private readonly tenantId: string, private readonly threadId: string) {}
+  async add(item: MemoryItem) { /* insert with TTL and PII redaction */ }
+  async recent(limit = 20): Promise<MemoryItem[]> { /* fetch last N */ return []; }
+  async semantic(query: string, k = 5): Promise<MemoryItem[]> { /* vector recall */ return []; }
+}]]></correct-example>
+          <incorrect-example title="Unbounded/raw logs" conditions="Configuring memory" expected-result="Scoped minimal memory" incorrectness-criteria="Stores all text with PII indefinitely"><![CDATA[
+// BAD: dump every prompt/response forever without redaction or limits
+const memory = [] as any[]; memory.push({ prompt, output });]]></incorrect-example>
+        </example>
+      </examples>
+    </requirement>
+
+    <requirement priority="critical">
+      <description>Prefer streaming for interactive experiences. Use agent .stream() (or equivalent) server-side and return SSE to clients with proper headers and abort support.</description>
+      <examples>
+        <example title="Streaming from API route">
+          <correct-example title="SSE stream" conditions="Returning stream" expected-result="Interactive token streaming" correctness-criteria="text/event-stream headers, iteration over stream"><![CDATA[
+// api/agents/chat.ts
+import type { VercelRequest, VercelResponse } from '@vercel/node';
+import { defaultModel } from '../../models/provider';
+import { streamText } from 'ai';
+
+export default async function handler(req: VercelRequest, res: VercelResponse) {
+  if (req.method !== 'POST') return res.status(405).json({ error: 'Method not allowed' });
+  const { messages } = req.body as { messages: Array<{ role: string; content: string }> };
+  res.setHeader('Content-Type', 'text/event-stream');
+  res.setHeader('Cache-Control', 'no-cache');
+  res.setHeader('Connection', 'keep-alive');
+  const { textStream } = await streamText({ model: defaultModel, messages, temperature: 0.3, maxTokens: 800 });
+  for await (const delta of textStream) res.write(`data: ${JSON.stringify({ delta })}\n\n`);
+  res.end();
+}]]></correct-example>
+          <incorrect-example title="Buffering entire output" conditions="Returning stream" expected-result="SSE stream" incorrectness-criteria="Returns only at end"><![CDATA[
+// BAD: block until completion, hurts UX
+const { text } = await generateText({ model, prompt });
+return res.json({ text });]]></incorrect-example>
+        </example>
+      </examples>
+    </requirement>
+
+    <requirement priority="high">
+      <description>Workflows: use deterministic steps with .then()/.branch()/.parallel(), explicit input mapping, and robust error handling (retries/backoff). Keep steps small and testable.</description>
+      <examples>
+        <example title="Workflow control flow">
+          <correct-example title="Step-based workflow" conditions="Designing workflow" expected-result="Deterministic execution" correctness-criteria="Clear steps, branching, retries"><![CDATA[
+// pseudo-API aligned with Mastra docs
+const workflow = Workflow.start('incident-pipeline')
+  .then('extract', async (ctx) => extractIncident(ctx.input))
+  .branch('severity-check', (out) => out.severity === 'CRITICAL',
+    (b) => b.then('notify', notifyStakeholders),
+    (b) => b.then('log', auditInfo)
+  )
+  .parallel('enrich', [enrichGeo, enrichFinance])
+  .then('persist', saveIncident)
+  .commit();
+await workflow.execute({ input: { text } });]]></correct-example>
+          <incorrect-example title="Monolithic step" conditions="Designing workflow" expected-result="Small testable steps" incorrectness-criteria="Single giant step with implicit branching"><![CDATA[
+// BAD: one function does everything, hard to test/observe
+async function pipeline(input) { /* extract, branch, notify, enrich, persist all-in-one */ }]]></incorrect-example>
+        </example>
+      </examples>
+    </requirement>
+
+    <requirement priority="high">
+      <description>Security & tenancy: keep secrets server-side, enforce tenant scoping on all reads/writes, sanitize tool output, and avoid logging raw prompts/outputs containing PII.</description>
+      <examples>
+        <example title="Secure server integration">
+          <correct-example title="Tenant-scoped operations" conditions="Implementing endpoints" expected-result="Isolated tenant data" correctness-criteria="Checks tenantId, redacts logs, no client secrets"><![CDATA[
+const tenantId = requireTenant(req);
+const memory = new MemoryStore(tenantId, req.body.threadId);
+console.info('ai.request', { tenantId, op: 'summarize' }); // no raw text
+// ...
+]]></correct-example>
+          <incorrect-example title="Secrets/PII leakage" conditions="Implementing endpoints" expected-result="No leakage" incorrectness-criteria="Logs raw content, exposes keys to client"><![CDATA[
+// BAD: console.log(prompt, output); // raw sensitive logs
+// BAD: send provider keys to browser]]></incorrect-example>
+        </example>
+      </examples>
+    </requirement>
+
+    <requirement priority="medium">
+      <description>Observability: record structured logs for agent runs, tools used, token counts, and latency. Integrate tracing where available; capture minimal metadata.</description>
+    </requirement>
+
+    <requirement priority="medium">
+      <description>Testing: cover tools with unit tests, workflows with integration tests, and streaming endpoints with contract tests. Mock provider responses for deterministic results.</description>
+    </requirement>
+  </requirements>
+
+  <grammar>
+    <grammar-entry title="No client-side secrets">
+      <pattern description="Disallow VITE_* provider keys in client">VITE_.*(OPENAI|ANTHROPIC|GEMINI|AI|MSTRA|MASTRA|LLM)_KEY</pattern>
+    </grammar-entry>
+    <grammar-entry title="Tool schema presence">
+      <pattern description="Expect Zod schema for tool parameters">z\.object\(\{[\s\S]*\}\)</pattern>
+    </grammar-entry>
+  </grammar>
+
+  <context description="Mastra framework notes">
+    Mastra is an open-source TypeScript agent framework. It leverages model routing via the Vercel AI SDK and provides primitives for Agents, Tools/MCP, Memory, Workflows, and Streaming. Follow deterministic workflows for reliability, enforce strict schemas for tools, prefer streaming in UX, and keep secrets/server operations isolated from the client.
+  </context>
+
+  <references>
+    <reference as="dependency" href=".cursor/rules/000-core/002-cursor-rules-creation.mdc" reason="Follows standard rule format">Base rule format definition</reference>
+    <reference as="context" href="https://mastra.ai/en/docs" reason="Official Mastra documentation">Mastra Docs</reference>
+  </references>
+</rule>
+

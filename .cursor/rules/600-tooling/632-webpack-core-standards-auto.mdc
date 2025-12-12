@@ -1,0 +1,1371 @@
+<rule>
+  <meta>
+    <title>Webpack Core Standards</title>
+    <description>Comprehensive webpack standards for module bundling, optimization, development server, plugins, loaders, and performance tuning following modern webpack 5+ best practices</description>
+    <created-at utc-timestamp="1744157700">January 25, 2025, 10:15 AM</created-at>
+    <last-updated-at utc-timestamp="1744157700">January 25, 2025, 10:15 AM</last-updated-at>
+    <applies-to>
+      <file-matcher glob="**/webpack.config.*">Webpack configuration files</file-matcher>
+      <file-matcher glob="**/webpack/**/*">Webpack-related files and configurations</file-matcher>
+      <file-matcher glob="**/*.config.{js,ts,mjs}">Build configuration files</file-matcher>
+      <file-matcher glob="**/build/**/*">Build script and configuration files</file-matcher>
+      <action-matcher action="bundling">Triggered when working with webpack bundling</action-matcher>
+    </applies-to>
+  </meta>
+  <requirements>
+    <non-negotiable priority="critical">
+      <description>Use webpack 5+ with proper module federation, optimization strategies, development server configuration, and production-ready builds. Implement comprehensive caching, code splitting, tree shaking, and performance monitoring with proper security considerations.</description>
+      <examples>
+        <example title="Comprehensive Webpack Configuration">
+          <correct-example title="Modern webpack 5 setup with optimization and development features" conditions="Configuring webpack for production and development" expected-result="Optimized, secure, and maintainable webpack configuration" correctness-criteria="Webpack 5 features, optimization, security, development experience, performance monitoring"><![CDATA[// TypeScript - Comprehensive webpack 5 configuration
+const path = require('path');
+const webpack = require('webpack');
+const HtmlWebpackPlugin = require('html-webpack-plugin');
+const MiniCssExtractPlugin = require('mini-css-extract-plugin');
+const CssMinimizerPlugin = require('css-minimizer-webpack-plugin');
+const TerserPlugin = require('terser-webpack-plugin');
+const { BundleAnalyzerPlugin } = require('webpack-bundle-analyzer');
+const CompressionPlugin = require('compression-webpack-plugin');
+const WorkboxPlugin = require('workbox-webpack-plugin');
+const ESLintPlugin = require('eslint-webpack-plugin');
+const ForkTsCheckerWebpackPlugin = require('fork-ts-checker-webpack-plugin');
+const ReactRefreshWebpackPlugin = require('@pmmmwh/react-refresh-webpack-plugin');
+const WebpackBar = require('webpackbar');
+
+// Environment configuration
+const isDevelopment = process.env.NODE_ENV === 'development';
+const isProduction = process.env.NODE_ENV === 'production';
+const isAnalyze = process.env.ANALYZE === 'true';
+
+// Path configuration
+const paths = {
+  src: path.resolve(__dirname, 'src'),
+  build: path.resolve(__dirname, 'dist'),
+  public: path.resolve(__dirname, 'public'),
+  nodeModules: path.resolve(__dirname, 'node_modules')
+};
+
+// Base configuration
+const baseConfig = {
+  // Modern target for better optimization
+  target: ['web', 'es2017'],
+  
+  // Entry points with dynamic imports support
+  entry: {
+    main: {
+      import: path.join(paths.src, 'index.tsx'),
+      dependOn: 'shared'
+    },
+    shared: ['react', 'react-dom', 'lodash']
+  },
+
+  // Output configuration with proper naming and paths
+  output: {
+    path: paths.build,
+    publicPath: '/',
+    filename: isProduction 
+      ? 'static/js/[name].[contenthash:8].js'
+      : 'static/js/[name].js',
+    chunkFilename: isProduction
+      ? 'static/js/[name].[contenthash:8].chunk.js'
+      : 'static/js/[name].chunk.js',
+    assetModuleFilename: 'static/media/[name].[hash][ext]',
+    clean: true,
+    pathinfo: false, // Faster builds
+    
+    // Modern module format
+    module: true,
+    environment: {
+      arrowFunction: true,
+      bigIntLiteral: true,
+      const: true,
+      destructuring: true,
+      dynamicImport: true,
+      forOf: true,
+      module: true
+    }
+  },
+
+  // Resolve configuration
+  resolve: {
+    extensions: ['.tsx', '.ts', '.jsx', '.js', '.json'],
+    alias: {
+      '@': paths.src,
+      '@components': path.join(paths.src, 'components'),
+      '@utils': path.join(paths.src, 'utils'),
+      '@hooks': path.join(paths.src, 'hooks'),
+      '@assets': path.join(paths.src, 'assets'),
+      '@styles': path.join(paths.src, 'styles')
+    },
+    modules: ['node_modules'],
+    // Prefer ES modules
+    mainFields: ['browser', 'module', 'main'],
+    // Fallback for node modules
+    fallback: {
+      'process': require.resolve('process/browser'),
+      'buffer': require.resolve('buffer')
+    }
+  },
+
+  // Module configuration with comprehensive loaders
+  module: {
+    rules: [
+      // TypeScript and JavaScript
+      {
+        test: /\.(ts|tsx|js|jsx)$/,
+        include: paths.src,
+        exclude: /node_modules/,
+        use: [
+          // Babel loader for transpilation
+          {
+            loader: 'babel-loader',
+            options: {
+              presets: [
+                [
+                  '@babel/preset-env',
+                  {
+                    useBuiltIns: 'usage',
+                    corejs: 3,
+                    targets: {
+                      browsers: ['> 1%', 'last 2 versions', 'not dead']
+                    }
+                  }
+                ],
+                ['@babel/preset-react', { runtime: 'automatic' }],
+                '@babel/preset-typescript'
+              ],
+              plugins: [
+                isDevelopment && require.resolve('react-refresh/babel'),
+                ['@babel/plugin-proposal-class-properties', { loose: true }],
+                ['@babel/plugin-proposal-private-methods', { loose: true }],
+                '@babel/plugin-syntax-dynamic-import'
+              ].filter(Boolean),
+              cacheDirectory: true,
+              cacheCompression: false,
+              compact: isProduction
+            }
+          }
+        ]
+      },
+
+      // CSS and Sass
+      {
+        test: /\.(css|scss|sass)$/,
+        use: [
+          // Extract CSS in production
+          isProduction ? MiniCssExtractPlugin.loader : 'style-loader',
+          {
+            loader: 'css-loader',
+            options: {
+              modules: {
+                auto: /\.module\.(css|scss|sass)$/,
+                localIdentName: isProduction 
+                  ? '[hash:base64:8]'
+                  : '[path][name]__[local]--[hash:base64:5]'
+              },
+              sourceMap: !isProduction,
+              importLoaders: 2
+            }
+          },
+          {
+            loader: 'postcss-loader',
+            options: {
+              postcssOptions: {
+                plugins: [
+                  'postcss-flexbugs-fixes',
+                  ['postcss-preset-env', {
+                    autoprefixer: {
+                      flexbox: 'no-2009'
+                    },
+                    stage: 3
+                  }],
+                  isProduction && 'cssnano'
+                ].filter(Boolean)
+              },
+              sourceMap: !isProduction
+            }
+          },
+          {
+            loader: 'sass-loader',
+            options: {
+              sourceMap: !isProduction,
+              sassOptions: {
+                includePaths: [paths.nodeModules]
+              }
+            }
+          }
+        ]
+      },
+
+      // Images and SVGs
+      {
+        test: /\.(png|jpe?g|gif|webp|avif)$/i,
+        type: 'asset',
+        parser: {
+          dataUrlCondition: {
+            maxSize: 8 * 1024 // 8kb
+          }
+        }
+      },
+      {
+        test: /\.svg$/,
+        use: [
+          {
+            loader: '@svgr/webpack',
+            options: {
+              prettier: false,
+              svgo: true,
+              svgoConfig: {
+                plugins: [
+                  {
+                    name: 'removeViewBox',
+                    active: false
+                  }
+                ]
+              },
+              titleProp: true
+            }
+          },
+          'file-loader'
+        ]
+      },
+
+      // Fonts
+      {
+        test: /\.(woff|woff2|eot|ttf|otf)$/i,
+        type: 'asset/resource',
+        generator: {
+          filename: 'static/fonts/[name].[hash][ext]'
+        }
+      },
+
+      // Other assets
+      {
+        test: /\.(txt|xml|pdf)$/i,
+        type: 'asset/resource'
+      }
+    ]
+  },
+
+  // Plugins configuration
+  plugins: [
+    // Progress bar
+    new WebpackBar({
+      name: isProduction ? 'Building for production' : 'Development server',
+      color: isProduction ? 'green' : 'blue'
+    }),
+
+    // HTML template
+    new HtmlWebpackPlugin({
+      template: path.join(paths.public, 'index.html'),
+      filename: 'index.html',
+      inject: true,
+      minify: isProduction ? {
+        removeComments: true,
+        collapseWhitespace: true,
+        removeRedundantAttributes: true,
+        useShortDoctype: true,
+        removeEmptyAttributes: true,
+        removeStyleLinkTypeAttributes: true,
+        keepClosingSlash: true,
+        minifyJS: true,
+        minifyCSS: true,
+        minifyURLs: true
+      } : false
+    }),
+
+    // Environment variables
+    new webpack.DefinePlugin({
+      'process.env.NODE_ENV': JSON.stringify(process.env.NODE_ENV),
+      'process.env.PUBLIC_URL': JSON.stringify('/'),
+      __DEV__: isDevelopment,
+      __PROD__: isProduction
+    }),
+
+    // Provide global modules
+    new webpack.ProvidePlugin({
+      process: 'process/browser',
+      Buffer: ['buffer', 'Buffer']
+    }),
+
+    // TypeScript type checking
+    new ForkTsCheckerWebpackPlugin({
+      async: isDevelopment,
+      typescript: {
+        typescriptPath: require.resolve('typescript'),
+        configOverwrite: {
+          compilerOptions: {
+            sourceMap: !isProduction,
+            skipLibCheck: true,
+            inlineSourceMap: false,
+            declarationMap: false,
+            noEmit: true,
+            incremental: true,
+            tsBuildInfoFile: path.join(paths.nodeModules, '.cache/tsconfig.tsbuildinfo')
+          }
+        },
+        context: paths.src,
+        diagnosticOptions: {
+          syntactic: true
+        },
+        mode: 'write-references'
+      },
+      issue: {
+        include: [
+          { file: '../**/src/**/*.{ts,tsx}' },
+          { file: '**/src/**/*.{ts,tsx}' }
+        ],
+        exclude: [
+          { file: '**/src/**/__tests__/**' },
+          { file: '**/src/**/?(*.){spec|test}.*' }
+        ]
+      },
+      logger: { infrastructure: 'silent' }
+    }),
+
+    // ESLint
+    new ESLintPlugin({
+      extensions: ['js', 'jsx', 'ts', 'tsx'],
+      context: paths.src,
+      cache: true,
+      cacheLocation: path.join(paths.nodeModules, '.cache/.eslintcache'),
+      failOnError: isProduction,
+      failOnWarning: false,
+      quiet: true
+    }),
+
+    // Development plugins
+    ...(isDevelopment ? [
+      new ReactRefreshWebpackPlugin({
+        overlay: {
+          entry: require.resolve('react-dev-utils/webpackHotDevClient'),
+          module: require.resolve('react-dev-utils/refreshOverlayInterop'),
+          sockIntegration: 'wds'
+        }
+      })
+    ] : []),
+
+    // Production plugins
+    ...(isProduction ? [
+      // Extract CSS
+      new MiniCssExtractPlugin({
+        filename: 'static/css/[name].[contenthash:8].css',
+        chunkFilename: 'static/css/[name].[contenthash:8].chunk.css'
+      }),
+
+      // Compression
+      new CompressionPlugin({
+        algorithm: 'gzip',
+        test: /\.(js|css|html|svg)$/,
+        threshold: 8192,
+        minRatio: 0.8
+      }),
+
+      // Service Worker
+      new WorkboxPlugin.GenerateSW({
+        clientsClaim: true,
+        exclude: [/\.map$/, /asset-manifest\.json$/],
+        maximumFileSizeToCacheInBytes: 5 * 1024 * 1024,
+        navigateFallback: '/index.html',
+        navigateFallbackDenylist: [/^\/_/, /\/[^/?]+\.[^/]+$/]
+      })
+    ] : []),
+
+    // Bundle analyzer
+    ...(isAnalyze ? [
+      new BundleAnalyzerPlugin({
+        analyzerMode: 'static',
+        openAnalyzer: false,
+        reportFilename: 'bundle-report.html'
+      })
+    ] : [])
+  ],
+
+  // Optimization configuration
+  optimization: {
+    minimize: isProduction,
+    minimizer: [
+      // JavaScript minification
+      new TerserPlugin({
+        terserOptions: {
+          parse: {
+            ecma: 8
+          },
+          compress: {
+            ecma: 5,
+            warnings: false,
+            comparisons: false,
+            inline: 2,
+            drop_console: isProduction,
+            drop_debugger: isProduction
+          },
+          mangle: {
+            safari10: true
+          },
+          output: {
+            ecma: 5,
+            comments: false,
+            ascii_only: true
+          }
+        },
+        parallel: true,
+        extractComments: false
+      }),
+
+      // CSS minification
+      new CssMinimizerPlugin({
+        minimizerOptions: {
+          preset: ['default', {
+            discardComments: { removeAll: true }
+          }]
+        }
+      })
+    ],
+
+    // Code splitting configuration
+    splitChunks: {
+      chunks: 'all',
+      cacheGroups: {
+        // Vendor chunk for stable dependencies
+        vendor: {
+          test: /[\\/]node_modules[\\/]/,
+          name: 'vendor',
+          chunks: 'all',
+          priority: 20,
+          reuseExistingChunk: true
+        },
+
+        // Common chunk for shared code
+        common: {
+          name: 'common',
+          minChunks: 2,
+          chunks: 'all',
+          priority: 10,
+          reuseExistingChunk: true,
+          enforce: true
+        },
+
+        // React chunk
+        react: {
+          test: /[\\/]node_modules[\\/](react|react-dom)[\\/]/,
+          name: 'react',
+          chunks: 'all',
+          priority: 30
+        },
+
+        // Large libraries
+        lodash: {
+          test: /[\\/]node_modules[\\/]lodash[\\/]/,
+          name: 'lodash',
+          chunks: 'all',
+          priority: 25
+        }
+      }
+    },
+
+    // Runtime chunk
+    runtimeChunk: {
+      name: entrypoint => `runtime-${entrypoint.name}`
+    },
+
+    // Module IDs
+    moduleIds: 'deterministic',
+    chunkIds: 'deterministic',
+
+    // Tree shaking
+    usedExports: true,
+    sideEffects: false
+  },
+
+  // Performance hints
+  performance: {
+    hints: isProduction ? 'warning' : false,
+    maxEntrypointSize: 512000,
+    maxAssetSize: 512000
+  },
+
+  // Development server
+  ...(isDevelopment && {
+    devServer: {
+      static: {
+        directory: paths.public,
+        publicPath: '/'
+      },
+      port: 3000,
+      hot: true,
+      liveReload: false,
+      compress: true,
+      historyApiFallback: {
+        disableDotRule: true,
+        index: '/index.html'
+      },
+      client: {
+        webSocketURL: 'ws://localhost:3000/ws',
+        overlay: {
+          errors: true,
+          warnings: false
+        }
+      },
+      devMiddleware: {
+        publicPath: '/'
+      },
+      headers: {
+        'Access-Control-Allow-Origin': '*',
+        'Access-Control-Allow-Methods': '*',
+        'Access-Control-Allow-Headers': '*'
+      }
+    }
+  }),
+
+  // Source maps
+  devtool: isDevelopment 
+    ? 'eval-cheap-module-source-map'
+    : isProduction 
+      ? 'source-map'
+      : false,
+
+  // Stats configuration
+  stats: {
+    preset: 'errors-warnings',
+    moduleTrace: true,
+    errorDetails: true
+  },
+
+  // Cache configuration for faster builds
+  cache: {
+    type: 'filesystem',
+    version: require('./package.json').version,
+    cacheDirectory: path.join(paths.nodeModules, '.cache/webpack'),
+    store: 'pack',
+    buildDependencies: {
+      defaultWebpack: ['webpack/lib/'],
+      config: [__filename],
+      tsconfig: [path.join(__dirname, 'tsconfig.json')]
+    }
+  },
+
+  // Experiments for modern features
+  experiments: {
+    topLevelAwait: true,
+    asyncWebAssembly: true
+  }
+};
+
+// Module Federation configuration (for micro-frontends)
+const moduleFederationConfig = {
+  plugins: [
+    new webpack.container.ModuleFederationPlugin({
+      name: 'shell',
+      filename: 'remoteEntry.js',
+      exposes: {
+        './Component': './src/components/SharedComponent'
+      },
+      shared: {
+        react: {
+          singleton: true,
+          requiredVersion: require('./package.json').dependencies.react
+        },
+        'react-dom': {
+          singleton: true,
+          requiredVersion: require('./package.json').dependencies['react-dom']
+        }
+      }
+    })
+  ]
+};
+
+// Environment-specific configurations
+const environmentConfigs = {
+  development: {
+    mode: 'development',
+    optimization: {
+      ...baseConfig.optimization,
+      minimize: false,
+      splitChunks: {
+        chunks: 'all',
+        cacheGroups: {
+          default: false,
+          vendors: false,
+          vendor: {
+            test: /[\\/]node_modules[\\/]/,
+            name: 'vendor',
+            chunks: 'all'
+          }
+        }
+      }
+    }
+  },
+
+  production: {
+    mode: 'production',
+    optimization: {
+      ...baseConfig.optimization,
+      minimize: true
+    }
+  },
+
+  test: {
+    mode: 'development',
+    devtool: 'inline-source-map',
+    optimization: {
+      splitChunks: {
+        chunks: 'all',
+        cacheGroups: {
+          default: false,
+          vendors: false
+        }
+      }
+    }
+  }
+};
+
+// Merge configurations based on environment
+const finalConfig = {
+  ...baseConfig,
+  ...environmentConfigs[process.env.NODE_ENV || 'development']
+};
+
+// Add Module Federation if enabled
+if (process.env.ENABLE_MODULE_FEDERATION === 'true') {
+  finalConfig.plugins.push(...moduleFederationConfig.plugins);
+}
+
+module.exports = finalConfig;
+
+// Additional utility configurations
+
+// Webpack Bundle Analyzer configuration
+module.exports.analyzer = {
+  ...finalConfig,
+  plugins: [
+    ...finalConfig.plugins,
+    new BundleAnalyzerPlugin({
+      analyzerMode: 'server',
+      openAnalyzer: true,
+      analyzerPort: 8888
+    })
+  ]
+};
+
+// Development with profiling
+module.exports.profile = {
+  ...finalConfig,
+  profile: true,
+  plugins: [
+    ...finalConfig.plugins,
+    new webpack.debug.ProfilingPlugin({
+      outputPath: path.join(paths.build, 'profiling.json')
+    })
+  ]
+};
+
+// Multi-compiler configuration for different targets
+module.exports.multiCompiler = [
+  // Main application
+  finalConfig,
+  
+  // Service worker
+  {
+    entry: './src/sw.ts',
+    target: 'webworker',
+    output: {
+      filename: 'sw.js',
+      path: paths.build
+    },
+    module: {
+      rules: [
+        {
+          test: /\.ts$/,
+          use: 'ts-loader',
+          exclude: /node_modules/
+        }
+      ]
+    },
+    resolve: {
+      extensions: ['.ts', '.js']
+    }
+  }
+];]]></correct-example>
+          <incorrect-example title="Poor webpack configuration without optimization or modern features" conditions="Setting up webpack for a project" expected-result="Optimized webpack configuration" incorrectness-criteria="No optimization, poor development experience, security issues, missing modern features"><![CDATA[// BAD: Poor webpack configuration
+
+const path = require('path');
+
+module.exports = {
+  // Old target
+  target: 'web',
+  
+  // Simple entry without optimization
+  entry: './src/index.js',
+  
+  // Basic output
+  output: {
+    path: path.resolve(__dirname, 'dist'),
+    filename: 'bundle.js'
+    // No cache busting
+    // No proper naming
+  },
+  
+  // Basic resolve
+  resolve: {
+    extensions: ['.js', '.jsx']
+    // No aliases
+    // No optimization
+  },
+  
+  // Basic module rules
+  module: {
+    rules: [
+      {
+        test: /\.jsx?$/,
+        use: 'babel-loader'
+        // No options
+        // No caching
+      },
+      {
+        test: /\.css$/,
+        use: ['style-loader', 'css-loader']
+        // No extraction in production
+        // No optimization
+      }
+    ]
+  },
+  
+  // No plugins
+  plugins: [],
+  
+  // No optimization
+  optimization: {},
+  
+  // No development server configuration
+  // No caching
+  // No performance hints
+  // No proper source maps
+  // No security considerations
+};]]></incorrect-example>
+        </example>
+      </examples>
+    </non-negotiable>
+
+    <requirement priority="high">
+      <description>Implement comprehensive performance monitoring, optimization strategies, and development experience enhancements including hot module replacement, fast refresh, bundle analysis, and build time optimization.</description>
+      <examples>
+        <example title="Webpack Performance and Development Optimization">
+          <correct-example title="Advanced webpack optimization and monitoring setup" conditions="Optimizing webpack for performance and development experience" expected-result="Fast builds, optimal bundles, excellent developer experience" correctness-criteria="Performance monitoring, build optimization, development tools, bundle analysis"><![CDATA[// TypeScript - Advanced webpack performance and development optimization
+const path = require('path');
+const webpack = require('webpack');
+const SpeedMeasurePlugin = require('speed-measure-webpack-plugin');
+const { DuplicatesPlugin } = require('inspectpack/plugin');
+const UnusedWebpackPlugin = require('unused-webpack-plugin');
+const CircularDependencyPlugin = require('circular-dependency-plugin');
+const BundleAnalyzerPlugin = require('webpack-bundle-analyzer').BundleAnalyzerPlugin;
+const WebpackBuildNotifierPlugin = require('webpack-build-notifier');
+
+// Performance monitoring configuration
+class WebpackPerformanceMonitor {
+  constructor() {
+    this.buildTimes = [];
+    this.chunkSizes = new Map();
+    this.startTime = 0;
+  }
+
+  apply(compiler) {
+    // Track build start time
+    compiler.hooks.compile.tap('PerformanceMonitor', () => {
+      this.startTime = Date.now();
+      console.log('🚀 Build started...');
+    });
+
+    // Track build completion
+    compiler.hooks.done.tap('PerformanceMonitor', (stats) => {
+      const buildTime = Date.now() - this.startTime;
+      this.buildTimes.push(buildTime);
+      
+      // Track chunk sizes
+      stats.compilation.chunks.forEach(chunk => {
+        this.chunkSizes.set(chunk.name, chunk.size());
+      });
+
+      // Performance analysis
+      this.analyzePerformance(stats, buildTime);
+    });
+
+    // Track rebuild times for development
+    compiler.hooks.watchRun.tap('PerformanceMonitor', () => {
+      this.startTime = Date.now();
+    });
+  }
+
+  analyzePerformance(stats, buildTime) {
+    const warnings = [];
+    const recommendations = [];
+
+    // Build time analysis
+    if (buildTime > 30000) { // 30 seconds
+      warnings.push(`⚠️  Slow build time: ${buildTime}ms`);
+      recommendations.push('Consider enabling persistent caching');
+      recommendations.push('Check for unnecessary file processing');
+    }
+
+    // Bundle size analysis
+    const largeChunks = Array.from(this.chunkSizes.entries())
+      .filter(([_, size]) => size > 1024 * 1024) // 1MB
+      .map(([name, size]) => ({ name, size: Math.round(size / 1024) }));
+
+    if (largeChunks.length > 0) {
+      warnings.push(`📦 Large chunks detected: ${largeChunks.map(c => `${c.name} (${c.size}KB)`).join(', ')}`);
+      recommendations.push('Consider code splitting for large chunks');
+      recommendations.push('Optimize imports and remove unused code');
+    }
+
+    // Asset analysis
+    const assets = stats.compilation.assets;
+    const largeAssets = Object.keys(assets)
+      .filter(name => assets[name].size() > 512 * 1024) // 512KB
+      .map(name => ({ name, size: Math.round(assets[name].size() / 1024) }));
+
+    if (largeAssets.length > 0) {
+      warnings.push(`🖼️  Large assets: ${largeAssets.map(a => `${a.name} (${a.size}KB)`).join(', ')}`);
+      recommendations.push('Optimize images and other large assets');
+      recommendations.push('Consider using WebP format for images');
+    }
+
+    // Print performance report
+    console.log('\n📊 Performance Report:');
+    console.log(`⏱️  Build time: ${buildTime}ms`);
+    console.log(`📦 Total bundle size: ${Math.round(stats.compilation.assets['main.js']?.size() / 1024 || 0)}KB`);
+    console.log(`🔗 Chunks: ${stats.compilation.chunks.size}`);
+
+    if (warnings.length > 0) {
+      console.log('\n⚠️  Warnings:');
+      warnings.forEach(warning => console.log(`  ${warning}`));
+    }
+
+    if (recommendations.length > 0) {
+      console.log('\n💡 Recommendations:');
+      recommendations.forEach(rec => console.log(`  • ${rec}`));
+    }
+
+    console.log('\n');
+  }
+
+  getAverageBuilds() {
+    if (this.buildTimes.length === 0) return 0;
+    return this.buildTimes.reduce((sum, time) => sum + time, 0) / this.buildTimes.length;
+  }
+}
+
+// Advanced caching configuration
+const createCacheConfig = (isDevelopment) => ({
+  type: 'filesystem',
+  version: require('./package.json').version,
+  cacheDirectory: path.join(__dirname, 'node_modules/.cache/webpack'),
+  store: 'pack',
+  
+  // Build dependencies for cache invalidation
+  buildDependencies: {
+    defaultWebpack: ['webpack/lib/'],
+    config: [__filename],
+    tsconfig: [path.join(__dirname, 'tsconfig.json')],
+    packagejson: [path.join(__dirname, 'package.json')]
+  },
+  
+  // Memory cache for development
+  ...(isDevelopment && {
+    type: 'memory',
+    maxGenerations: 1
+  })
+});
+
+// Code splitting optimization
+const createSplitChunksConfig = (isProduction) => ({
+  chunks: 'all',
+  minSize: 20000,
+  maxSize: isProduction ? 244000 : 0,
+  minChunks: 1,
+  maxAsyncRequests: 30,
+  maxInitialRequests: 30,
+  enforceSizeThreshold: 50000,
+  
+  cacheGroups: {
+    // Framework chunk (React, etc.)
+    framework: {
+      test: /[\\/]node_modules[\\/](react|react-dom|scheduler|prop-types|use-subscription)[\\/]/,
+      name: 'framework',
+      chunks: 'all',
+      priority: 40,
+      enforce: true
+    },
+
+    // Large libraries
+    lib: {
+      test: /[\\/]node_modules[\\/](lodash|moment|axios|rxjs)[\\/]/,
+      name: 'lib',
+      chunks: 'all',
+      priority: 30,
+      minChunks: 1
+    },
+
+    // Vendor chunk for other dependencies
+    vendor: {
+      test: /[\\/]node_modules[\\/]/,
+      name: 'vendor',
+      chunks: 'all',
+      priority: 20,
+      minChunks: 2
+    },
+
+    // Common application code
+    common: {
+      name: 'common',
+      minChunks: 2,
+      chunks: 'all',
+      priority: 10,
+      reuseExistingChunk: true,
+      enforce: true
+    },
+
+    // CSS chunks
+    styles: {
+      name: 'styles',
+      test: /\.(css|scss|sass)$/,
+      chunks: 'all',
+      priority: 15,
+      minChunks: 1,
+      reuseExistingChunk: true,
+      enforce: true
+    }
+  }
+});
+
+// Development server optimization
+const createDevServerConfig = () => ({
+  static: {
+    directory: path.join(__dirname, 'public'),
+    publicPath: '/',
+    watch: {
+      ignored: /node_modules/
+    }
+  },
+  
+  // Performance optimizations
+  port: 3000,
+  hot: true,
+  liveReload: false,
+  compress: true,
+  
+  // HTTP/2 support
+  server: 'https',
+  
+  // Optimized file watching
+  watchFiles: {
+    paths: ['src/**/*'],
+    options: {
+      usePolling: false,
+      ignored: /node_modules/
+    }
+  },
+  
+  // History API fallback
+  historyApiFallback: {
+    rewrites: [
+      { from: /^\/api/, to: '/404.html' }
+    ]
+  },
+  
+  // Client configuration
+  client: {
+    webSocketURL: 'auto://0.0.0.0:0/ws',
+    overlay: {
+      errors: true,
+      warnings: false,
+      runtimeErrors: true
+    },
+    progress: true,
+    reconnect: true
+  },
+  
+  // Development middleware
+  devMiddleware: {
+    writeToDisk: false,
+    stats: 'errors-warnings'
+  },
+  
+  // Proxy configuration for API calls
+  proxy: {
+    '/api': {
+      target: 'http://localhost:8080',
+      changeOrigin: true,
+      secure: false,
+      logLevel: 'debug'
+    }
+  },
+  
+  // Headers for development
+  headers: {
+    'Access-Control-Allow-Origin': '*',
+    'Access-Control-Allow-Methods': 'GET, POST, PUT, DELETE, PATCH, OPTIONS',
+    'Access-Control-Allow-Headers': 'X-Requested-With, content-type, Authorization'
+  }
+});
+
+// Advanced plugin configuration
+const createAdvancedPlugins = (isDevelopment, isProduction, isAnalyze) => {
+  const plugins = [];
+
+  // Performance monitoring
+  plugins.push(new WebpackPerformanceMonitor());
+
+  // Build speed measurement
+  if (process.env.MEASURE_SPEED === 'true') {
+    const smp = new SpeedMeasurePlugin({
+      outputFormat: 'human',
+      outputTarget: path.join(__dirname, 'speed-measure.txt')
+    });
+    return smp.wrap({
+      plugins: plugins
+    });
+  }
+
+  // Duplicate detection
+  plugins.push(new DuplicatesPlugin({
+    emitErrors: false,
+    verbose: false
+  }));
+
+  // Unused files detection
+  if (isDevelopment) {
+    plugins.push(new UnusedWebpackPlugin({
+      directories: [path.join(__dirname, 'src')],
+      exclude: ['*.test.js', '*.spec.js', '*.d.ts'],
+      root: __dirname
+    }));
+  }
+
+  // Circular dependency detection
+  plugins.push(new CircularDependencyPlugin({
+    exclude: /node_modules/,
+    include: /src/,
+    failOnError: isProduction,
+    allowAsyncCycles: false,
+    cwd: process.cwd()
+  }));
+
+  // Build notifications
+  if (isDevelopment) {
+    plugins.push(new WebpackBuildNotifierPlugin({
+      title: 'Webpack Build',
+      logo: path.resolve('./src/assets/logo.png'),
+      suppressSuccess: false,
+      suppressWarning: true,
+      messageFormatter: (error, filepath) => `Error in ${filepath}`
+    }));
+  }
+
+  // Bundle analysis
+  if (isAnalyze) {
+    plugins.push(new BundleAnalyzerPlugin({
+      analyzerMode: 'static',
+      openAnalyzer: false,
+      reportFilename: 'bundle-report.html',
+      generateStatsFile: true,
+      statsFilename: 'bundle-stats.json',
+      statsOptions: {
+        source: false,
+        modules: true,
+        chunks: true,
+        chunkModules: true,
+        chunkOrigins: true
+      }
+    }));
+  }
+
+  // Production optimizations
+  if (isProduction) {
+    // Preload important chunks
+    plugins.push(new webpack.optimize.ModuleConcatenationPlugin());
+    
+    // Provide build info
+    plugins.push(new webpack.BannerPlugin({
+      banner: `Build Date: ${new Date().toISOString()}\nCommit: ${process.env.GIT_COMMIT || 'unknown'}\nVersion: ${require('./package.json').version}`,
+      raw: false,
+      entryOnly: true
+    }));
+  }
+
+  return plugins;
+};
+
+// Tree shaking optimization
+const createTreeShakingConfig = () => ({
+  usedExports: true,
+  sideEffects: [
+    '*.css',
+    '*.scss',
+    '*.sass',
+    '*.less',
+    './src/polyfills.ts',
+    './src/setupTests.ts'
+  ]
+});
+
+// Advanced optimization configuration
+const createOptimizationConfig = (isProduction, isDevelopment) => ({
+  minimize: isProduction,
+  
+  // Module concatenation (scope hoisting)
+  concatenateModules: isProduction,
+  
+  // Tree shaking
+  ...createTreeShakingConfig(),
+  
+  // Code splitting
+  splitChunks: createSplitChunksConfig(isProduction),
+  
+  // Runtime chunk
+  runtimeChunk: {
+    name: (entrypoint) => `runtime-${entrypoint.name}`
+  },
+  
+  // Module and chunk IDs
+  moduleIds: isProduction ? 'deterministic' : 'named',
+  chunkIds: isProduction ? 'deterministic' : 'named',
+  
+  // Remove empty chunks
+  removeEmptyChunks: true,
+  
+  // Merge duplicate chunks
+  mergeDuplicateChunks: true,
+  
+  // Flag dependency usage
+  flagIncludedChunks: isProduction,
+  
+  // Remove available modules
+  removeAvailableModules: isProduction,
+  
+  // Production minimizers
+  ...(isProduction && {
+    minimizer: [
+      // JavaScript minimization
+      new (require('terser-webpack-plugin'))({
+        terserOptions: {
+          parse: { ecma: 8 },
+          compress: {
+            ecma: 5,
+            warnings: false,
+            comparisons: false,
+            inline: 2,
+            drop_console: true,
+            drop_debugger: true,
+            pure_funcs: ['console.log', 'console.info', 'console.debug'],
+            passes: 2
+          },
+          mangle: {
+            safari10: true,
+            keep_classnames: false,
+            keep_fnames: false
+          },
+          output: {
+            ecma: 5,
+            comments: false,
+            ascii_only: true
+          }
+        },
+        parallel: true,
+        extractComments: false
+      }),
+      
+      // CSS minimization
+      new (require('css-minimizer-webpack-plugin'))({
+        minimizerOptions: {
+          preset: ['default', {
+            discardComments: { removeAll: true },
+            normalizeWhitespace: true,
+            colormin: true,
+            convertValues: true,
+            discardDuplicates: true,
+            discardEmpty: true,
+            mergeRules: true,
+            minifyFontValues: true,
+            minifySelectors: true
+          }]
+        }
+      })
+    ]
+  })
+});
+
+// Performance budget configuration
+const createPerformanceBudget = () => ({
+  hints: 'warning',
+  maxEntrypointSize: 512000, // 500KB
+  maxAssetSize: 512000, // 500KB
+  assetFilter: (assetFilename) => {
+    return !/(\.map$|\.d\.ts$)/.test(assetFilename);
+  }
+});
+
+// Complete optimized configuration
+const createOptimizedConfig = (env = {}) => {
+  const isDevelopment = env.NODE_ENV === 'development';
+  const isProduction = env.NODE_ENV === 'production';
+  const isAnalyze = env.ANALYZE === 'true';
+
+  return {
+    mode: isProduction ? 'production' : 'development',
+    
+    // Modern target
+    target: ['web', 'es2017'],
+    
+    // Optimized cache
+    cache: createCacheConfig(isDevelopment),
+    
+    // Advanced optimization
+    optimization: createOptimizationConfig(isProduction, isDevelopment),
+    
+    // Performance monitoring
+    plugins: createAdvancedPlugins(isDevelopment, isProduction, isAnalyze),
+    
+    // Development server
+    ...(isDevelopment && {
+      devServer: createDevServerConfig()
+    }),
+    
+    // Performance budget
+    performance: createPerformanceBudget(),
+    
+    // Stats configuration
+    stats: {
+      preset: 'minimal',
+      moduleTrace: true,
+      errorDetails: true,
+      colors: true,
+      timings: true,
+      builtAt: true,
+      version: true
+    },
+    
+    // Resolve optimizations
+    resolve: {
+      // Reduce resolve attempts
+      symlinks: false,
+      
+      // Module resolution optimizations
+      modules: [
+        path.resolve(__dirname, 'src'),
+        'node_modules'
+      ],
+      
+      // Cached resolution
+      unsafeCache: isDevelopment,
+      
+      // Prefer ES modules
+      mainFields: ['browser', 'module', 'main']
+    },
+    
+    // Module optimizations
+    module: {
+      // Skip parsing for known files
+      noParse: /^(vue|react|react-dom|lodash)$/,
+      
+      rules: [
+        // Optimized TypeScript compilation
+        {
+          test: /\.(ts|tsx)$/,
+          include: path.resolve(__dirname, 'src'),
+          use: [
+            {
+              loader: 'ts-loader',
+              options: {
+                transpileOnly: isDevelopment,
+                experimentalWatchApi: isDevelopment,
+                compilerOptions: {
+                  sourceMap: !isProduction,
+                  target: 'es2017',
+                  module: 'esnext',
+                  skipLibCheck: true
+                }
+              }
+            }
+          ]
+        }
+      ]
+    }
+  };
+};
+
+// Export configuration factory
+module.exports = createOptimizedConfig;
+
+// Additional exports for different use cases
+module.exports.monitor = WebpackPerformanceMonitor;
+module.exports.createCacheConfig = createCacheConfig;
+module.exports.createSplitChunksConfig = createSplitChunksConfig;
+module.exports.createDevServerConfig = createDevServerConfig;]]></correct-example>
+          <incorrect-example title="Poor webpack performance without monitoring or optimization" conditions="Setting up webpack performance" expected-result="Optimized webpack performance" incorrectness-criteria="No monitoring, poor caching, no optimization, slow development experience"><![CDATA[// BAD: Poor webpack performance configuration
+
+module.exports = {
+  mode: 'development',
+  
+  // No caching
+  cache: false,
+  
+  // No optimization
+  optimization: {
+    splitChunks: {
+      chunks: 'all'
+      // No specific configuration
+    }
+  },
+  
+  // Basic development server
+  devServer: {
+    port: 3000
+    // No optimization
+    // No compression
+    // No proper file watching
+  },
+  
+  // No performance monitoring
+  plugins: [],
+  
+  // No performance budget
+  performance: false,
+  
+  // Poor resolve configuration
+  resolve: {
+    extensions: ['.js', '.jsx', '.ts', '.tsx']
+    // No optimization
+    // No aliases
+  },
+  
+  // No build time optimization
+  // No bundle analysis
+  // No tree shaking configuration
+  // No proper development experience
+};]]></incorrect-example>
+        </example>
+      </examples>
+    </requirement>
+  </requirements>
+  
+  <context description="Webpack build tool considerations">
+    Webpack is a static module bundler for modern JavaScript applications that creates a dependency graph and bundles modules into optimized static assets. Modern webpack 5 provides advanced features like Module Federation, persistent caching, tree shaking, and extensive optimization capabilities.
+
+    Key considerations include:
+    - Performance optimization through caching, code splitting, and tree shaking
+    - Development experience enhancement with hot module replacement and fast refresh
+    - Bundle optimization using advanced splitting strategies and minimization
+    - Security considerations for dependency management and build process
+    - Module Federation for micro-frontend architectures
+    - Comprehensive monitoring and analysis of build performance and bundle sizes
+
+    Webpack is essential for modern frontend development, providing the foundation for optimized production builds and enhanced developer experience in complex applications.
+  </context>
+  
+  <references>
+    <reference as="dependency" href=".cursor/rules/000-core/002-cursor-rules-creation.mdc" reason="Follows standard rule format">Base rule format definition</reference>
+    <reference as="context" href="https://webpack.js.org/" reason="Official webpack documentation">Webpack Official Documentation</reference>
+    <reference as="context" href="https://webpack.js.org/guides/build-performance/" reason="Performance optimization guide">Webpack Performance Guide</reference>
+  </references>
+</rule>
+ 

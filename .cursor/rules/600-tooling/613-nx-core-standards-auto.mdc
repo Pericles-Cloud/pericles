@@ -1,0 +1,839 @@
+---
+description: Comprehensive Nx monorepo standards with build system optimization, task orchestration, and workspace management following modern Nx best practices
+globs: ["nx.json"]
+alwaysApply: false
+---
+
+<rule>
+  <meta>
+    <title>NX Core Standards Auto</title>
+    <description>Comprehensive Nx monorepo standards with build system optimization, task orchestration, and workspace management following modern Nx best practices</description>
+    <created-at utc-timestamp="1744254680">January 27, 2025, 2:11 PM</created-at>
+    <last-updated-at utc-timestamp="1744254680">January 27, 2025, 2:11 PM</last-updated-at>
+    <applies-to>
+      <file-matcher glob="nx.json">Nx workspace configuration files</file-matcher>
+      <action-matcher action="nx-configuration">Triggered when configuring Nx monorepo workspace</action-matcher>
+    </applies-to>
+  </meta>
+  <requirements>
+    <non-negotiable priority="critical">
+      <description>Use Nx with optimized build orchestration, intelligent caching, and proper workspace architecture following Nx 17+ standards and monorepo best practices from the Nx team.</description>
+      <examples>
+        <example title="Modern Nx Workspace Configuration">
+          <correct-example title="Comprehensive Nx setup with optimization" conditions="Setting up Nx monorepo workspace" expected-result="Optimized Nx monorepo configuration" correctness-criteria="Uses Nx 17+, intelligent caching, task orchestration, workspace management"><![CDATA[// nx.json - Modern Nx workspace configuration
+{
+  "$schema": "./node_modules/nx/schemas/nx-schema.json",
+  "extends": "nx/presets/npm.json",
+  "affected": {
+    "defaultBase": "origin/main"
+  },
+  "tasksRunnerOptions": {
+    "default": {
+      "runner": "nx/tasks-runners/default",
+      "options": {
+        "cacheableOperations": [
+          "build",
+          "lint",
+          "test",
+          "e2e",
+          "type-check",
+          "bundle"
+        ],
+        "parallel": 3,
+        "useDaemonProcess": true
+      }
+    }
+  },
+  "targetDefaults": {
+    "build": {
+      "dependsOn": ["^build"],
+      "inputs": ["production", "^production"],
+      "cache": true
+    },
+    "test": {
+      "inputs": ["default", "^production", "{workspaceRoot}/jest.preset.js"],
+      "cache": true
+    },
+    "lint": {
+      "inputs": ["default", "{workspaceRoot}/.eslintrc.json"],
+      "cache": true
+    },
+    "e2e": {
+      "inputs": ["default", "^production"],
+      "cache": true
+    },
+    "type-check": {
+      "dependsOn": ["^type-check"],
+      "inputs": ["default", "^production"],
+      "cache": true
+    }
+  },
+  "namedInputs": {
+    "default": [
+      "{projectRoot}/**/*",
+      "sharedGlobals"
+    ],
+    "production": [
+      "default",
+      "!{projectRoot}/**/?(*.)+(spec|test).[jt]s?(x)?(.snap)",
+      "!{projectRoot}/tsconfig.spec.json",
+      "!{projectRoot}/jest.config.[jt]s",
+      "!{projectRoot}/.eslintrc.json"
+    ],
+    "sharedGlobals": [
+      "{workspaceRoot}/babel.config.json",
+      "{workspaceRoot}/.browserslistrc"
+    ]
+  },
+  "generators": {
+    "@nx/react": {
+      "application": {
+        "style": "css",
+        "linter": "eslint",
+        "bundler": "vite",
+        "e2eTestRunner": "playwright"
+      },
+      "component": {
+        "style": "css"
+      },
+      "library": {
+        "linter": "eslint"
+      }
+    },
+    "@nx/next": {
+      "application": {
+        "style": "css",
+        "linter": "eslint"
+      }
+    }
+  },
+  "plugins": [
+    {
+      "plugin": "@nx/eslint/plugin",
+      "options": {
+        "targetName": "lint"
+      }
+    },
+    {
+      "plugin": "@nx/jest/plugin",
+      "options": {
+        "targetName": "test"
+      }
+    },
+    {
+      "plugin": "@nx/vite/plugin",
+      "options": {
+        "buildTargetName": "build",
+        "testTargetName": "test",
+        "serveTargetName": "serve"
+      }
+    }
+  ]
+}
+
+// package.json - Nx workspace package configuration
+{
+  "name": "my-nx-workspace",
+  "version": "0.0.0",
+  "license": "MIT",
+  "scripts": {
+    // Core Nx commands
+    "build": "nx build",
+    "test": "nx test",
+    "lint": "nx lint",
+    "e2e": "nx e2e",
+    
+    // Development commands
+    "dev": "nx serve",
+    "dev:all": "nx run-many --target=serve --projects=tag:type:app",
+    "start": "nx serve",
+    
+    // Build orchestration
+    "build:all": "nx run-many --target=build --all",
+    "build:affected": "nx affected --target=build",
+    "build:apps": "nx run-many --target=build --projects=tag:type:app",
+    "build:libs": "nx run-many --target=build --projects=tag:type:lib",
+    
+    // Testing orchestration
+    "test:all": "nx run-many --target=test --all",
+    "test:affected": "nx affected --target=test",
+    "test:watch": "nx test --watch",
+    "test:coverage": "nx run-many --target=test --all --coverage",
+    
+    // Code quality
+    "lint:all": "nx run-many --target=lint --all",
+    "lint:affected": "nx affected --target=lint",
+    "lint:fix": "nx run-many --target=lint --all --fix",
+    "type-check": "nx run-many --target=type-check --all",
+    
+    // Nx utilities
+    "graph": "nx graph",
+    "dep-graph": "nx dep-graph",
+    "affected:graph": "nx affected:graph",
+    "workspace-generator": "nx workspace-generator",
+    
+    // Maintenance
+    "clean": "nx reset",
+    "migrate": "nx migrate latest",
+    "format": "nx format:write",
+    "format:check": "nx format:check",
+    
+    // Release management
+    "version": "nx release version",
+    "changelog": "nx release changelog",
+    "publish": "nx release publish"
+  },
+  "private": true,
+  "devDependencies": {
+    "@nx/devkit": "17.2.8",
+    "@nx/eslint": "17.2.8",
+    "@nx/eslint-plugin": "17.2.8",
+    "@nx/jest": "17.2.8",
+    "@nx/js": "17.2.8",
+    "@nx/linter": "17.2.8",
+    "@nx/node": "17.2.8",
+    "@nx/playwright": "17.2.8",
+    "@nx/react": "17.2.8",
+    "@nx/vite": "17.2.8",
+    "@nx/web": "17.2.8",
+    "@nx/workspace": "17.2.8",
+    "nx": "17.2.8",
+    "typescript": "~5.2.2"
+  },
+  "workspaces": [
+    "apps/*",
+    "libs/*"
+  ]
+}
+
+// workspace.json - Project configuration
+{
+  "version": 2,
+  "projects": {
+    "web-app": "apps/web-app",
+    "api": "apps/api",
+    "shared-ui": "libs/shared-ui",
+    "shared-utils": "libs/shared-utils",
+    "shared-data": "libs/shared-data"
+  }
+}
+
+// apps/web-app/project.json - App project configuration
+{
+  "name": "web-app",
+  "$schema": "../../node_modules/nx/schemas/project-schema.json",
+  "projectType": "application",
+  "sourceRoot": "apps/web-app/src",
+  "prefix": "app",
+  "tags": ["scope:web", "type:app"],
+  "targets": {
+    "build": {
+      "executor": "@nx/vite:build",
+      "outputs": ["{options.outputPath}"],
+      "defaultConfiguration": "production",
+      "options": {
+        "outputPath": "dist/apps/web-app"
+      },
+      "configurations": {
+        "development": {
+          "mode": "development"
+        },
+        "production": {
+          "mode": "production"
+        }
+      }
+    },
+    "serve": {
+      "executor": "@nx/vite:dev-server",
+      "defaultConfiguration": "development",
+      "options": {
+        "buildTarget": "web-app:build"
+      },
+      "configurations": {
+        "development": {
+          "buildTarget": "web-app:build:development",
+          "hmr": true
+        },
+        "production": {
+          "buildTarget": "web-app:build:production",
+          "hmr": false
+        }
+      }
+    },
+    "test": {
+      "executor": "@nx/jest:jest",
+      "outputs": ["{workspaceRoot}/coverage/{projectRoot}"],
+      "options": {
+        "jestConfig": "apps/web-app/jest.config.ts",
+        "passWithNoTests": true
+      },
+      "configurations": {
+        "ci": {
+          "ci": true,
+          "coverage": true
+        }
+      }
+    },
+    "lint": {
+      "executor": "@nx/eslint:lint",
+      "outputs": ["{options.outputFile}"],
+      "options": {
+        "lintFilePatterns": ["apps/web-app/**/*.{ts,tsx,js,jsx}"]
+      }
+    },
+    "e2e": {
+      "executor": "@nx/playwright:playwright",
+      "outputs": ["{workspaceRoot}/dist/.playwright"],
+      "options": {
+        "config": "apps/web-app-e2e/playwright.config.ts"
+      }
+    }
+  }
+}
+
+// libs/shared-ui/project.json - Library project configuration
+{
+  "name": "shared-ui",
+  "$schema": "../../node_modules/nx/schemas/project-schema.json",
+  "sourceRoot": "libs/shared-ui/src",
+  "projectType": "library",
+  "tags": ["scope:shared", "type:ui"],
+  "targets": {
+    "build": {
+      "executor": "@nx/rollup:rollup",
+      "outputs": ["{options.outputPath}"],
+      "options": {
+        "outputPath": "dist/libs/shared-ui",
+        "tsConfig": "libs/shared-ui/tsconfig.lib.json",
+        "project": "libs/shared-ui/package.json",
+        "entryFile": "libs/shared-ui/src/index.ts",
+        "external": ["react/jsx-runtime"],
+        "rollupConfig": "@nx/react/plugins/bundle-rollup"
+      }
+    },
+    "test": {
+      "executor": "@nx/jest:jest",
+      "outputs": ["{workspaceRoot}/coverage/{projectRoot}"],
+      "options": {
+        "jestConfig": "libs/shared-ui/jest.config.ts",
+        "passWithNoTests": true
+      }
+    },
+    "lint": {
+      "executor": "@nx/eslint:lint",
+      "outputs": ["{options.outputFile}"],
+      "options": {
+        "lintFilePatterns": ["libs/shared-ui/**/*.{ts,tsx,js,jsx}"]
+      }
+    },
+    "storybook": {
+      "executor": "@storybook/angular:start-storybook",
+      "options": {
+        "configDir": "libs/shared-ui/.storybook",
+        "browserTarget": "shared-ui:build-storybook"
+      }
+    }
+  }
+}
+
+// tools/workspace-scripts/project-boundaries.js
+#!/usr/bin/env node
+const { execSync } = require('child_process');
+const fs = require('fs');
+
+console.log('🔍 Checking project boundaries...');
+
+// Read workspace configuration
+const nxJson = JSON.parse(fs.readFileSync('nx.json', 'utf8'));
+const workspaceJson = JSON.parse(fs.readFileSync('workspace.json', 'utf8'));
+
+// Validate project tags and dependencies
+const projects = Object.entries(workspaceJson.projects);
+
+const boundaryRules = [
+  {
+    name: 'Apps can only depend on libs',
+    check: (project, projectConfig) => {
+      if (projectConfig.tags?.includes('type:app')) {
+        // Check dependencies - apps should not depend on other apps
+        return true; // Implementation would check actual dependencies
+      }
+      return true;
+    }
+  },
+  {
+    name: 'Shared libs cannot depend on app-specific libs',
+    check: (project, projectConfig) => {
+      if (projectConfig.tags?.includes('scope:shared')) {
+        // Check that shared libs don't depend on app-specific code
+        return true; // Implementation would check actual dependencies
+      }
+      return true;
+    }
+  }
+];
+
+let hasViolations = false;
+
+projects.forEach(([projectName, projectPath]) => {
+  const projectConfigPath = `${projectPath}/project.json`;
+  if (fs.existsSync(projectConfigPath)) {
+    const projectConfig = JSON.parse(fs.readFileSync(projectConfigPath, 'utf8'));
+    
+    boundaryRules.forEach(rule => {
+      if (!rule.check(projectName, projectConfig)) {
+        console.error(`❌ Boundary violation: ${rule.name} - ${projectName}`);
+        hasViolations = true;
+      }
+    });
+  }
+});
+
+if (!hasViolations) {
+  console.log('✅ All project boundaries are respected');
+} else {
+  console.error('❌ Project boundary violations detected');
+  process.exit(1);
+}]]></correct-example>
+          <incorrect-example title="Basic Nx configuration without optimization" conditions="Setting up Nx monorepo workspace" expected-result="Optimized Nx monorepo configuration" incorrectness-criteria="Missing optimization features, poor task configuration, no caching strategy"><![CDATA[// nx.json - Basic configuration
+{
+  "npmScope": "myorg",
+  "affected": {
+    "defaultBase": "master"
+  },
+  "tasksRunnerOptions": {
+    "default": {
+      "runner": "@nrwl/workspace/tasks-runners/default"
+    }
+  }
+}
+
+// Missing:
+// - Intelligent caching configuration
+// - Task dependencies
+// - Named inputs
+// - Target defaults
+// - Plugin configuration
+// - Performance optimization]]></incorrect-example>
+        </example>
+      </examples>
+    </non-negotiable>
+
+    <requirement priority="critical">
+      <description>Configure Nx with intelligent caching, task orchestration, and performance optimization for large-scale monorepo development following Nx expert guidelines.</description>
+      <examples>
+        <example title="Nx Performance Optimization">
+          <correct-example title="Advanced Nx performance configuration" conditions="Optimizing Nx for large monorepos" expected-result="High-performance Nx workspace" correctness-criteria="Uses intelligent caching, task orchestration, dependency management, performance monitoring"><![CDATA[// nx.json - Performance-optimized configuration
+{
+  "$schema": "./node_modules/nx/schemas/nx-schema.json",
+  "tasksRunnerOptions": {
+    "default": {
+      "runner": "nx/tasks-runners/default",
+      "options": {
+        "cacheableOperations": [
+          "build",
+          "lint",
+          "test",
+          "e2e",
+          "type-check",
+          "bundle",
+          "package"
+        ],
+        "parallel": 4,
+        "maxParallel": 8,
+        "useDaemonProcess": true,
+        "remoteCache": {
+          "enabled": true,
+          "url": "https://nx-cache.company.com",
+          "accessToken": "${NX_CACHE_ACCESS_TOKEN}"
+        }
+      }
+    }
+  },
+  "targetDefaults": {
+    "build": {
+      "dependsOn": ["^build"],
+      "inputs": ["production", "^production"],
+      "outputs": ["{options.outputPath}"],
+      "cache": true,
+      "options": {
+        "parallel": true
+      }
+    },
+    "test": {
+      "inputs": [
+        "default", 
+        "^production",
+        "{workspaceRoot}/jest.preset.js",
+        "{workspaceRoot}/jest.config.ts"
+      ],
+      "outputs": ["{workspaceRoot}/coverage/{projectRoot}"],
+      "cache": true
+    },
+    "lint": {
+      "inputs": [
+        "default",
+        "{workspaceRoot}/.eslintrc.json",
+        "{workspaceRoot}/.eslintignore"
+      ],
+      "outputs": ["{options.outputFile}"],
+      "cache": true
+    },
+    "type-check": {
+      "dependsOn": ["^type-check"],
+      "inputs": ["typescript", "^production"],
+      "cache": true
+    }
+  },
+  "namedInputs": {
+    "default": [
+      "{projectRoot}/**/*",
+      "sharedGlobals"
+    ],
+    "production": [
+      "default",
+      "!{projectRoot}/**/?(*.)+(spec|test).[jt]s?(x)?(.snap)",
+      "!{projectRoot}/tsconfig.spec.json",
+      "!{projectRoot}/jest.config.[jt]s",
+      "!{projectRoot}/.eslintrc.json",
+      "!{projectRoot}/src/test-setup.[jt]s",
+      "!{projectRoot}/test-setup.[jt]s"
+    ],
+    "typescript": [
+      "{projectRoot}/**/*.ts",
+      "{projectRoot}/**/*.tsx",
+      "{projectRoot}/tsconfig.json",
+      "{projectRoot}/tsconfig.*.json",
+      "{workspaceRoot}/tsconfig.base.json"
+    ],
+    "sharedGlobals": [
+      "{workspaceRoot}/babel.config.json",
+      "{workspaceRoot}/.browserslistrc",
+      "{workspaceRoot}/jest.preset.js",
+      "{workspaceRoot}/jest.config.ts",
+      "{workspaceRoot}/.eslintrc.json"
+    ]
+  }
+}
+
+// tools/scripts/nx-performance-monitor.js
+#!/usr/bin/env node
+const { execSync } = require('child_process');
+const fs = require('fs');
+const path = require('path');
+
+class NxPerformanceMonitor {
+  constructor() {
+    this.metricsFile = '.nx-performance-metrics.json';
+    this.cacheDir = path.join('node_modules', '.cache', 'nx');
+  }
+  
+  async measureCommand(command, description) {
+    console.log(`📊 Measuring: ${description}`);
+    
+    const startTime = Date.now();
+    const startMemory = process.memoryUsage();
+    
+    try {
+      const output = execSync(`time -p ${command}`, { 
+        encoding: 'utf8',
+        stdio: 'pipe'
+      });
+      
+      const endTime = Date.now();
+      const endMemory = process.memoryUsage();
+      
+      return {
+        command,
+        description,
+        duration: endTime - startTime,
+        success: true,
+        memoryDelta: {
+          rss: endMemory.rss - startMemory.rss,
+          heapUsed: endMemory.heapUsed - startMemory.heapUsed,
+          external: endMemory.external - startMemory.external
+        },
+        output: output.slice(0, 500) // Truncate output
+      };
+    } catch (error) {
+      const endTime = Date.now();
+      
+      return {
+        command,
+        description,
+        duration: endTime - startTime,
+        success: false,
+        error: error.message,
+        memoryDelta: null
+      };
+    }
+  }
+  
+  async runPerformanceTests() {
+    console.log('🚀 Running Nx performance tests...');
+    
+    const tests = [
+      {
+        command: 'nx dep-graph --file=dep-graph.json',
+        description: 'Dependency graph generation'
+      },
+      {
+        command: 'nx run-many --target=lint --all --parallel=4',
+        description: 'Parallel linting'
+      },
+      {
+        command: 'nx affected --target=test --parallel=2',
+        description: 'Affected testing'
+      },
+      {
+        command: 'nx run-many --target=build --all --parallel=3',
+        description: 'Parallel building'
+      },
+      {
+        command: 'nx format:check',
+        description: 'Format checking'
+      }
+    ];
+    
+    const results = [];
+    
+    for (const test of tests) {
+      const result = await this.measureCommand(test.command, test.description);
+      results.push(result);
+      
+      if (result.success) {
+        console.log(`✅ ${test.description}: ${result.duration}ms`);
+      } else {
+        console.log(`❌ ${test.description}: Failed after ${result.duration}ms`);
+      }
+    }
+    
+    return this.generateReport(results);
+  }
+  
+  analyzeCacheUsage() {
+    if (!fs.existsSync(this.cacheDir)) {
+      return { size: 0, files: 0 };
+    }
+    
+    const getCacheSize = (dir) => {
+      let size = 0;
+      let files = 0;
+      
+      const items = fs.readdirSync(dir, { withFileTypes: true });
+      
+      for (const item of items) {
+        const fullPath = path.join(dir, item.name);
+        
+        if (item.isDirectory()) {
+          const subResult = getCacheSize(fullPath);
+          size += subResult.size;
+          files += subResult.files;
+        } else {
+          const stats = fs.statSync(fullPath);
+          size += stats.size;
+          files++;
+        }
+      }
+      
+      return { size, files };
+    };
+    
+    return getCacheSize(this.cacheDir);
+  }
+  
+  generateReport(results) {
+    const cacheInfo = this.analyzeCacheUsage();
+    
+    const report = {
+      timestamp: new Date().toISOString(),
+      environment: {
+        node: process.version,
+        platform: process.platform,
+        arch: process.arch,
+        memory: process.memoryUsage()
+      },
+      cache: {
+        size: cacheInfo.size,
+        files: cacheInfo.files,
+        sizeHuman: `${(cacheInfo.size / 1024 / 1024).toFixed(2)}MB`
+      },
+      tests: results,
+      summary: {
+        total: results.length,
+        successful: results.filter(r => r.success).length,
+        failed: results.filter(r => !r.success).length,
+        averageDuration: results.reduce((sum, r) => sum + r.duration, 0) / results.length,
+        totalDuration: results.reduce((sum, r) => sum + r.duration, 0)
+      }
+    };
+    
+    fs.writeFileSync(this.metricsFile, JSON.stringify(report, null, 2));
+    
+    console.log('\n📊 Performance Report:');
+    console.log(`   Total tests: ${report.summary.total}`);
+    console.log(`   Successful: ${report.summary.successful}`);
+    console.log(`   Failed: ${report.summary.failed}`);
+    console.log(`   Average duration: ${Math.round(report.summary.averageDuration)}ms`);
+    console.log(`   Cache size: ${report.cache.sizeHuman} (${report.cache.files} files)`);
+    
+    return report;
+  }
+  
+  optimizeCache() {
+    console.log('🧹 Optimizing Nx cache...');
+    
+    try {
+      // Clean old cache entries
+      execSync('nx reset', { stdio: 'inherit' });
+      console.log('✅ Cache cleared');
+      
+      // Rebuild cache with optimized settings
+      execSync('nx dep-graph --file=/dev/null', { stdio: 'pipe' });
+      console.log('✅ Cache warmed up');
+      
+    } catch (error) {
+      console.error('❌ Cache optimization failed:', error.message);
+    }
+  }
+}
+
+// CLI usage
+if (require.main === module) {
+  const monitor = new NxPerformanceMonitor();
+  const command = process.argv[2];
+  
+  switch (command) {
+    case 'test':
+      monitor.runPerformanceTests();
+      break;
+      
+    case 'cache':
+      const cacheInfo = monitor.analyzeCacheUsage();
+      console.log(`Nx Cache: ${(cacheInfo.size / 1024 / 1024).toFixed(2)}MB (${cacheInfo.files} files)`);
+      break;
+      
+    case 'optimize':
+      monitor.optimizeCache();
+      break;
+      
+    default:
+      console.log('Usage: node nx-performance-monitor.js [test|cache|optimize]');
+      break;
+  }
+}
+
+// .nxignore - Performance optimization
+# Ignore large files that don't affect builds
+*.log
+*.cache
+node_modules
+dist
+coverage
+.env.local
+.env.*.local
+
+# Ignore OS files
+.DS_Store
+Thumbs.db
+
+# GitHub Actions CI optimization
+name: Nx CI
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+
+jobs:
+  main:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '18'
+          cache: 'npm'
+      
+      # Restore Nx cache
+      - name: Restore Nx cache
+        uses: actions/cache@v3
+        with:
+          path: node_modules/.cache/nx
+          key: nx-${{ hashFiles('**/package-lock.json') }}-${{ hashFiles('nx.json') }}-${{ github.sha }}
+          restore-keys: |
+            nx-${{ hashFiles('**/package-lock.json') }}-${{ hashFiles('nx.json') }}-
+            nx-${{ hashFiles('**/package-lock.json') }}-
+      
+      - run: npm ci
+      
+      # Run affected commands for performance
+      - name: Run affected lint
+        run: npx nx affected --target=lint --parallel=3
+      
+      - name: Run affected test
+        run: npx nx affected --target=test --parallel=2 --coverage
+      
+      - name: Run affected build
+        run: npx nx affected --target=build --parallel=3
+      
+      # Performance monitoring
+      - name: Performance report
+        run: node tools/scripts/nx-performance-monitor.js test
+      
+      - name: Upload performance artifacts
+        uses: actions/upload-artifact@v3
+        with:
+          name: nx-performance
+          path: .nx-performance-metrics.json]]></correct-example>
+          <incorrect-example title="Unoptimized Nx configuration" conditions="Optimizing Nx for large monorepos" expected-result="High-performance Nx workspace" incorrectness-criteria="No caching strategy, poor task configuration, missing performance optimization"><![CDATA[// nx.json - Basic configuration without optimization
+{
+  "affected": {
+    "defaultBase": "master"
+  },
+  "tasksRunnerOptions": {
+    "default": {
+      "runner": "@nrwl/workspace/tasks-runners/default"
+    }
+  }
+}
+
+// Missing:
+// - Intelligent caching
+// - Task dependencies
+// - Parallel execution optimization
+// - Performance monitoring
+// - Remote caching
+// - Named inputs for efficient hashing]]></incorrect-example>
+        </example>
+      </examples>
+    </requirement>
+  </requirements>
+  
+  <context description="Modern Nx development considerations">
+    Nx has evolved into a sophisticated build system and monorepo management tool with version 17+ introducing advanced features like task orchestration, intelligent caching, and plugin architecture. Modern Nx usage emphasizes performance, scalability, and developer experience optimization.
+
+    Key considerations for modern Nx usage:
+    - Intelligent caching with local and remote cache capabilities
+    - Task orchestration with proper dependency management
+    - Performance optimization through parallel execution and incremental builds
+    - Workspace architecture with proper project boundaries and dependencies
+    - Plugin ecosystem integration for specialized tooling
+    - CI/CD optimization with affected commands and cache strategies
+    - Developer experience enhancement through generators and executors
+
+    Expert insights from the Nx team emphasize the importance of proper workspace architecture, intelligent caching strategies, and performance monitoring to maximize the benefits of monorepo development at scale.
+  </context>
+  
+  <references>
+    <reference as="dependency" href=".cursor/rules/000-core/002-cursor-rules-creation.mdc" reason="Follows standard rule format">Base rule format definition</reference>
+    <reference as="context" href="https://nx.dev/" reason="Official Nx documentation">Nx Official Documentation</reference>
+    <reference as="context" href="https://nx.dev/concepts/mental-model" reason="Nx concepts">Nx Mental Model and Architecture</reference>
+    <reference as="context" href="https://nx.dev/concepts/cache" reason="Caching strategies">Nx Caching Documentation</reference>
+    <reference as="context" href="https://nx.dev/concepts/affected" reason="Affected commands">Nx Affected Commands</reference>
+    <reference as="context" href="https://blog.nrwl.io/" reason="Nx best practices">Nx Team Blog and Best Practices</reference>
+  </references>
+</rule>

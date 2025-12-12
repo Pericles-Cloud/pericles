@@ -1,0 +1,1105 @@
+---
+description: "Comprehensive reflect-metadata standards for TypeScript decorators, metadata API usage, design-time type reflection, and advanced metaprogramming patterns following TypeScript community standards"
+globs:
+  - "**/*.{ts,tsx}"
+  - "**/decorators/**/*"
+  - "**/metadata/**/*"
+  - "**/*decorator*"
+alwaysApply: false
+---
+
+<rule>
+  <meta>
+    <title>Reflect-Metadata Core Standards</title>
+    <description>Comprehensive reflect-metadata standards for TypeScript decorators, metadata API usage, design-time type reflection, and advanced metaprogramming patterns following TypeScript community standards</description>
+    <created-at utc-timestamp="1744157700">January 25, 2025, 10:15 AM</created-at>
+    <last-updated-at utc-timestamp="1744157700">January 25, 2025, 10:15 AM</last-updated-at>
+    <applies-to>
+      <file-matcher glob="**/*.{ts,tsx}">TypeScript files using reflect-metadata</file-matcher>
+      <file-matcher glob="**/decorators/**/*">Decorator implementation files</file-matcher>
+      <file-matcher glob="**/metadata/**/*">Metadata manipulation files</file-matcher>
+      <file-matcher glob="**/*decorator*">Decorator-related files</file-matcher>
+      <action-matcher action="metaprogramming">Triggered when working with TypeScript metaprogramming</action-matcher>
+    </applies-to>
+  </meta>
+  <requirements>
+    <non-negotiable priority="critical">
+      <description>Import reflect-metadata properly and use TypeScript decorators with comprehensive metadata manipulation for dependency injection, validation, serialization, and ORM patterns. Implement type-safe metaprogramming with proper error handling and performance considerations.</description>
+      <examples>
+        <example title="Comprehensive Decorator and Metadata Usage">
+          <correct-example title="Proper reflect-metadata implementation with decorators and type safety" conditions="Implementing TypeScript metaprogramming with reflect-metadata" expected-result="Type-safe metadata manipulation with comprehensive decorator patterns" correctness-criteria="Proper imports, decorator implementation, metadata manipulation, type safety, error handling"><![CDATA[// TypeScript - Comprehensive reflect-metadata implementation
+import 'reflect-metadata';
+
+// Metadata keys as symbols for type safety
+const INJECTABLE_KEY = Symbol('injectable');
+const PROPERTY_METADATA_KEY = Symbol('property_metadata');
+const METHOD_METADATA_KEY = Symbol('method_metadata');
+const PARAMETER_METADATA_KEY = Symbol('parameter_metadata');
+const VALIDATION_KEY = Symbol('validation');
+const SERIALIZATION_KEY = Symbol('serialization');
+
+// Type definitions for metadata
+interface PropertyMetadata {
+  key: string | symbol;
+  type: any;
+  optional?: boolean;
+  defaultValue?: any;
+  validators?: ValidationRule[];
+}
+
+interface MethodMetadata {
+  key: string | symbol;
+  parameterTypes: any[];
+  returnType: any;
+  validators?: ValidationRule[];
+  middleware?: MiddlewareFunction[];
+}
+
+interface ValidationRule {
+  type: 'required' | 'minLength' | 'maxLength' | 'pattern' | 'custom';
+  value?: any;
+  message?: string;
+  validator?: (value: any) => boolean | Promise<boolean>;
+}
+
+interface MiddlewareFunction {
+  (target: any, propertyKey: string | symbol, descriptor: PropertyDescriptor): void;
+}
+
+// Injectable decorator for dependency injection
+export function Injectable<T extends new (...args: any[]) => any>(
+  options: { singleton?: boolean; scope?: 'singleton' | 'transient' | 'scoped' } = {}
+) {
+  return function(target: T): T {
+    // Store injectable metadata
+    Reflect.defineMetadata(INJECTABLE_KEY, {
+      singleton: options.singleton ?? true,
+      scope: options.scope ?? 'singleton',
+      dependencies: Reflect.getMetadata('design:paramtypes', target) || [],
+      createdAt: Date.now()
+    }, target);
+
+    // Enhanced constructor for dependency tracking
+    const enhanced = class extends target {
+      constructor(...args: any[]) {
+        super(...args);
+        
+        // Track instantiation metadata
+        Reflect.defineMetadata('instance:created', Date.now(), this);
+        Reflect.defineMetadata('instance:id', Math.random().toString(36), this);
+      }
+    };
+
+    // Copy static metadata to enhanced class
+    const existingMetadata = Reflect.getMetadataKeys(target);
+    existingMetadata.forEach(key => {
+      const metadata = Reflect.getMetadata(key, target);
+      Reflect.defineMetadata(key, metadata, enhanced);
+    });
+
+    return enhanced;
+  };
+}
+
+// Property decorator with validation and serialization
+export function Property(options: {
+  type?: any;
+  required?: boolean;
+  defaultValue?: any;
+  validators?: ValidationRule[];
+  serializable?: boolean;
+  alias?: string;
+} = {}) {
+  return function(target: any, propertyKey: string | symbol): void {
+    // Get design-time type information
+    const designType = Reflect.getMetadata('design:type', target, propertyKey);
+    
+    // Create property metadata
+    const metadata: PropertyMetadata = {
+      key: propertyKey,
+      type: options.type || designType,
+      optional: !options.required,
+      defaultValue: options.defaultValue,
+      validators: options.validators || []
+    };
+
+    // Store property metadata
+    const existingProperties = Reflect.getMetadata(PROPERTY_METADATA_KEY, target) || [];
+    existingProperties.push(metadata);
+    Reflect.defineMetadata(PROPERTY_METADATA_KEY, existingProperties, target);
+
+    // Store serialization metadata if specified
+    if (options.serializable !== false) {
+      const serializationMeta = Reflect.getMetadata(SERIALIZATION_KEY, target) || {};
+      serializationMeta[propertyKey as string] = {
+        alias: options.alias || propertyKey,
+        type: metadata.type,
+        serializable: options.serializable ?? true
+      };
+      Reflect.defineMetadata(SERIALIZATION_KEY, serializationMeta, target);
+    }
+
+    // Store validation metadata
+    if (options.validators && options.validators.length > 0) {
+      const validationMeta = Reflect.getMetadata(VALIDATION_KEY, target) || {};
+      validationMeta[propertyKey as string] = options.validators;
+      Reflect.defineMetadata(VALIDATION_KEY, validationMeta, target);
+    }
+  };
+}
+
+// Method decorator with parameter validation and middleware
+export function Method(options: {
+  validators?: ValidationRule[];
+  middleware?: MiddlewareFunction[];
+  cacheable?: boolean;
+  timeout?: number;
+} = {}) {
+  return function(
+    target: any,
+    propertyKey: string | symbol,
+    descriptor: PropertyDescriptor
+  ): PropertyDescriptor {
+    const originalMethod = descriptor.value;
+    
+    // Get design-time type information
+    const parameterTypes = Reflect.getMetadata('design:paramtypes', target, propertyKey) || [];
+    const returnType = Reflect.getMetadata('design:returntype', target, propertyKey);
+
+    // Store method metadata
+    const metadata: MethodMetadata = {
+      key: propertyKey,
+      parameterTypes,
+      returnType,
+      validators: options.validators,
+      middleware: options.middleware
+    };
+
+    const existingMethods = Reflect.getMetadata(METHOD_METADATA_KEY, target) || [];
+    existingMethods.push(metadata);
+    Reflect.defineMetadata(METHOD_METADATA_KEY, existingMethods, target);
+
+    // Enhanced method with middleware and validation
+    descriptor.value = async function(...args: any[]) {
+      const startTime = performance.now();
+      
+      try {
+        // Apply pre-execution middleware
+        if (options.middleware) {
+          for (const middleware of options.middleware) {
+            middleware(this, propertyKey, descriptor);
+          }
+        }
+
+        // Parameter validation
+        if (options.validators) {
+          await validateParameters(args, options.validators, parameterTypes);
+        }
+
+        // Timeout handling
+        let result;
+        if (options.timeout) {
+          result = await Promise.race([
+            originalMethod.apply(this, args),
+            new Promise((_, reject) => 
+              setTimeout(() => reject(new Error('Method timeout')), options.timeout)
+            )
+          ]);
+        } else {
+          result = await originalMethod.apply(this, args);
+        }
+
+        // Store execution metadata
+        const executionTime = performance.now() - startTime;
+        Reflect.defineMetadata(`execution:${propertyKey.toString()}`, {
+          lastCalled: Date.now(),
+          executionTime,
+          callCount: (Reflect.getMetadata(`calls:${propertyKey.toString()}`, this) || 0) + 1
+        }, this);
+
+        return result;
+      } catch (error) {
+        // Store error metadata
+        Reflect.defineMetadata(`error:${propertyKey.toString()}`, {
+          lastError: error,
+          errorTime: Date.now(),
+          errorCount: (Reflect.getMetadata(`errors:${propertyKey.toString()}`, this) || 0) + 1
+        }, this);
+        
+        throw error;
+      }
+    };
+
+    return descriptor;
+  };
+}
+
+// Parameter decorator for dependency injection
+export function Inject(token?: string | symbol) {
+  return function(target: any, propertyKey: string | symbol | undefined, parameterIndex: number): void {
+    const existingTokens = Reflect.getMetadata('inject:tokens', target) || [];
+    existingTokens[parameterIndex] = token;
+    Reflect.defineMetadata('inject:tokens', existingTokens, target);
+
+    // Store parameter metadata
+    const parameterTypes = Reflect.getMetadata('design:paramtypes', target) || [];
+    const parameterType = parameterTypes[parameterIndex];
+    
+    const parameterMeta = Reflect.getMetadata(PARAMETER_METADATA_KEY, target) || {};
+    parameterMeta[parameterIndex] = {
+      type: parameterType,
+      token: token || parameterType,
+      index: parameterIndex
+    };
+    Reflect.defineMetadata(PARAMETER_METADATA_KEY, parameterMeta, target);
+  };
+}
+
+// Validation decorator
+export function Validate(rules: ValidationRule[]) {
+  return function(target: any, propertyKey: string | symbol): void {
+    const existingValidations = Reflect.getMetadata(VALIDATION_KEY, target) || {};
+    existingValidations[propertyKey as string] = rules;
+    Reflect.defineMetadata(VALIDATION_KEY, existingValidations, target);
+  };
+}
+
+// Utility functions for metadata manipulation
+export class MetadataUtils {
+  static getPropertyMetadata(target: any): PropertyMetadata[] {
+    return Reflect.getMetadata(PROPERTY_METADATA_KEY, target) || [];
+  }
+
+  static getMethodMetadata(target: any): MethodMetadata[] {
+    return Reflect.getMetadata(METHOD_METADATA_KEY, target) || [];
+  }
+
+  static getInjectableMetadata(target: any) {
+    return Reflect.getMetadata(INJECTABLE_KEY, target);
+  }
+
+  static getValidationRules(target: any, propertyKey: string): ValidationRule[] {
+    const validations = Reflect.getMetadata(VALIDATION_KEY, target) || {};
+    return validations[propertyKey] || [];
+  }
+
+  static getSerializationMetadata(target: any) {
+    return Reflect.getMetadata(SERIALIZATION_KEY, target) || {};
+  }
+
+  static getAllMetadataKeys(target: any): any[] {
+    return Reflect.getMetadataKeys(target);
+  }
+
+  static cloneMetadata(source: any, target: any): void {
+    const keys = Reflect.getMetadataKeys(source);
+    keys.forEach(key => {
+      const metadata = Reflect.getMetadata(key, source);
+      Reflect.defineMetadata(key, metadata, target);
+    });
+  }
+}
+
+// Validation utility functions
+async function validateParameters(
+  args: any[], 
+  rules: ValidationRule[], 
+  types: any[]
+): Promise<void> {
+  for (let i = 0; i < args.length; i++) {
+    const arg = args[i];
+    const rule = rules[i];
+    const type = types[i];
+
+    if (rule) {
+      await validateValue(arg, rule, type);
+    }
+  }
+}
+
+async function validateValue(value: any, rule: ValidationRule, expectedType: any): Promise<void> {
+  switch (rule.type) {
+    case 'required':
+      if (value === null || value === undefined) {
+        throw new ValidationError(rule.message || 'Value is required');
+      }
+      break;
+      
+    case 'minLength':
+      if (typeof value === 'string' && value.length < rule.value) {
+        throw new ValidationError(rule.message || `Minimum length is ${rule.value}`);
+      }
+      break;
+      
+    case 'maxLength':
+      if (typeof value === 'string' && value.length > rule.value) {
+        throw new ValidationError(rule.message || `Maximum length is ${rule.value}`);
+      }
+      break;
+      
+    case 'pattern':
+      if (typeof value === 'string' && !rule.value.test(value)) {
+        throw new ValidationError(rule.message || 'Value does not match pattern');
+      }
+      break;
+      
+    case 'custom':
+      if (rule.validator) {
+        const isValid = await rule.validator(value);
+        if (!isValid) {
+          throw new ValidationError(rule.message || 'Custom validation failed');
+        }
+      }
+      break;
+  }
+}
+
+// Custom error types
+export class ValidationError extends Error {
+  constructor(message: string) {
+    super(message);
+    this.name = 'ValidationError';
+  }
+}
+
+export class MetadataError extends Error {
+  constructor(message: string) {
+    super(message);
+    this.name = 'MetadataError';
+  }
+}
+
+// Example usage with comprehensive patterns
+@Injectable({ singleton: true })
+export class UserService {
+  constructor(
+    @Inject('DATABASE') private database: any,
+    @Inject('LOGGER') private logger: any
+  ) {}
+
+  @Property({
+    type: String,
+    required: true,
+    validators: [
+      { type: 'required', message: 'Service name is required' },
+      { type: 'minLength', value: 3, message: 'Service name must be at least 3 characters' }
+    ]
+  })
+  serviceName: string = 'UserService';
+
+  @Method({
+    validators: [
+      { type: 'required', message: 'User ID is required' },
+      { type: 'custom', validator: (id) => typeof id === 'string' && id.length > 0 }
+    ],
+    middleware: [
+      function(target, propertyKey, descriptor) {
+        console.log(`Executing ${propertyKey.toString()}`);
+      }
+    ],
+    timeout: 5000
+  })
+  async getUserById(id: string): Promise<User | null> {
+    this.logger.info(`Fetching user ${id}`);
+    
+    try {
+      const user = await this.database.findUser(id);
+      return user;
+    } catch (error) {
+      this.logger.error(`Failed to fetch user ${id}:`, error);
+      throw error;
+    }
+  }
+
+  @Method({
+    cacheable: true,
+    timeout: 3000
+  })
+  async getAllUsers(): Promise<User[]> {
+    return this.database.findAllUsers();
+  }
+}
+
+// Serialization utility using metadata
+export class Serializer {
+  static serialize(instance: any): Record<string, any> {
+    const metadata = MetadataUtils.getSerializationMetadata(instance.constructor.prototype);
+    const result: Record<string, any> = {};
+
+    for (const [propertyKey, meta] of Object.entries(metadata)) {
+      if (meta.serializable) {
+        const value = instance[propertyKey];
+        result[meta.alias || propertyKey] = this.serializeValue(value, meta.type);
+      }
+    }
+
+    return result;
+  }
+
+  static deserialize<T>(data: Record<string, any>, targetClass: new() => T): T {
+    const instance = new targetClass();
+    const metadata = MetadataUtils.getSerializationMetadata(targetClass.prototype);
+
+    for (const [propertyKey, meta] of Object.entries(metadata)) {
+      const alias = meta.alias || propertyKey;
+      if (data.hasOwnProperty(alias)) {
+        instance[propertyKey] = this.deserializeValue(data[alias], meta.type);
+      }
+    }
+
+    return instance;
+  }
+
+  private static serializeValue(value: any, type: any): any {
+    if (value === null || value === undefined) return value;
+    
+    if (type === Date) {
+      return value.toISOString();
+    }
+    
+    if (typeof value === 'object' && value.constructor !== Object) {
+      return this.serialize(value);
+    }
+    
+    return value;
+  }
+
+  private static deserializeValue(value: any, type: any): any {
+    if (value === null || value === undefined) return value;
+    
+    if (type === Date) {
+      return new Date(value);
+    }
+    
+    if (type === Number) {
+      return Number(value);
+    }
+    
+    if (type === Boolean) {
+      return Boolean(value);
+    }
+    
+    return value;
+  }
+}
+
+// Dependency injection container using metadata
+export class Container {
+  private instances = new Map<any, any>();
+  private singletons = new Map<any, any>();
+
+  register<T>(token: any, implementation: new(...args: any[]) => T): void {
+    this.instances.set(token, implementation);
+  }
+
+  resolve<T>(token: any): T {
+    const implementation = this.instances.get(token);
+    if (!implementation) {
+      throw new Error(`No implementation found for token: ${token}`);
+    }
+
+    const metadata = MetadataUtils.getInjectableMetadata(implementation);
+    
+    if (metadata?.singleton && this.singletons.has(token)) {
+      return this.singletons.get(token);
+    }
+
+    const dependencies = this.resolveDependencies(implementation);
+    const instance = new implementation(...dependencies);
+
+    if (metadata?.singleton) {
+      this.singletons.set(token, instance);
+    }
+
+    return instance;
+  }
+
+  private resolveDependencies(target: any): any[] {
+    const parameterTypes = Reflect.getMetadata('design:paramtypes', target) || [];
+    const injectTokens = Reflect.getMetadata('inject:tokens', target) || [];
+
+    return parameterTypes.map((type: any, index: number) => {
+      const token = injectTokens[index] || type;
+      return this.resolve(token);
+    });
+  }
+}]]></correct-example>
+          <incorrect-example title="Poor reflect-metadata usage without proper patterns" conditions="Using reflect-metadata in TypeScript" expected-result="Proper metadata manipulation" incorrectness-criteria="No proper imports, poor decorator implementation, no type safety, no error handling"><![CDATA[// BAD: Poor reflect-metadata usage
+
+// Missing import
+// import 'reflect-metadata'; // Not imported
+
+// Poor decorator implementation
+function BadDecorator(target: any) {
+  // No metadata storage
+  // No type safety
+  console.log('Decorated:', target);
+}
+
+// No proper metadata usage
+@BadDecorator
+class BadService {
+  // No property decorators
+  name: string;
+
+  // No method decorators
+  method() {
+    // No metadata utilization
+    return 'result';
+  }
+}
+
+// No metadata utilities
+// No validation
+// No serialization
+// No dependency injection
+// No error handling
+
+// Poor metadata access
+function getBadMetadata(target: any) {
+  // Direct access without safety
+  return Reflect.getMetadata('unknown', target);
+  // No error handling
+  // No type safety
+}]]></incorrect-example>
+        </example>
+      </examples>
+    </non-negotiable>
+
+    <requirement priority="high">
+      <description>Implement comprehensive testing for decorators and metadata manipulation including unit tests for decorator behavior, integration tests for metadata persistence, and type safety validation.</description>
+      <examples>
+        <example title="Reflect-Metadata Testing Patterns">
+          <correct-example title="Comprehensive testing for decorators and metadata" conditions="Testing reflect-metadata implementations" expected-result="Thorough test coverage with proper metadata validation" correctness-criteria="Decorator testing, metadata persistence tests, type safety validation, integration testing"><![CDATA[// TypeScript - Comprehensive reflect-metadata testing
+import 'reflect-metadata';
+import { 
+  Injectable, 
+  Property, 
+  Method, 
+  Inject, 
+  MetadataUtils, 
+  Container,
+  Serializer,
+  ValidationError 
+} from '../src/decorators';
+
+describe('Reflect-Metadata Decorators', () => {
+  beforeEach(() => {
+    // Clear metadata between tests
+    Reflect.deleteMetadata = jest.fn();
+  });
+
+  describe('@Injectable decorator', () => {
+    it('should store injectable metadata with default options', () => {
+      @Injectable()
+      class TestService {}
+
+      const metadata = MetadataUtils.getInjectableMetadata(TestService);
+      
+      expect(metadata).toBeDefined();
+      expect(metadata.singleton).toBe(true);
+      expect(metadata.scope).toBe('singleton');
+      expect(metadata.dependencies).toEqual([]);
+      expect(metadata.createdAt).toBeCloseTo(Date.now(), -2);
+    });
+
+    it('should store injectable metadata with custom options', () => {
+      @Injectable({ singleton: false, scope: 'transient' })
+      class TestService {}
+
+      const metadata = MetadataUtils.getInjectableMetadata(TestService);
+      
+      expect(metadata.singleton).toBe(false);
+      expect(metadata.scope).toBe('transient');
+    });
+
+    it('should capture constructor dependencies', () => {
+      class Dependency1 {}
+      class Dependency2 {}
+
+      @Injectable()
+      class TestService {
+        constructor(dep1: Dependency1, dep2: Dependency2) {}
+      }
+
+      const metadata = MetadataUtils.getInjectableMetadata(TestService);
+      expect(metadata.dependencies).toEqual([Dependency1, Dependency2]);
+    });
+
+    it('should create enhanced constructor with instance metadata', () => {
+      @Injectable()
+      class TestService {}
+
+      const instance = new TestService();
+      
+      expect(Reflect.getMetadata('instance:created', instance)).toBeCloseTo(Date.now(), -2);
+      expect(Reflect.getMetadata('instance:id', instance)).toMatch(/^[a-z0-9]+$/);
+    });
+  });
+
+  describe('@Property decorator', () => {
+    it('should store property metadata with design types', () => {
+      class TestClass {
+        @Property({ required: true })
+        name: string;
+
+        @Property({ type: Number, defaultValue: 0 })
+        age: number;
+      }
+
+      const properties = MetadataUtils.getPropertyMetadata(TestClass.prototype);
+      
+      expect(properties).toHaveLength(2);
+      
+      const nameProperty = properties.find(p => p.key === 'name');
+      expect(nameProperty).toBeDefined();
+      expect(nameProperty?.type).toBe(String);
+      expect(nameProperty?.optional).toBe(false);
+
+      const ageProperty = properties.find(p => p.key === 'age');
+      expect(ageProperty).toBeDefined();
+      expect(ageProperty?.type).toBe(Number);
+      expect(ageProperty?.defaultValue).toBe(0);
+    });
+
+    it('should store validation metadata', () => {
+      class TestClass {
+        @Property({
+          validators: [
+            { type: 'required', message: 'Name is required' },
+            { type: 'minLength', value: 3 }
+          ]
+        })
+        name: string;
+      }
+
+      const validationRules = MetadataUtils.getValidationRules(TestClass.prototype, 'name');
+      
+      expect(validationRules).toHaveLength(2);
+      expect(validationRules[0].type).toBe('required');
+      expect(validationRules[0].message).toBe('Name is required');
+      expect(validationRules[1].type).toBe('minLength');
+      expect(validationRules[1].value).toBe(3);
+    });
+
+    it('should store serialization metadata', () => {
+      class TestClass {
+        @Property({ serializable: true, alias: 'fullName' })
+        name: string;
+
+        @Property({ serializable: false })
+        private secret: string;
+      }
+
+      const serializationMeta = MetadataUtils.getSerializationMetadata(TestClass.prototype);
+      
+      expect(serializationMeta.name).toBeDefined();
+      expect(serializationMeta.name.alias).toBe('fullName');
+      expect(serializationMeta.name.serializable).toBe(true);
+      
+      expect(serializationMeta.secret).toBeDefined();
+      expect(serializationMeta.secret.serializable).toBe(false);
+    });
+  });
+
+  describe('@Method decorator', () => {
+    it('should store method metadata with parameter types', () => {
+      class TestClass {
+        @Method()
+        testMethod(arg1: string, arg2: number): boolean {
+          return true;
+        }
+      }
+
+      const methods = MetadataUtils.getMethodMetadata(TestClass.prototype);
+      
+      expect(methods).toHaveLength(1);
+      expect(methods[0].key).toBe('testMethod');
+      expect(methods[0].parameterTypes).toEqual([String, Number]);
+      expect(methods[0].returnType).toBe(Boolean);
+    });
+
+    it('should apply validation to method calls', async () => {
+      class TestClass {
+        @Method({
+          validators: [
+            { type: 'required', message: 'First parameter required' }
+          ]
+        })
+        async testMethod(arg1: string): Promise<string> {
+          return `Hello ${arg1}`;
+        }
+      }
+
+      const instance = new TestClass();
+      
+      // Valid call
+      const result = await instance.testMethod('World');
+      expect(result).toBe('Hello World');
+
+      // Invalid call
+      await expect(instance.testMethod(null as any))
+        .rejects.toThrow(ValidationError);
+    });
+
+    it('should apply middleware to method calls', async () => {
+      const middlewareSpy = jest.fn();
+      
+      class TestClass {
+        @Method({
+          middleware: [middlewareSpy]
+        })
+        async testMethod(): Promise<string> {
+          return 'result';
+        }
+      }
+
+      const instance = new TestClass();
+      await instance.testMethod();
+      
+      expect(middlewareSpy).toHaveBeenCalledWith(
+        instance,
+        'testMethod',
+        expect.any(Object)
+      );
+    });
+
+    it('should handle method timeout', async () => {
+      class TestClass {
+        @Method({ timeout: 100 })
+        async slowMethod(): Promise<string> {
+          await new Promise(resolve => setTimeout(resolve, 200));
+          return 'slow result';
+        }
+      }
+
+      const instance = new TestClass();
+      
+      await expect(instance.slowMethod())
+        .rejects.toThrow('Method timeout');
+    });
+
+    it('should store execution metadata', async () => {
+      class TestClass {
+        @Method()
+        async testMethod(): Promise<string> {
+          return 'result';
+        }
+      }
+
+      const instance = new TestClass();
+      await instance.testMethod();
+      await instance.testMethod();
+
+      const executionMeta = Reflect.getMetadata('execution:testMethod', instance);
+      
+      expect(executionMeta).toBeDefined();
+      expect(executionMeta.callCount).toBe(2);
+      expect(executionMeta.lastCalled).toBeCloseTo(Date.now(), -2);
+      expect(executionMeta.executionTime).toBeGreaterThan(0);
+    });
+  });
+
+  describe('@Inject decorator', () => {
+    it('should store injection tokens for parameters', () => {
+      const TOKEN1 = Symbol('token1');
+      const TOKEN2 = Symbol('token2');
+
+      class TestClass {
+        constructor(
+          @Inject(TOKEN1) dep1: any,
+          @Inject(TOKEN2) dep2: any,
+          dep3: string
+        ) {}
+      }
+
+      const tokens = Reflect.getMetadata('inject:tokens', TestClass);
+      const parameterMeta = Reflect.getMetadata(Symbol('parameter_metadata'), TestClass);
+      
+      expect(tokens[0]).toBe(TOKEN1);
+      expect(tokens[1]).toBe(TOKEN2);
+      expect(tokens[2]).toBeUndefined();
+    });
+  });
+
+  describe('MetadataUtils', () => {
+    it('should retrieve all metadata keys', () => {
+      @Injectable()
+      class TestClass {
+        @Property()
+        prop: string;
+
+        @Method()
+        method(): void {}
+      }
+
+      const keys = MetadataUtils.getAllMetadataKeys(TestClass);
+      expect(keys.length).toBeGreaterThan(0);
+    });
+
+    it('should clone metadata between objects', () => {
+      @Injectable()
+      class SourceClass {
+        @Property({ required: true })
+        prop: string;
+      }
+
+      class TargetClass {}
+
+      MetadataUtils.cloneMetadata(SourceClass.prototype, TargetClass.prototype);
+      
+      const sourceProps = MetadataUtils.getPropertyMetadata(SourceClass.prototype);
+      const targetProps = MetadataUtils.getPropertyMetadata(TargetClass.prototype);
+      
+      expect(targetProps).toEqual(sourceProps);
+    });
+  });
+
+  describe('Container (Dependency Injection)', () => {
+    let container: Container;
+
+    beforeEach(() => {
+      container = new Container();
+    });
+
+    it('should resolve simple dependencies', () => {
+      @Injectable()
+      class Service {}
+
+      container.register('Service', Service);
+      const instance = container.resolve('Service');
+      
+      expect(instance).toBeInstanceOf(Service);
+    });
+
+    it('should resolve nested dependencies', () => {
+      @Injectable()
+      class DependencyService {}
+
+      @Injectable()
+      class MainService {
+        constructor(@Inject('DependencyService') public dep: DependencyService) {}
+      }
+
+      container.register('DependencyService', DependencyService);
+      container.register('MainService', MainService);
+      
+      const instance = container.resolve<MainService>('MainService');
+      
+      expect(instance).toBeInstanceOf(MainService);
+      expect(instance.dep).toBeInstanceOf(DependencyService);
+    });
+
+    it('should respect singleton behavior', () => {
+      @Injectable({ singleton: true })
+      class SingletonService {}
+
+      container.register('SingletonService', SingletonService);
+      
+      const instance1 = container.resolve('SingletonService');
+      const instance2 = container.resolve('SingletonService');
+      
+      expect(instance1).toBe(instance2);
+    });
+
+    it('should handle transient instances', () => {
+      @Injectable({ singleton: false })
+      class TransientService {}
+
+      container.register('TransientService', TransientService);
+      
+      const instance1 = container.resolve('TransientService');
+      const instance2 = container.resolve('TransientService');
+      
+      expect(instance1).not.toBe(instance2);
+      expect(instance1).toBeInstanceOf(TransientService);
+      expect(instance2).toBeInstanceOf(TransientService);
+    });
+  });
+
+  describe('Serializer', () => {
+    it('should serialize objects based on metadata', () => {
+      class TestClass {
+        @Property({ serializable: true, alias: 'fullName' })
+        name: string = 'John Doe';
+
+        @Property({ serializable: false })
+        private secret: string = 'secret';
+
+        @Property({ serializable: true })
+        age: number = 30;
+      }
+
+      const instance = new TestClass();
+      const serialized = Serializer.serialize(instance);
+      
+      expect(serialized).toEqual({
+        fullName: 'John Doe',
+        age: 30
+      });
+      expect(serialized.secret).toBeUndefined();
+    });
+
+    it('should deserialize objects to class instances', () => {
+      class TestClass {
+        @Property({ serializable: true, alias: 'fullName' })
+        name: string;
+
+        @Property({ serializable: true })
+        age: number;
+      }
+
+      const data = { fullName: 'Jane Doe', age: 25 };
+      const instance = Serializer.deserialize(data, TestClass);
+      
+      expect(instance).toBeInstanceOf(TestClass);
+      expect(instance.name).toBe('Jane Doe');
+      expect(instance.age).toBe(25);
+    });
+
+    it('should handle Date serialization/deserialization', () => {
+      class TestClass {
+        @Property({ serializable: true, type: Date })
+        createdAt: Date = new Date('2023-01-01');
+      }
+
+      const instance = new TestClass();
+      const serialized = Serializer.serialize(instance);
+      const deserialized = Serializer.deserialize(serialized, TestClass);
+      
+      expect(serialized.createdAt).toBe('2023-01-01T00:00:00.000Z');
+      expect(deserialized.createdAt).toBeInstanceOf(Date);
+      expect(deserialized.createdAt.getTime()).toBe(instance.createdAt.getTime());
+    });
+  });
+
+  describe('Integration Tests', () => {
+    it('should work with complex class hierarchies', () => {
+      @Injectable()
+      class BaseService {
+        @Property({ required: true })
+        baseProperty: string;
+
+        @Method()
+        baseMethod(): string {
+          return 'base';
+        }
+      }
+
+      @Injectable()
+      class ExtendedService extends BaseService {
+        @Property({ required: true })
+        extendedProperty: string;
+
+        @Method()
+        extendedMethod(): string {
+          return 'extended';
+        }
+      }
+
+      const baseProps = MetadataUtils.getPropertyMetadata(BaseService.prototype);
+      const extendedProps = MetadataUtils.getPropertyMetadata(ExtendedService.prototype);
+      
+      expect(baseProps).toHaveLength(1);
+      expect(extendedProps).toHaveLength(1);
+      
+      const baseMethods = MetadataUtils.getMethodMetadata(BaseService.prototype);
+      const extendedMethods = MetadataUtils.getMethodMetadata(ExtendedService.prototype);
+      
+      expect(baseMethods).toHaveLength(1);
+      expect(extendedMethods).toHaveLength(1);
+    });
+
+    it('should handle real-world use case with validation and DI', async () => {
+      @Injectable()
+      class Logger {
+        log(message: string): void {
+          console.log(message);
+        }
+      }
+
+      @Injectable()
+      class UserService {
+        constructor(@Inject('Logger') private logger: Logger) {}
+
+        @Method({
+          validators: [
+            { type: 'required', message: 'Email is required' },
+            { type: 'pattern', value: /\S+@\S+\.\S+/, message: 'Invalid email format' }
+          ]
+        })
+        async createUser(email: string): Promise<{ id: string; email: string }> {
+          this.logger.log(`Creating user with email: ${email}`);
+          return { id: '123', email };
+        }
+      }
+
+      const container = new Container();
+      container.register('Logger', Logger);
+      container.register('UserService', UserService);
+      
+      const userService = container.resolve<UserService>('UserService');
+      
+      // Valid case
+      const user = await userService.createUser('test@example.com');
+      expect(user.email).toBe('test@example.com');
+
+      // Invalid case
+      await expect(userService.createUser('invalid-email'))
+        .rejects.toThrow(ValidationError);
+    });
+  });
+});]]></correct-example>
+          <incorrect-example title="Poor testing without metadata validation" conditions="Testing decorators and metadata" expected-result="Comprehensive metadata testing" incorrectness-criteria="No metadata validation, poor test coverage, no integration tests, missing error cases"><![CDATA[// BAD: Poor reflect-metadata testing
+
+describe('Bad Decorator Tests', () => {
+  
+  // No proper setup
+  // No metadata validation
+  
+  it('should decorate class', () => {
+    @Injectable()
+    class TestService {}
+    
+    expect(TestService).toBeDefined();
+    // No metadata assertions
+    // No validation of decorator behavior
+  });
+
+  // No parameter testing
+  // No method decorator testing
+  // No integration testing
+  // No error case testing
+  // No type safety validation
+  
+  it('should work', () => {
+    const result = 'something';
+    expect(result).toBe('something');
+    // Meaningless test
+  });
+});]]></incorrect-example>
+        </example>
+      </examples>
+    </requirement>
+  </requirements>
+  
+  <context description="Reflect-metadata development considerations">
+    Reflect-metadata is a polyfill for the Metadata Reflection API that enables powerful metaprogramming capabilities in TypeScript. It works in conjunction with TypeScript decorators to provide design-time type information at runtime, enabling dependency injection, validation, serialization, and ORM patterns.
+
+    Key considerations include:
+    - Proper polyfill import and TypeScript decorator configuration
+    - Type-safe metadata manipulation using symbols as keys
+    - Performance considerations for metadata storage and retrieval
+    - Integration with TypeScript's experimental decorator support
+    - Comprehensive testing of decorator behavior and metadata persistence
+    - Error handling for metadata operations and validation scenarios
+
+    Reflect-metadata is commonly used in frameworks like Angular, NestJS, TypeORM, and class-validator, providing the foundation for sophisticated metaprogramming patterns in enterprise TypeScript applications.
+  </context>
+  
+  <references>
+    <reference as="dependency" href=".cursor/rules/000-core/002-cursor-rules-creation.mdc" reason="Follows standard rule format">Base rule format definition</reference>
+    <reference as="context" href="https://www.npmjs.com/package/reflect-metadata" reason="Official package documentation">Reflect-Metadata Package</reference>
+    <reference as="context" href="https://github.com/Microsoft/TypeScript/issues/2577" reason="TypeScript decorator proposal">TypeScript Decorators</reference>
+  </references>
+</rule>

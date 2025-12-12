@@ -1,0 +1,930 @@
+---
+description: Comprehensive TypeScript execution standards with tsx runtime optimization, development workflow enhancement, and performance best practices for modern TypeScript development
+globs: ["*.{ts,tsx}"]
+alwaysApply: false
+---
+
+<rule>
+  <meta>
+    <title>TSX Core Standards Auto</title>
+    <description>Comprehensive TypeScript execution standards with tsx runtime optimization, development workflow enhancement, and performance best practices for modern TypeScript development</description>
+    <created-at utc-timestamp="1744255480">January 27, 2025, 2:24 PM</created-at>
+    <last-updated-at utc-timestamp="1744255480">January 27, 2025, 2:24 PM</last-updated-at>
+    <applies-to>
+      <file-matcher glob="*.{ts,tsx}">TypeScript and TSX files</file-matcher>
+      <action-matcher action="tsx-execution">Triggered when configuring tsx for TypeScript execution</action-matcher>
+    </applies-to>
+  </meta>
+  <requirements>
+    <non-negotiable priority="critical">
+      <description>Use tsx with optimized TypeScript execution, proper configuration for development workflows, and comprehensive integration with modern TypeScript tooling following expert best practices.</description>
+      <examples>
+        <example title="Modern TSX Configuration">
+          <correct-example title="Comprehensive tsx setup with optimization" conditions="Setting up tsx for TypeScript execution" expected-result="Optimized tsx development environment" correctness-criteria="Uses modern tsx, proper configuration, development workflow optimization, performance tuning"><![CDATA[// package.json - Modern tsx configuration
+{
+  "name": "tsx-project",
+  "version": "1.0.0",
+  "type": "module",
+  "scripts": {
+    // Development execution with tsx
+    "dev": "tsx watch src/index.ts",
+    "dev:debug": "tsx --inspect watch src/index.ts",
+    "dev:node": "tsx --conditions=development src/index.ts",
+    
+    // Production execution
+    "start": "node dist/index.js",
+    "start:tsx": "tsx src/index.ts",
+    
+    // Build and type checking
+    "build": "tsc",
+    "build:watch": "tsc --watch",
+    "type-check": "tsc --noEmit",
+    "type-check:watch": "tsc --noEmit --watch",
+    
+    // Testing with tsx
+    "test": "tsx --test src/**/*.test.ts",
+    "test:watch": "tsx --test --watch src/**/*.test.ts",
+    "test:coverage": "c8 tsx --test src/**/*.test.ts",
+    
+    // Linting and formatting
+    "lint": "eslint src --ext .ts,.tsx",
+    "lint:fix": "eslint src --ext .ts,.tsx --fix",
+    "format": "prettier --write src",
+    
+    // Development utilities
+    "clean": "rm -rf dist",
+    "reset": "npm run clean && npm install",
+    
+    // Scripts execution
+    "script": "tsx scripts/",
+    "build-script": "tsx scripts/build.ts",
+    "deploy-script": "tsx scripts/deploy.ts",
+    
+    // Development server integration
+    "dev:api": "tsx --watch src/server.ts",
+    "dev:web": "tsx --watch src/app.tsx",
+    "dev:full": "concurrently \"npm run dev:api\" \"npm run dev:web\""
+  },
+  "dependencies": {
+    "tsx": "^4.6.0",
+    "typescript": "^5.3.0"
+  },
+  "devDependencies": {
+    "@types/node": "^20.10.0",
+    "c8": "^8.0.0",
+    "concurrently": "^8.2.0",
+    "eslint": "^8.55.0",
+    "prettier": "^3.1.0"
+  }
+}
+
+// tsconfig.json - TSX-optimized TypeScript configuration
+{
+  "compilerOptions": {
+    // Target modern Node.js for tsx
+    "target": "ES2022",
+    "module": "ESNext",
+    "moduleResolution": "bundler",
+    "lib": ["ES2022"],
+    
+    // Enable modern features
+    "allowImportingTsExtensions": true,
+    "allowSyntheticDefaultImports": true,
+    "esModuleInterop": true,
+    "forceConsistentCasingInFileNames": true,
+    "isolatedModules": true,
+    "skipLibCheck": true,
+    "strict": true,
+    
+    // Output configuration
+    "outDir": "./dist",
+    "rootDir": "./src",
+    "sourceMap": true,
+    "declaration": true,
+    "declarationMap": true,
+    
+    // Path mapping for tsx
+    "baseUrl": ".",
+    "paths": {
+      "@/*": ["./src/*"],
+      "@utils/*": ["./src/utils/*"],
+      "@types/*": ["./src/types/*"],
+      "@config/*": ["./src/config/*"]
+    },
+    
+    // Advanced options for tsx
+    "experimentalDecorators": true,
+    "emitDecoratorMetadata": true,
+    "useDefineForClassFields": true,
+    
+    // Strict type checking
+    "noImplicitAny": true,
+    "noImplicitReturns": true,
+    "noImplicitThis": true,
+    "noUnusedLocals": true,
+    "noUnusedParameters": true,
+    "exactOptionalPropertyTypes": true,
+    "noFallthroughCasesInSwitch": true,
+    "noUncheckedIndexedAccess": true
+  },
+  "include": [
+    "src/**/*",
+    "scripts/**/*",
+    "tests/**/*"
+  ],
+  "exclude": [
+    "node_modules",
+    "dist",
+    "**/*.js"
+  ],
+  "ts-node": {
+    "esm": true,
+    "experimentalSpecifierResolution": "node"
+  }
+}
+
+// src/index.ts - Example TypeScript entry point
+import { createServer } from './server';
+import { loadConfig } from './config';
+import { logger } from './utils/logger';
+
+async function main() {
+  try {
+    const config = await loadConfig();
+    const server = await createServer(config);
+    
+    await server.listen({ port: config.port, host: config.host });
+    logger.info(`Server running on http://${config.host}:${config.port}`);
+  } catch (error) {
+    logger.error('Failed to start server:', error);
+    process.exit(1);
+  }
+}
+
+// Execute with proper error handling
+if (import.meta.url === `file://${process.argv[1]}`) {
+  main().catch((error) => {
+    console.error('Unhandled error:', error);
+    process.exit(1);
+  });
+}
+
+// scripts/dev.ts - Development script with tsx
+#!/usr/bin/env tsx
+
+import { spawn } from 'child_process';
+import { watch } from 'chokidar';
+import { resolve } from 'path';
+
+interface DevServerOptions {
+  port: number;
+  host: string;
+  watch: boolean;
+  inspect: boolean;
+}
+
+class DevServer {
+  private options: DevServerOptions;
+  private serverProcess: any = null;
+  
+  constructor(options: Partial<DevServerOptions> = {}) {
+    this.options = {
+      port: 3000,
+      host: 'localhost',
+      watch: true,
+      inspect: false,
+      ...options,
+    };
+  }
+  
+  async start() {
+    console.log('🚀 Starting development server with tsx...');
+    
+    await this.startServer();
+    
+    if (this.options.watch) {
+      this.setupWatcher();
+    }
+    
+    // Handle graceful shutdown
+    process.on('SIGINT', () => this.stop());
+    process.on('SIGTERM', () => this.stop());
+  }
+  
+  private async startServer() {
+    const args = ['src/index.ts'];
+    
+    if (this.options.inspect) {
+      args.unshift('--inspect');
+    }
+    
+    this.serverProcess = spawn('tsx', args, {
+      stdio: 'inherit',
+      env: {
+        ...process.env,
+        NODE_ENV: 'development',
+        PORT: this.options.port.toString(),
+        HOST: this.options.host,
+      },
+    });
+    
+    this.serverProcess.on('exit', (code: number) => {
+      if (code !== 0) {
+        console.error(`Server exited with code ${code}`);
+      }
+    });
+  }
+  
+  private setupWatcher() {
+    const watcher = watch('src/**/*.{ts,tsx}', {
+      ignored: /node_modules/,
+      persistent: true,
+    });
+    
+    watcher.on('change', (path) => {
+      console.log(`📝 File changed: ${path}`);
+      this.restart();
+    });
+    
+    console.log('👀 Watching for file changes...');
+  }
+  
+  private restart() {
+    console.log('🔄 Restarting server...');
+    
+    if (this.serverProcess) {
+      this.serverProcess.kill();
+    }
+    
+    setTimeout(() => {
+      this.startServer();
+    }, 100);
+  }
+  
+  private stop() {
+    console.log('\n🛑 Stopping development server...');
+    
+    if (this.serverProcess) {
+      this.serverProcess.kill();
+    }
+    
+    process.exit(0);
+  }
+}
+
+// CLI execution
+if (import.meta.url === `file://${process.argv[1]}`) {
+  const devServer = new DevServer({
+    port: parseInt(process.env.PORT || '3000'),
+    host: process.env.HOST || 'localhost',
+    inspect: process.argv.includes('--inspect'),
+  });
+  
+  devServer.start().catch(console.error);
+}
+
+// scripts/build.ts - Build script with tsx
+#!/usr/bin/env tsx
+
+import { execSync } from 'child_process';
+import { rmSync, existsSync } from 'fs';
+import { performance } from 'perf_hooks';
+
+interface BuildOptions {
+  clean: boolean;
+  watch: boolean;
+  sourcemap: boolean;
+  minify: boolean;
+}
+
+class Builder {
+  private options: BuildOptions;
+  
+  constructor(options: Partial<BuildOptions> = {}) {
+    this.options = {
+      clean: true,
+      watch: false,
+      sourcemap: true,
+      minify: false,
+      ...options,
+    };
+  }
+  
+  async build() {
+    console.log('🏗️  Building TypeScript project...');
+    
+    const startTime = performance.now();
+    
+    try {
+      if (this.options.clean) {
+        await this.clean();
+      }
+      
+      await this.typeCheck();
+      await this.compile();
+      
+      const endTime = performance.now();
+      const duration = Math.round(endTime - startTime);
+      
+      console.log(`✅ Build completed in ${duration}ms`);
+    } catch (error) {
+      console.error('❌ Build failed:', error);
+      process.exit(1);
+    }
+  }
+  
+  private async clean() {
+    console.log('🧹 Cleaning dist directory...');
+    
+    if (existsSync('dist')) {
+      rmSync('dist', { recursive: true, force: true });
+    }
+  }
+  
+  private async typeCheck() {
+    console.log('🔍 Type checking...');
+    
+    try {
+      execSync('tsc --noEmit', { stdio: 'inherit' });
+      console.log('✅ Type check passed');
+    } catch (error) {
+      throw new Error('Type check failed');
+    }
+  }
+  
+  private async compile() {
+    console.log('📦 Compiling TypeScript...');
+    
+    const args = ['tsc'];
+    
+    if (this.options.watch) {
+      args.push('--watch');
+    }
+    
+    if (!this.options.sourcemap) {
+      args.push('--sourceMap', 'false');
+    }
+    
+    try {
+      execSync(args.join(' '), { stdio: 'inherit' });
+      console.log('✅ Compilation completed');
+    } catch (error) {
+      throw new Error('Compilation failed');
+    }
+  }
+}
+
+// CLI execution
+if (import.meta.url === `file://${process.argv[1]}`) {
+  const builder = new Builder({
+    clean: !process.argv.includes('--no-clean'),
+    watch: process.argv.includes('--watch'),
+    sourcemap: !process.argv.includes('--no-sourcemap'),
+    minify: process.argv.includes('--minify'),
+  });
+  
+  builder.build().catch(console.error);
+}
+
+// .tsx.config.js - TSX configuration file
+export default {
+  // TSX execution options
+  loader: 'tsx',
+  
+  // TypeScript options
+  typescript: {
+    project: './tsconfig.json',
+    compilerOptions: {
+      target: 'ES2022',
+      module: 'ESNext',
+      moduleResolution: 'bundler',
+    },
+  },
+  
+  // Development options
+  development: {
+    watch: true,
+    inspect: false,
+    sourcemap: true,
+  },
+  
+  // Performance options
+  performance: {
+    cache: true,
+    parallel: true,
+  },
+  
+  // Path resolution
+  paths: {
+    '@': './src',
+    '@utils': './src/utils',
+    '@types': './src/types',
+  },
+};
+
+// Dockerfile - Production build with tsx
+FROM node:18-alpine AS builder
+
+WORKDIR /app
+
+# Copy package files
+COPY package*.json ./
+COPY tsconfig.json ./
+
+# Install dependencies
+RUN npm ci --only=production
+
+# Copy source code
+COPY src/ ./src/
+
+# Build with tsx
+RUN npx tsx scripts/build.ts
+
+# Production image
+FROM node:18-alpine AS production
+
+WORKDIR /app
+
+# Copy built application
+COPY --from=builder /app/dist ./dist
+COPY --from=builder /app/package*.json ./
+
+# Install production dependencies
+RUN npm ci --only=production && npm cache clean --force
+
+# Run application
+CMD ["node", "dist/index.js"]
+
+# For development with tsx
+FROM node:18-alpine AS development
+
+WORKDIR /app
+
+# Copy package files
+COPY package*.json ./
+COPY tsconfig.json ./
+
+# Install all dependencies
+RUN npm ci
+
+# Copy source code
+COPY src/ ./src/
+COPY scripts/ ./scripts/
+
+# Use tsx for development
+CMD ["tsx", "watch", "src/index.ts"]]]></correct-example>
+          <incorrect-example title="Basic tsx usage without optimization" conditions="Setting up tsx for TypeScript execution" expected-result="Optimized tsx development environment" incorrectness-criteria="Missing configuration, poor development workflow, no performance optimization"><![CDATA[// package.json - Basic tsx setup
+{
+  "scripts": {
+    "dev": "tsx src/index.ts",
+    "build": "tsc"
+  },
+  "dependencies": {
+    "tsx": "^4.0.0"
+  }
+}
+
+// Missing:
+// - Watch mode configuration
+// - Development workflow optimization
+// - TypeScript configuration
+// - Testing integration
+// - Build scripts
+// - Performance tuning]]></incorrect-example>
+        </example>
+      </examples>
+    </non-negotiable>
+
+    <requirement priority="critical">
+      <description>Configure tsx with performance optimization, development workflow enhancement, and comprehensive integration with modern TypeScript tooling and testing frameworks.</description>
+      <examples>
+        <example title="TSX Performance and Workflow Optimization">
+          <correct-example title="Advanced tsx configuration for development" conditions="Optimizing tsx for development workflows" expected-result="High-performance tsx development setup" correctness-criteria="Uses performance optimization, workflow automation, testing integration, monitoring"><![CDATA[// scripts/tsx-performance-monitor.ts
+#!/usr/bin/env tsx
+
+import { performance } from 'perf_hooks';
+import { execSync } from 'child_process';
+import { writeFileSync } from 'fs';
+
+interface PerformanceMetrics {
+  executionTime: number;
+  memoryUsage: NodeJS.MemoryUsage;
+  compilationTime?: number;
+  typeCheckTime?: number;
+}
+
+class TSXPerformanceMonitor {
+  private metrics: PerformanceMetrics[] = [];
+  
+  async measureExecution(command: string, description: string): Promise<PerformanceMetrics> {
+    console.log(`📊 Measuring: ${description}`);
+    
+    const startTime = performance.now();
+    const startMemory = process.memoryUsage();
+    
+    try {
+      execSync(command, { stdio: 'pipe' });
+      
+      const endTime = performance.now();
+      const endMemory = process.memoryUsage();
+      
+      const metrics: PerformanceMetrics = {
+        executionTime: endTime - startTime,
+        memoryUsage: {
+          rss: endMemory.rss - startMemory.rss,
+          heapUsed: endMemory.heapUsed - startMemory.heapUsed,
+          heapTotal: endMemory.heapTotal - startMemory.heapTotal,
+          external: endMemory.external - startMemory.external,
+          arrayBuffers: endMemory.arrayBuffers - startMemory.arrayBuffers,
+        },
+      };
+      
+      this.metrics.push(metrics);
+      console.log(`✅ ${description}: ${Math.round(metrics.executionTime)}ms`);
+      
+      return metrics;
+    } catch (error) {
+      console.error(`❌ ${description} failed:`, error);
+      throw error;
+    }
+  }
+  
+  async runPerformanceTests() {
+    console.log('🚀 Running TSX performance tests...');
+    
+    const tests = [
+      {
+        command: 'tsx --version',
+        description: 'TSX version check',
+      },
+      {
+        command: 'tsx src/index.ts',
+        description: 'Simple script execution',
+      },
+      {
+        command: 'tsx scripts/build.ts',
+        description: 'Build script execution',
+      },
+      {
+        command: 'tsx --test src/**/*.test.ts',
+        description: 'Test execution',
+      },
+    ];
+    
+    for (const test of tests) {
+      try {
+        await this.measureExecution(test.command, test.description);
+      } catch (error) {
+        console.error(`Test failed: ${test.description}`);
+      }
+    }
+    
+    this.generateReport();
+  }
+  
+  private generateReport() {
+    const report = {
+      timestamp: new Date().toISOString(),
+      nodeVersion: process.version,
+      platform: process.platform,
+      arch: process.arch,
+      metrics: this.metrics,
+      summary: {
+        totalTests: this.metrics.length,
+        averageExecutionTime: this.metrics.reduce((sum, m) => sum + m.executionTime, 0) / this.metrics.length,
+        totalMemoryUsed: this.metrics.reduce((sum, m) => sum + m.memoryUsage.heapUsed, 0),
+      },
+    };
+    
+    writeFileSync('.tsx-performance.json', JSON.stringify(report, null, 2));
+    
+    console.log('\n📋 Performance Report:');
+    console.log(`   Total tests: ${report.summary.totalTests}`);
+    console.log(`   Average execution: ${Math.round(report.summary.averageExecutionTime)}ms`);
+    console.log(`   Memory used: ${Math.round(report.summary.totalMemoryUsed / 1024 / 1024)}MB`);
+  }
+}
+
+// CLI execution
+if (import.meta.url === `file://${process.argv[1]}`) {
+  const monitor = new TSXPerformanceMonitor();
+  monitor.runPerformanceTests().catch(console.error);
+}
+
+// scripts/tsx-dev-server.ts - Advanced development server
+#!/usr/bin/env tsx
+
+import { createServer } from 'http';
+import { spawn, ChildProcess } from 'child_process';
+import { watch } from 'chokidar';
+import { WebSocket, WebSocketServer } from 'ws';
+
+interface DevServerConfig {
+  entry: string;
+  port: number;
+  wsPort: number;
+  watch: string[];
+  ignore: string[];
+  env: Record<string, string>;
+}
+
+class TSXDevServer {
+  private config: DevServerConfig;
+  private appProcess: ChildProcess | null = null;
+  private wsServer: WebSocketServer;
+  private clients: Set<WebSocket> = new Set();
+  
+  constructor(config: Partial<DevServerConfig> = {}) {
+    this.config = {
+      entry: 'src/index.ts',
+      port: 3000,
+      wsPort: 3001,
+      watch: ['src/**/*.{ts,tsx}'],
+      ignore: ['node_modules/**', 'dist/**'],
+      env: {},
+      ...config,
+    };
+    
+    this.wsServer = new WebSocketServer({ port: this.config.wsPort });
+    this.setupWebSocket();
+  }
+  
+  async start() {
+    console.log('🚀 Starting TSX development server...');
+    
+    await this.startApp();
+    this.setupWatcher();
+    
+    console.log(`📡 WebSocket server running on port ${this.config.wsPort}`);
+    console.log(`👀 Watching: ${this.config.watch.join(', ')}`);
+    
+    // Handle graceful shutdown
+    process.on('SIGINT', () => this.stop());
+    process.on('SIGTERM', () => this.stop());
+  }
+  
+  private async startApp() {
+    if (this.appProcess) {
+      this.appProcess.kill();
+    }
+    
+    console.log(`▶️  Starting: tsx ${this.config.entry}`);
+    
+    this.appProcess = spawn('tsx', [this.config.entry], {
+      stdio: 'inherit',
+      env: {
+        ...process.env,
+        ...this.config.env,
+        NODE_ENV: 'development',
+        TSX_WATCH: 'true',
+      },
+    });
+    
+    this.appProcess.on('exit', (code) => {
+      if (code !== 0) {
+        console.error(`❌ App exited with code ${code}`);
+        this.broadcast({ type: 'error', message: `App crashed with code ${code}` });
+      }
+    });
+    
+    this.appProcess.on('error', (error) => {
+      console.error('❌ App error:', error);
+      this.broadcast({ type: 'error', message: error.message });
+    });
+  }
+  
+  private setupWatcher() {
+    const watcher = watch(this.config.watch, {
+      ignored: this.config.ignore,
+      persistent: true,
+      ignoreInitial: true,
+    });
+    
+    let restartTimeout: NodeJS.Timeout;
+    
+    watcher.on('change', (path) => {
+      console.log(`📝 File changed: ${path}`);
+      
+      // Debounce restarts
+      clearTimeout(restartTimeout);
+      restartTimeout = setTimeout(() => {
+        this.restart();
+      }, 100);
+    });
+    
+    watcher.on('error', (error) => {
+      console.error('👀 Watcher error:', error);
+    });
+  }
+  
+  private setupWebSocket() {
+    this.wsServer.on('connection', (ws) => {
+      console.log('🔌 Client connected');
+      this.clients.add(ws);
+      
+      ws.on('close', () => {
+        console.log('🔌 Client disconnected');
+        this.clients.delete(ws);
+      });
+      
+      // Send initial status
+      ws.send(JSON.stringify({ type: 'connected', message: 'TSX dev server connected' }));
+    });
+  }
+  
+  private broadcast(message: any) {
+    const data = JSON.stringify(message);
+    this.clients.forEach((client) => {
+      if (client.readyState === WebSocket.OPEN) {
+        client.send(data);
+      }
+    });
+  }
+  
+  private async restart() {
+    console.log('🔄 Restarting application...');
+    
+    this.broadcast({ type: 'restart', message: 'Restarting application...' });
+    
+    const startTime = performance.now();
+    await this.startApp();
+    const duration = performance.now() - startTime;
+    
+    console.log(`✅ Restart completed in ${Math.round(duration)}ms`);
+    this.broadcast({ 
+      type: 'ready', 
+      message: `Restart completed in ${Math.round(duration)}ms` 
+    });
+  }
+  
+  private stop() {
+    console.log('\n🛑 Stopping TSX development server...');
+    
+    if (this.appProcess) {
+      this.appProcess.kill();
+    }
+    
+    this.wsServer.close();
+    process.exit(0);
+  }
+}
+
+// CLI execution
+if (import.meta.url === `file://${process.argv[1]}`) {
+  const devServer = new TSXDevServer({
+    entry: process.argv[2] || 'src/index.ts',
+    port: parseInt(process.env.PORT || '3000'),
+    env: {
+      PORT: process.env.PORT || '3000',
+      NODE_ENV: 'development',
+    },
+  });
+  
+  devServer.start().catch(console.error);
+}
+
+// GitHub Actions workflow for TSX
+name: TSX CI/CD
+on:
+  push:
+    branches: [main, develop]
+  pull_request:
+    branches: [main]
+
+jobs:
+  test-tsx:
+    runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        node-version: [18, 20]
+    
+    steps:
+      - uses: actions/checkout@v4
+      
+      - name: Setup Node.js ${{ matrix.node-version }}
+        uses: actions/setup-node@v4
+        with:
+          node-version: ${{ matrix.node-version }}
+          cache: 'npm'
+      
+      - run: npm ci
+      
+      # Type checking with tsx
+      - name: Type check
+        run: npm run type-check
+      
+      # Run tests with tsx
+      - name: Run tests
+        run: npm run test
+      
+      # Performance testing
+      - name: TSX performance test
+        run: tsx scripts/tsx-performance-monitor.ts
+      
+      # Build verification
+      - name: Build verification
+        run: npm run build
+      
+      # Upload performance artifacts
+      - name: Upload performance report
+        uses: actions/upload-artifact@v3
+        if: always()
+        with:
+          name: tsx-performance-${{ matrix.node-version }}
+          path: .tsx-performance.json
+
+# package.json - Complete tsx project setup
+{
+  "name": "tsx-advanced-project",
+  "version": "1.0.0",
+  "type": "module",
+  "scripts": {
+    // Development with tsx
+    "dev": "tsx scripts/tsx-dev-server.ts",
+    "dev:simple": "tsx watch src/index.ts",
+    "dev:debug": "tsx --inspect watch src/index.ts",
+    "dev:profile": "tsx --prof watch src/index.ts",
+    
+    // Production and building
+    "start": "node dist/index.js",
+    "build": "tsx scripts/build.ts",
+    "build:watch": "tsx scripts/build.ts --watch",
+    "clean": "tsx scripts/clean.ts",
+    
+    // Testing with tsx
+    "test": "tsx --test src/**/*.test.ts",
+    "test:watch": "tsx --test --watch src/**/*.test.ts",
+    "test:coverage": "c8 tsx --test src/**/*.test.ts",
+    "test:performance": "tsx scripts/tsx-performance-monitor.ts",
+    
+    // Code quality
+    "lint": "eslint src --ext .ts,.tsx",
+    "lint:fix": "eslint src --ext .ts,.tsx --fix",
+    "format": "prettier --write src",
+    "type-check": "tsc --noEmit",
+    
+    // Utilities
+    "script": "tsx scripts/",
+    "db:migrate": "tsx scripts/db-migrate.ts",
+    "db:seed": "tsx scripts/db-seed.ts",
+    
+    // Monitoring and analysis
+    "analyze": "tsx scripts/analyze.ts",
+    "benchmark": "tsx scripts/benchmark.ts"
+  },
+  "dependencies": {
+    "tsx": "^4.6.0",
+    "typescript": "^5.3.0"
+  },
+  "devDependencies": {
+    "@types/node": "^20.10.0",
+    "@types/ws": "^8.5.0",
+    "c8": "^8.0.0",
+    "chokidar": "^3.5.0",
+    "ws": "^8.14.0",
+    "concurrently": "^8.2.0"
+  }
+}]]></correct-example>
+          <incorrect-example title="Basic tsx usage without optimization" conditions="Optimizing tsx for development workflows" expected-result="High-performance tsx development setup" incorrectness-criteria="Missing performance monitoring, poor workflow integration, no development enhancements"><![CDATA[// package.json - Basic setup
+{
+  "scripts": {
+    "dev": "tsx src/index.ts",
+    "test": "tsx test.ts"
+  }
+}
+
+// Missing:
+// - Watch mode and hot reload
+// - Performance monitoring
+// - Development server integration
+// - Testing framework integration
+// - Build optimization
+// - Workflow automation]]></incorrect-example>
+        </example>
+      </examples>
+    </requirement>
+  </requirements>
+  
+  <context description="Modern tsx development considerations">
+    TSX (TypeScript Execute) has become the go-to tool for executing TypeScript files directly without compilation, especially for development workflows, scripts, and testing. Modern tsx usage emphasizes performance, developer experience, and seamless integration with the TypeScript ecosystem.
+
+    Key considerations for modern tsx usage:
+    - Fast TypeScript execution without compilation step
+    - Seamless integration with Node.js and modern JavaScript features
+    - Watch mode and hot reload capabilities for development workflows
+    - Performance optimization for large TypeScript projects
+    - Testing framework integration with native Node.js test runner
+    - Script automation and development tooling enhancement
+    - Production build optimization and deployment strategies
+
+    Expert insights from the tsx community emphasize the importance of leveraging tsx for development speed while maintaining production build quality, proper configuration for different environments, and integration with modern development workflows.
+  </context>
+  
+  <references>
+    <reference as="dependency" href=".cursor/rules/000-core/002-cursor-rules-creation.mdc" reason="Follows standard rule format">Base rule format definition</reference>
+    <reference as="context" href="https://github.com/esbuild-kit/tsx" reason="Official tsx repository">TSX Official Repository</reference>
+    <reference as="context" href="https://nodejs.org/api/test.html" reason="Node.js testing">Node.js Test Runner Documentation</reference>
+    <reference as="context" href="https://www.typescriptlang.org/docs/" reason="TypeScript documentation">TypeScript Official Documentation</reference>
+    <reference as="context" href="https://esbuild.github.io/" reason="ESBuild documentation">ESBuild Documentation</reference>
+  </references>
+</rule>

@@ -1,0 +1,844 @@
+---
+description: "Comprehensive Ory Kratos identity management standards with user registration, authentication flows, self-service features, security policies, and monitoring following modern identity lifecycle management best practices"
+globs: ["**/kratos/**/*", "**/identity/**/*", "**/self-service/**/*", "**/registration/**/*", "**/login/**/*", "**/recovery/**/*", "**/verification/**/*"]
+alwaysApply: false
+---
+
+<rule>
+  <meta>
+    <title>Ory Kratos Core Standards</title>
+    <description>Comprehensive Ory Kratos identity management standards covering user registration, authentication flows, self-service identity management, progressive profiling, security policies, session management, and production deployment following modern identity lifecycle management and security best practices</description>
+    <created-at utc-timestamp="1744157700">January 25, 2025, 10:15 AM</created-at>
+    <last-updated-at utc-timestamp="1744157700">January 25, 2025, 10:15 AM</last-updated-at>
+    <applies-to>
+      <file-matcher glob="**/kratos/**/*">Ory Kratos configuration and implementation files</file-matcher>
+      <file-matcher glob="**/identity/**/*">Identity management implementation files</file-matcher>
+      <file-matcher glob="**/self-service/**/*">Self-service identity flows implementation</file-matcher>
+      <file-matcher glob="**/registration/**/*">User registration flow files</file-matcher>
+      <file-matcher glob="**/login/**/*">Authentication flow files</file-matcher>
+      <file-matcher glob="**/recovery/**/*">Account recovery flow files</file-matcher>
+      <file-matcher glob="**/verification/**/*">Identity verification flow files</file-matcher>
+      <action-matcher action="identity-management">Triggered when working with Ory Kratos identity management</action-matcher>
+    </applies-to>
+  </meta>
+  <requirements>
+    <non-negotiable priority="critical">
+      <description>Use Ory Kratos with secure identity schemas, comprehensive self-service flows, multi-factor authentication, session management, and production-ready deployment patterns. Implement proper security policies, audit logging, monitoring, and compliance measures with comprehensive error handling and user experience optimization.</description>
+      <examples>
+        <example title="Production Ory Kratos Identity Configuration">
+          <correct-example title="Complete Kratos setup with security and self-service flows" conditions="Deploying production Kratos identity management" expected-result="Secure, user-friendly identity management system" correctness-criteria="Security configuration, self-service flows, MFA, session management, monitoring, compliance"><![CDATA[# Comprehensive Ory Kratos configuration - kratos.yml
+version: v1.0.0
+
+# Database configuration with connection pooling
+dsn: postgres://kratos:${KRATOS_DB_PASSWORD}@postgres:5432/kratos?sslmode=require&max_conns=20&max_idle_conns=4
+
+# Server configuration with security headers
+serve:
+  public:
+    base_url: https://auth.example.com
+    host: 0.0.0.0
+    port: 4433
+    cors:
+      enabled: true
+      allowed_origins:
+        - https://app.example.com
+        - https://admin.example.com
+      allowed_methods:
+        - POST
+        - GET
+        - PUT
+        - PATCH
+        - DELETE
+        - OPTIONS
+      allowed_headers:
+        - Authorization
+        - Content-Type
+        - X-Session-Token
+        - X-CSRF-Token
+      exposed_headers:
+        - Content-Type
+        - Set-Cookie
+        - X-Session-Token
+      allow_credentials: true
+      max_age: 300
+  admin:
+    base_url: http://kratos:4434
+    host: 0.0.0.0
+    port: 4434
+
+# Self-service flow configuration
+selfservice:
+  default_browser_return_url: https://app.example.com/dashboard
+  allowed_return_urls:
+    - https://app.example.com
+    - https://admin.example.com
+    - https://app.example.com/auth/callback
+
+  flows:
+    error:
+      ui_url: https://app.example.com/error
+
+    # Registration flow with comprehensive validation
+    registration:
+      ui_url: https://app.example.com/registration
+      lifespan: 10m
+      enable_legacy_one_step: false
+      after:
+        default_browser_return_url: https://app.example.com/welcome
+        password:
+          hooks:
+            - hook: session
+            - hook: show_verification_ui
+            - hook: require_verified_address
+        oidc:
+          hooks:
+            - hook: session
+            - hook: show_verification_ui
+        webauthn:
+          hooks:
+            - hook: session
+
+    # Login flow with security measures
+    login:
+      ui_url: https://app.example.com/login
+      lifespan: 10m
+      request_lifespan: 1h
+      after:
+        default_browser_return_url: https://app.example.com/dashboard
+        password:
+          hooks:
+            - hook: require_verified_address
+            - hook: revoke_active_sessions
+        oidc:
+          hooks:
+            - hook: revoke_active_sessions
+        webauthn:
+          hooks:
+            - hook: revoke_active_sessions
+
+    # Settings flow for profile management
+    settings:
+      ui_url: https://app.example.com/settings
+      lifespan: 10m
+      privileged_session_max_age: 15m
+      required_aal: highest_available
+      after:
+        default_browser_return_url: https://app.example.com/settings
+        password:
+          hooks:
+            - hook: require_verified_address
+        profile:
+          hooks:
+            - hook: verify_address_if_changed
+
+    # Recovery flow for password reset
+    recovery:
+      enabled: true
+      ui_url: https://app.example.com/recovery
+      lifespan: 1h
+      use: code
+      notify_unknown_recipients: false
+      after:
+        default_browser_return_url: https://app.example.com/recovery/success
+
+    # Verification flow for email/phone verification
+    verification:
+      enabled: true
+      ui_url: https://app.example.com/verification
+      lifespan: 1h
+      use: code
+      notify_unknown_recipients: false
+      after:
+        default_browser_return_url: https://app.example.com/dashboard
+
+    # Logout flow
+    logout:
+      after:
+        default_browser_return_url: https://app.example.com
+
+# Identity schema configuration
+identity:
+  default_schema_id: default
+  schemas:
+    - id: default
+      url: file:///etc/config/kratos/identity.schema.json
+    - id: employee
+      url: file:///etc/config/kratos/employee.schema.json
+    - id: customer
+      url: file:///etc/config/kratos/customer.schema.json
+
+# Session configuration with security settings
+session:
+  lifespan: 24h
+  earliest_possible_extend: 1h
+  cookie:
+    domain: .example.com
+    path: /
+    same_site: Lax
+    persistent: true
+    name: ory_kratos_session
+  whoami:
+    required_aal: aal1
+
+# Security configuration
+secrets:
+  cookie:
+    - ${KRATOS_COOKIE_SECRET}
+  cipher:
+    - ${KRATOS_CIPHER_SECRET}
+
+ciphers:
+  algorithm: xchacha20-poly1305
+
+# Password hashing configuration
+hashers:
+  algorithm: bcrypt
+  bcrypt:
+    cost: 12
+
+# Feature flags for enhanced security
+feature_flags:
+  use_continue_with_transitions: true
+  cacheable_sessions: true
+  use_new_recovery_ui: true
+
+# Courier configuration for email/SMS
+courier:
+  smtp:
+    connection_uri: smtps://${SMTP_USER}:${SMTP_PASS}@${SMTP_HOST}:${SMTP_PORT}
+    from_address: noreply@example.com
+    from_name: "Example App"
+    headers:
+      X-Mailer: "Ory Kratos"
+    local_name: localhost
+  templates:
+    recovery:
+      invalid:
+        email:
+          subject: Account access attempted
+      valid:
+        email:
+          subject: Recover access to your account
+    verification:
+      invalid:
+        email:
+          subject: Account access attempted
+      valid:
+        email:
+          subject: Please verify your email address
+
+# Logging and observability
+log:
+  level: info
+  format: json
+  leak_sensitive_values: false
+
+# Tracing configuration
+tracing:
+  provider: jaeger
+  providers:
+    jaeger:
+      local_agent_address: jaeger:6831
+      sampling:
+        type: const
+        value: 1
+
+# Advanced identity schema - identity.schema.json
+{
+  "$id": "https://schemas.ory.sh/presets/kratos/identity.email.schema.json",
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "title": "User Identity",
+  "type": "object",
+  "properties": {
+    "traits": {
+      "type": "object",
+      "properties": {
+        "email": {
+          "type": "string",
+          "format": "email",
+          "title": "Email Address",
+          "minLength": 3,
+          "maxLength": 320,
+          "ory.sh/kratos": {
+            "credentials": {
+              "password": {
+                "identifier": true
+              },
+              "totp": {
+                "account_name": true
+              },
+              "webauthn": {
+                "identifier": true,
+                "display_name": true
+              },
+              "code": {
+                "identifier": true
+              }
+            },
+            "verification": {
+              "via": "email"
+            },
+            "recovery": {
+              "via": "email"
+            }
+          }
+        },
+        "name": {
+          "type": "object",
+          "properties": {
+            "first": {
+              "title": "First Name",
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 50
+            },
+            "last": {
+              "title": "Last Name", 
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 50
+            },
+            "middle": {
+              "title": "Middle Name",
+              "type": "string",
+              "maxLength": 50
+            }
+          },
+          "required": ["first", "last"],
+          "additionalProperties": false
+        },
+        "phone": {
+          "type": "string",
+          "format": "tel",
+          "title": "Phone Number",
+          "pattern": "^\\+[1-9]\\d{1,14}$"
+        },
+        "organization": {
+          "type": "string",
+          "title": "Organization",
+          "maxLength": 100
+        },
+        "department": {
+          "type": "string",
+          "title": "Department",
+          "maxLength": 50
+        },
+        "role": {
+          "type": "string",
+          "enum": ["user", "admin", "moderator", "viewer"],
+          "title": "Role",
+          "default": "user"
+        },
+        "preferences": {
+          "type": "object",
+          "properties": {
+            "language": {
+              "type": "string",
+              "enum": ["en", "es", "fr", "de", "it"],
+              "default": "en"
+            },
+            "timezone": {
+              "type": "string",
+              "default": "UTC"
+            },
+            "notifications": {
+              "type": "object",
+              "properties": {
+                "email": {
+                  "type": "boolean",
+                  "default": true
+                },
+                "sms": {
+                  "type": "boolean", 
+                  "default": false
+                },
+                "push": {
+                  "type": "boolean",
+                  "default": true
+                }
+              },
+              "additionalProperties": false
+            }
+          },
+          "additionalProperties": false
+        },
+        "metadata": {
+          "type": "object",
+          "properties": {
+            "created_at": {
+              "type": "string",
+              "format": "date-time"
+            },
+            "last_login": {
+              "type": "string",
+              "format": "date-time"
+            },
+            "login_count": {
+              "type": "integer",
+              "minimum": 0
+            },
+            "terms_accepted": {
+              "type": "boolean",
+              "default": false
+            },
+            "privacy_accepted": {
+              "type": "boolean",
+              "default": false
+            }
+          }
+        }
+      },
+      "required": ["email", "name"],
+      "additionalProperties": false
+    }
+  }
+}
+
+# Employee schema - employee.schema.json
+{
+  "$id": "https://schemas.example.com/employee.schema.json",
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "title": "Employee Identity",
+  "type": "object",
+  "properties": {
+    "traits": {
+      "type": "object",
+      "properties": {
+        "email": {
+          "type": "string",
+          "format": "email",
+          "title": "Corporate Email",
+          "pattern": "^[a-zA-Z0-9._%+-]+@example\\.com$",
+          "ory.sh/kratos": {
+            "credentials": {
+              "password": {
+                "identifier": true
+              },
+              "webauthn": {
+                "identifier": true,
+                "display_name": true
+              }
+            },
+            "verification": {
+              "via": "email"
+            },
+            "recovery": {
+              "via": "email"
+            }
+          }
+        },
+        "employee_id": {
+          "type": "string",
+          "title": "Employee ID",
+          "pattern": "^EMP[0-9]{6}$"
+        },
+        "name": {
+          "type": "object",
+          "properties": {
+            "first": {
+              "title": "First Name",
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 50
+            },
+            "last": {
+              "title": "Last Name",
+              "type": "string", 
+              "minLength": 1,
+              "maxLength": 50
+            }
+          },
+          "required": ["first", "last"],
+          "additionalProperties": false
+        },
+        "department": {
+          "type": "string",
+          "enum": ["engineering", "sales", "marketing", "hr", "finance", "operations"],
+          "title": "Department"
+        },
+        "position": {
+          "type": "string",
+          "title": "Position",
+          "maxLength": 100
+        },
+        "manager_email": {
+          "type": "string",
+          "format": "email",
+          "title": "Manager Email"
+        },
+        "security_clearance": {
+          "type": "string",
+          "enum": ["public", "internal", "confidential", "restricted"],
+          "default": "internal"
+        }
+      },
+      "required": ["email", "employee_id", "name", "department"],
+      "additionalProperties": false
+    }
+  }
+}
+
+# TypeScript SDK integration example
+import { Configuration, FrontendApi, IdentityApi } from '@ory/kratos-client';
+import { createLogger } from 'winston';
+
+interface KratosConfig {
+  publicUrl: string;
+  adminUrl: string;
+  timeout: number;
+  retries: number;
+}
+
+interface RegistrationData {
+  email: string;
+  password: string;
+  firstName: string;
+  lastName: string;
+  phone?: string;
+  organization?: string;
+}
+
+interface LoginData {
+  identifier: string;
+  password: string;
+  remember?: boolean;
+}
+
+class KratosIdentityManager {
+  private frontendApi: FrontendApi;
+  private identityApi: IdentityApi;
+  private logger = createLogger({ level: 'info' });
+
+  constructor(private config: KratosConfig) {
+    const configuration = new Configuration({
+      basePath: config.publicUrl,
+      baseOptions: {
+        timeout: config.timeout,
+        withCredentials: true,
+      },
+    });
+
+    const adminConfiguration = new Configuration({
+      basePath: config.adminUrl,
+      baseOptions: {
+        timeout: config.timeout,
+      },
+    });
+
+    this.frontendApi = new FrontendApi(configuration);
+    this.identityApi = new IdentityApi(adminConfiguration);
+  }
+
+  // Self-service registration flow
+  async initiateRegistration(returnTo?: string): Promise<any> {
+    try {
+      const response = await this.frontendApi.createBrowserRegistrationFlow({
+        returnTo,
+      });
+
+      this.logger.info('Registration flow initiated', {
+        flowId: response.data.id,
+        returnTo,
+      });
+
+      return response.data;
+    } catch (error) {
+      this.logger.error('Failed to initiate registration', error);
+      throw error;
+    }
+  }
+
+  async submitRegistration(flowId: string, data: RegistrationData): Promise<any> {
+    try {
+      const response = await this.frontendApi.updateRegistrationFlow({
+        flow: flowId,
+        updateRegistrationFlowBody: {
+          method: 'password',
+          password: data.password,
+          traits: {
+            email: data.email,
+            name: {
+              first: data.firstName,
+              last: data.lastName,
+            },
+            phone: data.phone,
+            organization: data.organization,
+          },
+        },
+      });
+
+      this.logger.info('Registration completed', {
+        flowId,
+        email: data.email,
+      });
+
+      return response.data;
+    } catch (error) {
+      this.logger.error('Registration failed', {
+        flowId,
+        email: data.email,
+        error: error.message,
+      });
+      throw error;
+    }
+  }
+
+  // Self-service login flow
+  async initiateLogin(returnTo?: string, refresh?: boolean): Promise<any> {
+    try {
+      const response = await this.frontendApi.createBrowserLoginFlow({
+        returnTo,
+        refresh,
+      });
+
+      this.logger.info('Login flow initiated', {
+        flowId: response.data.id,
+        returnTo,
+        refresh,
+      });
+
+      return response.data;
+    } catch (error) {
+      this.logger.error('Failed to initiate login', error);
+      throw error;
+    }
+  }
+
+  async submitLogin(flowId: string, data: LoginData): Promise<any> {
+    try {
+      const response = await this.frontendApi.updateLoginFlow({
+        flow: flowId,
+        updateLoginFlowBody: {
+          method: 'password',
+          identifier: data.identifier,
+          password: data.password,
+        },
+      });
+
+      this.logger.info('Login completed', {
+        flowId,
+        identifier: data.identifier,
+      });
+
+      return response.data;
+    } catch (error) {
+      this.logger.error('Login failed', {
+        flowId,
+        identifier: data.identifier,
+        error: error.message,
+      });
+      throw error;
+    }
+  }
+
+  // Session management
+  async getSession(cookie?: string): Promise<any> {
+    try {
+      const response = await this.frontendApi.toSession({
+        cookie,
+      });
+
+      return response.data;
+    } catch (error) {
+      this.logger.error('Failed to get session', error);
+      return null;
+    }
+  }
+
+  async logout(cookie?: string): Promise<any> {
+    try {
+      const logoutFlow = await this.frontendApi.createBrowserLogoutFlow({
+        cookie,
+      });
+
+      const response = await this.frontendApi.updateLogoutFlow({
+        token: logoutFlow.data.logout_token,
+      });
+
+      this.logger.info('Logout completed');
+      return response.data;
+    } catch (error) {
+      this.logger.error('Logout failed', error);
+      throw error;
+    }
+  }
+
+  // Recovery flow
+  async initiateRecovery(returnTo?: string): Promise<any> {
+    try {
+      const response = await this.frontendApi.createBrowserRecoveryFlow({
+        returnTo,
+      });
+
+      this.logger.info('Recovery flow initiated', {
+        flowId: response.data.id,
+      });
+
+      return response.data;
+    } catch (error) {
+      this.logger.error('Failed to initiate recovery', error);
+      throw error;
+    }
+  }
+
+  async submitRecovery(flowId: string, email: string): Promise<any> {
+    try {
+      const response = await this.frontendApi.updateRecoveryFlow({
+        flow: flowId,
+        updateRecoveryFlowBody: {
+          method: 'code',
+          email,
+        },
+      });
+
+      this.logger.info('Recovery submitted', {
+        flowId,
+        email,
+      });
+
+      return response.data;
+    } catch (error) {
+      this.logger.error('Recovery submission failed', {
+        flowId,
+        email,
+        error: error.message,
+      });
+      throw error;
+    }
+  }
+
+  // Identity management (admin operations)
+  async createIdentity(traits: any, schemaId = 'default'): Promise<any> {
+    try {
+      const response = await this.identityApi.createIdentity({
+        createIdentityBody: {
+          schema_id: schemaId,
+          traits,
+        },
+      });
+
+      this.logger.info('Identity created', {
+        identityId: response.data.id,
+        schemaId,
+      });
+
+      return response.data;
+    } catch (error) {
+      this.logger.error('Identity creation failed', error);
+      throw error;
+    }
+  }
+
+  async getIdentity(id: string): Promise<any> {
+    try {
+      const response = await this.identityApi.getIdentity({ id });
+      return response.data;
+    } catch (error) {
+      this.logger.error('Failed to get identity', { id, error: error.message });
+      throw error;
+    }
+  }
+
+  async updateIdentity(id: string, traits: any): Promise<any> {
+    try {
+      const response = await this.identityApi.updateIdentity({
+        id,
+        updateIdentityBody: {
+          traits,
+        },
+      });
+
+      this.logger.info('Identity updated', { id });
+      return response.data;
+    } catch (error) {
+      this.logger.error('Identity update failed', { id, error: error.message });
+      throw error;
+    }
+  }
+
+  async deleteIdentity(id: string): Promise<void> {
+    try {
+      await this.identityApi.deleteIdentity({ id });
+      this.logger.info('Identity deleted', { id });
+    } catch (error) {
+      this.logger.error('Identity deletion failed', { id, error: error.message });
+      throw error;
+    }
+  }
+
+  // Health check
+  async healthCheck(): Promise<boolean> {
+    try {
+      await this.frontendApi.getVersion();
+      return true;
+    } catch (error) {
+      this.logger.error('Health check failed', error);
+      return false;
+    }
+  }
+}
+
+export { KratosIdentityManager, RegistrationData, LoginData };]]></correct-example>
+          <incorrect-example title="Basic Kratos setup without security or comprehensive flows" conditions="Setting up Kratos identity management" expected-result="Secure, comprehensive identity management system" incorrectness-criteria="Basic configuration only, no security measures, incomplete flows, no monitoring"><![CDATA[version: v1.0.0
+
+dsn: sqlite://kratos.db
+
+serve:
+  public:
+    base_url: http://localhost:4433
+  admin:
+    base_url: http://localhost:4434
+
+selfservice:
+  flows:
+    registration:
+      ui_url: http://localhost:3000/registration
+    login:
+      ui_url: http://localhost:3000/login
+
+identity:
+  default_schema_id: default
+  schemas:
+    - id: default
+      url: file://identity.schema.json
+
+session:
+  lifespan: 24h
+
+# Bad: No security configuration
+# Bad: No comprehensive flows
+# Bad: No courier setup
+# Bad: No monitoring
+# Bad: Basic schema only
+# Bad: No session security
+# Bad: No error handling]]></incorrect-example>
+        </example>
+      </examples>
+    </non-negotiable>
+  </requirements>
+  <context description="Ory Kratos identity management best practices">
+    Ory Kratos is a cloud-native identity management system that provides self-service identity flows, multi-factor authentication, and comprehensive user lifecycle management. Modern Kratos development emphasizes security-first approaches, user experience optimization, and comprehensive identity verification.
+
+    Key principles for Kratos implementation include:
+    - Self-service identity flows with comprehensive validation and security measures
+    - Progressive profiling with flexible identity schemas and trait management
+    - Multi-factor authentication with WebAuthn, TOTP, and SMS verification
+    - Session management with secure cookies, CSRF protection, and proper expiration
+    - Account recovery and verification with secure communication channels
+    - Comprehensive audit logging for compliance and security monitoring
+
+    Kratos security emphasizes proper session management, encrypted communications, secure password hashing with bcrypt, and comprehensive input validation. All identity operations should include proper error handling and user feedback.
+
+    The identity lifecycle includes registration, authentication, profile management, account recovery, email/phone verification, and account deactivation with proper security controls and user experience optimization.
+
+    Production deployments require proper database configuration with connection pooling, email/SMS delivery setup, monitoring integration, backup strategies, and compliance with privacy regulations like GDPR.
+
+    Modern identity management with Kratos enables passwordless authentication, social login integration, enterprise SSO, and zero-trust identity verification for cloud-native applications and distributed systems.
+  </context>
+  <references>
+    <reference as="dependency" href=".cursor/rules/000-core/002-cursor-rules-creation.mdc" reason="Follows standard rule format">Base rule format definition</reference>
+    <reference as="context" href="https://www.ory.sh/docs/kratos/" reason="Official Kratos documentation">Ory Kratos Documentation</reference>
+    <reference as="context" href="https://www.ory.sh/docs/kratos/self-service" reason="Self-service flows guide">Kratos Self-Service Flows</reference>
+    <reference as="context" href="https://www.ory.sh/docs/kratos/identities" reason="Identity management guide">Kratos Identity Management</reference>
+  </references>
+</rule>

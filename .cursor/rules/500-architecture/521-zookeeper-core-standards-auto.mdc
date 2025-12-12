@@ -1,0 +1,1203 @@
+---
+description: "Comprehensive ZooKeeper distributed coordination standards with ensemble configuration, security, distributed patterns, and performance tuning following coordination service best practices"
+globs: ["**/zookeeper/**/*", "**/zoo.cfg", "**/coordination/**/*", "**/ensemble/**/*"]
+alwaysApply: false
+---
+
+<rule>
+  <meta>
+    <title>ZooKeeper Core Standards</title>
+    <description>Comprehensive Apache ZooKeeper distributed coordination standards covering consensus algorithms, configuration management, service discovery, leader election, distributed locks, monitoring, and production deployment following distributed systems coordination best practices</description>
+    <created-at utc-timestamp="1744157700">January 25, 2025, 10:15 AM</created-at>
+    <last-updated-at utc-timestamp="1744157700">January 25, 2025, 10:15 AM</last-updated-at>
+    <applies-to>
+      <file-matcher glob="**/zookeeper/**/*">ZooKeeper configuration and client files</file-matcher>
+      <file-matcher glob="**/zk/**/*">ZooKeeper-related directories and files</file-matcher>
+      <file-matcher glob="**/*zookeeper*">ZooKeeper-related files throughout the application</file-matcher>
+      <file-matcher glob="**/coordination/**/*">Distributed coordination implementation files</file-matcher>
+      <file-matcher glob="**/consensus/**/*">Consensus algorithm implementation files</file-matcher>
+      <action-matcher action="distributed-coordination">Triggered when working with ZooKeeper distributed coordination</action-matcher>
+    </applies-to>
+  </meta>
+  <requirements>
+    <non-negotiable priority="critical">
+      <description>Use ZooKeeper with proper ensemble configuration, security settings, performance tuning, and comprehensive monitoring. Implement authentication, authorization, encryption, and production-ready coordination patterns with proper error handling and disaster recovery.</description>
+      <examples>
+        <example title="Production ZooKeeper Ensemble Configuration">
+          <correct-example title="Secure ZooKeeper ensemble with high availability and monitoring" conditions="Deploying production ZooKeeper ensemble" expected-result="Secure, highly available ZooKeeper deployment" correctness-criteria="Security configuration, ensemble setup, performance tuning, monitoring, backup strategies"><![CDATA[#!/bin/bash
+# zookeeper-ensemble-setup.sh - Production ZooKeeper ensemble deployment
+
+set -euo pipefail
+
+echo "🚀 Setting up production ZooKeeper ensemble"
+
+# ZooKeeper configuration - zoo.cfg
+cat > zoo.cfg <<EOF
+# Basic configuration
+tickTime=2000
+initLimit=10
+syncLimit=5
+dataDir=/var/lib/zookeeper/data
+dataLogDir=/var/lib/zookeeper/logs
+clientPort=2181
+
+# Ensemble configuration
+server.1=zk-1:2888:3888
+server.2=zk-2:2888:3888
+server.3=zk-3:2888:3888
+
+# Security configuration
+authProvider.1=org.apache.zookeeper.server.auth.SASLAuthenticationProvider
+authProvider.2=org.apache.zookeeper.server.auth.DigestAuthenticationProvider
+requireClientAuthScheme=sasl
+jaasLoginRenew=3600000
+
+# SSL/TLS configuration
+secureClientPort=2281
+ssl.keyStore.location=/etc/zookeeper/ssl/keystore.jks
+ssl.keyStore.password=changeit
+ssl.trustStore.location=/etc/zookeeper/ssl/truststore.jks
+ssl.trustStore.password=changeit
+ssl.clientAuth=need
+ssl.hostnameVerification=true
+
+# Performance tuning
+maxClientCnxns=60
+minSessionTimeout=4000
+maxSessionTimeout=40000
+autopurge.snapRetainCount=10
+autopurge.purgeInterval=1
+preAllocSize=65536
+snapCount=100000
+
+# Memory management
+jute.maxbuffer=1048576
+
+# Administrative features
+admin.enableServer=true
+admin.serverPort=8080
+admin.serverAddress=0.0.0.0
+
+# Logging
+zookeeper.log.dir=/var/log/zookeeper
+zookeeper.tracelog.dir=/var/log/zookeeper
+
+# Metrics
+metricsProvider.className=org.apache.zookeeper.metrics.prometheus.PrometheusMetricsProvider
+metricsProvider.httpPort=7000
+metricsProvider.exportJvmInfo=true
+
+# 4LW commands whitelist
+4lw.commands.whitelist=mntr,conf,cons,crst,dump,envi,ruok,srst,srvr,stat,wchs,wchc,dirs,isro
+
+EOF
+
+# JAAS configuration for SASL authentication
+cat > jaas.conf <<EOF
+Server {
+    org.apache.zookeeper.server.auth.DigestLoginModule required
+    file="/etc/zookeeper/conf/digest_passwd";
+};
+
+QuorumServer {
+    org.apache.zookeeper.server.auth.DigestLoginModule required
+    user_zookeeper="zkpass123";
+};
+
+QuorumLearner {
+    org.apache.zookeeper.server.auth.DigestLoginModule required
+    username="zookeeper"
+    password="zkpass123";
+};
+
+EOF
+
+# Digest password file
+cat > digest_passwd <<EOF
+admin:$(echo -n admin:adminpass | openssl dgst -sha1 -binary | openssl base64)
+app:$(echo -n app:apppass | openssl dgst -sha1 -binary | openssl base64)
+monitoring:$(echo -n monitoring:monitorpass | openssl dgst -sha1 -binary | openssl base64)
+EOF
+
+# JVM configuration
+cat > zkEnv.sh <<EOF
+#!/bin/bash
+
+# JVM heap settings
+export ZK_SERVER_HEAP=1024
+export ZK_CLIENT_HEAP=256
+
+# JVM options
+export SERVER_JVMFLAGS="-Xmx\${ZK_SERVER_HEAP}m -Xms\${ZK_SERVER_HEAP}m \
+    -XX:+UseG1GC \
+    -XX:MaxGCPauseMillis=200 \
+    -XX:G1HeapRegionSize=16m \
+    -XX:+UseGCOverheadLimit \
+    -XX:+UseCompressedOops \
+    -XX:+HeapDumpOnOutOfMemoryError \
+    -XX:HeapDumpPath=/var/log/zookeeper/ \
+    -Djava.awt.headless=true \
+    -Dcom.sun.management.jmxremote \
+    -Dcom.sun.management.jmxremote.port=9999 \
+    -Dcom.sun.management.jmxremote.authenticate=false \
+    -Dcom.sun.management.jmxremote.ssl=false \
+    -Djava.security.auth.login.config=/etc/zookeeper/conf/jaas.conf \
+    -Dzookeeper.authProvider.1=org.apache.zookeeper.server.auth.SASLAuthenticationProvider \
+    -Dzookeeper.allowSaslFailedClients=false \
+    -Dzookeeper.requireClientAuthScheme=sasl"
+
+export CLIENT_JVMFLAGS="-Xmx\${ZK_CLIENT_HEAP}m -Xms\${ZK_CLIENT_HEAP}m"
+
+# Logging configuration
+export ZOO_LOG4J_PROP="INFO,ROLLINGFILE"
+export ZOO_LOG_DIR="/var/log/zookeeper"
+
+EOF
+
+# Docker Compose for ZooKeeper ensemble
+cat > docker-compose.zookeeper.yml <<EOF
+version: '3.8'
+
+services:
+  # ZooKeeper ensemble nodes
+  zookeeper-1:
+    image: confluentinc/cp-zookeeper:latest
+    hostname: zookeeper-1
+    container_name: zookeeper-1
+    environment:
+      ZOOKEEPER_SERVER_ID: 1
+      ZOOKEEPER_CLIENT_PORT: 2181
+      ZOOKEEPER_SECURE_CLIENT_PORT: 2281
+      ZOOKEEPER_TICK_TIME: 2000
+      ZOOKEEPER_INIT_LIMIT: 10
+      ZOOKEEPER_SYNC_LIMIT: 5
+      ZOOKEEPER_SERVERS: zookeeper-1:2888:3888;zookeeper-2:2888:3888;zookeeper-3:2888:3888
+      ZOOKEEPER_AUTOPURGE_SNAP_RETAIN_COUNT: 10
+      ZOOKEEPER_AUTOPURGE_PURGE_INTERVAL: 1
+      ZOOKEEPER_MAX_CLIENT_CNXNS: 60
+      ZOOKEEPER_AUTH_PROVIDER_X509: org.apache.zookeeper.server.auth.X509AuthenticationProvider
+      ZOOKEEPER_SSL_KEYSTORE_LOCATION: /etc/zookeeper/ssl/keystore.jks
+      ZOOKEEPER_SSL_KEYSTORE_PASSWORD: changeit
+      ZOOKEEPER_SSL_TRUSTSTORE_LOCATION: /etc/zookeeper/ssl/truststore.jks
+      ZOOKEEPER_SSL_TRUSTSTORE_PASSWORD: changeit
+      ZOOKEEPER_SSL_CLIENT_AUTH: need
+      KAFKA_HEAP_OPTS: "-Xmx1G -Xms1G"
+      KAFKA_JVM_PERFORMANCE_OPTS: "-server -XX:+UseG1GC -XX:MaxGCPauseMillis=200"
+    ports:
+      - "2181:2181"
+      - "2281:2281"
+      - "2888:2888"
+      - "3888:3888"
+      - "8080:8080"
+      - "7000:7000"
+    volumes:
+      - zk1-data:/var/lib/zookeeper/data
+      - zk1-logs:/var/lib/zookeeper/logs
+      - ./zoo.cfg:/etc/zookeeper/conf/zoo.cfg
+      - ./jaas.conf:/etc/zookeeper/conf/jaas.conf
+      - ./digest_passwd:/etc/zookeeper/conf/digest_passwd
+      - zk-ssl:/etc/zookeeper/ssl
+    networks:
+      - zk-network
+    healthcheck:
+      test: ["CMD", "bash", "-c", "echo ruok | nc localhost 2181 | grep imok"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+    deploy:
+      resources:
+        limits:
+          memory: 2G
+          cpus: '1.0'
+        reservations:
+          memory: 1G
+          cpus: '0.5'
+
+  zookeeper-2:
+    image: confluentinc/cp-zookeeper:latest
+    hostname: zookeeper-2
+    container_name: zookeeper-2
+    environment:
+      ZOOKEEPER_SERVER_ID: 2
+      ZOOKEEPER_CLIENT_PORT: 2181
+      ZOOKEEPER_SECURE_CLIENT_PORT: 2281
+      ZOOKEEPER_TICK_TIME: 2000
+      ZOOKEEPER_INIT_LIMIT: 10
+      ZOOKEEPER_SYNC_LIMIT: 5
+      ZOOKEEPER_SERVERS: zookeeper-1:2888:3888;zookeeper-2:2888:3888;zookeeper-3:2888:3888
+      ZOOKEEPER_AUTOPURGE_SNAP_RETAIN_COUNT: 10
+      ZOOKEEPER_AUTOPURGE_PURGE_INTERVAL: 1
+      ZOOKEEPER_MAX_CLIENT_CNXNS: 60
+      ZOOKEEPER_AUTH_PROVIDER_X509: org.apache.zookeeper.server.auth.X509AuthenticationProvider
+      ZOOKEEPER_SSL_KEYSTORE_LOCATION: /etc/zookeeper/ssl/keystore.jks
+      ZOOKEEPER_SSL_KEYSTORE_PASSWORD: changeit
+      ZOOKEEPER_SSL_TRUSTSTORE_LOCATION: /etc/zookeeper/ssl/truststore.jks
+      ZOOKEEPER_SSL_TRUSTSTORE_PASSWORD: changeit
+      ZOOKEEPER_SSL_CLIENT_AUTH: need
+      KAFKA_HEAP_OPTS: "-Xmx1G -Xms1G"
+      KAFKA_JVM_PERFORMANCE_OPTS: "-server -XX:+UseG1GC -XX:MaxGCPauseMillis=200"
+    ports:
+      - "2182:2181"
+      - "2282:2281"
+      - "2889:2888"
+      - "3889:3888"
+      - "8081:8080"
+      - "7001:7000"
+    volumes:
+      - zk2-data:/var/lib/zookeeper/data
+      - zk2-logs:/var/lib/zookeeper/logs
+      - ./zoo.cfg:/etc/zookeeper/conf/zoo.cfg
+      - ./jaas.conf:/etc/zookeeper/conf/jaas.conf
+      - ./digest_passwd:/etc/zookeeper/conf/digest_passwd
+      - zk-ssl:/etc/zookeeper/ssl
+    networks:
+      - zk-network
+    healthcheck:
+      test: ["CMD", "bash", "-c", "echo ruok | nc localhost 2181 | grep imok"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+    deploy:
+      resources:
+        limits:
+          memory: 2G
+          cpus: '1.0'
+        reservations:
+          memory: 1G
+          cpus: '0.5'
+
+  zookeeper-3:
+    image: confluentinc/cp-zookeeper:latest
+    hostname: zookeeper-3
+    container_name: zookeeper-3
+    environment:
+      ZOOKEEPER_SERVER_ID: 3
+      ZOOKEEPER_CLIENT_PORT: 2181
+      ZOOKEEPER_SECURE_CLIENT_PORT: 2281
+      ZOOKEEPER_TICK_TIME: 2000
+      ZOOKEEPER_INIT_LIMIT: 10
+      ZOOKEEPER_SYNC_LIMIT: 5
+      ZOOKEEPER_SERVERS: zookeeper-1:2888:3888;zookeeper-2:2888:3888;zookeeper-3:2888:3888
+      ZOOKEEPER_AUTOPURGE_SNAP_RETAIN_COUNT: 10
+      ZOOKEEPER_AUTOPURGE_PURGE_INTERVAL: 1
+      ZOOKEEPER_MAX_CLIENT_CNXNS: 60
+      ZOOKEEPER_AUTH_PROVIDER_X509: org.apache.zookeeper.server.auth.X509AuthenticationProvider
+      ZOOKEEPER_SSL_KEYSTORE_LOCATION: /etc/zookeeper/ssl/keystore.jks
+      ZOOKEEPER_SSL_KEYSTORE_PASSWORD: changeit
+      ZOOKEEPER_SSL_TRUSTSTORE_LOCATION: /etc/zookeeper/ssl/truststore.jks
+      ZOOKEEPER_SSL_TRUSTSTORE_PASSWORD: changeit
+      ZOOKEEPER_SSL_CLIENT_AUTH: need
+      KAFKA_HEAP_OPTS: "-Xmx1G -Xms1G"
+      KAFKA_JVM_PERFORMANCE_OPTS: "-server -XX:+UseG1GC -XX:MaxGCPauseMillis=200"
+    ports:
+      - "2183:2181"
+      - "2283:2281"
+      - "2890:2888"
+      - "3890:3888"
+      - "8082:8080"
+      - "7002:7000"
+    volumes:
+      - zk3-data:/var/lib/zookeeper/data
+      - zk3-logs:/var/lib/zookeeper/logs
+      - ./zoo.cfg:/etc/zookeeper/conf/zoo.cfg
+      - ./jaas.conf:/etc/zookeeper/conf/jaas.conf
+      - ./digest_passwd:/etc/zookeeper/conf/digest_passwd
+      - zk-ssl:/etc/zookeeper/ssl
+    networks:
+      - zk-network
+    healthcheck:
+      test: ["CMD", "bash", "-c", "echo ruok | nc localhost 2181 | grep imok"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+    deploy:
+      resources:
+        limits:
+          memory: 2G
+          cpus: '1.0'
+        reservations:
+          memory: 1G
+          cpus: '0.5'
+
+  # ZooKeeper monitoring
+  zk-exporter:
+    image: dabealu/zookeeper-exporter:latest
+    container_name: zk-exporter
+    ports:
+      - "9141:9141"
+    environment:
+      ZK_HOSTS: "zookeeper-1:2181,zookeeper-2:2181,zookeeper-3:2181"
+      ZK_PREFIX: zk
+      LOG_LEVEL: info
+    networks:
+      - zk-network
+    depends_on:
+      - zookeeper-1
+      - zookeeper-2
+      - zookeeper-3
+
+  # ZooKeeper management UI
+  zk-web:
+    image: elkozmon/zoonavigator:latest
+    container_name: zk-web
+    ports:
+      - "9000:9000"
+    environment:
+      HTTP_PORT: 9000
+      AUTO_CONNECT_CONNECTION_STRING: "zookeeper-1:2181,zookeeper-2:2181,zookeeper-3:2181"
+    networks:
+      - zk-network
+    depends_on:
+      - zookeeper-1
+      - zookeeper-2
+      - zookeeper-3
+
+volumes:
+  zk1-data:
+  zk1-logs:
+  zk2-data:
+  zk2-logs:
+  zk3-data:
+  zk3-logs:
+  zk-ssl:
+
+networks:
+  zk-network:
+    driver: bridge
+
+EOF
+
+# SSL certificate generation script
+cat > generate-ssl.sh <<'EOF'
+#!/bin/bash
+
+echo "Generating SSL certificates for ZooKeeper..."
+
+# Create SSL directory
+mkdir -p ssl
+
+# Generate CA private key
+openssl genrsa -out ssl/ca-key.pem 4096
+
+# Generate CA certificate
+openssl req -new -x509 -days 365 -key ssl/ca-key.pem -sha256 -out ssl/ca.pem -subj "/C=US/ST=CA/L=San Francisco/O=MyOrg/OU=IT/CN=ZooKeeper-CA"
+
+# Generate server private key
+openssl genrsa -out ssl/server-key.pem 4096
+
+# Generate server certificate signing request
+openssl req -subj "/C=US/ST=CA/L=San Francisco/O=MyOrg/OU=IT/CN=zookeeper" -sha256 -new -key ssl/server-key.pem -out ssl/server.csr
+
+# Create extensions file for server certificate
+cat > ssl/server-extensions.txt <<EXT
+authorityKeyIdentifier=keyid,issuer
+basicConstraints=CA:FALSE
+keyUsage = digitalSignature, nonRepudiation, keyEncipherment, dataEncipherment
+subjectAltName = @alt_names
+
+[alt_names]
+DNS.1=zookeeper-1
+DNS.2=zookeeper-2
+DNS.3=zookeeper-3
+DNS.4=localhost
+IP.1=127.0.0.1
+EXT
+
+# Generate server certificate
+openssl x509 -req -days 365 -in ssl/server.csr -CA ssl/ca.pem -CAkey ssl/ca-key.pem -out ssl/server-cert.pem -extensions v3_req -extfile ssl/server-extensions.txt -CAcreateserial
+
+# Create Java keystore
+keytool -genkey -noprompt -alias zookeeper -dname "CN=zookeeper, OU=IT, O=MyOrg, L=San Francisco, S=CA, C=US" -keystore ssl/keystore.jks -storepass changeit -keypass changeit
+
+# Import CA certificate into keystore
+keytool -import -noprompt -alias ca -file ssl/ca.pem -keystore ssl/keystore.jks -storepass changeit
+
+# Create truststore
+keytool -import -noprompt -alias ca -file ssl/ca.pem -keystore ssl/truststore.jks -storepass changeit
+
+echo "SSL certificates generated successfully!"
+
+EOF
+
+chmod +x generate-ssl.sh
+
+# Monitoring and alerting configuration
+cat > zk-monitoring.yml <<EOF
+groups:
+- name: zookeeper
+  rules:
+  - alert: ZooKeeperDown
+    expr: up{job="zookeeper"} == 0
+    for: 5m
+    labels:
+      severity: critical
+    annotations:
+      summary: "ZooKeeper instance is down"
+      description: "ZooKeeper instance {{ \$labels.instance }} has been down for more than 5 minutes"
+
+  - alert: ZooKeeperQuorumUnavailable
+    expr: sum(up{job="zookeeper"}) < 2
+    for: 2m
+    labels:
+      severity: critical
+    annotations:
+      summary: "ZooKeeper quorum unavailable"
+      description: "ZooKeeper quorum is unavailable. Only {{ \$value }} out of 3 nodes are up"
+
+  - alert: ZooKeeperHighLatency
+    expr: zk_avg_latency > 100
+    for: 10m
+    labels:
+      severity: warning
+    annotations:
+      summary: "ZooKeeper high latency"
+      description: "ZooKeeper average latency is {{ \$value }}ms on {{ \$labels.instance }}"
+
+  - alert: ZooKeeperHighMemoryUsage
+    expr: (zk_approximate_data_size / zk_max_file_descriptor_count) > 0.8
+    for: 5m
+    labels:
+      severity: warning
+    annotations:
+      summary: "ZooKeeper high memory usage"
+      description: "ZooKeeper memory usage is above 80% on {{ \$labels.instance }}"
+
+  - alert: ZooKeeperHighOpenFileDescriptors
+    expr: (zk_open_file_descriptor_count / zk_max_file_descriptor_count) > 0.8
+    for: 5m
+    labels:
+      severity: warning
+    annotations:
+      summary: "ZooKeeper high open file descriptors"
+      description: "ZooKeeper open file descriptors usage is above 80% on {{ \$labels.instance }}"
+
+EOF
+
+echo "✅ ZooKeeper ensemble configuration completed"
+echo "🔐 Generate SSL certificates: ./generate-ssl.sh"
+echo "🚀 Start ensemble: docker-compose -f docker-compose.zookeeper.yml up -d"]]></correct-example>
+          <incorrect-example title="Basic ZooKeeper setup without security or clustering" conditions="Setting up ZooKeeper" expected-result="Secure, production-ready ZooKeeper deployment" incorrectness-criteria="No security, single node, no monitoring, poor configuration"><![CDATA[version: '3.8'
+
+services:
+  zookeeper:
+    image: zookeeper:latest
+    ports:
+      - "2181:2181"
+    environment:
+      ZOO_MY_ID: 1
+
+# Bad: Single node setup
+# Bad: No security configuration
+# Bad: No authentication
+# Bad: No SSL/TLS encryption
+# Bad: No monitoring
+# Bad: No resource limits
+# Bad: No data persistence]]></incorrect-example>
+        </example>
+      </examples>
+    </non-negotiable>
+
+    <requirement priority="critical">
+      <description>Implement distributed coordination patterns with leader election, distributed locks, service discovery, configuration management, and consensus algorithms using ZooKeeper's primitives with proper error handling and monitoring.</description>
+      <examples>
+        <example title="ZooKeeper Client Implementation with Coordination Patterns">
+          <correct-example title="Comprehensive ZooKeeper client with distributed coordination patterns" conditions="Implementing ZooKeeper coordination patterns" expected-result="Robust distributed coordination with error handling and monitoring" correctness-criteria="Leader election, distributed locks, service discovery, configuration management, error handling, monitoring"><![CDATA[// TypeScript - Comprehensive ZooKeeper client implementation
+import { ZooKeeper, State, Event, CreateMode, ACL, Permission, Id } from 'node-zookeeper-client';
+import { EventEmitter } from 'events';
+import { createLogger } from 'winston';
+import { Counter, Histogram, Gauge, register } from 'prom-client';
+import { promisify } from 'util';
+
+interface ZooKeeperConfig {
+  connectionString: string;
+  sessionTimeout: number;
+  spinDelay: number;
+  retries: number;
+  authentication?: {
+    scheme: string;
+    auth: string;
+  };
+  ssl?: {
+    cert: string;
+    key: string;
+    ca: string;
+  };
+  acl: {
+    scheme: string;
+    id: string;
+    perms: number;
+  }[];
+}
+
+interface ServiceInfo {
+  id: string;
+  name: string;
+  address: string;
+  port: number;
+  metadata: Record<string, any>;
+  health: 'healthy' | 'unhealthy' | 'unknown';
+  timestamp: number;
+}
+
+interface LockConfig {
+  lockPath: string;
+  timeout: number;
+  retryInterval: number;
+  maxRetries: number;
+}
+
+interface ZooKeeperMetrics {
+  connections: Gauge<string>;
+  operations: Counter<string>;
+  operationLatency: Histogram<string>;
+  errors: Counter<string>;
+  locks: Gauge<string>;
+  services: Gauge<string>;
+}
+
+class ZooKeeperCoordinator extends EventEmitter {
+  private client: ZooKeeper;
+  private logger = createLogger({ level: 'info' });
+  private metrics: ZooKeeperMetrics;
+  private isConnected = false;
+  private activeLocks = new Map<string, { sequence: string; path: string }>();
+  private registeredServices = new Map<string, ServiceInfo>();
+  private watchers = new Map<string, (data: Buffer, stat: any) => void>();
+
+  constructor(private config: ZooKeeperConfig) {
+    super();
+    this.initializeMetrics();
+    this.initializeClient();
+  }
+
+  private initializeMetrics(): void {
+    this.metrics = {
+      connections: new Gauge({
+        name: 'zookeeper_connections',
+        help: 'Number of active ZooKeeper connections',
+      }),
+      operations: new Counter({
+        name: 'zookeeper_operations_total',
+        help: 'Total number of ZooKeeper operations',
+        labelNames: ['operation', 'status'],
+      }),
+      operationLatency: new Histogram({
+        name: 'zookeeper_operation_duration_seconds',
+        help: 'ZooKeeper operation duration in seconds',
+        labelNames: ['operation'],
+        buckets: [0.001, 0.005, 0.01, 0.05, 0.1, 0.5, 1, 5],
+      }),
+      errors: new Counter({
+        name: 'zookeeper_errors_total',
+        help: 'Total number of ZooKeeper errors',
+        labelNames: ['operation', 'error_type'],
+      }),
+      locks: new Gauge({
+        name: 'zookeeper_active_locks',
+        help: 'Number of active distributed locks',
+      }),
+      services: new Gauge({
+        name: 'zookeeper_registered_services',
+        help: 'Number of registered services',
+      }),
+    };
+
+    Object.values(this.metrics).forEach(metric => register.registerMetric(metric));
+  }
+
+  private initializeClient(): void {
+    this.client = new ZooKeeper(this.config.connectionString, {
+      sessionTimeout: this.config.sessionTimeout,
+      spinDelay: this.config.spinDelay,
+      retries: this.config.retries,
+    });
+
+    this.setupEventHandlers();
+  }
+
+  private setupEventHandlers(): void {
+    this.client.on('connected', () => {
+      this.logger.info('ZooKeeper connected');
+      this.isConnected = true;
+      this.metrics.connections.set(1);
+      this.emit('connected');
+
+      // Set authentication if configured
+      if (this.config.authentication) {
+        this.client.addAuthInfo(
+          this.config.authentication.scheme,
+          Buffer.from(this.config.authentication.auth)
+        );
+      }
+    });
+
+    this.client.on('disconnected', () => {
+      this.logger.warn('ZooKeeper disconnected');
+      this.isConnected = false;
+      this.metrics.connections.set(0);
+      this.emit('disconnected');
+    });
+
+    this.client.on('expired', () => {
+      this.logger.error('ZooKeeper session expired');
+      this.isConnected = false;
+      this.metrics.connections.set(0);
+      this.emit('expired');
+      
+      // Recreate client
+      this.initializeClient();
+    });
+
+    this.client.on('authenticationFailed', () => {
+      this.logger.error('ZooKeeper authentication failed');
+      this.metrics.errors.inc({ operation: 'auth', error_type: 'authentication_failed' });
+      this.emit('authenticationFailed');
+    });
+
+    this.client.on('connectedReadOnly', () => {
+      this.logger.warn('ZooKeeper connected in read-only mode');
+      this.emit('connectedReadOnly');
+    });
+  }
+
+  async connect(): Promise<void> {
+    return new Promise((resolve, reject) => {
+      if (this.isConnected) {
+        resolve();
+        return;
+      }
+
+      const timeout = setTimeout(() => {
+        reject(new Error('Connection timeout'));
+      }, this.config.sessionTimeout);
+
+      this.once('connected', () => {
+        clearTimeout(timeout);
+        resolve();
+      });
+
+      this.once('authenticationFailed', () => {
+        clearTimeout(timeout);
+        reject(new Error('Authentication failed'));
+      });
+
+      this.client.connect();
+    });
+  }
+
+  async disconnect(): Promise<void> {
+    return new Promise((resolve) => {
+      if (!this.isConnected) {
+        resolve();
+        return;
+      }
+
+      this.once('disconnected', () => {
+        resolve();
+      });
+
+      this.client.close();
+    });
+  }
+
+  // Leader Election Implementation
+  async electLeader(electionPath: string, candidateId: string): Promise<boolean> {
+    const startTime = Date.now();
+    
+    try {
+      // Ensure election path exists
+      await this.ensurePath(electionPath);
+
+      // Create ephemeral sequential node
+      const candidatePath = `${electionPath}/${candidateId}-`;
+      const actualPath = await this.create(
+        candidatePath,
+        Buffer.from(JSON.stringify({
+          id: candidateId,
+          timestamp: Date.now(),
+          pid: process.pid,
+        })),
+        CreateMode.EPHEMERAL_SEQUENTIAL
+      );
+
+      const sequence = this.extractSequence(actualPath);
+      
+      // Get all candidates and check if this is the leader
+      const candidates = await this.getChildren(electionPath);
+      const sortedCandidates = candidates.sort();
+      
+      const isLeader = sortedCandidates[0] === actualPath.split('/').pop();
+      
+      if (isLeader) {
+        this.logger.info('Elected as leader', { candidateId, sequence });
+        this.emit('leaderElected', candidateId);
+      } else {
+        // Watch the previous candidate
+        const prevIndex = sortedCandidates.indexOf(actualPath.split('/').pop()!) - 1;
+        const prevCandidate = sortedCandidates[prevIndex];
+        
+        await this.watchNode(`${electionPath}/${prevCandidate}`, () => {
+          // Previous candidate is gone, check leadership again
+          this.electLeader(electionPath, candidateId);
+        });
+        
+        this.logger.info('Waiting for leadership', { candidateId, sequence, prevCandidate });
+      }
+
+      const latency = (Date.now() - startTime) / 1000;
+      this.metrics.operations.inc({ operation: 'leader_election', status: 'success' });
+      this.metrics.operationLatency.observe({ operation: 'leader_election' }, latency);
+
+      return isLeader;
+
+    } catch (error) {
+      const latency = (Date.now() - startTime) / 1000;
+      this.metrics.errors.inc({ operation: 'leader_election', error_type: error.name });
+      this.metrics.operationLatency.observe({ operation: 'leader_election' }, latency);
+      
+      this.logger.error('Leader election failed', { candidateId, error: error.message });
+      throw error;
+    }
+  }
+
+  // Distributed Lock Implementation
+  async acquireLock(lockConfig: LockConfig): Promise<string> {
+    const startTime = Date.now();
+    const lockId = `lock-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`;
+    
+    try {
+      // Ensure lock path exists
+      await this.ensurePath(lockConfig.lockPath);
+
+      // Create ephemeral sequential node
+      const lockNodePath = `${lockConfig.lockPath}/${lockId}-`;
+      const actualPath = await this.create(
+        lockNodePath,
+        Buffer.from(JSON.stringify({
+          id: lockId,
+          timestamp: Date.now(),
+          pid: process.pid,
+        })),
+        CreateMode.EPHEMERAL_SEQUENTIAL
+      );
+
+      const sequence = this.extractSequence(actualPath);
+      
+      // Check if this is the lowest sequence number (has the lock)
+      const children = await this.getChildren(lockConfig.lockPath);
+      const sortedChildren = children.sort();
+      
+      if (sortedChildren[0] === actualPath.split('/').pop()) {
+        // We have the lock
+        this.activeLocks.set(lockId, { sequence, path: actualPath });
+        this.metrics.locks.set(this.activeLocks.size);
+        
+        const latency = (Date.now() - startTime) / 1000;
+        this.metrics.operations.inc({ operation: 'acquire_lock', status: 'success' });
+        this.metrics.operationLatency.observe({ operation: 'acquire_lock' }, latency);
+        
+        this.logger.info('Lock acquired', { lockId, sequence });
+        return lockId;
+      }
+
+      // Wait for the previous lock to be released
+      const prevIndex = sortedChildren.indexOf(actualPath.split('/').pop()!) - 1;
+      const prevLock = sortedChildren[prevIndex];
+      
+      return new Promise((resolve, reject) => {
+        const timeout = setTimeout(() => {
+          reject(new Error('Lock acquisition timeout'));
+        }, lockConfig.timeout);
+
+        this.watchNode(`${lockConfig.lockPath}/${prevLock}`, async () => {
+          clearTimeout(timeout);
+          
+          try {
+            // Check if we now have the lock
+            const currentChildren = await this.getChildren(lockConfig.lockPath);
+            const currentSorted = currentChildren.sort();
+            
+            if (currentSorted[0] === actualPath.split('/').pop()) {
+              this.activeLocks.set(lockId, { sequence, path: actualPath });
+              this.metrics.locks.set(this.activeLocks.size);
+              
+              const latency = (Date.now() - startTime) / 1000;
+              this.metrics.operations.inc({ operation: 'acquire_lock', status: 'success' });
+              this.metrics.operationLatency.observe({ operation: 'acquire_lock' }, latency);
+              
+              this.logger.info('Lock acquired after wait', { lockId, sequence });
+              resolve(lockId);
+            } else {
+              // Still not our turn, continue waiting
+              const newPrevIndex = currentSorted.indexOf(actualPath.split('/').pop()!) - 1;
+              const newPrevLock = currentSorted[newPrevIndex];
+              this.watchNode(`${lockConfig.lockPath}/${newPrevLock}`, () => {
+                // Recursively wait for the next lock
+              });
+            }
+          } catch (error) {
+            reject(error);
+          }
+        });
+      });
+
+    } catch (error) {
+      const latency = (Date.now() - startTime) / 1000;
+      this.metrics.errors.inc({ operation: 'acquire_lock', error_type: error.name });
+      this.metrics.operationLatency.observe({ operation: 'acquire_lock' }, latency);
+      
+      this.logger.error('Lock acquisition failed', { lockId, error: error.message });
+      throw error;
+    }
+  }
+
+  async releaseLock(lockId: string): Promise<boolean> {
+    const startTime = Date.now();
+    
+    try {
+      const lock = this.activeLocks.get(lockId);
+      if (!lock) {
+        this.logger.warn('Attempted to release non-existent lock', { lockId });
+        return false;
+      }
+
+      await this.delete(lock.path);
+      this.activeLocks.delete(lockId);
+      this.metrics.locks.set(this.activeLocks.size);
+
+      const latency = (Date.now() - startTime) / 1000;
+      this.metrics.operations.inc({ operation: 'release_lock', status: 'success' });
+      this.metrics.operationLatency.observe({ operation: 'release_lock' }, latency);
+
+      this.logger.info('Lock released', { lockId });
+      return true;
+
+    } catch (error) {
+      const latency = (Date.now() - startTime) / 1000;
+      this.metrics.errors.inc({ operation: 'release_lock', error_type: error.name });
+      this.metrics.operationLatency.observe({ operation: 'release_lock' }, latency);
+
+      this.logger.error('Lock release failed', { lockId, error: error.message });
+      return false;
+    }
+  }
+
+  // Service Discovery Implementation
+  async registerService(basePath: string, service: ServiceInfo): Promise<void> {
+    const startTime = Date.now();
+    
+    try {
+      const servicePath = `${basePath}/${service.name}`;
+      await this.ensurePath(servicePath);
+
+      const serviceNodePath = `${servicePath}/${service.id}`;
+      const serviceData = {
+        ...service,
+        registered: Date.now(),
+        pid: process.pid,
+      };
+
+      await this.create(
+        serviceNodePath,
+        Buffer.from(JSON.stringify(serviceData)),
+        CreateMode.EPHEMERAL
+      );
+
+      this.registeredServices.set(service.id, service);
+      this.metrics.services.set(this.registeredServices.size);
+
+      const latency = (Date.now() - startTime) / 1000;
+      this.metrics.operations.inc({ operation: 'register_service', status: 'success' });
+      this.metrics.operationLatency.observe({ operation: 'register_service' }, latency);
+
+      this.logger.info('Service registered', { serviceId: service.id, serviceName: service.name });
+
+    } catch (error) {
+      const latency = (Date.now() - startTime) / 1000;
+      this.metrics.errors.inc({ operation: 'register_service', error_type: error.name });
+      this.metrics.operationLatency.observe({ operation: 'register_service' }, latency);
+
+      this.logger.error('Service registration failed', { serviceId: service.id, error: error.message });
+      throw error;
+    }
+  }
+
+  async discoverServices(basePath: string, serviceName: string): Promise<ServiceInfo[]> {
+    const startTime = Date.now();
+    
+    try {
+      const servicePath = `${basePath}/${serviceName}`;
+      const serviceNodes = await this.getChildren(servicePath);
+      const services: ServiceInfo[] = [];
+
+      for (const node of serviceNodes) {
+        try {
+          const nodeData = await this.getData(`${servicePath}/${node}`);
+          const serviceInfo = JSON.parse(nodeData.toString()) as ServiceInfo;
+          services.push(serviceInfo);
+        } catch (error) {
+          this.logger.warn('Failed to parse service data', { node, error: error.message });
+        }
+      }
+
+      const latency = (Date.now() - startTime) / 1000;
+      this.metrics.operations.inc({ operation: 'discover_services', status: 'success' });
+      this.metrics.operationLatency.observe({ operation: 'discover_services' }, latency);
+
+      this.logger.debug('Services discovered', { serviceName, count: services.length });
+      return services;
+
+    } catch (error) {
+      const latency = (Date.now() - startTime) / 1000;
+      this.metrics.errors.inc({ operation: 'discover_services', error_type: error.name });
+      this.metrics.operationLatency.observe({ operation: 'discover_services' }, latency);
+
+      this.logger.error('Service discovery failed', { serviceName, error: error.message });
+      return [];
+    }
+  }
+
+  // Configuration Management
+  async setConfiguration(configPath: string, config: any): Promise<void> {
+    const startTime = Date.now();
+    
+    try {
+      await this.ensurePath(configPath);
+      
+      const configData = JSON.stringify(config, null, 2);
+      await this.setData(configPath, Buffer.from(configData));
+
+      const latency = (Date.now() - startTime) / 1000;
+      this.metrics.operations.inc({ operation: 'set_config', status: 'success' });
+      this.metrics.operationLatency.observe({ operation: 'set_config' }, latency);
+
+      this.logger.info('Configuration updated', { configPath });
+      this.emit('configurationChanged', configPath, config);
+
+    } catch (error) {
+      const latency = (Date.now() - startTime) / 1000;
+      this.metrics.errors.inc({ operation: 'set_config', error_type: error.name });
+      this.metrics.operationLatency.observe({ operation: 'set_config' }, latency);
+
+      this.logger.error('Configuration update failed', { configPath, error: error.message });
+      throw error;
+    }
+  }
+
+  async getConfiguration<T>(configPath: string, defaultValue?: T): Promise<T | null> {
+    const startTime = Date.now();
+    
+    try {
+      const data = await this.getData(configPath);
+      const config = JSON.parse(data.toString()) as T;
+
+      const latency = (Date.now() - startTime) / 1000;
+      this.metrics.operations.inc({ operation: 'get_config', status: 'success' });
+      this.metrics.operationLatency.observe({ operation: 'get_config' }, latency);
+
+      return config;
+
+    } catch (error) {
+      const latency = (Date.now() - startTime) / 1000;
+      this.metrics.errors.inc({ operation: 'get_config', error_type: error.name });
+      this.metrics.operationLatency.observe({ operation: 'get_config' }, latency);
+
+      if (defaultValue !== undefined) {
+        this.logger.debug('Configuration not found, using default', { configPath });
+        return defaultValue;
+      }
+
+      this.logger.error('Configuration retrieval failed', { configPath, error: error.message });
+      return null;
+    }
+  }
+
+  async watchConfiguration(configPath: string, callback: (config: any) => void): Promise<void> {
+    this.watchers.set(configPath, callback);
+    
+    await this.watchNode(configPath, async (data) => {
+      try {
+        const config = JSON.parse(data.toString());
+        callback(config);
+        this.emit('configurationChanged', configPath, config);
+      } catch (error) {
+        this.logger.error('Failed to parse watched configuration', { configPath, error: error.message });
+      }
+    });
+  }
+
+  // Utility methods
+  private async ensurePath(path: string): Promise<void> {
+    const parts = path.split('/').filter(Boolean);
+    let currentPath = '';
+
+    for (const part of parts) {
+      currentPath += `/${part}`;
+      
+      try {
+        await this.exists(currentPath);
+      } catch (error) {
+        try {
+          await this.create(currentPath, Buffer.alloc(0), CreateMode.PERSISTENT);
+        } catch (createError) {
+          // Path might already exist due to race condition
+          if (createError.getCode && createError.getCode() !== -110) { // NOT NODE_EXISTS
+            throw createError;
+          }
+        }
+      }
+    }
+  }
+
+  private extractSequence(path: string): string {
+    const parts = path.split('-');
+    return parts[parts.length - 1];
+  }
+
+  // Promisified ZooKeeper operations
+  private create(path: string, data: Buffer, mode: CreateMode): Promise<string> {
+    return promisify(this.client.create.bind(this.client))(path, data, mode);
+  }
+
+  private exists(path: string): Promise<any> {
+    return promisify(this.client.exists.bind(this.client))(path);
+  }
+
+  private getData(path: string): Promise<Buffer> {
+    return promisify(this.client.getData.bind(this.client))(path);
+  }
+
+  private setData(path: string, data: Buffer): Promise<any> {
+    return promisify(this.client.setData.bind(this.client))(path, data);
+  }
+
+  private getChildren(path: string): Promise<string[]> {
+    return promisify(this.client.getChildren.bind(this.client))(path);
+  }
+
+  private delete(path: string): Promise<void> {
+    return promisify(this.client.remove.bind(this.client))(path);
+  }
+
+  private async watchNode(path: string, callback: (data: Buffer) => void): Promise<void> {
+    const watcher = async () => {
+      try {
+        const data = await this.getData(path);
+        callback(data);
+        
+        // Re-establish watch
+        await this.watchNode(path, callback);
+      } catch (error) {
+        if (error.getCode && error.getCode() === -101) { // NO_NODE
+          this.logger.debug('Watched node deleted', { path });
+        } else {
+          this.logger.error('Watch error', { path, error: error.message });
+        }
+      }
+    };
+
+    this.client.getData(path, watcher, (error, data) => {
+      if (error) {
+        this.logger.error('Failed to set watch', { path, error: error.message });
+        return;
+      }
+      
+      callback(data);
+    });
+  }
+
+  // Health check and statistics
+  async getStats(): Promise<any> {
+    try {
+      const state = this.client.getState();
+      
+      return {
+        connected: this.isConnected,
+        state: State[state],
+        activeLocks: this.activeLocks.size,
+        registeredServices: this.registeredServices.size,
+        watchers: this.watchers.size,
+        sessionTimeout: this.config.sessionTimeout,
+      };
+
+    } catch (error) {
+      this.logger.error('Failed to get stats', error);
+      return { connected: false, error: error.message };
+    }
+  }
+}
+
+// Usage example
+const zkConfig: ZooKeeperConfig = {
+  connectionString: 'zookeeper-1:2181,zookeeper-2:2181,zookeeper-3:2181',
+  sessionTimeout: 30000,
+  spinDelay: 1000,
+  retries: 3,
+  authentication: {
+    scheme: 'digest',
+    auth: 'app:apppass',
+  },
+  acl: [
+    { scheme: 'digest', id: 'app:apppass', perms: Permission.ALL },
+  ],
+};
+
+export { ZooKeeperCoordinator, ZooKeeperConfig, ServiceInfo, LockConfig };]]></correct-example>
+          <incorrect-example title="Basic ZooKeeper client without coordination patterns" conditions="Implementing ZooKeeper client" expected-result="Comprehensive distributed coordination" incorrectness-criteria="No leader election, no distributed locks, basic client only, no error handling"><![CDATA[// Basic ZooKeeper client without coordination patterns
+import { ZooKeeper } from 'node-zookeeper-client';
+
+const client = new ZooKeeper('localhost:2181');
+
+client.on('connected', () => {
+  console.log('Connected');
+});
+
+// Bad: No leader election
+// Bad: No distributed locks
+// Bad: No service discovery
+// Bad: No configuration management
+// Bad: No error handling
+// Bad: No monitoring
+// Bad: No authentication
+
+async function create(path: string, data: string) {
+  client.create(path, Buffer.from(data), (error, path) => {
+    if (error) {
+      console.error(error);
+    }
+  });
+}
+
+// Bad: No coordination patterns
+// Bad: No proper error handling
+// Bad: No metrics collection]]></incorrect-example>
+        </example>
+      </examples>
+    </requirement>
+  </requirements>
+  <context description="Apache ZooKeeper distributed coordination best practices">
+    Apache ZooKeeper is a centralized service for maintaining configuration information, naming, providing distributed synchronization, and providing group services. Modern ZooKeeper development emphasizes ensemble configurations, security-first approaches, and robust coordination patterns for distributed systems.
+
+    Key principles for ZooKeeper implementation include:
+    - Ensemble configuration with odd number of nodes (3, 5, 7) for fault tolerance
+    - Security with authentication, authorization, encryption, and access control
+    - Coordination patterns including leader election, distributed locks, and service discovery
+    - Configuration management with versioning, validation, and change notification
+    - Performance optimization with proper JVM tuning, network configuration, and monitoring
+    - Comprehensive monitoring and alerting for ensemble health and coordination patterns
+
+    ZooKeeper security is critical and includes SASL authentication, digest authentication, SSL/TLS encryption, ACL-based authorization, and proper network security. All ensembles should use secure configurations by default.
+
+    Coordination patterns leverage ZooKeeper's guarantees of sequential consistency, atomicity, and durability. Leader election uses ephemeral sequential nodes, distributed locks use sequential nodes with watching, and service discovery uses ephemeral nodes for automatic cleanup.
+
+    Performance optimization involves proper JVM heap sizing, garbage collection tuning, network configuration, and avoiding anti-patterns like polling or large data storage. Monitoring should cover ensemble health, coordination pattern usage, and application-level metrics.
+
+    Production deployments require ensemble redundancy, proper network topology, disaster recovery procedures, backup strategies, and integration with service discovery and configuration management systems for modern distributed applications.
+  </context>
+  <references>
+    <reference as="dependency" href=".cursor/rules/000-core/002-cursor-rules-creation.mdc" reason="Follows standard rule format">Base rule format definition</reference>
+    <reference as="context" href="https://zookeeper.apache.org/doc/current/" reason="Official ZooKeeper documentation">Apache ZooKeeper Documentation</reference>
+    <reference as="context" href="https://zookeeper.apache.org/doc/current/zookeeperAdmin.html" reason="Administrative best practices">ZooKeeper Administrator's Guide</reference>
+    <reference as="context" href="https://zookeeper.apache.org/doc/current/recipes.html" reason="Coordination patterns">ZooKeeper Recipes and Solutions</reference>
+  </references>
+</rule>

@@ -1,0 +1,121 @@
+---
+description: shadcn/ui standards for Next.js apps with Tailwind and accessible, themeable components. Used only when explicitly referenced.
+globs: "*"
+alwaysApply: false
+---
+
+<rule>
+  <meta>
+    <title>shadcn/ui Core Standards for Next.js</title>
+    <description>Beautifully-designed, accessible components using shadcn/ui in Next.js aligned with 401-next.js-core-standards-auto.mdc and 403-tailwind-core-standards-auto.mdc.</description>
+    <created-at utc-timestamp="1760995200">October 20, 2025, 00:00 UTC</created-at>
+    <last-updated-at utc-timestamp="1760995200">October 20, 2025, 00:00 UTC</last-updated-at>
+    <applies-to>
+      <file-matcher glob="packages/web/**">Next.js web application</file-matcher>
+    </applies-to>
+  </meta>
+
+  <requirements>
+    <non-negotiable priority="critical">
+      <description>Use the official shadcn/ui Next.js installation process. Components MUST be added via the CLI per docs to ensure correct file structure, styles, and accessibility attributes.</description>
+      <examples>
+        <example title="Install & add components">
+          <correct-example title="CLI usage" conditions="Adding button component" expected-result="Local component files with correct styles and Radix wiring" correctness-criteria="Uses CLI add command">
+            <![CDATA[
+pnpm dlx shadcn@latest init
+pnpm dlx shadcn@latest add button card input select dialog dropdown-menu switch
+            ]]>
+          </correct-example>
+          <incorrect-example title="Ad-hoc copy/paste" conditions="Adding components manually" expected-result="Consistent structure" incorrectness-criteria="Manually copying snippets breaks tokens/variants and accessibility">Copied code into random folders; missing theme tokens and aria attributes.</incorrect-example>
+        </example>
+      </examples>
+    </non-negotiable>
+
+    <requirement priority="critical">
+      <description>Theme and dark mode: prefer class-based dark mode (document root carries class="dark"). Ensure color tokens are Tailwind theme-compatible; do not hardcode colors in components. Provide light/dark contrast meeting WCAG 2.1 AA.</description>
+      <examples>
+        <example title="Dark mode class">
+          <correct-example title="Class strategy" conditions="Enabling dark mode" expected-result="Consistent dark mode" correctness-criteria="Uses class strategy">
+            <![CDATA[
+// tailwind.config.ts
+export default { darkMode: 'class', theme: { extend: {} } }
+            ]]>
+          </correct-example>
+          <incorrect-example title="Media only" conditions="Dark mode" expected-result="Project-wide control" incorrectness-criteria="Forces prefers-color-scheme without class">darkMode: 'media'</incorrect-example>
+        </example>
+      </examples>
+    </requirement>
+
+    <requirement priority="high">
+      <description>File structure: co-locate shadcn components under packages/web/src/components/ui with PascalCase files and index re-exports where applicable. Do not place inside app route segments.</description>
+      <examples>
+        <example title="Paths">
+          <correct-example title="UI folder" conditions="Creating Button" expected-result="Button at ui path" correctness-criteria="Located under components/ui">
+            packages/web/src/components/ui/button.tsx
+          </correct-example>
+          <incorrect-example title="Inside route" conditions="Button placement" expected-result="Shared UI path" incorrectness-criteria="Placed under app/page.tsx tree">packages/web/src/app/(public)/login/button.tsx</incorrect-example>
+        </example>
+      </examples>
+    </requirement>
+
+    <requirement priority="high">
+      <description>Accessibility: do not remove aria- attributes or Radix primitives that ship with shadcn/ui. Validate that interactive controls (Dialog, Menu, Select, Switch) are keyboard accessible (Tab/Shift+Tab, Enter, Space, Esc) and have proper focus outlines.</description>
+      <examples>
+        <example title="Keyboard support">
+          <correct-example title="Dropdown Menu" conditions="Menu" expected-result="Opens/closes with keyboard and focus trap" correctness-criteria="Retains provided handlers and aria roles">Use generated dropdown-menu.tsx without stripping role, aria-expanded, aria-controls.</correct-example>
+          <incorrect-example title="Removed aria" conditions="Menu" expected-result="Accessible menu" incorrectness-criteria="Deleted aria-* attributes">Removed aria and roving tabindex → fails a11y.</incorrect-example>
+        </example>
+      </examples>
+    </requirement>
+
+    <requirement priority="high">
+      <description>Tree-shaking & DX: import local UI components using absolute alias @/components/ui/<name> and avoid importing registry index bundles. Only add components actually used in the project.</description>
+      <examples>
+        <example title="Imports">
+          <correct-example title="Direct import" conditions="Using Button" expected-result="Local file import" correctness-criteria="Absolute alias">
+            <![CDATA[
+import { Button } from "@/components/ui/button";
+            ]]>
+          </correct-example>
+          <incorrect-example title="Registry import" conditions="Import" expected-result="Local import" incorrectness-criteria="Pulls from package not local">import { Button } from "shadcn/ui";</incorrect-example>
+        </example>
+      </examples>
+    </requirement>
+
+    <requirement priority="high">
+      <description>Styling: keep component tokens in tailwind.config theme where possible. Extend variants via class-variance-authority (cva) supplied by shadcn where provided; do not hand-roll ad-hoc variant props without cva.</description>
+      <examples>
+        <example title="Variants">
+          <correct-example title="Button variants" conditions="Add destructive" expected-result="Uses cva" correctness-criteria="Variant added in cva map">Edit button.tsx variants map; add destructive class composition.</correct-example>
+          <incorrect-example title="Inline classes" conditions="Add variant" expected-result="Centralized variants" incorrectness-criteria="Appends classes at call site">&lt;Button className="bg-red-600" /&gt;</incorrect-example>
+        </example>
+      </examples>
+    </requirement>
+
+    <requirement priority="high">
+      <description>SSR/Hydration: avoid non-deterministic ids/styles during SSR. Components that depend on client APIs must be wrapped in "use client" files. Keep theming and fonts consistent (use next/font with display swap).</description>
+      <examples>
+        <example title="Client-only">
+          <correct-example title="Dialog client" conditions="Using Dialog" expected-result="No hydration mismatch" correctness-criteria="Top of file has 'use client'">"use client"; export function MyDialog(){/* ... */}</correct-example>
+          <incorrect-example title="Server rendered interactive" conditions="Dialog" expected-result="Client component" incorrectness-criteria="Placed under server-only file">Server component imports useRouter + Dialog.</incorrect-example>
+        </example>
+      </examples>
+    </requirement>
+
+    <requirement priority="medium">
+      <description>Icons & assets: prefer lucide-react or project icon set. Do not inline raw SVGs without aria-hidden and focusable=false unless the icon is interactive.</description>
+    </requirement>
+
+    <requirement priority="medium">
+      <description>Testing & linting: ensure components render in both light and dark themes; include basic axe checks for a11y where feasible.</description>
+    </requirement>
+  </requirements>
+
+  <references>
+    <reference as="dependency" href=".cursor/rules/000-core/002-cursor-rules-creation.mdc" reason="Rule file format and frontmatter">Cursor Rule format</reference>
+    <reference as="dependency" href=".cursor/rules/400-frameworks/401-next.js-core-standards-auto.mdc" reason="Next.js project standards">Next.js standards</reference>
+    <reference as="dependency" href=".cursor/rules/400-frameworks/403-tailwind-core-standards-auto.mdc" reason="Tailwind design system standards">Tailwind standards</reference>
+    <reference as="context" href="https://ui.shadcn.com/docs/installation/next" reason="Installation and usage documentation">shadcn/ui Next installation</reference>
+  </references>
+</rule>
+

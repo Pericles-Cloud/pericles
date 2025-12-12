@@ -1,0 +1,723 @@
+---
+description: "Comprehensive dotenv standards for secure environment variable management, configuration patterns, and development workflow integration following security and operational best practices"
+globs: ["**/*.{js,ts,mjs,cjs}", "**/.env*", "**/config/**/*.{js,ts,json}", "**/*.json"]
+alwaysApply: false
+---
+
+<rule>
+  <meta>
+    <title>Dotenv Environment Configuration Standards</title>
+    <description>Comprehensive dotenv standards for secure environment variable management, configuration patterns, and development workflow integration following security and operational best practices</description>
+    <created-at utc-timestamp="1744400600">January 29, 2025, 3:10 PM</created-at>
+    <last-updated-at utc-timestamp="1744400600">January 29, 2025, 3:10 PM</last-updated-at>
+    <applies-to>
+      <file-matcher glob="**/*.{js,ts,mjs,cjs}">JavaScript and TypeScript files using dotenv</file-matcher>
+      <file-matcher glob="**/.env*">Environment configuration files</file-matcher>
+      <action-matcher action="environment-config">Triggered when managing environment variables and configuration</action-matcher>
+    </applies-to>
+  </meta>
+
+  <requirements>
+    <non-negotiable priority="critical">
+      <description>Implement secure environment variable management with proper separation of secrets, validation, and development-production parity while preventing sensitive data exposure.</description>
+      <examples>
+        <example title="Secure Environment Configuration">
+          <correct-example title="Secure dotenv implementation with validation" conditions="Setting up environment configuration" expected-result="Secure and validated environment setup" correctness-criteria="Separates secrets from config, validates variables, provides fallbacks, prevents exposure"><![CDATA[// config/environment.ts
+import dotenv from 'dotenv'
+import { z } from 'zod'
+import path from 'path'
+
+// Environment schema for validation
+const environmentSchema = z.object({
+  NODE_ENV: z.enum(['development', 'production', 'test', 'staging']).default('development'),
+  PORT: z.coerce.number().min(1000).max(65535).default(3000),
+  HOST: z.string().default('localhost'),
+  
+  // Database configuration
+  DATABASE_URL: z.string().url(),
+  DATABASE_POOL_SIZE: z.coerce.number().min(1).max(100).default(10),
+  
+  // API configuration
+  API_BASE_URL: z.string().url(),
+  API_TIMEOUT: z.coerce.number().min(1000).max(30000).default(5000),
+  API_RETRY_ATTEMPTS: z.coerce.number().min(0).max(5).default(3),
+  
+  // Security configuration
+  JWT_SECRET: z.string().min(32),
+  ENCRYPTION_KEY: z.string().min(32),
+  SESSION_SECRET: z.string().min(32),
+  CORS_ORIGIN: z.string().or(z.array(z.string())).default('*'),
+  
+  // External services
+  REDIS_URL: z.string().url().optional(),
+  SMTP_HOST: z.string().optional(),
+  SMTP_PORT: z.coerce.number().optional(),
+  SMTP_USER: z.string().optional(),
+  SMTP_PASS: z.string().optional(),
+  
+  // Feature flags
+  ENABLE_METRICS: z.coerce.boolean().default(false),
+  ENABLE_DEBUG_LOGGING: z.coerce.boolean().default(false),
+  ENABLE_RATE_LIMITING: z.coerce.boolean().default(true),
+  
+  // Build and deployment
+  BUILD_TARGET: z.enum(['client', 'server', 'both']).default('both'),
+  CDN_URL: z.string().url().optional(),
+  ASSET_PREFIX: z.string().default(''),
+})
+
+export type Environment = z.infer<typeof environmentSchema>
+
+class EnvironmentManager {
+  private static instance: EnvironmentManager
+  private config: Environment
+  private isLoaded = false
+
+  private constructor() {}
+
+  static getInstance(): EnvironmentManager {
+    if (!this.instance) {
+      this.instance = new EnvironmentManager()
+    }
+    return this.instance
+  }
+
+  loadEnvironment(envPath?: string): Environment {
+    if (this.isLoaded) {
+      return this.config
+    }
+
+    // Load environment-specific .env files
+    this.loadEnvFiles(envPath)
+
+    // Validate and parse environment variables
+    try {
+      this.config = environmentSchema.parse(process.env)
+      this.isLoaded = true
+      
+      // Log configuration (without secrets)
+      this.logConfiguration()
+      
+      return this.config
+    } catch (error) {
+      if (error instanceof z.ZodError) {
+        const missingVars = error.errors
+          .filter(err => err.code === 'invalid_type')
+          .map(err => err.path.join('.'))
+        
+        const invalidVars = error.errors
+          .filter(err => err.code !== 'invalid_type')
+          .map(err => `${err.path.join('.')}: ${err.message}`)
+
+        console.error('❌ Environment validation failed:')
+        if (missingVars.length > 0) {
+          console.error('Missing required variables:', missingVars.join(', '))
+        }
+        if (invalidVars.length > 0) {
+          console.error('Invalid variables:', invalidVars.join(', '))
+        }
+      }
+      throw new Error('Environment configuration is invalid')
+    }
+  }
+
+  private loadEnvFiles(customPath?: string): void {
+    const nodeEnv = process.env.NODE_ENV || 'development'
+    const envFiles = [
+      customPath,
+      `.env.${nodeEnv}.local`,
+      `.env.local`,
+      `.env.${nodeEnv}`,
+      '.env'
+    ].filter(Boolean)
+
+    let loaded = false
+    for (const envFile of envFiles) {
+      const result = dotenv.config({ 
+        path: envFile,
+        override: false // Don't override already set variables
+      })
+      
+      if (!result.error) {
+        console.log(`📄 Loaded environment from: ${envFile}`)
+        loaded = true
+      }
+    }
+
+    if (!loaded && !customPath) {
+      console.warn('⚠️  No .env file found, using system environment variables')
+    }
+  }
+
+  private logConfiguration(): void {
+    const safeConfig = this.getSafeConfig()
+    console.log('🔧 Environment configuration:')
+    console.table(safeConfig)
+  }
+
+  getConfig(): Environment {
+    if (!this.isLoaded) {
+      throw new Error('Environment not loaded. Call loadEnvironment() first.')
+    }
+    return this.config
+  }
+
+  getSafeConfig(): Partial<Environment> {
+    if (!this.isLoaded) {
+      return {}
+    }
+
+    // Return config without sensitive data
+    const { 
+      JWT_SECRET, 
+      ENCRYPTION_KEY, 
+      SESSION_SECRET, 
+      SMTP_PASS,
+      ...safeConfig 
+    } = this.config
+
+    return {
+      ...safeConfig,
+      JWT_SECRET: JWT_SECRET ? '[REDACTED]' : undefined,
+      ENCRYPTION_KEY: ENCRYPTION_KEY ? '[REDACTED]' : undefined,
+      SESSION_SECRET: SESSION_SECRET ? '[REDACTED]' : undefined,
+      SMTP_PASS: SMTP_PASS ? '[REDACTED]' : undefined,
+    } as Partial<Environment>
+  }
+
+  isDevelopment(): boolean {
+    return this.config.NODE_ENV === 'development'
+  }
+
+  isProduction(): boolean {
+    return this.config.NODE_ENV === 'production'
+  }
+
+  isTest(): boolean {
+    return this.config.NODE_ENV === 'test'
+  }
+}
+
+// Singleton instance
+export const env = EnvironmentManager.getInstance()
+
+// Type-safe environment access
+export function requireEnv<K extends keyof Environment>(key: K): Environment[K] {
+  const config = env.getConfig()
+  const value = config[key]
+  
+  if (value === undefined || value === null || value === '') {
+    throw new Error(`Required environment variable ${key} is not set`)
+  }
+  
+  return value
+}
+
+// Optional environment access with fallback
+export function getEnv<K extends keyof Environment>(
+  key: K, 
+  fallback?: Environment[K]
+): Environment[K] | undefined {
+  try {
+    const config = env.getConfig()
+    return config[key] ?? fallback
+  } catch {
+    return fallback
+  }
+}
+
+// Application initialization
+// src/app.ts
+import { env } from './config/environment'
+
+async function initializeApp() {
+  // Load and validate environment
+  const config = env.loadEnvironment()
+  
+  // Initialize services with validated config
+  const server = createServer({
+    port: config.PORT,
+    host: config.HOST,
+    cors: {
+      origin: config.CORS_ORIGIN
+    }
+  })
+  
+  // Database connection
+  const db = await connectDatabase(config.DATABASE_URL, {
+    poolSize: config.DATABASE_POOL_SIZE
+  })
+  
+  // External services
+  if (config.REDIS_URL) {
+    await connectRedis(config.REDIS_URL)
+  }
+  
+  console.log(`🚀 Server starting on ${config.HOST}:${config.PORT}`)
+  return server
+}
+
+// Environment file examples with proper structure
+
+// .env (base configuration)
+# Application
+NODE_ENV=development
+HOST=localhost
+PORT=3000
+
+# Database
+DATABASE_URL=postgresql://user:pass@localhost:5432/myapp_dev
+DATABASE_POOL_SIZE=10
+
+# API Configuration
+API_BASE_URL=http://localhost:3001
+API_TIMEOUT=5000
+API_RETRY_ATTEMPTS=3
+
+# Feature Flags
+ENABLE_METRICS=false
+ENABLE_DEBUG_LOGGING=true
+ENABLE_RATE_LIMITING=false
+
+# Build Configuration
+BUILD_TARGET=both
+ASSET_PREFIX=
+
+# .env.local (local overrides - not in version control)
+# Local development secrets and overrides
+JWT_SECRET=your-local-jwt-secret-here-min-32-chars
+ENCRYPTION_KEY=your-local-encryption-key-min-32-chars
+SESSION_SECRET=your-local-session-secret-min-32-chars
+
+# Local service overrides
+DATABASE_URL=postgresql://localhost:5432/myapp_local
+REDIS_URL=redis://localhost:6379
+
+# .env.production (production configuration)
+NODE_ENV=production
+HOST=0.0.0.0
+PORT=8080
+
+# Production database
+DATABASE_POOL_SIZE=20
+
+# External services
+API_BASE_URL=https://api.myapp.com
+CDN_URL=https://cdn.myapp.com
+
+# Security features
+ENABLE_RATE_LIMITING=true
+CORS_ORIGIN=https://myapp.com,https://www.myapp.com
+
+# .env.test (testing configuration)
+NODE_ENV=test
+DATABASE_URL=postgresql://localhost:5432/myapp_test
+PORT=0
+ENABLE_DEBUG_LOGGING=false
+
+# Security configuration for CI/CD
+# ci/deploy.yml
+environment:
+  # Public configuration
+  NODE_ENV: production
+  BUILD_TARGET: both
+  
+secrets:
+  # Sensitive data from secure store
+  JWT_SECRET: ${{ secrets.JWT_SECRET }}
+  DATABASE_URL: ${{ secrets.DATABASE_URL }}
+  ENCRYPTION_KEY: ${{ secrets.ENCRYPTION_KEY }}]]></correct-example>
+          <incorrect-example title="Insecure environment management" conditions="Setting up environment configuration" expected-result="Secure environment setup" incorrectness-criteria="Exposes secrets, no validation, poor separation, security vulnerabilities"><![CDATA[// Bad: Insecure and unvalidated environment setup
+import dotenv from 'dotenv'
+
+// Bad: No validation or error handling
+dotenv.config()
+
+// Bad: Direct access without validation
+const config = {
+  port: process.env.PORT, // Could be undefined or invalid
+  dbUrl: process.env.DATABASE_URL, // No validation
+  secret: process.env.JWT_SECRET || 'fallback-secret' // Weak fallback
+}
+
+// Bad: Logging sensitive data
+console.log('Config:', config) // Exposes secrets in logs
+
+// Bad: No environment separation
+// .env file with secrets committed to git
+NODE_ENV=production
+JWT_SECRET=super-secret-key
+DATABASE_URL=postgresql://user:password@prod-host:5432/db
+API_KEY=abc123-secret-key
+
+// Bad: No type safety
+function getConfig(key) {
+  return process.env[key] // No validation or typing
+}
+
+// Bad: Mixing secrets with public config
+const publicConfig = {
+  appName: 'MyApp',
+  version: '1.0.0',
+  apiSecret: process.env.API_SECRET, // Secret mixed with public
+  debug: true
+}]]></incorrect-example>
+        </example>
+      </examples>
+    </non-negotiable>
+
+    <requirement priority="high">
+      <description>Implement environment-specific configuration management with proper file hierarchy, override patterns, and development-production parity.</description>
+      <examples>
+        <example title="Environment Configuration Hierarchy">
+          <correct-example title="Structured environment configuration" conditions="Managing multiple environments" expected-result="Clean environment separation and override patterns" correctness-criteria="Clear hierarchy, proper overrides, environment parity, security separation"><![CDATA[// config/env-loader.ts
+import dotenv from 'dotenv'
+import { existsSync } from 'fs'
+import { resolve } from 'path'
+
+export interface EnvLoadOptions {
+  envDir?: string
+  override?: boolean
+  required?: string[]
+  validateSchema?: boolean
+}
+
+export class EnvironmentLoader {
+  private static loadOrder = [
+    '.env.{NODE_ENV}.local',
+    '.env.local', 
+    '.env.{NODE_ENV}',
+    '.env'
+  ]
+
+  static load(options: EnvLoadOptions = {}): void {
+    const {
+      envDir = process.cwd(),
+      override = false,
+      required = [],
+      validateSchema = true
+    } = options
+
+    const nodeEnv = process.env.NODE_ENV || 'development'
+    const loadedFiles: string[] = []
+
+    // Load files in priority order
+    for (const pattern of this.loadOrder) {
+      const filename = pattern.replace('{NODE_ENV}', nodeEnv)
+      const filepath = resolve(envDir, filename)
+
+      if (existsSync(filepath)) {
+        const result = dotenv.config({
+          path: filepath,
+          override: override
+        })
+
+        if (!result.error) {
+          loadedFiles.push(filename)
+          console.log(`✓ Loaded: ${filename}`)
+        }
+      }
+    }
+
+    if (loadedFiles.length === 0) {
+      console.warn('⚠️  No .env files found, using system environment')
+    }
+
+    // Validate required variables
+    if (required.length > 0) {
+      this.validateRequired(required)
+    }
+
+    // Schema validation
+    if (validateSchema) {
+      this.validateSchema()
+    }
+
+    console.log(`🌍 Environment: ${nodeEnv}`)
+  }
+
+  private static validateRequired(required: string[]): void {
+    const missing = required.filter(key => !process.env[key])
+    
+    if (missing.length > 0) {
+      console.error('❌ Missing required environment variables:')
+      missing.forEach(key => console.error(`  - ${key}`))
+      throw new Error('Required environment variables are missing')
+    }
+  }
+
+  private static validateSchema(): void {
+    const validators = {
+      PORT: (val: string) => !isNaN(Number(val)) && Number(val) > 0,
+      NODE_ENV: (val: string) => ['development', 'production', 'test', 'staging'].includes(val),
+      DATABASE_URL: (val: string) => val.startsWith('postgresql://') || val.startsWith('mysql://'),
+      REDIS_URL: (val: string) => val.startsWith('redis://'),
+      JWT_SECRET: (val: string) => val.length >= 32,
+    }
+
+    const errors: string[] = []
+
+    Object.entries(validators).forEach(([key, validator]) => {
+      const value = process.env[key]
+      if (value && !validator(value)) {
+        errors.push(`${key}: Invalid format or value`)
+      }
+    })
+
+    if (errors.length > 0) {
+      console.error('❌ Environment validation errors:')
+      errors.forEach(error => console.error(`  - ${error}`))
+      throw new Error('Environment validation failed')
+    }
+  }
+
+  static getEnvInfo(): Record<string, any> {
+    return {
+      nodeEnv: process.env.NODE_ENV,
+      platform: process.platform,
+      nodeVersion: process.version,
+      environmentVars: Object.keys(process.env).length,
+      loadedAt: new Date().toISOString()
+    }
+  }
+}
+
+// Environment-specific configurations
+// config/environments/development.ts
+export const developmentConfig = {
+  server: {
+    host: 'localhost',
+    port: 3000,
+    cors: {
+      origin: '*',
+      credentials: true
+    }
+  },
+  database: {
+    poolSize: 5,
+    logging: true,
+    ssl: false
+  },
+  features: {
+    hotReload: true,
+    debugMode: true,
+    metrics: false,
+    rateLimiting: false
+  },
+  external: {
+    apiTimeout: 10000, // Longer for debugging
+    retryAttempts: 1
+  }
+}
+
+// config/environments/production.ts
+export const productionConfig = {
+  server: {
+    host: '0.0.0.0',
+    port: parseInt(process.env.PORT || '8080'),
+    cors: {
+      origin: process.env.CORS_ORIGIN?.split(',') || false,
+      credentials: true
+    }
+  },
+  database: {
+    poolSize: 20,
+    logging: false,
+    ssl: true
+  },
+  features: {
+    hotReload: false,
+    debugMode: false,
+    metrics: true,
+    rateLimiting: true
+  },
+  external: {
+    apiTimeout: 5000,
+    retryAttempts: 3
+  }
+}
+
+// config/environments/test.ts
+export const testConfig = {
+  server: {
+    host: 'localhost',
+    port: 0, // Random port
+    cors: {
+      origin: '*',
+      credentials: false
+    }
+  },
+  database: {
+    poolSize: 2,
+    logging: false,
+    ssl: false
+  },
+  features: {
+    hotReload: false,
+    debugMode: false,
+    metrics: false,
+    rateLimiting: false
+  },
+  external: {
+    apiTimeout: 1000,
+    retryAttempts: 0
+  }
+}
+
+// config/index.ts
+import { EnvironmentLoader } from './env-loader'
+import { developmentConfig } from './environments/development'
+import { productionConfig } from './environments/production'
+import { testConfig } from './environments/test'
+
+// Load environment variables
+EnvironmentLoader.load({
+  required: ['DATABASE_URL', 'JWT_SECRET'],
+  validateSchema: true
+})
+
+// Get environment-specific configuration
+function getEnvironmentConfig() {
+  switch (process.env.NODE_ENV) {
+    case 'production':
+      return productionConfig
+    case 'test':
+      return testConfig
+    case 'development':
+    default:
+      return developmentConfig
+  }
+}
+
+export const config = {
+  env: process.env.NODE_ENV || 'development',
+  ...getEnvironmentConfig(),
+  
+  // Computed values
+  isDevelopment: process.env.NODE_ENV === 'development',
+  isProduction: process.env.NODE_ENV === 'production',
+  isTest: process.env.NODE_ENV === 'test',
+  
+  // Environment variables with validation
+  secrets: {
+    jwtSecret: process.env.JWT_SECRET!,
+    encryptionKey: process.env.ENCRYPTION_KEY!,
+    databaseUrl: process.env.DATABASE_URL!,
+  },
+  
+  // Public configuration
+  public: {
+    appName: process.env.APP_NAME || 'MyApp',
+    version: process.env.APP_VERSION || '1.0.0',
+    buildTarget: process.env.BUILD_TARGET || 'both',
+  }
+}
+
+// Environment file structure
+/*
+project/
+├── .env                    # Base configuration
+├── .env.local             # Local overrides (gitignored)
+├── .env.development       # Development defaults
+├── .env.development.local # Development local overrides (gitignored)  
+├── .env.production        # Production defaults
+├── .env.production.local  # Production local overrides (gitignored)
+├── .env.test             # Test configuration
+├── .env.staging          # Staging configuration
+└── .env.example          # Example file for documentation
+*/
+
+// .env.example (documentation)
+# Application Configuration
+NODE_ENV=development
+HOST=localhost
+PORT=3000
+APP_NAME=MyApp
+APP_VERSION=1.0.0
+
+# Database
+DATABASE_URL=postgresql://user:password@localhost:5432/database_name
+DATABASE_POOL_SIZE=10
+
+# Security (replace with actual values)
+JWT_SECRET=your-jwt-secret-here-minimum-32-characters
+ENCRYPTION_KEY=your-encryption-key-here-minimum-32-characters
+SESSION_SECRET=your-session-secret-here-minimum-32-characters
+
+# External Services
+API_BASE_URL=http://localhost:3001
+REDIS_URL=redis://localhost:6379
+SMTP_HOST=localhost
+SMTP_PORT=587
+SMTP_USER=
+SMTP_PASS=
+
+# Feature Flags
+ENABLE_METRICS=false
+ENABLE_DEBUG_LOGGING=true
+ENABLE_RATE_LIMITING=false
+
+# Build Configuration
+BUILD_TARGET=both
+CDN_URL=
+ASSET_PREFIX=
+
+# .gitignore
+.env.local
+.env.*.local
+.env.production
+.env.staging]]></correct-example>
+          <incorrect-example title="Poor environment management" conditions="Managing multiple environments" expected-result="Clean environment separation" incorrectness-criteria="Mixed configurations, no hierarchy, security issues, no validation"><![CDATA[// Bad: Single config file for all environments
+import dotenv from 'dotenv'
+dotenv.config()
+
+// Bad: No environment separation
+const config = {
+  port: process.env.NODE_ENV === 'production' ? 8080 : 3000,
+  database: process.env.NODE_ENV === 'production' 
+    ? 'prod-database' 
+    : 'dev-database',
+  // Mixed logic in code instead of configuration files
+}
+
+// Bad: Single .env file for all environments
+NODE_ENV=development
+PORT=3000
+PROD_PORT=8080
+DEV_DATABASE_URL=postgresql://localhost:5432/dev
+PROD_DATABASE_URL=postgresql://prod-host:5432/prod
+JWT_SECRET=same-secret-everywhere
+DEBUG=true
+
+// Bad: No validation or error handling
+const dbUrl = process.env.DATABASE_URL
+const port = process.env.PORT
+
+// Bad: Hardcoded fallbacks
+const apiKey = process.env.API_KEY || 'default-key']]></incorrect-example>
+        </example>
+      </examples>
+    </requirement>
+  </requirements>
+
+  <context description="Environment variable management considerations">
+    Dotenv is essential for managing environment-specific configuration in Node.js applications. Proper environment management requires security awareness, clear separation between environments, and robust validation patterns.
+
+    Key considerations for dotenv usage:
+    - Security: Never commit secrets to version control
+    - Validation: Always validate environment variables
+    - Hierarchy: Implement proper file loading order
+    - Separation: Keep development and production configurations separate
+    - Documentation: Provide example files for setup
+    - Type safety: Use TypeScript for configuration validation
+
+    Modern applications benefit from structured environment management that supports multiple environments, local development overrides, and secure secret management while maintaining development-production parity.
+  </context>
+
+  <references>
+    <reference as="dependency" href=".cursor/rules/000-core/002-cursor-rules-creation.mdc" reason="Follows standard rule format">Base rule format definition</reference>
+    <reference as="context" href="https://www.npmjs.com/package/dotenv" reason="Official dotenv documentation">Dotenv NPM Package</reference>
+    <reference as="context" href="https://12factor.net/config" reason="Configuration best practices">The Twelve-Factor App - Config</reference>
+    <reference as="context" href="https://owasp.org/www-project-top-ten/" reason="Security considerations">OWASP Top 10 Security Risks</reference>
+  </references>
+</rule>

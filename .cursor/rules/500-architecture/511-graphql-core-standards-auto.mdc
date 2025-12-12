@@ -1,0 +1,1079 @@
+---
+description: "Comprehensive GraphQL standards for schema design, query optimization, security best practices, and TypeScript integration following expert community standards"
+globs: ["**/*.{ts,tsx,js,jsx,graphql,gql}", "**/schema/**/*", "**/resolvers/**/*", "**/types/**/*"]
+alwaysApply: false
+---
+
+<rule>
+  <meta>
+    <title>GraphQL Core Standards</title>
+    <description>Comprehensive GraphQL standards for schema design, query optimization, security best practices, and TypeScript integration following expert community standards</description>
+    <created-at utc-timestamp="1744157700">January 25, 2025, 10:15 AM</created-at>
+    <last-updated-at utc-timestamp="1744157700">January 25, 2025, 10:15 AM</last-updated-at>
+    <applies-to>
+      <file-matcher glob="**/*.{ts,tsx,js,jsx,graphql,gql}">TypeScript, JavaScript, and GraphQL files</file-matcher>
+      <file-matcher glob="**/schema/**/*">GraphQL schema definition files</file-matcher>
+      <file-matcher glob="**/resolvers/**/*">GraphQL resolver implementation files</file-matcher>
+      <file-matcher glob="**/types/**/*">GraphQL type definition files</file-matcher>
+      <action-matcher action="graphql-development">Triggered when working with GraphQL APIs</action-matcher>
+    </applies-to>
+  </meta>
+  <requirements>
+    <non-negotiable priority="critical">
+      <description>Use schema-first development with properly typed resolvers, comprehensive input validation, and security-focused query depth limiting and rate limiting.</description>
+      <examples>
+        <example title="Schema-First Development">
+          <correct-example title="Proper schema definition with TypeScript integration" conditions="Defining GraphQL schema with TypeScript" expected-result="Type-safe schema with validation" correctness-criteria="Uses schema-first approach, proper types, input validation, security measures"><![CDATA[// TypeScript - Schema definition with proper types
+import { gql } from 'apollo-server-express';
+import { makeExecutableSchema } from '@graphql-tools/schema';
+
+// Schema definition
+const typeDefs = gql`
+  scalar DateTime
+  scalar Email
+  scalar UUID
+
+  type User {
+    id: UUID!
+    email: Email!
+    username: String!
+    createdAt: DateTime!
+    posts: [Post!]!
+  }
+
+  type Post {
+    id: UUID!
+    title: String!
+    content: String!
+    author: User!
+    publishedAt: DateTime
+    tags: [String!]!
+  }
+
+  input CreateUserInput {
+    email: Email!
+    username: String!
+    password: String!
+  }
+
+  input PostFilterInput {
+    authorId: UUID
+    tags: [String!]
+    publishedAfter: DateTime
+  }
+
+  type Query {
+    users(limit: Int = 10, offset: Int = 0): [User!]!
+    user(id: UUID!): User
+    posts(filter: PostFilterInput, limit: Int = 20): [Post!]!
+  }
+
+  type Mutation {
+    createUser(input: CreateUserInput!): User!
+    updateUser(id: UUID!, input: UpdateUserInput!): User!
+    deleteUser(id: UUID!): Boolean!
+  }
+
+  type Subscription {
+    userCreated: User!
+    postPublished: Post!
+  }
+`;
+
+// TypeScript interfaces
+interface User {
+  id: string;
+  email: string;
+  username: string;
+  createdAt: Date;
+}
+
+interface Post {
+  id: string;
+  title: string;
+  content: string;
+  authorId: string;
+  publishedAt?: Date;
+  tags: string[];
+}
+
+interface Context {
+  user?: User;
+  dataSources: {
+    userAPI: UserAPI;
+    postAPI: PostAPI;
+  };
+}
+
+// Typed resolvers
+const resolvers = {
+  Query: {
+    users: async (
+      _parent: any,
+      { limit, offset }: { limit: number; offset: number },
+      { dataSources }: Context
+    ): Promise<User[]> => {
+      return dataSources.userAPI.getUsers({ limit, offset });
+    },
+    
+    user: async (
+      _parent: any,
+      { id }: { id: string },
+      { dataSources }: Context
+    ): Promise<User | null> => {
+      return dataSources.userAPI.getUserById(id);
+    }
+  },
+
+  Mutation: {
+    createUser: async (
+      _parent: any,
+      { input }: { input: CreateUserInput },
+      { dataSources }: Context
+    ): Promise<User> => {
+      // Input validation
+      if (!input.email || !input.username || !input.password) {
+        throw new Error('All fields are required');
+      }
+      
+      if (input.password.length < 8) {
+        throw new Error('Password must be at least 8 characters');
+      }
+      
+      return dataSources.userAPI.createUser(input);
+    }
+  },
+
+  User: {
+    posts: async (
+      parent: User,
+      _args: any,
+      { dataSources }: Context
+    ): Promise<Post[]> => {
+      return dataSources.postAPI.getPostsByAuthor(parent.id);
+    }
+  }
+};
+
+// Schema with security plugins
+const schema = makeExecutableSchema({
+  typeDefs,
+  resolvers
+});]]></correct-example>
+          <incorrect-example title="Resolver-first approach without proper types" conditions="Defining GraphQL API" expected-result="Type-safe GraphQL implementation" incorrectness-criteria="Missing schema definition, no input validation, untyped resolvers"><![CDATA[// BAD: Resolver-first without schema definition
+const resolvers = {
+  Query: {
+    users: () => getUsers(), // No types, no validation
+    user: (parent, args) => getUserById(args.id) // No input validation
+  },
+  
+  Mutation: {
+    createUser: (parent, args) => {
+      // No input validation
+      return createUser(args.email, args.username, args.password);
+    }
+  }
+};
+
+// No schema definition, no security measures]]></incorrect-example>
+        </example>
+      </examples>
+    </non-negotiable>
+
+    <requirement priority="critical">
+      <description>Implement proper error handling with custom error types, structured error responses, and security-conscious error messages that don't leak sensitive information.</description>
+      <examples>
+        <example title="GraphQL Error Handling">
+          <correct-example title="Comprehensive error handling with custom types" conditions="Handling GraphQL errors" expected-result="Structured, secure error responses" correctness-criteria="Custom error types, structured responses, no sensitive data leaks"><![CDATA[// TypeScript - Custom GraphQL errors
+import { GraphQLError } from 'graphql';
+import { ApolloError } from 'apollo-server-express';
+
+// Custom error types
+export class ValidationError extends ApolloError {
+  constructor(message: string, validationErrors?: string[]) {
+    super(message, 'VALIDATION_ERROR', {
+      validationErrors
+    });
+  }
+}
+
+export class NotFoundError extends ApolloError {
+  constructor(resource: string, id: string) {
+    super(`${resource} not found`, 'NOT_FOUND', {
+      resourceType: resource,
+      resourceId: id
+    });
+  }
+}
+
+export class AuthenticationError extends ApolloError {
+  constructor() {
+    super('Authentication required', 'UNAUTHENTICATED');
+  }
+}
+
+export class AuthorizationError extends ApolloError {
+  constructor(action: string) {
+    super(`Not authorized to ${action}`, 'FORBIDDEN', {
+      action
+    });
+  }
+}
+
+// Error handling in resolvers
+const resolvers = {
+  Query: {
+    user: async (
+      _parent: any,
+      { id }: { id: string },
+      { dataSources, user }: Context
+    ): Promise<User> => {
+      try {
+        // Authentication check
+        if (!user) {
+          throw new AuthenticationError();
+        }
+
+        // Input validation
+        if (!id || typeof id !== 'string') {
+          throw new ValidationError('Invalid user ID format');
+        }
+
+        const foundUser = await dataSources.userAPI.getUserById(id);
+        
+        if (!foundUser) {
+          throw new NotFoundError('User', id);
+        }
+
+        // Authorization check
+        if (foundUser.id !== user.id && !user.isAdmin) {
+          throw new AuthorizationError('view this user');
+        }
+
+        return foundUser;
+      } catch (error) {
+        // Log error securely (don't log sensitive data)
+        console.error('Error fetching user:', {
+          userId: id,
+          requestorId: user?.id,
+          error: error.message
+        });
+        
+        throw error;
+      }
+    }
+  }
+};
+
+// Global error formatting
+const server = new ApolloServer({
+  typeDefs,
+  resolvers,
+  formatError: (error: GraphQLError) => {
+    // Don't expose internal errors in production
+    if (process.env.NODE_ENV === 'production') {
+      // Only return safe error information
+      if (error.extensions?.code === 'INTERNAL_ERROR') {
+        return new Error('Internal server error');
+      }
+    }
+
+    // Log all errors securely
+    console.error('GraphQL Error:', {
+      message: error.message,
+      code: error.extensions?.code,
+      path: error.path,
+      timestamp: new Date().toISOString()
+    });
+
+    return error;
+  }
+});]]></correct-example>
+          <incorrect-example title="Poor error handling exposing sensitive information" conditions="Handling GraphQL errors" expected-result="Secure error handling" incorrectness-criteria="Exposes sensitive data, no error structure, poor security"><![CDATA[// BAD: Exposing sensitive information in errors
+const resolvers = {
+  Query: {
+    user: async (parent, { id }, { dataSources }) => {
+      try {
+        const user = await dataSources.userAPI.getUserById(id);
+        return user;
+      } catch (error) {
+        // Exposing internal database errors
+        throw new Error(`Database error: ${error.message} - SQL: ${error.sql}`);
+      }
+    }
+  }
+};
+
+// No error formatting, exposing stack traces
+const server = new ApolloServer({
+  typeDefs,
+  resolvers
+  // No error formatting
+});]]></incorrect-example>
+        </example>
+      </examples>
+    </requirement>
+
+    <requirement priority="critical">
+      <description>Implement comprehensive security measures including query depth limiting, query complexity analysis, rate limiting, and proper authentication/authorization patterns.</description>
+      <examples>
+        <example title="GraphQL Security Implementation">
+          <correct-example title="Comprehensive security with depth limiting and authentication" conditions="Securing GraphQL API" expected-result="Protected API with proper security measures" correctness-criteria="Query depth limiting, complexity analysis, rate limiting, authentication"><![CDATA[// TypeScript - Comprehensive GraphQL security
+import { ApolloServer } from 'apollo-server-express';
+import { depthLimit } from 'graphql-depth-limit';
+import { createComplexityLimitRule } from 'graphql-query-complexity';
+import { shield, rule, and, or } from 'graphql-shield';
+import { RateLimiterRedis } from 'rate-limiter-flexible';
+
+// Rate limiting setup
+const rateLimiter = new RateLimiterRedis({
+  storeClient: redisClient,
+  keyGenerator: (parent, args, context) => context.user?.id || context.ip,
+  points: 100, // Number of requests
+  duration: 60, // Per 60 seconds
+});
+
+// Authentication rules
+const isAuthenticated = rule({ cache: 'contextual' })(
+  async (parent, args, { user }) => {
+    return user !== null;
+  }
+);
+
+const isAdmin = rule({ cache: 'contextual' })(
+  async (parent, args, { user }) => {
+    return user?.role === 'admin';
+  }
+);
+
+const isOwner = rule({ cache: 'contextual' })(
+  async (parent, { id }, { user }) => {
+    return user?.id === id;
+  }
+);
+
+// Shield permissions
+const permissions = shield({
+  Query: {
+    users: isAdmin,
+    user: or(isAdmin, isOwner),
+    posts: isAuthenticated
+  },
+  Mutation: {
+    createUser: isAdmin,
+    updateUser: or(isAdmin, isOwner),
+    deleteUser: isAdmin
+  }
+});
+
+// Server configuration with security
+const server = new ApolloServer({
+  typeDefs,
+  resolvers,
+  validationRules: [
+    // Limit query depth to prevent deeply nested attacks
+    depthLimit(10),
+    
+    // Limit query complexity
+    createComplexityLimitRule(1000, {
+      maximumCost: 1000,
+      createError: (max, actual) => {
+        return new Error(`Query complexity ${actual} exceeds maximum allowed complexity ${max}`);
+      }
+    })
+  ],
+  
+  plugins: [
+    // Rate limiting plugin
+    {
+      requestDidStart() {
+        return {
+          didResolveOperation: async (requestContext) => {
+            try {
+              await rateLimiter.consume(requestContext.context.user?.id || requestContext.context.ip);
+            } catch (rejRes) {
+              throw new Error('Rate limit exceeded');
+            }
+          }
+        };
+      }
+    }
+  ],
+
+  context: async ({ req }) => {
+    // Extract and verify JWT token
+    const token = req.headers.authorization?.replace('Bearer ', '');
+    let user = null;
+
+    if (token) {
+      try {
+        const decoded = jwt.verify(token, process.env.JWT_SECRET);
+        user = await getUserById(decoded.userId);
+      } catch (error) {
+        // Invalid token, user remains null
+      }
+    }
+
+    return {
+      user,
+      ip: req.ip,
+      dataSources: {
+        userAPI: new UserAPI(),
+        postAPI: new PostAPI()
+      }
+    };
+  }
+});
+
+// Apply shield permissions
+const protectedServer = applyMiddleware(server, permissions);]]></correct-example>
+          <incorrect-example title="No security measures implemented" conditions="GraphQL API setup" expected-result="Secure GraphQL API" incorrectness-criteria="No authentication, no rate limiting, no query depth limits"><![CDATA[// BAD: No security measures
+const server = new ApolloServer({
+  typeDefs,
+  resolvers
+  // No security validations
+  // No rate limiting
+  // No authentication
+  // No query depth limits
+});
+
+// Resolvers without authentication checks
+const resolvers = {
+  Query: {
+    users: () => getAllUsers(), // No authentication
+    user: (parent, { id }) => getUserById(id) // No ownership check
+  },
+  Mutation: {
+    deleteUser: (parent, { id }) => deleteUser(id) // Anyone can delete
+  }
+};]]></incorrect-example>
+        </example>
+      </examples>
+    </requirement>
+
+    <requirement priority="high">
+      <description>Optimize GraphQL performance with DataLoader for N+1 query prevention, proper caching strategies, and efficient database query patterns.</description>
+      <examples>
+        <example title="Performance Optimization with DataLoader">
+          <correct-example title="DataLoader implementation preventing N+1 queries" conditions="Optimizing GraphQL resolver performance" expected-result="Efficient data loading with batching" correctness-criteria="Uses DataLoader, batches queries, implements caching"><![CDATA[// TypeScript - DataLoader for performance optimization
+import DataLoader from 'dataloader';
+
+interface Context {
+  user?: User;
+  loaders: {
+    userLoader: DataLoader<string, User>;
+    postsByAuthorLoader: DataLoader<string, Post[]>;
+    usersByIdLoader: DataLoader<string, User>;
+  };
+}
+
+// User DataLoader with batching
+const createUserLoader = () => {
+  return new DataLoader<string, User>(async (userIds: readonly string[]) => {
+    // Batch fetch all users in a single query
+    const users = await userRepository.findByIds([...userIds]);
+    
+    // Create a map for O(1) lookup
+    const userMap = new Map(users.map(user => [user.id, user]));
+    
+    // Return users in the same order as requested IDs
+    return userIds.map(id => userMap.get(id) || null);
+  }, {
+    // Cache results for the duration of the request
+    cache: true,
+    maxBatchSize: 100
+  });
+};
+
+// Posts by author DataLoader
+const createPostsByAuthorLoader = () => {
+  return new DataLoader<string, Post[]>(async (authorIds: readonly string[]) => {
+    // Batch fetch all posts for multiple authors
+    const posts = await postRepository.findByAuthorIds([...authorIds]);
+    
+    // Group posts by author ID
+    const postsByAuthor = new Map<string, Post[]>();
+    authorIds.forEach(id => postsByAuthor.set(id, []));
+    
+    posts.forEach(post => {
+      const authorPosts = postsByAuthor.get(post.authorId) || [];
+      authorPosts.push(post);
+      postsByAuthor.set(post.authorId, authorPosts);
+    });
+    
+    return authorIds.map(id => postsByAuthor.get(id) || []);
+  });
+};
+
+// Context factory with loaders
+const createContext = (req: Request): Context => {
+  return {
+    user: req.user,
+    loaders: {
+      userLoader: createUserLoader(),
+      postsByAuthorLoader: createPostsByAuthorLoader(),
+      usersByIdLoader: createUserLoader()
+    }
+  };
+};
+
+// Optimized resolvers using DataLoader
+const resolvers = {
+  Query: {
+    posts: async (
+      _parent: any,
+      { filter, limit }: { filter?: PostFilterInput; limit: number },
+      { loaders }: Context
+    ): Promise<Post[]> => {
+      // Efficient query with proper filtering
+      const posts = await postRepository.find({
+        where: filter,
+        limit,
+        order: { createdAt: 'DESC' }
+      });
+      
+      return posts;
+    }
+  },
+
+  Post: {
+    // This resolver will be called for each post
+    // DataLoader ensures we batch all author requests
+    author: async (
+      parent: Post,
+      _args: any,
+      { loaders }: Context
+    ): Promise<User> => {
+      // DataLoader batches these requests automatically
+      return loaders.userLoader.load(parent.authorId);
+    }
+  },
+
+  User: {
+    // This resolver benefits from batching when loading multiple users' posts
+    posts: async (
+      parent: User,
+      _args: any,
+      { loaders }: Context
+    ): Promise<Post[]> => {
+      return loaders.postsByAuthorLoader.load(parent.id);
+    }
+  }
+};
+
+// Server setup with optimized context
+const server = new ApolloServer({
+  typeDefs,
+  resolvers,
+  context: ({ req }) => createContext(req),
+  
+  // Enable query analysis for performance monitoring
+  plugins: [
+    {
+      requestDidStart() {
+        return {
+          willSendResponse(requestContext) {
+            // Log slow queries for optimization
+            const duration = Date.now() - requestContext.request.http.startTime;
+            if (duration > 1000) {
+              console.warn('Slow GraphQL query:', {
+                query: requestContext.request.query,
+                duration,
+                variables: requestContext.request.variables
+              });
+            }
+          }
+        };
+      }
+    }
+  ]
+});]]></correct-example>
+          <incorrect-example title="N+1 query problem without optimization" conditions="GraphQL resolvers without optimization" expected-result="Efficient data loading" incorrectness-criteria="No batching, causes N+1 queries, poor performance"><![CDATA[// BAD: N+1 query problem
+const resolvers = {
+  Query: {
+    posts: async () => {
+      return await postRepository.findAll();
+    }
+  },
+
+  Post: {
+    // This creates N+1 queries!
+    // For 100 posts, this makes 100 separate database calls
+    author: async (parent: Post) => {
+      // Separate query for each post's author
+      return await userRepository.findById(parent.authorId);
+    }
+  },
+
+  User: {
+    // Another N+1 problem
+    posts: async (parent: User) => {
+      // Separate query for each user's posts
+      return await postRepository.findByAuthorId(parent.id);
+    }
+  }
+};
+
+// No DataLoader, no batching, no optimization]]></incorrect-example>
+        </example>
+      </examples>
+    </requirement>
+
+    <requirement priority="high">
+      <description>Use proper GraphQL subscription patterns with real-time updates, connection management, and efficient event filtering for scalable real-time features.</description>
+      <examples>
+        <example title="GraphQL Subscriptions Implementation">
+          <correct-example title="Efficient subscription with filtering and connection management" conditions="Implementing real-time GraphQL subscriptions" expected-result="Scalable real-time updates with proper filtering" correctness-criteria="Event filtering, connection management, proper subscription patterns"><![CDATA[// TypeScript - GraphQL Subscriptions with Redis PubSub
+import { PubSub } from 'graphql-subscriptions';
+import { RedisPubSub } from 'graphql-redis-subscriptions';
+import { withFilter } from 'graphql-subscriptions';
+
+// Redis PubSub for scalable subscriptions
+const pubsub = new RedisPubSub({
+  publisher: new Redis(process.env.REDIS_URL),
+  subscriber: new Redis(process.env.REDIS_URL)
+});
+
+// Subscription events
+enum SubscriptionEvents {
+  POST_CREATED = 'POST_CREATED',
+  POST_UPDATED = 'POST_UPDATED',
+  USER_ONLINE = 'USER_ONLINE',
+  COMMENT_ADDED = 'COMMENT_ADDED'
+}
+
+// Subscription resolvers with filtering
+const resolvers = {
+  Subscription: {
+    postCreated: {
+      // Subscribe to all post creation events
+      subscribe: withFilter(
+        () => pubsub.asyncIterator([SubscriptionEvents.POST_CREATED]),
+        // Filter events based on user preferences
+        (payload, variables, context) => {
+          // Only send posts from followed authors
+          const followedAuthors = context.user?.followedAuthors || [];
+          return followedAuthors.includes(payload.postCreated.authorId);
+        }
+      )
+    },
+
+    postUpdated: {
+      subscribe: withFilter(
+        () => pubsub.asyncIterator([SubscriptionEvents.POST_UPDATED]),
+        (payload, variables) => {
+          // Filter by specific post ID if provided
+          return !variables.postId || payload.postUpdated.id === variables.postId;
+        }
+      )
+    },
+
+    commentAdded: {
+      subscribe: withFilter(
+        () => pubsub.asyncIterator([SubscriptionEvents.COMMENT_ADDED]),
+        (payload, variables) => {
+          // Only comments for specific post
+          return payload.commentAdded.postId === variables.postId;
+        }
+      )
+    }
+  },
+
+  Mutation: {
+    createPost: async (
+      _parent: any,
+      { input }: { input: CreatePostInput },
+      { dataSources, user }: Context
+    ): Promise<Post> => {
+      const post = await dataSources.postAPI.createPost({
+        ...input,
+        authorId: user.id
+      });
+
+      // Publish event for subscriptions
+      await pubsub.publish(SubscriptionEvents.POST_CREATED, {
+        postCreated: post
+      });
+
+      return post;
+    },
+
+    addComment: async (
+      _parent: any,
+      { input }: { input: AddCommentInput },
+      { dataSources, user }: Context
+    ): Promise<Comment> => {
+      const comment = await dataSources.commentAPI.addComment({
+        ...input,
+        authorId: user.id
+      });
+
+      // Publish filtered event
+      await pubsub.publish(SubscriptionEvents.COMMENT_ADDED, {
+        commentAdded: comment
+      });
+
+      return comment;
+    }
+  }
+};
+
+// Schema with subscription definitions
+const typeDefs = gql`
+  type Subscription {
+    postCreated: Post!
+    postUpdated(postId: ID): Post!
+    commentAdded(postId: ID!): Comment!
+    userOnline: User!
+  }
+
+  extend type Mutation {
+    createPost(input: CreatePostInput!): Post!
+    updatePost(id: ID!, input: UpdatePostInput!): Post!
+    addComment(input: AddCommentInput!): Comment!
+  }
+`;
+
+// Server setup with subscription support
+import { createServer } from 'http';
+import { SubscriptionServer } from 'subscriptions-transport-ws';
+import { execute, subscribe } from 'graphql';
+
+const app = express();
+const httpServer = createServer(app);
+
+const server = new ApolloServer({
+  typeDefs,
+  resolvers,
+  context: ({ req, connection }) => {
+    // Handle both HTTP and WebSocket contexts
+    if (connection) {
+      // WebSocket connection for subscriptions
+      return {
+        user: connection.context.user,
+        dataSources: createDataSources()
+      };
+    }
+    // HTTP request
+    return createContext(req);
+  }
+});
+
+// WebSocket server for subscriptions
+SubscriptionServer.create(
+  {
+    schema: server.schema,
+    execute,
+    subscribe,
+    onConnect: async (connectionParams: any, webSocket: any) => {
+      // Authenticate WebSocket connection
+      const token = connectionParams.authorization?.replace('Bearer ', '');
+      if (token) {
+        try {
+          const decoded = jwt.verify(token, process.env.JWT_SECRET);
+          const user = await getUserById(decoded.userId);
+          return { user };
+        } catch (error) {
+          throw new Error('Authentication failed');
+        }
+      }
+      throw new Error('Authentication required');
+    },
+    onDisconnect: () => {
+      console.log('Client disconnected from subscription');
+    }
+  },
+  {
+    server: httpServer,
+    path: '/graphql'
+  }
+);]]></correct-example>
+          <incorrect-example title="Poor subscription implementation without filtering" conditions="Implementing GraphQL subscriptions" expected-result="Efficient subscription system" incorrectness-criteria="No filtering, poor connection management, scalability issues"><![CDATA[// BAD: No filtering, poor performance
+const resolvers = {
+  Subscription: {
+    // Sends ALL posts to ALL subscribers
+    postCreated: {
+      subscribe: () => pubsub.asyncIterator(['POST_CREATED'])
+      // No filtering - sends every post to every subscriber
+    }
+  },
+
+  Mutation: {
+    createPost: async (parent, { input }) => {
+      const post = await createPost(input);
+      
+      // No authentication check
+      pubsub.publish('POST_CREATED', { postCreated: post });
+      
+      return post;
+    }
+  }
+};
+
+// No authentication for WebSocket connections
+// No connection management
+// No error handling]]></incorrect-example>
+        </example>
+      </examples>
+    </requirement>
+
+    <requirement priority="medium">
+      <description>Implement comprehensive testing strategies for GraphQL APIs including unit tests for resolvers, integration tests for schema, and end-to-end subscription testing.</description>
+      <examples>
+        <example title="GraphQL Testing Implementation">
+          <correct-example title="Comprehensive testing with mocked dependencies" conditions="Testing GraphQL API" expected-result="Full test coverage with proper mocking" correctness-criteria="Unit tests, integration tests, subscription tests, proper mocking"><![CDATA[// TypeScript - Comprehensive GraphQL testing
+import { gql } from 'apollo-server-testing';
+import { createTestClient } from 'apollo-server-testing';
+import { ApolloServer } from 'apollo-server-express';
+
+// Test setup with mocked data sources
+const createTestServer = (mockDataSources = {}) => {
+  const defaultMocks = {
+    userAPI: {
+      getUserById: jest.fn(),
+      createUser: jest.fn(),
+      getUsers: jest.fn()
+    },
+    postAPI: {
+      getPostsByAuthor: jest.fn(),
+      createPost: jest.fn()
+    }
+  };
+
+  const server = new ApolloServer({
+    typeDefs,
+    resolvers,
+    context: () => ({
+      user: { id: '1', role: 'user' },
+      dataSources: { ...defaultMocks, ...mockDataSources }
+    })
+  });
+
+  return createTestClient(server);
+};
+
+// Unit tests for resolvers
+describe('User Resolvers', () => {
+  test('should fetch user by ID', async () => {
+    const mockUser = { id: '1', email: 'test@example.com', username: 'testuser' };
+    const { query } = createTestServer({
+      userAPI: {
+        getUserById: jest.fn().mockResolvedValue(mockUser)
+      }
+    });
+
+    const GET_USER = gql`
+      query GetUser($id: ID!) {
+        user(id: $id) {
+          id
+          email
+          username
+        }
+      }
+    `;
+
+    const response = await query({
+      query: GET_USER,
+      variables: { id: '1' }
+    });
+
+    expect(response.errors).toBeUndefined();
+    expect(response.data.user).toEqual(mockUser);
+  });
+
+  test('should handle user not found', async () => {
+    const { query } = createTestServer({
+      userAPI: {
+        getUserById: jest.fn().mockResolvedValue(null)
+      }
+    });
+
+    const GET_USER = gql`
+      query GetUser($id: ID!) {
+        user(id: $id) {
+          id
+          email
+        }
+      }
+    `;
+
+    const response = await query({
+      query: GET_USER,
+      variables: { id: 'nonexistent' }
+    });
+
+    expect(response.data.user).toBeNull();
+  });
+});
+
+// Integration tests
+describe('GraphQL Schema Integration', () => {
+  test('should create user with valid input', async () => {
+    const mockUser = { id: '2', email: 'new@example.com', username: 'newuser' };
+    const { mutate } = createTestServer({
+      userAPI: {
+        createUser: jest.fn().mockResolvedValue(mockUser)
+      }
+    });
+
+    const CREATE_USER = gql`
+      mutation CreateUser($input: CreateUserInput!) {
+        createUser(input: $input) {
+          id
+          email
+          username
+        }
+      }
+    `;
+
+    const response = await mutate({
+      mutation: CREATE_USER,
+      variables: {
+        input: {
+          email: 'new@example.com',
+          username: 'newuser',
+          password: 'password123'
+        }
+      }
+    });
+
+    expect(response.errors).toBeUndefined();
+    expect(response.data.createUser).toEqual(mockUser);
+  });
+
+  test('should validate input and return error', async () => {
+    const { mutate } = createTestServer();
+
+    const CREATE_USER = gql`
+      mutation CreateUser($input: CreateUserInput!) {
+        createUser(input: $input) {
+          id
+          email
+        }
+      }
+    `;
+
+    const response = await mutate({
+      mutation: CREATE_USER,
+      variables: {
+        input: {
+          email: 'invalid-email',
+          username: '',
+          password: '123' // Too short
+        }
+      }
+    });
+
+    expect(response.errors).toBeDefined();
+    expect(response.errors[0].extensions.code).toBe('VALIDATION_ERROR');
+  });
+});
+
+// Subscription testing
+describe('GraphQL Subscriptions', () => {
+  test('should receive subscription updates', async () => {
+    const mockPubSub = {
+      publish: jest.fn(),
+      asyncIterator: jest.fn().mockReturnValue({
+        [Symbol.asyncIterator]: function* () {
+          yield { postCreated: { id: '1', title: 'New Post' } };
+        }
+      })
+    };
+
+    const server = new ApolloServer({
+      typeDefs,
+      resolvers,
+      context: () => ({
+        pubsub: mockPubSub,
+        user: { id: '1', followedAuthors: ['author1'] }
+      })
+    });
+
+    const POST_CREATED = gql`
+      subscription PostCreated {
+        postCreated {
+          id
+          title
+        }
+      }
+    `;
+
+    // Test subscription execution
+    const subscription = await server.executeOperation({
+      query: POST_CREATED
+    });
+
+    expect(subscription.errors).toBeUndefined();
+  });
+});
+
+// Performance testing
+describe('GraphQL Performance', () => {
+  test('should handle complex queries efficiently', async () => {
+    const { query } = createTestServer();
+
+    const COMPLEX_QUERY = gql`
+      query ComplexQuery {
+        users(limit: 10) {
+          id
+          username
+          posts {
+            id
+            title
+            author {
+              username
+            }
+          }
+        }
+      }
+    `;
+
+    const startTime = Date.now();
+    const response = await query({ query: COMPLEX_QUERY });
+    const duration = Date.now() - startTime;
+
+    expect(response.errors).toBeUndefined();
+    expect(duration).toBeLessThan(1000); // Should complete in under 1 second
+  });
+});]]></correct-example>
+          <incorrect-example title="Minimal testing without proper coverage" conditions="Testing GraphQL API" expected-result="Comprehensive test coverage" incorrectness-criteria="No mocking, poor test coverage, no integration tests"><![CDATA[// BAD: Minimal testing
+describe('GraphQL Tests', () => {
+  test('basic query', async () => {
+    const result = await executeQuery('{ users { id } }');
+    expect(result).toBeDefined();
+    // No assertions about actual behavior
+    // No error handling tests
+    // No mocking of dependencies
+  });
+  
+  // No mutation tests
+  // No subscription tests
+  // No error handling tests
+  // No performance tests
+});]]></incorrect-example>
+        </example>
+      </examples>
+    </requirement>
+  </requirements>
+  
+  <context description="GraphQL development considerations">
+    GraphQL is a query language and runtime for APIs that provides a complete and understandable description of data. Modern GraphQL development emphasizes schema-first design, comprehensive security measures, and performance optimization through batching and caching.
+
+    Key considerations include:
+    - Schema design should be intuitive and follow GraphQL best practices
+    - Security is critical due to the flexible nature of GraphQL queries
+    - Performance optimization through DataLoader and proper caching strategies
+    - Real-time capabilities through subscriptions require careful connection management
+    - Testing should cover resolvers, schema validation, and end-to-end scenarios
+
+    GraphQL APIs benefit from TypeScript integration for type safety and better developer experience. Proper error handling and monitoring are essential for production deployments.
+  </context>
+  
+  <references>
+    <reference as="dependency" href=".cursor/rules/000-core/002-cursor-rules-creation.mdc" reason="Follows standard rule format">Base rule format definition</reference>
+    <reference as="context" href="https://graphql.org/learn/best-practices/" reason="Official GraphQL best practices">GraphQL Best Practices Guide</reference>
+    <reference as="context" href="https://www.apollographql.com/docs/apollo-server/security/authentication/" reason="Apollo Server security">GraphQL Security Patterns</reference>
+  </references>
+</rule>
+ 

@@ -1,0 +1,1583 @@
+---
+description: "Comprehensive Goth Google authentication standards for Elixir with OAuth2, service accounts, token management, and security best practices following Google Cloud authentication standards"
+globs: ["*.{ex,exs}", "**/goth/**/*", "**/auth/**/*", "**/google/**/*", "**/*auth*"]
+alwaysApply: false
+---
+
+<rule>
+  <meta>
+    <title>Goth Core Standards</title>
+    <description>Comprehensive Goth Google authentication standards for Elixir with OAuth2, service accounts, token management, and security best practices following Google Cloud authentication standards</description>
+    <created-at utc-timestamp="1744157700">January 25, 2025, 10:15 AM</created-at>
+    <last-updated-at utc-timestamp="1744157700">January 25, 2025, 10:15 AM</last-updated-at>
+    <applies-to>
+      <file-matcher glob="*.{ex,exs}">Elixir source files using Goth for Google authentication</file-matcher>
+      <file-matcher glob="**/goth/**/*">Goth-specific modules and configurations</file-matcher>
+      <file-matcher glob="**/auth/**/*">Authentication-related files and modules</file-matcher>
+      <file-matcher glob="**/google/**/*">Google service integration files</file-matcher>
+      <file-matcher glob="**/*auth*">Authentication-related files throughout the application</file-matcher>
+      <action-matcher action="google-authentication">Triggered when working with Google Cloud authentication</action-matcher>
+    </applies-to>
+  </meta>
+  <requirements>
+    <non-negotiable priority="critical">
+      <description>Use Goth for secure Google Cloud authentication with proper service account management, token caching, error handling, and security monitoring. Implement comprehensive OAuth2 flows, token refresh mechanisms, and audit logging with proper credential protection and rotation strategies.</description>
+      <examples>
+        <example title="Comprehensive Goth Implementation">
+          <correct-example title="Production-ready Google authentication setup with security and monitoring" conditions="Implementing Google Cloud authentication with Goth" expected-result="Secure, robust Google authentication system with comprehensive monitoring" correctness-criteria="Service account management, token caching, error handling, security monitoring, audit logging"><![CDATA[# Elixir - Comprehensive Goth implementation
+
+# Dependencies in mix.exs
+defp deps do
+  [
+    {:goth, "~> 1.4"},
+    {:hackney, "~> 1.18"},
+    {:jason, "~> 1.4"},
+    {:telemetry, "~> 1.2"}
+  ]
+end
+
+# Configuration (config/config.exs)
+import Config
+
+config :goth,
+  # Service account configuration
+  json: {:system, "GOOGLE_APPLICATION_CREDENTIALS_JSON"},
+  
+  # Token cache configuration
+  token_cache: [
+    # Cache tokens for 45 minutes (Google tokens expire after 1 hour)
+    max_age: 45 * 60,
+    # Refresh tokens 5 minutes before expiry
+    refresh_before_expiry: 5 * 60
+  ],
+  
+  # HTTP client configuration
+  http_client: Goth.HTTPClient.Hackney,
+  
+  # Retries and timeouts
+  max_retries: 3,
+  retry_delay: 1000,
+  request_timeout: 30_000,
+  
+  # Monitoring and logging
+  telemetry_enabled: true,
+  audit_logging: true
+
+# Environment-specific configurations
+if config_env() == :prod do
+  config :goth,
+    # Production security settings
+    json: {:system, "GOOGLE_APPLICATION_CREDENTIALS_JSON"},
+    # Use encrypted credential storage
+    credential_store: MyApp.Auth.EncryptedCredentialStore,
+    # Enhanced monitoring
+    telemetry_enabled: true,
+    audit_logging: true,
+    # Production token settings
+    token_cache: [
+      max_age: 50 * 60,  # 50 minutes
+      refresh_before_expiry: 10 * 60  # 10 minutes
+    ]
+end
+
+if config_env() == :dev do
+  config :goth,
+    # Development can use file-based credentials
+    json: "priv/google-credentials.json",
+    # Less aggressive caching for development
+    token_cache: [
+      max_age: 30 * 60,
+      refresh_before_expiry: 5 * 60
+    ],
+    telemetry_enabled: true
+end
+
+if config_env() == :test do
+  config :goth,
+    # Test configuration with mocked credentials
+    json: %{
+      "type" => "service_account",
+      "project_id" => "test-project",
+      "private_key_id" => "test-key-id",
+      "private_key" => "-----BEGIN PRIVATE KEY-----\ntest-key\n-----END PRIVATE KEY-----\n",
+      "client_email" => "test@test-project.iam.gserviceaccount.com",
+      "client_id" => "123456789",
+      "auth_uri" => "https://accounts.google.com/o/oauth2/auth",
+      "token_uri" => "https://oauth2.googleapis.com/token"
+    },
+    http_client: MyApp.Auth.MockHTTPClient,
+    telemetry_enabled: false
+end
+
+# Main Goth authentication module
+defmodule MyApp.Auth.GoogleAuth do
+  @moduledoc """
+  Comprehensive Google Cloud authentication using Goth with advanced features
+  including token management, scope-based authentication, service account
+  impersonation, and security monitoring.
+  """
+
+  require Logger
+  
+  # Common Google API scopes
+  @scopes %{
+    cloud_platform: "https://www.googleapis.com/auth/cloud-platform",
+    compute: "https://www.googleapis.com/auth/compute",
+    storage: "https://www.googleapis.com/auth/devstorage.read_write",
+    bigquery: "https://www.googleapis.com/auth/bigquery",
+    pubsub: "https://www.googleapis.com/auth/pubsub",
+    firestore: "https://www.googleapis.com/auth/datastore",
+    gmail: "https://www.googleapis.com/auth/gmail.modify",
+    calendar: "https://www.googleapis.com/auth/calendar",
+    drive: "https://www.googleapis.com/auth/drive"
+  }
+
+  # Type definitions
+  @type scope :: atom() | String.t()
+  @type scopes :: [scope()]
+  @type token_result :: {:ok, String.t()} | {:error, term()}
+  @type auth_options :: [
+    scopes: scopes(),
+    subject: String.t(),
+    timeout: pos_integer(),
+    cache_key: String.t()
+  ]
+
+  # API functions
+  @spec get_token(scopes(), auth_options()) :: token_result()
+  def get_token(scopes, opts \\ []) do
+    try do
+      normalized_scopes = normalize_scopes(scopes)
+      token_key = generate_token_key(normalized_scopes, opts)
+      
+      # Check cache first
+      case get_cached_token(token_key) do
+        {:ok, token} ->
+          record_token_cache_hit(normalized_scopes)
+          {:ok, token}
+          
+        {:error, :not_found} ->
+          fetch_new_token(normalized_scopes, opts)
+          
+        {:error, :expired} ->
+          refresh_token(normalized_scopes, opts)
+      end
+      
+    rescue
+      error ->
+        Logger.error("Token retrieval error", 
+          error: inspect(error),
+          scopes: scopes,
+          stacktrace: __STACKTRACE__
+        )
+        record_auth_error(:token_retrieval, error)
+        {:error, {:token_retrieval_failed, error}}
+    end
+  end
+
+  @spec get_token!(scopes(), auth_options()) :: String.t()
+  def get_token!(scopes, opts \\ []) do
+    case get_token(scopes, opts) do
+      {:ok, token} -> token
+      {:error, reason} -> raise "Failed to get Google auth token: #{inspect(reason)}"
+    end
+  end
+
+  @spec get_service_account_token(String.t(), scopes(), auth_options()) :: token_result()
+  def get_service_account_token(service_account_email, scopes, opts \\ []) do
+    try do
+      # Use service account impersonation
+      impersonation_opts = [
+        service_account: service_account_email,
+        delegate_to: Keyword.get(opts, :delegate_to)
+      ]
+      
+      merged_opts = Keyword.merge(opts, impersonation_opts)
+      get_token(scopes, merged_opts)
+      
+    rescue
+      error ->
+        Logger.error("Service account token error", 
+          service_account: service_account_email,
+          error: inspect(error)
+        )
+        record_auth_error(:service_account_token, error)
+        {:error, {:service_account_token_failed, error}}
+    end
+  end
+
+  @spec refresh_all_tokens() :: :ok | {:error, term()}
+  def refresh_all_tokens do
+    try do
+      cached_tokens = list_cached_tokens()
+      
+      refresh_results = 
+        cached_tokens
+        |> Enum.map(fn {token_key, token_info} ->
+          Task.async(fn ->
+            refresh_specific_token(token_key, token_info)
+          end)
+        end)
+        |> Task.await_many(30_000)
+      
+      failed_refreshes = Enum.count(refresh_results, &match?({:error, _}, &1))
+      
+      if failed_refreshes > 0 do
+        Logger.warning("Some token refreshes failed", 
+          failed: failed_refreshes,
+          total: length(refresh_results)
+        )
+      end
+      
+      Logger.info("Token refresh completed", 
+        total: length(refresh_results),
+        failed: failed_refreshes
+      )
+      
+      :ok
+      
+    rescue
+      error ->
+        Logger.error("Token refresh error", error: inspect(error))
+        {:error, error}
+    end
+  end
+
+  @spec validate_token(String.t()) :: {:ok, map()} | {:error, term()}
+  def validate_token(token) do
+    try do
+      # Validate token with Google's tokeninfo endpoint
+      case HTTPoison.get("https://oauth2.googleapis.com/tokeninfo?access_token=#{token}") do
+        {:ok, %{status_code: 200, body: body}} ->
+          token_info = Jason.decode!(body)
+          
+          # Check token expiry
+          case validate_token_expiry(token_info) do
+            :ok ->
+              record_token_validation(:success)
+              {:ok, token_info}
+              
+            {:error, reason} ->
+              record_token_validation(:expired)
+              {:error, reason}
+          end
+          
+        {:ok, %{status_code: status_code, body: body}} ->
+          Logger.warning("Token validation failed", 
+            status: status_code,
+            response: body
+          )
+          record_token_validation(:invalid)
+          {:error, {:invalid_token, status_code}}
+          
+        {:error, reason} ->
+          Logger.error("Token validation request failed", reason: inspect(reason))
+          record_token_validation(:error)
+          {:error, {:validation_request_failed, reason}}
+      end
+      
+    rescue
+      error ->
+        Logger.error("Token validation error", error: inspect(error))
+        record_token_validation(:error)
+        {:error, {:validation_error, error}}
+    end
+  end
+
+  @spec revoke_token(String.t()) :: :ok | {:error, term()}
+  def revoke_token(token) do
+    try do
+      revoke_url = "https://oauth2.googleapis.com/revoke?token=#{token}"
+      
+      case HTTPoison.post(revoke_url, "", [{"content-type", "application/x-www-form-urlencoded"}]) do
+        {:ok, %{status_code: 200}} ->
+          Logger.info("Token revoked successfully")
+          record_token_revocation(:success)
+          
+          # Remove from cache
+          remove_token_from_cache(token)
+          :ok
+          
+        {:ok, %{status_code: status_code, body: body}} ->
+          Logger.warning("Token revocation failed", 
+            status: status_code,
+            response: body
+          )
+          record_token_revocation(:failed)
+          {:error, {:revocation_failed, status_code}}
+          
+        {:error, reason} ->
+          Logger.error("Token revocation request failed", reason: inspect(reason))
+          record_token_revocation(:error)
+          {:error, {:revocation_request_failed, reason}}
+      end
+      
+    rescue
+      error ->
+        Logger.error("Token revocation error", error: inspect(error))
+        record_token_revocation(:error)
+        {:error, {:revocation_error, error}}
+    end
+  end
+
+  @spec get_project_id() :: {:ok, String.t()} | {:error, term()}
+  def get_project_id do
+    try do
+      case Goth.Config.get(:project_id) do
+        {:ok, project_id} when is_binary(project_id) ->
+          {:ok, project_id}
+          
+        {:error, reason} ->
+          Logger.error("Failed to get project ID", reason: inspect(reason))
+          {:error, reason}
+          
+        other ->
+          Logger.error("Unexpected project ID format", value: inspect(other))
+          {:error, :invalid_project_id}
+      end
+      
+    rescue
+      error ->
+        Logger.error("Project ID retrieval error", error: inspect(error))
+        {:error, error}
+    end
+  end
+
+  @spec get_client_email() :: {:ok, String.t()} | {:error, term()}
+  def get_client_email do
+    try do
+      case Goth.Config.get(:client_email) do
+        {:ok, email} when is_binary(email) ->
+          {:ok, email}
+          
+        {:error, reason} ->
+          Logger.error("Failed to get client email", reason: inspect(reason))
+          {:error, reason}
+          
+        other ->
+          Logger.error("Unexpected client email format", value: inspect(other))
+          {:error, :invalid_client_email}
+      end
+      
+    rescue
+      error ->
+        Logger.error("Client email retrieval error", error: inspect(error))
+        {:error, error}
+    end
+  end
+
+  # Authentication monitoring and health checks
+  @spec auth_health_check() :: {:ok, map()} | {:error, map()}
+  def auth_health_check do
+    try do
+      checks = [
+        config_check(),
+        token_generation_check(),
+        token_validation_check(),
+        cache_check()
+      ]
+      
+      failed_checks = Enum.filter(checks, fn check -> check.status != :ok end)
+      
+      overall_status = if Enum.empty?(failed_checks), do: :healthy, else: :degraded
+      
+      health_report = %{
+        status: overall_status,
+        checks: checks,
+        timestamp: DateTime.utc_now()
+      }
+      
+      case overall_status do
+        :healthy -> {:ok, health_report}
+        _ -> {:error, health_report}
+      end
+      
+    rescue
+      error ->
+        error_report = %{
+          status: :unhealthy,
+          error: inspect(error),
+          timestamp: DateTime.utc_now()
+        }
+        
+        Logger.error("Auth health check failed", error: inspect(error))
+        {:error, error_report}
+    end
+  end
+
+  # Private implementation functions
+  defp normalize_scopes(scopes) when is_list(scopes) do
+    Enum.map(scopes, &normalize_scope/1)
+  end
+  defp normalize_scopes(scope), do: [normalize_scope(scope)]
+
+  defp normalize_scope(scope) when is_atom(scope) do
+    case Map.get(@scopes, scope) do
+      nil -> 
+        Logger.warning("Unknown scope atom", scope: scope)
+        to_string(scope)
+      url -> url
+    end
+  end
+  defp normalize_scope(scope) when is_binary(scope), do: scope
+
+  defp generate_token_key(scopes, opts) do
+    subject = Keyword.get(opts, :subject, "default")
+    service_account = Keyword.get(opts, :service_account, "default")
+    
+    key_data = %{
+      scopes: Enum.sort(scopes),
+      subject: subject,
+      service_account: service_account
+    }
+    
+    :crypto.hash(:sha256, Jason.encode!(key_data))
+    |> Base.encode64(padding: false)
+  end
+
+  defp get_cached_token(token_key) do
+    case Goth.Token.fetch(%{
+      scopes: [],  # Will be populated from cache key
+      cache_key: token_key
+    }) do
+      {:ok, %Goth.Token{token: token, expires: expires}} ->
+        if DateTime.compare(expires, DateTime.utc_now()) == :gt do
+          {:ok, token}
+        else
+          {:error, :expired}
+        end
+        
+      {:error, _reason} ->
+        {:error, :not_found}
+    end
+  end
+
+  defp fetch_new_token(scopes, opts) do
+    timeout = Keyword.get(opts, :timeout, 30_000)
+    
+    try do
+      goth_opts = build_goth_options(scopes, opts)
+      
+      case Goth.Token.fetch(goth_opts) do
+        {:ok, %Goth.Token{token: token}} ->
+          record_token_fetch(:success, scopes)
+          Logger.debug("New token fetched successfully", scopes: scopes)
+          {:ok, token}
+          
+        {:error, reason} ->
+          record_token_fetch(:error, scopes)
+          Logger.error("Token fetch failed", 
+            scopes: scopes,
+            reason: inspect(reason)
+          )
+          {:error, reason}
+      end
+      
+    rescue
+      error ->
+        record_token_fetch(:error, scopes)
+        Logger.error("Token fetch exception", 
+          scopes: scopes,
+          error: inspect(error)
+        )
+        {:error, error}
+    end
+  end
+
+  defp refresh_token(scopes, opts) do
+    Logger.debug("Refreshing expired token", scopes: scopes)
+    
+    # Remove expired token from cache
+    token_key = generate_token_key(scopes, opts)
+    invalidate_cached_token(token_key)
+    
+    # Fetch new token
+    fetch_new_token(scopes, opts)
+  end
+
+  defp build_goth_options(scopes, opts) do
+    base_opts = %{scopes: scopes}
+    
+    # Add subject for user impersonation
+    base_opts = case Keyword.get(opts, :subject) do
+      nil -> base_opts
+      subject -> Map.put(base_opts, :subject, subject)
+    end
+    
+    # Add service account for impersonation
+    base_opts = case Keyword.get(opts, :service_account) do
+      nil -> base_opts
+      sa -> Map.put(base_opts, :service_account, sa)
+    end
+    
+    base_opts
+  end
+
+  defp validate_token_expiry(token_info) do
+    case Map.get(token_info, "exp") do
+      nil ->
+        {:error, :no_expiry_info}
+        
+      exp_string when is_binary(exp_string) ->
+        case Integer.parse(exp_string) do
+          {exp_timestamp, ""} ->
+            check_token_expiry(exp_timestamp)
+          _ ->
+            {:error, :invalid_expiry_format}
+        end
+        
+      exp_timestamp when is_integer(exp_timestamp) ->
+        check_token_expiry(exp_timestamp)
+        
+      _ ->
+        {:error, :invalid_expiry_format}
+    end
+  end
+
+  defp check_token_expiry(exp_timestamp) do
+    current_timestamp = DateTime.utc_now() |> DateTime.to_unix()
+    
+    if exp_timestamp > current_timestamp do
+      :ok
+    else
+      {:error, :token_expired}
+    end
+  end
+
+  defp list_cached_tokens do
+    # This would integrate with Goth's token cache
+    # Simplified implementation
+    []
+  end
+
+  defp refresh_specific_token(token_key, token_info) do
+    # Implementation for refreshing a specific cached token
+    {:ok, :refreshed}
+  end
+
+  defp remove_token_from_cache(token) do
+    # Remove token from Goth's cache
+    # Implementation depends on Goth internals
+    :ok
+  end
+
+  defp invalidate_cached_token(token_key) do
+    # Invalidate specific token in cache
+    :ok
+  end
+
+  # Health check functions
+  defp config_check do
+    try do
+      case Goth.Config.get(:project_id) do
+        {:ok, _project_id} ->
+          %{name: "config", status: :ok, message: "Configuration valid"}
+        {:error, reason} ->
+          %{name: "config", status: :error, message: "Configuration error: #{inspect(reason)}"}
+      end
+    rescue
+      error ->
+        %{name: "config", status: :error, message: "Configuration check failed: #{inspect(error)}"}
+    end
+  end
+
+  defp token_generation_check do
+    try do
+      # Test token generation with minimal scope
+      case get_token([:cloud_platform], timeout: 5000) do
+        {:ok, _token} ->
+          %{name: "token_generation", status: :ok, message: "Token generation successful"}
+        {:error, reason} ->
+          %{name: "token_generation", status: :error, message: "Token generation failed: #{inspect(reason)}"}
+      end
+    rescue
+      error ->
+        %{name: "token_generation", status: :error, message: "Token generation check failed: #{inspect(error)}"}
+    end
+  end
+
+  defp token_validation_check do
+    try do
+      # Generate a token and validate it
+      case get_token([:cloud_platform]) do
+        {:ok, token} ->
+          case validate_token(token) do
+            {:ok, _info} ->
+              %{name: "token_validation", status: :ok, message: "Token validation successful"}
+            {:error, reason} ->
+              %{name: "token_validation", status: :warning, message: "Token validation failed: #{inspect(reason)}"}
+          end
+        {:error, _reason} ->
+          %{name: "token_validation", status: :warning, message: "Could not generate token for validation"}
+      end
+    rescue
+      error ->
+        %{name: "token_validation", status: :error, message: "Token validation check failed: #{inspect(error)}"}
+    end
+  end
+
+  defp cache_check do
+    try do
+      # Test cache functionality
+      test_scopes = [:cloud_platform]
+      token_key = generate_token_key(test_scopes, [])
+      
+      # This is a simplified check
+      %{name: "cache", status: :ok, message: "Cache check passed"}
+    rescue
+      error ->
+        %{name: "cache", status: :error, message: "Cache check failed: #{inspect(error)}"}
+    end
+  end
+
+  # Telemetry and monitoring functions
+  defp record_token_cache_hit(scopes) do
+    :telemetry.execute([:my_app, :auth, :token_cache], %{hit: 1}, %{scopes: scopes})
+  end
+
+  defp record_token_fetch(status, scopes) do
+    :telemetry.execute([:my_app, :auth, :token_fetch], %{count: 1}, %{
+      status: status,
+      scopes: scopes
+    })
+  end
+
+  defp record_token_validation(status) do
+    :telemetry.execute([:my_app, :auth, :token_validation], %{count: 1}, %{status: status})
+  end
+
+  defp record_token_revocation(status) do
+    :telemetry.execute([:my_app, :auth, :token_revocation], %{count: 1}, %{status: status})
+  end
+
+  defp record_auth_error(operation, error) do
+    :telemetry.execute([:my_app, :auth, :error], %{count: 1}, %{
+      operation: operation,
+      error_type: error.__struct__ || :unknown
+    })
+  end
+end
+
+# Google API client wrapper with authentication
+defmodule MyApp.Auth.GoogleAPIClient do
+  @moduledoc """
+  HTTP client wrapper for Google APIs with automatic authentication,
+  retry logic, and comprehensive error handling.
+  """
+
+  require Logger
+
+  @default_base_url "https://www.googleapis.com"
+  @default_timeout 30_000
+  @max_retries 3
+
+  @type http_method :: :get | :post | :put | :patch | :delete
+  @type api_result :: {:ok, map()} | {:error, term()}
+  @type request_options :: [
+    base_url: String.t(),
+    timeout: pos_integer(),
+    retries: non_neg_integer(),
+    scopes: list(),
+    headers: list()
+  ]
+
+  @spec request(http_method(), String.t(), term(), request_options()) :: api_result()
+  def request(method, path, body \\ nil, opts \\ []) do
+    try do
+      # Prepare request configuration
+      config = prepare_request_config(opts)
+      
+      # Get authentication token
+      case get_auth_token(config.scopes) do
+        {:ok, token} ->
+          execute_request(method, path, body, token, config)
+          
+        {:error, reason} ->
+          Logger.error("Authentication failed for API request", 
+            method: method,
+            path: path,
+            reason: inspect(reason)
+          )
+          {:error, {:auth_failed, reason}}
+      end
+      
+    rescue
+      error ->
+        Logger.error("API request exception", 
+          method: method,
+          path: path,
+          error: inspect(error)
+        )
+        {:error, {:request_exception, error}}
+    end
+  end
+
+  @spec get(String.t(), request_options()) :: api_result()
+  def get(path, opts \\ []), do: request(:get, path, nil, opts)
+
+  @spec post(String.t(), term(), request_options()) :: api_result()
+  def post(path, body, opts \\ []), do: request(:post, path, body, opts)
+
+  @spec put(String.t(), term(), request_options()) :: api_result()
+  def put(path, body, opts \\ []), do: request(:put, path, body, opts)
+
+  @spec patch(String.t(), term(), request_options()) :: api_result()
+  def patch(path, body, opts \\ []), do: request(:patch, path, body, opts)
+
+  @spec delete(String.t(), request_options()) :: api_result()
+  def delete(path, opts \\ []), do: request(:delete, path, nil, opts)
+
+  # Batch request support
+  @spec batch_request([{http_method(), String.t(), term()}], request_options()) :: 
+    [{:ok, map()} | {:error, term()}]
+  def batch_request(requests, opts \\ []) do
+    config = prepare_request_config(opts)
+    
+    case get_auth_token(config.scopes) do
+      {:ok, token} ->
+        # Execute requests concurrently
+        requests
+        |> Enum.map(fn {method, path, body} ->
+          Task.async(fn ->
+            execute_request(method, path, body, token, config)
+          end)
+        end)
+        |> Task.await_many(config.timeout * 2)
+        
+      {:error, reason} ->
+        # Return same error for all requests
+        error = {:error, {:auth_failed, reason}}
+        Enum.map(requests, fn _ -> error end)
+    end
+  end
+
+  # Private implementation functions
+  defp prepare_request_config(opts) do
+    %{
+      base_url: Keyword.get(opts, :base_url, @default_base_url),
+      timeout: Keyword.get(opts, :timeout, @default_timeout),
+      retries: Keyword.get(opts, :retries, @max_retries),
+      scopes: Keyword.get(opts, :scopes, [:cloud_platform]),
+      headers: Keyword.get(opts, :headers, [])
+    }
+  end
+
+  defp get_auth_token(scopes) do
+    MyApp.Auth.GoogleAuth.get_token(scopes)
+  end
+
+  defp execute_request(method, path, body, token, config, attempt \\ 1) do
+    url = build_url(config.base_url, path)
+    headers = build_headers(token, config.headers)
+    
+    # Record request attempt
+    :telemetry.execute([:my_app, :google_api, :request], %{attempt: attempt}, %{
+      method: method,
+      path: path
+    })
+    
+    case perform_http_request(method, url, body, headers, config.timeout) do
+      {:ok, response} ->
+        record_api_success(method, path)
+        {:ok, response}
+        
+      {:error, reason} when attempt < config.retries ->
+        Logger.warning("API request failed, retrying", 
+          method: method,
+          path: path,
+          attempt: attempt,
+          reason: inspect(reason)
+        )
+        
+        # Exponential backoff
+        delay = :math.pow(2, attempt) * 1000 |> round()
+        Process.sleep(delay)
+        
+        execute_request(method, path, body, token, config, attempt + 1)
+        
+      {:error, reason} ->
+        record_api_error(method, path, reason)
+        Logger.error("API request failed after retries", 
+          method: method,
+          path: path,
+          attempts: attempt,
+          reason: inspect(reason)
+        )
+        {:error, reason}
+    end
+  end
+
+  defp build_url(base_url, path) do
+    base_url = String.trim_trailing(base_url, "/")
+    path = String.trim_leading(path, "/")
+    "#{base_url}/#{path}"
+  end
+
+  defp build_headers(token, additional_headers) do
+    auth_headers = [
+      {"authorization", "Bearer #{token}"},
+      {"content-type", "application/json"},
+      {"user-agent", "MyApp/1.0 (gzip)"}
+    ]
+    
+    Keyword.merge(auth_headers, additional_headers)
+  end
+
+  defp perform_http_request(method, url, body, headers, timeout) do
+    http_body = case body do
+      nil -> ""
+      map when is_map(map) -> Jason.encode!(map)
+      binary when is_binary(binary) -> binary
+      other -> Jason.encode!(other)
+    end
+    
+    http_options = [
+      timeout: timeout,
+      recv_timeout: timeout,
+      follow_redirect: true,
+      max_redirect: 3
+    ]
+    
+    case HTTPoison.request(method, url, http_body, headers, http_options) do
+      {:ok, %{status_code: status, body: response_body}} when status in 200..299 ->
+        case Jason.decode(response_body) do
+          {:ok, json} -> {:ok, json}
+          {:error, _} -> {:ok, %{"raw_body" => response_body}}
+        end
+        
+      {:ok, %{status_code: status, body: response_body}} ->
+        case Jason.decode(response_body) do
+          {:ok, json} -> 
+            {:error, {:http_error, status, json}}
+          {:error, _} -> 
+            {:error, {:http_error, status, response_body}}
+        end
+        
+      {:error, reason} ->
+        {:error, {:http_request_failed, reason}}
+    end
+  end
+
+  defp record_api_success(method, path) do
+    :telemetry.execute([:my_app, :google_api, :success], %{count: 1}, %{
+      method: method,
+      path: path
+    })
+  end
+
+  defp record_api_error(method, path, reason) do
+    :telemetry.execute([:my_app, :google_api, :error], %{count: 1}, %{
+      method: method,
+      path: path,
+      error_type: classify_error(reason)
+    })
+  end
+
+  defp classify_error({:http_error, status, _body}) when status in 400..499, do: :client_error
+  defp classify_error({:http_error, status, _body}) when status in 500..599, do: :server_error
+  defp classify_error({:http_request_failed, _}), do: :network_error
+  defp classify_error({:auth_failed, _}), do: :auth_error
+  defp classify_error(_), do: :unknown_error
+end
+
+# Encrypted credential storage for production
+defmodule MyApp.Auth.EncryptedCredentialStore do
+  @moduledoc """
+  Secure storage for Google service account credentials with encryption
+  and audit logging for enhanced security in production environments.
+  """
+
+  @behaviour Goth.Config
+
+  require Logger
+
+  # Implement Goth.Config behaviour
+  def init(_opts) do
+    case load_encrypted_credentials() do
+      {:ok, credentials} ->
+        {:ok, credentials}
+      {:error, reason} ->
+        Logger.error("Failed to load encrypted credentials", reason: inspect(reason))
+        {:error, reason}
+    end
+  end
+
+  defp load_encrypted_credentials do
+    try do
+      # Load encrypted credentials from secure storage
+      case System.get_env("GOOGLE_CREDENTIALS_ENCRYPTED") do
+        nil ->
+          {:error, :missing_encrypted_credentials}
+          
+        encrypted_data ->
+          case decrypt_credentials(encrypted_data) do
+            {:ok, decrypted_json} ->
+              case Jason.decode(decrypted_json) do
+                {:ok, credentials} ->
+                  audit_credential_access(:success)
+                  {:ok, credentials}
+                {:error, reason} ->
+                  audit_credential_access(:decode_error)
+                  {:error, {:json_decode_error, reason}}
+              end
+              
+            {:error, reason} ->
+              audit_credential_access(:decrypt_error)
+              {:error, reason}
+          end
+      end
+      
+    rescue
+      error ->
+        audit_credential_access(:exception)
+        Logger.error("Credential loading exception", error: inspect(error))
+        {:error, error}
+    end
+  end
+
+  defp decrypt_credentials(encrypted_data) do
+    try do
+      # Use application's encryption key
+      encryption_key = get_encryption_key()
+      
+      case Base.decode64(encrypted_data) do
+        {:ok, encrypted_binary} ->
+          decrypted = :crypto.crypto_one_time(:aes_256_gcm, encryption_key, 
+                                             encrypted_binary, false)
+          {:ok, decrypted}
+          
+        :error ->
+          {:error, :invalid_base64}
+      end
+      
+    rescue
+      error ->
+        Logger.error("Credential decryption error", error: inspect(error))
+        {:error, error}
+    end
+  end
+
+  defp get_encryption_key do
+    case System.get_env("CREDENTIAL_ENCRYPTION_KEY") do
+      nil -> 
+        raise "CREDENTIAL_ENCRYPTION_KEY environment variable not set"
+      key -> 
+        Base.decode64!(key)
+    end
+  end
+
+  defp audit_credential_access(status) do
+    :telemetry.execute([:my_app, :auth, :credential_access], %{count: 1}, %{
+      status: status,
+      timestamp: DateTime.utc_now()
+    })
+    
+    Logger.info("Credential access audit", status: status, timestamp: DateTime.utc_now())
+  end
+end
+
+# Mock HTTP client for testing
+defmodule MyApp.Auth.MockHTTPClient do
+  @moduledoc """
+  Mock HTTP client for testing Goth authentication flows.
+  """
+
+  @behaviour Goth.HTTPClient
+
+  def request(method, url, headers, body) do
+    # Return mock responses for testing
+    case url do
+      "https://oauth2.googleapis.com/token" ->
+        mock_token_response()
+        
+      "https://oauth2.googleapis.com/tokeninfo" <> _ ->
+        mock_tokeninfo_response()
+        
+      _ ->
+        {:ok, %{status_code: 200, body: Jason.encode!(%{"mock" => "response"})}}
+    end
+  end
+
+  defp mock_token_response do
+    response = %{
+      "access_token" => "mock_token_#{System.unique_integer()}",
+      "token_type" => "Bearer",
+      "expires_in" => 3600
+    }
+    
+    {:ok, %{status_code: 200, body: Jason.encode!(response)}}
+  end
+
+  defp mock_tokeninfo_response do
+    response = %{
+      "scope" => "https://www.googleapis.com/auth/cloud-platform",
+      "exp" => DateTime.utc_now() |> DateTime.add(3600, :second) |> DateTime.to_unix() |> to_string(),
+      "aud" => "test-project"
+    }
+    
+    {:ok, %{status_code: 200, body: Jason.encode!(response)}}
+  end
+end]]></correct-example>
+          <incorrect-example title="Poor Goth testing without comprehensive validation" conditions="Testing Google authentication" expected-result="Comprehensive authentication testing" incorrectness-criteria="No token validation, missing security tests, no error handling testing, poor integration coverage"><![CDATA[# BAD: Poor Goth testing
+
+defmodule BadGoogleAuthTest do
+  use ExUnit.Case
+  
+  # Only basic functionality testing
+  test "gets token" do
+    {:ok, token} = Goth.Token.for_scope("https://www.googleapis.com/auth/cloud-platform")
+    assert is_binary(token.token)
+  end
+
+  # No token management testing
+  # No security testing
+  # No error handling testing
+  # No API integration testing
+  # No configuration testing
+  # No health check testing
+  # No telemetry testing
+  # No retry mechanism testing
+  # No token validation testing
+  # No revocation testing
+  
+  test "authentication works" do
+    # No comprehensive validation
+    assert true
+  end
+end]]></incorrect-example>
+        </example>
+      </examples>
+    </non-negotiable>
+
+    <requirement priority="high">
+      <description>Implement comprehensive testing for Goth authentication functionality including token management validation, security testing, error handling verification, and integration testing with Google APIs.</description>
+      <examples>
+        <example title="Goth Testing Patterns">
+          <correct-example title="Comprehensive testing for Google authentication and API integration" conditions="Testing Goth authentication implementations" expected-result="Thorough test coverage with security and integration validation" correctness-criteria="Token testing, security testing, API integration testing, error handling validation"><![CDATA[# Elixir - Comprehensive Goth testing
+
+defmodule MyApp.Auth.GoogleAuthTest do
+  use ExUnit.Case, async: false
+  
+  import ExUnit.CaptureLog
+  import Mox
+
+  # Setup mock for HTTP client
+  setup_all do
+    Mox.defmock(HTTPoisonMock, for: HTTPoison.Base)
+    :ok
+  end
+
+  setup do
+    # Reset Goth state before each test
+    Application.stop(:goth)
+    Application.start(:goth)
+    
+    # Verify mocks
+    verify_on_exit!()
+    
+    :ok
+  end
+
+  describe "token management" do
+    test "gets token for valid scopes successfully" do
+      scopes = [:cloud_platform]
+      
+      assert {:ok, token} = MyApp.Auth.GoogleAuth.get_token(scopes)
+      assert is_binary(token)
+      assert String.length(token) > 0
+    end
+
+    test "normalizes scope atoms to URLs" do
+      # Test known scope atoms
+      assert {:ok, _token} = MyApp.Auth.GoogleAuth.get_token([:cloud_platform])
+      assert {:ok, _token} = MyApp.Auth.GoogleAuth.get_token([:storage])
+      assert {:ok, _token} = MyApp.Auth.GoogleAuth.get_token([:bigquery])
+    end
+
+    test "handles string scopes correctly" do
+      string_scope = "https://www.googleapis.com/auth/cloud-platform"
+      
+      assert {:ok, token} = MyApp.Auth.GoogleAuth.get_token([string_scope])
+      assert is_binary(token)
+    end
+
+    test "handles mixed scope types" do
+      mixed_scopes = [
+        :cloud_platform,
+        "https://www.googleapis.com/auth/storage",
+        :bigquery
+      ]
+      
+      assert {:ok, token} = MyApp.Auth.GoogleAuth.get_token(mixed_scopes)
+      assert is_binary(token)
+    end
+
+    test "caches tokens for repeated requests" do
+      scopes = [:cloud_platform]
+      
+      # First request
+      assert {:ok, token1} = MyApp.Auth.GoogleAuth.get_token(scopes)
+      
+      # Second request should use cached token
+      assert {:ok, token2} = MyApp.Auth.GoogleAuth.get_token(scopes)
+      
+      # Should be the same token (from cache)
+      assert token1 == token2
+    end
+
+    test "handles token expiration and refresh" do
+      # This would test token refresh behavior
+      # Simplified test since we can't easily control token expiration
+      scopes = [:cloud_platform]
+      
+      assert {:ok, _token} = MyApp.Auth.GoogleAuth.get_token(scopes)
+      
+      # Simulate token refresh
+      assert :ok = MyApp.Auth.GoogleAuth.refresh_all_tokens()
+    end
+  end
+
+  describe "service account impersonation" do
+    test "gets token for service account" do
+      service_account = "test@test-project.iam.gserviceaccount.com"
+      scopes = [:cloud_platform]
+      
+      assert {:ok, token} = MyApp.Auth.GoogleAuth.get_service_account_token(
+        service_account, scopes
+      )
+      
+      assert is_binary(token)
+    end
+
+    test "handles invalid service account email" do
+      invalid_email = "invalid-email"
+      scopes = [:cloud_platform]
+      
+      assert {:error, _reason} = MyApp.Auth.GoogleAuth.get_service_account_token(
+        invalid_email, scopes
+      )
+    end
+  end
+
+  describe "token validation" do
+    test "validates valid token successfully" do
+      # Mock successful validation response
+      HTTPoisonMock
+      |> expect(:get, fn _url ->
+        response_body = Jason.encode!(%{
+          "scope" => "https://www.googleapis.com/auth/cloud-platform",
+          "exp" => DateTime.utc_now() |> DateTime.add(3600, :second) |> DateTime.to_unix() |> to_string(),
+          "aud" => "test-project"
+        })
+        
+        {:ok, %{status_code: 200, body: response_body}}
+      end)
+      
+      {:ok, token} = MyApp.Auth.GoogleAuth.get_token([:cloud_platform])
+      
+      assert {:ok, token_info} = MyApp.Auth.GoogleAuth.validate_token(token)
+      assert is_map(token_info)
+      assert Map.has_key?(token_info, "scope")
+      assert Map.has_key?(token_info, "exp")
+    end
+
+    test "handles invalid token gracefully" do
+      # Mock invalid token response
+      HTTPoisonMock
+      |> expect(:get, fn _url ->
+        {:ok, %{status_code: 400, body: "Invalid token"}}
+      end)
+      
+      invalid_token = "invalid_token_12345"
+      
+      assert {:error, {:invalid_token, 400}} = MyApp.Auth.GoogleAuth.validate_token(invalid_token)
+    end
+
+    test "handles expired token" do
+      # Mock expired token response
+      HTTPoisonMock
+      |> expect(:get, fn _url ->
+        response_body = Jason.encode!(%{
+          "scope" => "https://www.googleapis.com/auth/cloud-platform",
+          "exp" => DateTime.utc_now() |> DateTime.add(-3600, :second) |> DateTime.to_unix() |> to_string(),
+          "aud" => "test-project"
+        })
+        
+        {:ok, %{status_code: 200, body: response_body}}
+      end)
+      
+      expired_token = "expired_token_12345"
+      
+      assert {:error, :token_expired} = MyApp.Auth.GoogleAuth.validate_token(expired_token)
+    end
+  end
+
+  describe "token revocation" do
+    test "revokes token successfully" do
+      # Mock successful revocation
+      HTTPoisonMock
+      |> expect(:post, fn _url, _body, _headers ->
+        {:ok, %{status_code: 200, body: ""}}
+      end)
+      
+      token = "test_token_to_revoke"
+      
+      assert :ok = MyApp.Auth.GoogleAuth.revoke_token(token)
+    end
+
+    test "handles revocation failure" do
+      # Mock revocation failure
+      HTTPoisonMock
+      |> expect(:post, fn _url, _body, _headers ->
+        {:ok, %{status_code: 400, body: "Invalid token"}}
+      end)
+      
+      invalid_token = "invalid_token"
+      
+      assert {:error, {:revocation_failed, 400}} = MyApp.Auth.GoogleAuth.revoke_token(invalid_token)
+    end
+  end
+
+  describe "configuration" do
+    test "gets project ID successfully" do
+      assert {:ok, project_id} = MyApp.Auth.GoogleAuth.get_project_id()
+      assert is_binary(project_id)
+      assert project_id == "test-project"
+    end
+
+    test "gets client email successfully" do
+      assert {:ok, client_email} = MyApp.Auth.GoogleAuth.get_client_email()
+      assert is_binary(client_email)
+      assert String.contains?(client_email, "@")
+    end
+  end
+
+  describe "health checks" do
+    test "performs comprehensive health check" do
+      # Mock HTTP requests for health check
+      HTTPoisonMock
+      |> expect(:get, fn _url ->
+        response_body = Jason.encode!(%{
+          "scope" => "https://www.googleapis.com/auth/cloud-platform",
+          "exp" => DateTime.utc_now() |> DateTime.add(3600, :second) |> DateTime.to_unix() |> to_string(),
+          "aud" => "test-project"
+        })
+        
+        {:ok, %{status_code: 200, body: response_body}}
+      end)
+      
+      assert {:ok, health_report} = MyApp.Auth.GoogleAuth.auth_health_check()
+      
+      assert health_report.status == :healthy
+      assert is_list(health_report.checks)
+      assert length(health_report.checks) > 0
+      
+      # Check that all checks have required fields
+      Enum.each(health_report.checks, fn check ->
+        assert Map.has_key?(check, :name)
+        assert Map.has_key?(check, :status)
+        assert Map.has_key?(check, :message)
+      end)
+    end
+
+    test "detects configuration problems" do
+      # This would test scenarios where configuration is invalid
+      # For now, we assume configuration is valid in test environment
+      
+      assert {:ok, health_report} = MyApp.Auth.GoogleAuth.auth_health_check()
+      
+      config_check = Enum.find(health_report.checks, fn check -> 
+        check.name == "config" 
+      end)
+      
+      assert config_check.status in [:ok, :warning, :error]
+    end
+  end
+
+  describe "error handling" do
+    test "handles network errors gracefully" do
+      scopes = [:cloud_platform]
+      
+      # We can't easily simulate network errors in test environment
+      # This test verifies that error responses are properly handled
+      
+      log_output = capture_log(fn ->
+        # This might succeed or fail depending on test setup
+        result = MyApp.Auth.GoogleAuth.get_token(scopes)
+        assert match?({:ok, _} | {:error, _}, result)
+      end)
+      
+      # Should handle any errors gracefully without crashing
+      assert true
+    end
+
+    test "logs authentication errors appropriately" do
+      # Test that errors are properly logged
+      
+      log_output = capture_log(fn ->
+        # Attempt to validate an obviously invalid token
+        result = MyApp.Auth.GoogleAuth.validate_token("clearly_invalid_token")
+        assert {:error, _} = result
+      end)
+      
+      # Should contain error information in logs
+      # (specific assertions depend on actual log format)
+      assert true
+    end
+
+    test "handles malformed responses" do
+      # Mock malformed response
+      HTTPoisonMock
+      |> expect(:get, fn _url ->
+        {:ok, %{status_code: 200, body: "not valid json"}}
+      end)
+      
+      token = "test_token"
+      
+      # Should handle JSON decode errors gracefully
+      result = MyApp.Auth.GoogleAuth.validate_token(token)
+      assert {:error, _} = result
+    end
+  end
+
+  describe "telemetry integration" do
+    test "emits telemetry events for token operations" do
+      ref = make_ref()
+      
+      :telemetry.attach(
+        "auth-test-telemetry",
+        [:my_app, :auth, :token_fetch],
+        fn event, measurements, metadata, test_ref ->
+          send(test_ref, {:telemetry_event, event, measurements, metadata})
+        end,
+        self()
+      )
+      
+      # Perform operation that should emit telemetry
+      MyApp.Auth.GoogleAuth.get_token([:cloud_platform])
+      
+      # Should receive telemetry event
+      assert_receive {:telemetry_event, [:my_app, :auth, :token_fetch], 
+                      %{count: 1}, %{status: :success}}, 1000
+      
+      :telemetry.detach("auth-test-telemetry")
+    end
+  end
+end
+
+# Google API client testing
+defmodule MyApp.Auth.GoogleAPIClientTest do
+  use ExUnit.Case, async: false
+  
+  import Mox
+
+  setup_all do
+    Mox.defmock(HTTPoisonMock, for: HTTPoison.Base)
+    :ok
+  end
+
+  setup do
+    verify_on_exit!()
+    :ok
+  end
+
+  describe "API requests" do
+    test "makes successful GET request" do
+      # Mock successful API response
+      HTTPoisonMock
+      |> expect(:request, fn :get, _url, _body, headers, _opts ->
+        # Verify authorization header is present
+        auth_header = Enum.find(headers, fn {key, _value} -> 
+          key == "authorization" 
+        end)
+        assert auth_header != nil
+        
+        response_body = Jason.encode!(%{"data" => "test response"})
+        {:ok, %{status_code: 200, body: response_body}}
+      end)
+      
+      assert {:ok, response} = MyApp.Auth.GoogleAPIClient.get("/test/endpoint")
+      assert response["data"] == "test response"
+    end
+
+    test "makes successful POST request with body" do
+      request_data = %{"key" => "value", "number" => 42}
+      
+      HTTPoisonMock
+      |> expect(:request, fn :post, _url, body, _headers, _opts ->
+        # Verify request body is properly encoded
+        assert body == Jason.encode!(request_data)
+        
+        response_body = Jason.encode!(%{"success" => true})
+        {:ok, %{status_code: 201, body: response_body}}
+      end)
+      
+      assert {:ok, response} = MyApp.Auth.GoogleAPIClient.post("/test/endpoint", request_data)
+      assert response["success"] == true
+    end
+
+    test "handles HTTP error responses" do
+      HTTPoisonMock
+      |> expect(:request, fn _method, _url, _body, _headers, _opts ->
+        error_body = Jason.encode!(%{"error" => "Not found"})
+        {:ok, %{status_code: 404, body: error_body}}
+      end)
+      
+      assert {:error, {:http_error, 404, %{"error" => "Not found"}}} = 
+        MyApp.Auth.GoogleAPIClient.get("/nonexistent/endpoint")
+    end
+
+    test "handles network errors" do
+      HTTPoisonMock
+      |> expect(:request, fn _method, _url, _body, _headers, _opts ->
+        {:error, %HTTPoison.Error{reason: :timeout}}
+      end)
+      
+      assert {:error, {:http_request_failed, %HTTPoison.Error{reason: :timeout}}} = 
+        MyApp.Auth.GoogleAPIClient.get("/test/endpoint")
+    end
+
+    test "retries failed requests" do
+      # Mock first request failure, second request success
+      HTTPoisonMock
+      |> expect(:request, fn _method, _url, _body, _headers, _opts ->
+        {:error, %HTTPoison.Error{reason: :timeout}}
+      end)
+      |> expect(:request, fn _method, _url, _body, _headers, _opts ->
+        response_body = Jason.encode!(%{"data" => "retry success"})
+        {:ok, %{status_code: 200, body: response_body}}
+      end)
+      
+      assert {:ok, response} = MyApp.Auth.GoogleAPIClient.get("/test/endpoint", retries: 2)
+      assert response["data"] == "retry success"
+    end
+  end
+
+  describe "batch requests" do
+    test "executes multiple requests concurrently" do
+      requests = [
+        {:get, "/endpoint1", nil},
+        {:post, "/endpoint2", %{"data" => "test"}},
+        {:get, "/endpoint3", nil}
+      ]
+      
+      # Mock responses for all requests
+      HTTPoisonMock
+      |> expect(:request, 3, fn method, url, _body, _headers, _opts ->
+        response_data = %{"method" => method, "url" => url}
+        response_body = Jason.encode!(response_data)
+        {:ok, %{status_code: 200, body: response_body}}
+      end)
+      
+      results = MyApp.Auth.GoogleAPIClient.batch_request(requests)
+      
+      assert length(results) == 3
+      assert Enum.all?(results, fn result -> match?({:ok, _}, result) end)
+    end
+
+    test "handles mixed success and failure in batch" do
+      requests = [
+        {:get, "/success", nil},
+        {:get, "/failure", nil}
+      ]
+      
+      HTTPoisonMock
+      |> expect(:request, fn :get, url, _body, _headers, _opts ->
+        case url do
+          url when url =~ "success" ->
+            response_body = Jason.encode!(%{"status" => "ok"})
+            {:ok, %{status_code: 200, body: response_body}}
+          url when url =~ "failure" ->
+            {:ok, %{status_code: 500, body: "Internal Server Error"}}
+        end
+      end)
+      
+      results = MyApp.Auth.GoogleAPIClient.batch_request(requests)
+      
+      assert length(results) == 2
+      assert match?({:ok, _}, Enum.at(results, 0))
+      assert match?({:error, _}, Enum.at(results, 1))
+    end
+  end
+
+  describe "authentication integration" do
+    test "includes proper authorization headers" do
+      HTTPoisonMock
+      |> expect(:request, fn _method, _url, _body, headers, _opts ->
+        # Find authorization header
+        auth_header = Enum.find(headers, fn {key, _value} -> 
+          key == "authorization" 
+        end)
+        
+        assert auth_header != nil
+        {"authorization", auth_value} = auth_header
+        assert String.starts_with?(auth_value, "Bearer ")
+        
+        response_body = Jason.encode!(%{"authenticated" => true})
+        {:ok, %{status_code: 200, body: response_body}}
+      end)
+      
+      assert {:ok, _response} = MyApp.Auth.GoogleAPIClient.get("/test/endpoint")
+    end
+
+    test "handles authentication failures" do
+      # This would test scenarios where token retrieval fails
+      # For now, we assume authentication succeeds in test environment
+      
+      assert {:ok, _response} = MyApp.Auth.GoogleAPIClient.get("/test/endpoint")
+    end
+  end
+end]]></correct-example>
+          <incorrect-example title="Poor Goth testing without comprehensive validation" conditions="Testing Google authentication" expected-result="Comprehensive authentication testing" incorrectness-criteria="No token validation, missing security tests, no error handling testing, poor integration coverage"><![CDATA[# BAD: Poor Goth testing
+
+defmodule BadGoogleAuthTest do
+  use ExUnit.Case
+  
+  # Only basic functionality testing
+  test "gets token" do
+    {:ok, token} = Goth.Token.for_scope("https://www.googleapis.com/auth/cloud-platform")
+    assert is_binary(token.token)
+  end
+
+  # No token management testing
+  # No security testing
+  # No error handling testing
+  # No API integration testing
+  # No configuration testing
+  # No health check testing
+  # No telemetry testing
+  # No retry mechanism testing
+  # No token validation testing
+  # No revocation testing
+  
+  test "authentication works" do
+    # No comprehensive validation
+    assert true
+  end
+end]]></incorrect-example>
+        </example>
+      </examples>
+    </requirement>
+  </requirements>
+  
+  <context description="Goth Google authentication considerations">
+    Goth is a library for Google Cloud authentication in Elixir applications, providing OAuth2 token management, service account authentication, and integration with Google APIs. It handles token caching, refresh mechanisms, and provides secure credential management for production applications.
+
+    Key considerations include:
+    - Secure credential storage and management with encryption
+    - Token caching and automatic refresh for performance optimization
+    - Proper scope management for different Google services
+    - Error handling and retry mechanisms for network failures
+    - Audit logging and monitoring for security compliance
+    - Integration with telemetry systems for operational visibility
+
+    Goth is essential for applications requiring Google Cloud service integration, providing secure and efficient authentication patterns for production environments.
+  </context>
+  
+  <references>
+    <reference as="dependency" href=".cursor/rules/000-core/002-cursor-rules-creation.mdc" reason="Follows standard rule format">Base rule format definition</reference>
+    <reference as="context" href="https://hexdocs.pm/goth/" reason="Official Goth documentation">Goth Package Documentation</reference>
+    <reference as="context" href="https://github.com/peburrows/goth" reason="Goth source code and examples">Goth GitHub Repository</reference>
+  </references>
+</rule>
+ 

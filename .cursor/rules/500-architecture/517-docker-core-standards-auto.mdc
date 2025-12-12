@@ -1,0 +1,1026 @@
+---
+description: "Comprehensive Docker containerization standards with security, performance optimization, multi-stage builds, image management, and production deployment following container best practices"
+globs: ["**/Dockerfile*", "**/docker-compose*.{yml,yaml}", "**/.dockerignore", "**/docker/**/*"]
+alwaysApply: false
+---
+
+<rule>
+  <meta>
+    <title>Docker Core Standards</title>
+    <description>Comprehensive Docker containerization standards covering security, performance optimization, multi-stage builds, image management, network configuration, and production deployment following container best practices and security guidelines</description>
+    <created-at utc-timestamp="1744157700">January 25, 2025, 10:15 AM</created-at>
+    <last-updated-at utc-timestamp="1744157700">January 25, 2025, 10:15 AM</last-updated-at>
+    <applies-to>
+      <file-matcher glob="**/Dockerfile*">Docker build files and multi-stage configurations</file-matcher>
+      <file-matcher glob="**/docker-compose*.{yml,yaml}">Docker Compose orchestration files</file-matcher>
+      <file-matcher glob="**/.dockerignore">Docker build context ignore files</file-matcher>
+      <file-matcher glob="**/docker/**/*">Docker-related configuration and scripts</file-matcher>
+      <file-matcher glob="**/*docker*">Docker-related files throughout the application</file-matcher>
+      <action-matcher action="containerization">Triggered when working with Docker containers and orchestration</action-matcher>
+    </applies-to>
+  </meta>
+  <requirements>
+    <non-negotiable priority="critical">
+      <description>Use multi-stage builds with minimal base images, proper layer optimization, security scanning, and non-root user execution. Implement comprehensive security measures including secrets management, network isolation, and vulnerability assessment with production-ready configurations.</description>
+      <examples>
+        <example title="Production-Ready Multi-Stage Dockerfile">
+          <correct-example title="Secure multi-stage build with optimization" conditions="Building production Docker image" expected-result="Optimized, secure container image" correctness-criteria="Multi-stage build, minimal base image, non-root user, layer optimization, security best practices"><![CDATA[# Multi-stage production Dockerfile
+# Build stage
+FROM node:18-alpine AS builder
+
+# Install security updates
+RUN apk update && apk upgrade && apk add --no-cache \
+    dumb-init \
+    && rm -rf /var/cache/apk/*
+
+# Create app directory with proper ownership
+WORKDIR /app
+
+# Copy package files first for better layer caching
+COPY package*.json ./
+COPY yarn.lock* ./
+
+# Install dependencies with security flags
+RUN npm ci --only=production --no-optional --no-audit --no-fund \
+    && npm cache clean --force
+
+# Copy source code
+COPY . .
+
+# Build application
+RUN npm run build \
+    && rm -rf src/ \
+    && rm -rf node_modules \
+    && npm ci --only=production --no-optional
+
+# Production stage
+FROM node:18-alpine AS production
+
+# Install security updates and required packages
+RUN apk update && apk upgrade && apk add --no-cache \
+    dumb-init \
+    curl \
+    && rm -rf /var/cache/apk/* \
+    && addgroup -g 1001 -S nodejs \
+    && adduser -S nextjs -u 1001
+
+# Set working directory
+WORKDIR /app
+
+# Copy built application from builder stage
+COPY --from=builder --chown=nextjs:nodejs /app/dist ./dist/
+COPY --from=builder --chown=nextjs:nodejs /app/node_modules ./node_modules/
+COPY --from=builder --chown=nextjs:nodejs /app/package.json ./
+
+# Security: Switch to non-root user
+USER nextjs
+
+# Expose port (document but don't bind)
+EXPOSE 3000
+
+# Health check
+HEALTHCHECK --interval=30s --timeout=3s --start-period=5s --retries=3 \
+    CMD curl -f http://localhost:3000/health || exit 1
+
+# Use dumb-init for proper signal handling
+ENTRYPOINT ["dumb-init", "--"]
+CMD ["node", "dist/server.js"]
+
+# Metadata labels
+LABEL \
+    org.opencontainers.image.title="MyApp Production" \
+    org.opencontainers.image.description="Production containerized application" \
+    org.opencontainers.image.vendor="Company Name" \
+    org.opencontainers.image.version="1.0.0" \
+    org.opencontainers.image.created="2025-01-25T10:15:00Z" \
+    maintainer="team@company.com"]]></correct-example>
+          <incorrect-example title="Insecure single-stage build" conditions="Building Docker image" expected-result="Secure, optimized container" incorrectness-criteria="Single stage, root user, poor layer optimization, no security measures"><![CDATA[FROM node:latest
+
+# Bad: Running as root user
+# Bad: No security updates
+# Bad: Poor layer caching
+
+WORKDIR /app
+
+# Bad: Copying everything first
+COPY . .
+
+# Bad: Running npm install after copying source
+RUN npm install
+
+# Bad: No build optimization
+RUN npm run build
+
+# Bad: No health check
+# Bad: Exposing port without documentation
+EXPOSE 3000
+
+# Bad: Running as root user
+CMD ["npm", "start"]]]></incorrect-example>
+        </example>
+      </examples>
+    </non-negotiable>
+
+    <requirement priority="critical">
+      <description>Implement comprehensive Docker Compose configurations with proper service orchestration, environment management, network isolation, volume management, and security controls for development and production environments.</description>
+      <examples>
+        <example title="Production Docker Compose Configuration">
+          <correct-example title="Secure multi-service orchestration" conditions="Setting up production Docker Compose" expected-result="Secure, scalable service orchestration" correctness-criteria="Network isolation, secrets management, health checks, resource limits, monitoring"><![CDATA[version: '3.8'
+
+services:
+  # Application service
+  app:
+    build:
+      context: .
+      dockerfile: Dockerfile
+      target: production
+    restart: unless-stopped
+    environment:
+      NODE_ENV: production
+      PORT: 3000
+    secrets:
+      - db_password
+      - jwt_secret
+    networks:
+      - app_network
+      - db_network
+    depends_on:
+      db:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    deploy:
+      resources:
+        limits:
+          cpus: '1.0'
+          memory: 1G
+        reservations:
+          cpus: '0.5'
+          memory: 512M
+      restart_policy:
+        condition: on-failure
+        delay: 5s
+        max_attempts: 3
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:3000/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 60s
+    volumes:
+      - app_logs:/app/logs
+    labels:
+      - "traefik.enable=true"
+      - "traefik.http.routers.app.rule=Host(`app.example.com`)"
+      - "traefik.http.services.app.loadbalancer.server.port=3000"
+
+  # Database service
+  db:
+    image: postgres:15-alpine
+    restart: unless-stopped
+    environment:
+      POSTGRES_DB: ${DB_NAME:-myapp}
+      POSTGRES_USER: ${DB_USER:-postgres}
+      POSTGRES_PASSWORD_FILE: /run/secrets/db_password
+    secrets:
+      - db_password
+    networks:
+      - db_network
+    volumes:
+      - db_data:/var/lib/postgresql/data
+      - ./init.sql:/docker-entrypoint-initdb.d/init.sql:ro
+    deploy:
+      resources:
+        limits:
+          cpus: '0.5'
+          memory: 512M
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${DB_USER:-postgres}"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    security_opt:
+      - no-new-privileges:true
+
+  # Cache service
+  redis:
+    image: redis:7-alpine
+    restart: unless-stopped
+    command: redis-server --appendonly yes --requirepass $${REDIS_PASSWORD}
+    environment:
+      REDIS_PASSWORD_FILE: /run/secrets/redis_password
+    secrets:
+      - redis_password
+    networks:
+      - app_network
+    volumes:
+      - redis_data:/data
+    deploy:
+      resources:
+        limits:
+          cpus: '0.25'
+          memory: 256M
+    healthcheck:
+      test: ["CMD", "redis-cli", "--no-auth-warning", "-a", "$${REDIS_PASSWORD}", "ping"]
+      interval: 10s
+      timeout: 3s
+      retries: 3
+
+  # Reverse proxy
+  traefik:
+    image: traefik:v3.0
+    restart: unless-stopped
+    command:
+      - --api.dashboard=true
+      - --providers.docker=true
+      - --providers.docker.exposedbydefault=false
+      - --entrypoints.web.address=:80
+      - --entrypoints.websecure.address=:443
+      - --certificatesresolvers.letsencrypt.acme.tlschallenge=true
+      - --certificatesresolvers.letsencrypt.acme.email=admin@example.com
+      - --certificatesresolvers.letsencrypt.acme.storage=/letsencrypt/acme.json
+    ports:
+      - "80:80"
+      - "443:443"
+    volumes:
+      - /var/run/docker.sock:/var/run/docker.sock:ro
+      - traefik_data:/letsencrypt
+    networks:
+      - app_network
+    labels:
+      - "traefik.enable=true"
+      - "traefik.http.routers.dashboard.rule=Host(`traefik.example.com`)"
+      - "traefik.http.routers.dashboard.service=api@internal"
+
+networks:
+  app_network:
+    driver: bridge
+    ipam:
+      config:
+        - subnet: 172.20.0.0/16
+  db_network:
+    driver: bridge
+    internal: true
+
+volumes:
+  db_data:
+    driver: local
+  redis_data:
+    driver: local
+  app_logs:
+    driver: local
+  traefik_data:
+    driver: local
+
+secrets:
+  db_password:
+    file: ./secrets/db_password.txt
+  redis_password:
+    file: ./secrets/redis_password.txt
+  jwt_secret:
+    file: ./secrets/jwt_secret.txt]]></correct-example>
+          <incorrect-example title="Insecure basic compose configuration" conditions="Setting up Docker Compose" expected-result="Secure service orchestration" incorrectness-criteria="No security measures, exposed secrets, no resource limits, poor network configuration"><![CDATA[version: '3.8'
+
+services:
+  app:
+    build: .
+    ports:
+      - "3000:3000"
+    environment:
+      - DB_PASSWORD=password123  # Bad: Exposed secret
+      - JWT_SECRET=supersecret   # Bad: Exposed secret
+    depends_on:
+      - db
+
+  db:
+    image: postgres
+    environment:
+      - POSTGRES_PASSWORD=password123  # Bad: Exposed secret
+    ports:
+      - "5432:5432"  # Bad: Exposed database
+
+# Bad: No networks defined
+# Bad: No health checks
+# Bad: No resource limits
+# Bad: No restart policies
+# Bad: No security options]]></incorrect-example>
+        </example>
+      </examples>
+    </requirement>
+
+    <requirement priority="high">
+      <description>Configure proper .dockerignore files with comprehensive exclusion patterns, security considerations, and build optimization to minimize image size and prevent sensitive data inclusion.</description>
+      <examples>
+        <example title="Comprehensive .dockerignore Configuration">
+          <correct-example title="Security-focused dockerignore with optimization" conditions="Configuring Docker build context" expected-result="Minimal, secure build context" correctness-criteria="Excludes sensitive files, optimizes build context, prevents security leaks"><![CDATA[## .dockerignore - Comprehensive build context exclusion
+
+## Development files
+node_modules
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+.npm
+.yarn-integrity
+.pnp
+.pnp.js
+
+## Coverage and testing
+coverage
+*.lcov
+.nyc_output
+
+## Environment and configuration
+.env
+.env.*
+!.env.example
+.envrc
+
+## Secrets and sensitive data
+*.key
+*.pem
+*.p12
+*.pfx
+secrets/
+.secrets/
+config/secrets.yml
+*.secret
+
+## Build artifacts
+dist
+build
+out
+.next
+.nuxt
+.cache
+.parcel-cache
+.vscode
+.idea
+
+## OS generated files
+.DS_Store
+.DS_Store?
+._*
+.Spotlight-V100
+.Trashes
+ehthumbs.db
+Thumbs.db
+
+## Git and version control
+.git
+.gitignore
+.gitattributes
+.gitmodules
+
+## CI/CD and automation
+.github
+.gitlab-ci.yml
+.travis.yml
+.circleci
+jenkins
+Jenkinsfile
+
+## Documentation
+README.md
+CHANGELOG.md
+LICENSE
+docs/
+*.md
+!docker/README.md
+
+## Docker files (avoid recursion)
+Dockerfile*
+docker-compose*.yml
+.dockerignore
+
+## Logs
+logs
+*.log
+
+## Runtime data
+pids
+*.pid
+*.seed
+*.pid.lock
+
+## Temporary files
+tmp/
+temp/
+.tmp/
+
+## Editor files
+*~
+*.swp
+*.swo
+.vscode/
+.idea/
+
+## Testing
+test/
+tests/
+spec/
+__tests__/
+*.test.js
+*.spec.js
+
+## Linting
+.eslintcache
+.stylelintcache
+
+## Database
+*.sqlite
+*.db
+
+## Backup files
+*.bak
+*.backup
+
+## macOS
+.AppleDouble
+.LSOverride
+Icon
+
+## Windows
+desktop.ini
+$RECYCLE.BIN/
+
+## Linux
+*~]]></correct-example>
+          <incorrect-example title="Minimal dockerignore without security considerations" conditions="Basic Docker build context configuration" expected-result="Comprehensive build context exclusion" incorrectness-criteria="Missing sensitive file exclusions, no optimization, security risks"><![CDATA[node_modules
+.git
+README.md
+
+# Bad: No sensitive file exclusions
+# Bad: No environment file protection
+# Bad: No secrets exclusion
+# Bad: No build artifact exclusion
+# Bad: Missing OS-specific files
+# Bad: No CI/CD file exclusion]]></incorrect-example>
+        </example>
+      </examples>
+    </requirement>
+
+    <requirement priority="high">
+      <description>Implement container security best practices including vulnerability scanning, secrets management, network policies, resource limits, and security contexts with automated security checks in CI/CD pipelines.</description>
+      <examples>
+        <example title="Container Security Implementation">
+          <correct-example title="Comprehensive security configuration" conditions="Implementing container security" expected-result="Secure containerized application" correctness-criteria="Vulnerability scanning, secrets management, security contexts, network policies"><![CDATA[#!/bin/bash
+# docker-security-scan.sh - Comprehensive security scanning
+
+set -euo pipefail
+
+IMAGE_NAME="${1:-myapp:latest}"
+SCAN_RESULTS_DIR="./security-scans"
+
+echo "🔍 Starting comprehensive Docker security scan for ${IMAGE_NAME}"
+
+# Create results directory
+mkdir -p "${SCAN_RESULTS_DIR}"
+
+# Vulnerability scanning with Trivy
+echo "📊 Running vulnerability scan..."
+docker run --rm \
+  -v /var/run/docker.sock:/var/run/docker.sock \
+  -v "${PWD}/${SCAN_RESULTS_DIR}":/output \
+  aquasec/trivy:latest image \
+  --format json \
+  --output /output/trivy-report.json \
+  --severity HIGH,CRITICAL \
+  "${IMAGE_NAME}"
+
+# Container configuration scanning
+echo "🔒 Running container configuration scan..."
+docker run --rm \
+  -v /var/run/docker.sock:/var/run/docker.sock \
+  -v "${PWD}":/workspace \
+  checkr/clair-scanner:latest \
+  --ip "$(docker network inspect bridge --format='{{(index .IPAM.Config 0).Gateway}}')" \
+  --report="/workspace/${SCAN_RESULTS_DIR}/clair-report.json" \
+  "${IMAGE_NAME}"
+
+# Docker Bench Security
+echo "🛡️ Running Docker Bench Security..."
+docker run --rm \
+  --net host \
+  --pid host \
+  --userns host \
+  --cap-add audit_control \
+  -e DOCKER_CONTENT_TRUST="${DOCKER_CONTENT_TRUST:-1}" \
+  -v /var/lib:/var/lib:ro \
+  -v /var/run/docker.sock:/var/run/docker.sock:ro \
+  -v /usr/lib/systemd:/usr/lib/systemd:ro \
+  -v /etc:/etc:ro \
+  --label docker_bench_security \
+  docker/docker-bench-security
+
+# Image signing verification
+echo "✅ Verifying image signatures..."
+if command -v cosign >/dev/null 2>&1; then
+  cosign verify "${IMAGE_NAME}" || echo "⚠️ Image signature verification failed"
+else
+  echo "⚠️ Cosign not installed, skipping signature verification"
+fi
+
+# Security policy validation
+echo "📋 Validating security policies..."
+cat > "${SCAN_RESULTS_DIR}/security-policy.json" <<EOF
+{
+  "security_policy": {
+    "required_labels": [
+      "org.opencontainers.image.title",
+      "org.opencontainers.image.version",
+      "maintainer"
+    ],
+    "prohibited_ports": ["22", "23", "3389"],
+    "required_user": "non-root",
+    "max_layers": 20,
+    "max_size_mb": 500
+  }
+}
+EOF
+
+# Generate security report
+echo "📊 Generating security summary..."
+cat > "${SCAN_RESULTS_DIR}/security-summary.md" <<EOF
+# Docker Security Scan Report
+
+**Image:** ${IMAGE_NAME}
+**Scan Date:** $(date -u +"%Y-%m-%d %H:%M:%S UTC")
+
+## Scan Results
+
+- ✅ Vulnerability Scan: See trivy-report.json
+- ✅ Configuration Scan: See clair-report.json  
+- ✅ Docker Bench Security: Completed
+- ✅ Security Policy: Validated
+
+## Security Recommendations
+
+1. Regularly update base images
+2. Use minimal base images (Alpine/Distroless)
+3. Run as non-root user
+4. Implement proper secrets management
+5. Enable Docker Content Trust
+6. Monitor for new vulnerabilities
+
+## Next Steps
+
+- Review detailed scan results
+- Address any HIGH/CRITICAL vulnerabilities
+- Update security policies as needed
+- Schedule regular security scans
+
+EOF
+
+echo "✅ Security scan completed. Results in ${SCAN_RESULTS_DIR}/"]]></correct-example>
+          <incorrect-example title="Basic Docker setup without security measures" conditions="Running containers without security considerations" expected-result="Secure container deployment" incorrectness-criteria="No vulnerability scanning, exposed secrets, running as root, no security policies"><![CDATA[#!/bin/bash
+# Basic Docker run without security
+
+docker build -t myapp .
+docker run -d \
+  -p 3000:3000 \
+  -e DB_PASSWORD=password123 \
+  myapp
+
+# Bad: No vulnerability scanning
+# Bad: Exposed secrets in environment
+# Bad: No security scanning
+# Bad: Running as root user
+# Bad: No resource limits
+# Bad: No health checks
+# Bad: No monitoring]]></incorrect-example>
+        </example>
+      </examples>
+    </requirement>
+
+    <requirement priority="high">
+      <description>Optimize Docker images for performance with layer caching strategies, build-time optimizations, runtime performance tuning, and monitoring integration for production environments.</description>
+      <examples>
+        <example title="Performance Optimization Strategy">
+          <correct-example title="Comprehensive performance optimization" conditions="Optimizing Docker containers for production" expected-result="High-performance, efficient containers" correctness-criteria="Layer optimization, caching strategy, runtime tuning, monitoring integration"><![CDATA[#!/bin/bash
+# docker-optimize.sh - Comprehensive Docker optimization
+
+set -euo pipefail
+
+IMAGE_NAME="${1:-myapp}"
+BUILD_CONTEXT="${2:-.}"
+
+echo "🚀 Starting Docker optimization for ${IMAGE_NAME}"
+
+# Multi-stage build with BuildKit
+export DOCKER_BUILDKIT=1
+export BUILDKIT_PROGRESS=plain
+
+# Performance-optimized build
+echo "🔧 Building optimized image..."
+docker build \
+  --target production \
+  --build-arg BUILDKIT_INLINE_CACHE=1 \
+  --cache-from "${IMAGE_NAME}:cache" \
+  --cache-from "${IMAGE_NAME}:latest" \
+  --tag "${IMAGE_NAME}:latest" \
+  --tag "${IMAGE_NAME}:$(git rev-parse --short HEAD)" \
+  --label "build.date=$(date -u +%Y-%m-%dT%H:%M:%SZ)" \
+  --label "build.revision=$(git rev-parse HEAD)" \
+  --label "build.version=$(git describe --tags --always)" \
+  "${BUILD_CONTEXT}"
+
+# Analyze image layers and size
+echo "📊 Analyzing image composition..."
+docker run --rm \
+  -v /var/run/docker.sock:/var/run/docker.sock \
+  wagoodman/dive:latest "${IMAGE_NAME}:latest" \
+  --ci \
+  --lowestEfficiency=0.95 \
+  --highestWastedBytes=10MB
+
+# Image size optimization report
+echo "📏 Image size analysis..."
+docker images "${IMAGE_NAME}" --format "table {{.Repository}}\t{{.Tag}}\t{{.Size}}\t{{.CreatedAt}}"
+
+# Performance testing setup
+echo "🏃 Setting up performance monitoring..."
+cat > docker-performance.yml <<EOF
+version: '3.8'
+
+services:
+  app:
+    image: ${IMAGE_NAME}:latest
+    deploy:
+      resources:
+        limits:
+          cpus: '1.0'
+          memory: 512M
+        reservations:
+          cpus: '0.5'
+          memory: 256M
+    environment:
+      NODE_ENV: production
+      # Performance tuning
+      NODE_OPTIONS: "--max-old-space-size=384 --optimize-for-size"
+      UV_THREADPOOL_SIZE: 4
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:3000/health"]
+      interval: 10s
+      timeout: 5s
+      retries: 3
+      start_period: 30s
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "10m"
+        max-file: "3"
+
+  # Performance monitoring
+  cadvisor:
+    image: gcr.io/cadvisor/cadvisor:latest
+    container_name: cadvisor
+    ports:
+      - "8080:8080"
+    volumes:
+      - /:/rootfs:ro
+      - /var/run:/var/run:ro
+      - /sys:/sys:ro
+      - /var/lib/docker/:/var/lib/docker:ro
+      - /dev/disk/:/dev/disk:ro
+    privileged: true
+    devices:
+      - /dev/kmsg
+
+  # Metrics collection
+  prometheus:
+    image: prom/prometheus:latest
+    ports:
+      - "9090:9090"
+    volumes:
+      - ./prometheus.yml:/etc/prometheus/prometheus.yml
+    command:
+      - '--config.file=/etc/prometheus/prometheus.yml'
+      - '--storage.tsdb.path=/prometheus'
+      - '--web.console.libraries=/etc/prometheus/console_libraries'
+      - '--web.console.templates=/etc/prometheus/consoles'
+      - '--storage.tsdb.retention.time=200h'
+      - '--web.enable-lifecycle'
+
+EOF
+
+# Create Prometheus configuration
+cat > prometheus.yml <<EOF
+global:
+  scrape_interval: 15s
+
+scrape_configs:
+  - job_name: 'docker-containers'
+    static_configs:
+      - targets: ['cadvisor:8080']
+  
+  - job_name: 'app-metrics'
+    static_configs:
+      - targets: ['app:3000']
+    metrics_path: '/metrics'
+
+EOF
+
+# Runtime optimization script
+cat > optimize-runtime.sh <<'EOF'
+#!/bin/bash
+# Runtime optimization for production containers
+
+echo "🔧 Applying runtime optimizations..."
+
+# Container resource optimization
+docker update \
+  --memory=512m \
+  --memory-swap=1g \
+  --cpus="1.0" \
+  --restart=unless-stopped \
+  $(docker ps -q --filter ancestor=${IMAGE_NAME}:latest)
+
+# Kernel parameters for better networking
+echo 'net.core.somaxconn = 65535' >> /etc/sysctl.conf
+echo 'net.ipv4.tcp_max_syn_backlog = 65535' >> /etc/sysctl.conf
+echo 'net.core.netdev_max_backlog = 5000' >> /etc/sysctl.conf
+
+# Apply kernel parameters
+sysctl -p
+
+echo "✅ Runtime optimization completed"
+EOF
+
+chmod +x optimize-runtime.sh
+
+echo "✅ Docker optimization completed!"
+echo "📊 Review the dive analysis for layer optimization opportunities"
+echo "🚀 Use 'docker-compose -f docker-performance.yml up' to start with monitoring"]]></correct-example>
+          <incorrect-example title="Basic Docker build without optimization" conditions="Building Docker images" expected-result="Optimized container performance" incorrectness-criteria="No build optimization, poor layer caching, no performance monitoring, no resource management"><![CDATA[#!/bin/bash
+# Basic build without optimization
+
+docker build -t myapp .
+docker run -d -p 3000:3000 myapp
+
+# Bad: No BuildKit usage
+# Bad: No layer caching
+# Bad: No size analysis
+# Bad: No performance monitoring
+# Bad: No resource limits
+# Bad: No health checks
+# Bad: No build optimization]]></incorrect-example>
+        </example>
+      </examples>
+    </requirement>
+
+    <requirement priority="medium">
+      <description>Implement comprehensive logging, monitoring, and observability with structured logging, metrics collection, distributed tracing, and alerting for containerized applications in production environments.</description>
+      <examples>
+        <example title="Container Observability Implementation">
+          <correct-example title="Complete observability stack" conditions="Implementing container monitoring and observability" expected-result="Comprehensive observability and monitoring" correctness-criteria="Structured logging, metrics collection, distributed tracing, alerting, dashboards"><![CDATA># docker-observability.yml - Complete observability stack
+version: '3.8'
+
+services:
+  # Application with observability
+  app:
+    image: myapp:latest
+    environment:
+      LOG_LEVEL: info
+      LOG_FORMAT: json
+      METRICS_ENABLED: "true"
+      TRACING_ENABLED: "true"
+      JAEGER_ENDPOINT: http://jaeger:14268/api/traces
+    logging:
+      driver: "fluentd"
+      options:
+        fluentd-address: fluentd:24224
+        tag: "docker.{{.Name}}"
+    labels:
+      - "prometheus.scrape=true"
+      - "prometheus.port=3000"
+      - "prometheus.path=/metrics"
+
+  # Centralized logging with Fluentd
+  fluentd:
+    image: fluent/fluentd:v1.16-debian-1
+    volumes:
+      - ./fluentd/conf:/fluentd/etc
+      - ./logs:/fluentd/log
+    ports:
+      - "24224:24224"
+      - "24224:24224/udp"
+    environment:
+      FLUENTD_CONF: fluent.conf
+    depends_on:
+      - elasticsearch
+
+  # Log storage and search
+  elasticsearch:
+    image: docker.elastic.co/elasticsearch/elasticsearch:8.11.3
+    environment:
+      - discovery.type=single-node
+      - "ES_JAVA_OPTS=-Xms512m -Xmx512m"
+      - xpack.security.enabled=false
+    volumes:
+      - es_data:/usr/share/elasticsearch/data
+    ports:
+      - "9200:9200"
+
+  # Log visualization
+  kibana:
+    image: docker.elastic.co/kibana/kibana:8.11.3
+    environment:
+      ELASTICSEARCH_HOSTS: http://elasticsearch:9200
+    ports:
+      - "5601:5601"
+    depends_on:
+      - elasticsearch
+
+  # Metrics collection
+  prometheus:
+    image: prom/prometheus:latest
+    ports:
+      - "9090:9090"
+    volumes:
+      - ./prometheus/prometheus.yml:/etc/prometheus/prometheus.yml
+      - ./prometheus/rules:/etc/prometheus/rules
+      - prometheus_data:/prometheus
+    command:
+      - '--config.file=/etc/prometheus/prometheus.yml'
+      - '--storage.tsdb.path=/prometheus'
+      - '--web.console.libraries=/etc/prometheus/console_libraries'
+      - '--web.console.templates=/etc/prometheus/consoles'
+      - '--storage.tsdb.retention.time=15d'
+      - '--web.enable-lifecycle'
+      - '--web.enable-admin-api'
+
+  # Metrics visualization
+  grafana:
+    image: grafana/grafana:latest
+    ports:
+      - "3001:3000"
+    environment:
+      GF_SECURITY_ADMIN_PASSWORD: admin123
+      GF_INSTALL_PLUGINS: grafana-piechart-panel
+    volumes:
+      - grafana_data:/var/lib/grafana
+      - ./grafana/dashboards:/etc/grafana/provisioning/dashboards
+      - ./grafana/datasources:/etc/grafana/provisioning/datasources
+    depends_on:
+      - prometheus
+
+  # Distributed tracing
+  jaeger:
+    image: jaegertracing/all-in-one:latest
+    ports:
+      - "16686:16686"
+      - "14268:14268"
+    environment:
+      COLLECTOR_OTLP_ENABLED: "true"
+
+  # Container metrics
+  cadvisor:
+    image: gcr.io/cadvisor/cadvisor:latest
+    ports:
+      - "8080:8080"
+    volumes:
+      - /:/rootfs:ro
+      - /var/run:/var/run:ro
+      - /sys:/sys:ro
+      - /var/lib/docker/:/var/lib/docker:ro
+      - /dev/disk/:/dev/disk:ro
+    privileged: true
+
+  # System metrics
+  node-exporter:
+    image: prom/node-exporter:latest
+    ports:
+      - "9100:9100"
+    command:
+      - '--path.procfs=/host/proc'
+      - '--path.rootfs=/rootfs'
+      - '--path.sysfs=/host/sys'
+      - '--collector.filesystem.mount-points-exclude=^/(sys|proc|dev|host|etc)($$|/)'
+    volumes:
+      - /proc:/host/proc:ro
+      - /sys:/host/sys:ro
+      - /:/rootfs:ro
+
+  # Alerting
+  alertmanager:
+    image: prom/alertmanager:latest
+    ports:
+      - "9093:9093"
+    volumes:
+      - ./alertmanager/alertmanager.yml:/etc/alertmanager/alertmanager.yml
+      - alertmanager_data:/alertmanager
+
+volumes:
+  es_data:
+  prometheus_data:
+  grafana_data:
+  alertmanager_data:
+
+# Fluentd configuration - fluentd/conf/fluent.conf
+<source>
+  @type forward
+  port 24224
+  bind 0.0.0.0
+</source>
+
+<filter docker.**>
+  @type parser
+  key_name log
+  reserve_data true
+  <parse>
+    @type json
+  </parse>
+</filter>
+
+<match docker.**>
+  @type elasticsearch
+  host elasticsearch
+  port 9200
+  logstash_format true
+  logstash_prefix docker
+  logstash_dateformat %Y%m%d
+  include_tag_key true
+  type_name _doc
+  tag_key @log_name
+  flush_interval 1s
+</match>
+
+# Prometheus configuration - prometheus/prometheus.yml
+global:
+  scrape_interval: 15s
+  evaluation_interval: 15s
+
+rule_files:
+  - "rules/*.yml"
+
+alerting:
+  alertmanagers:
+    - static_configs:
+        - targets:
+          - alertmanager:9093
+
+scrape_configs:
+  - job_name: 'prometheus'
+    static_configs:
+      - targets: ['localhost:9090']
+
+  - job_name: 'docker-containers'
+    static_configs:
+      - targets: ['cadvisor:8080']
+
+  - job_name: 'node-exporter'
+    static_configs:
+      - targets: ['node-exporter:9100']
+
+  - job_name: 'app-metrics'
+    docker_sd_configs:
+      - host: unix:///var/run/docker.sock
+        refresh_interval: 5s
+    relabel_configs:
+      - source_labels: [__meta_docker_container_label_prometheus_scrape]
+        regex: true
+        action: keep]]></correct-example>
+          <incorrect-example title="Basic logging without observability" conditions="Basic container logging setup" expected-result="Comprehensive observability" incorrectness-criteria="No structured logging, no metrics, no tracing, no monitoring, poor observability"><![CDATA[version: '3.8'
+
+services:
+  app:
+    image: myapp:latest
+    ports:
+      - "3000:3000"
+
+# Bad: No logging configuration
+# Bad: No metrics collection
+# Bad: No monitoring
+# Bad: No alerting
+# Bad: No tracing
+# Bad: No centralized logging
+# Bad: No observability stack]]></incorrect-example>
+        </example>
+      </examples>
+    </requirement>
+  </requirements>
+  <context description="Docker containerization best practices and patterns">
+    Docker is the industry-standard containerization platform that enables consistent application deployment across different environments. Modern Docker development emphasizes security-first approaches, multi-stage builds for optimization, and comprehensive orchestration for production environments.
+
+    Key principles for Docker implementation include:
+    - Security by default with non-root users, minimal base images, and vulnerability scanning
+    - Performance optimization through layer caching, multi-stage builds, and resource management
+    - Production readiness with health checks, proper logging, and monitoring integration
+    - Infrastructure as Code with Docker Compose and orchestration platforms
+    - Comprehensive observability with structured logging, metrics, and distributed tracing
+
+    Container security is paramount and includes vulnerability scanning with tools like Trivy, configuration analysis with Docker Bench Security, secrets management, network isolation, and regular security updates. Images should use minimal base images like Alpine or distroless containers to reduce attack surface.
+
+    Performance optimization involves BuildKit for improved build performance, layer optimization to minimize image size, proper resource limits and reservations, and comprehensive monitoring with cAdvisor, Prometheus, and Grafana.
+
+    Production deployments require orchestration with Docker Swarm or Kubernetes, service discovery, load balancing, rolling updates, and disaster recovery strategies. All containers should include proper health checks, graceful shutdown handling, and comprehensive logging for troubleshooting.
+
+    Modern Docker workflows integrate with CI/CD pipelines for automated testing, security scanning, image building, and deployment, ensuring consistent and secure containerized applications from development to production.
+  </context>
+  <references>
+    <reference as="dependency" href=".cursor/rules/000-core/002-cursor-rules-creation.mdc" reason="Follows standard rule format">Base rule format definition</reference>
+    <reference as="context" href="https://docs.docker.com/develop/dev-best-practices/" reason="Official Docker best practices">Docker Development Best Practices</reference>
+    <reference as="context" href="https://docs.docker.com/engine/security/" reason="Security guidelines">Docker Security Documentation</reference>
+    <reference as="context" href="https://docs.docker.com/compose/production/" reason="Production deployment">Docker Compose Production Guide</reference>
+  </references>
+</rule>

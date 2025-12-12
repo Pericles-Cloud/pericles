@@ -1,0 +1,2591 @@
+---
+description: "Comprehensive readdirp directory traversal standards with recursive file system navigation, filtering patterns, performance optimization, and cross-platform compatibility following modern readdirp best practices"
+globs: ["**/package.json", "**/*.js", "**/*.ts", "**/*.tsx", "**/*.jsx", "**/*.mjs", "**/*.cjs", "**/*.json", "**/*.md", "**/*.yml", "**/*.yaml"]
+alwaysApply: false
+---
+
+<rule>
+  <meta>
+    <title>Readdirp Core Standards</title>
+    <description>Comprehensive readdirp directory traversal standards with recursive file system navigation, filtering patterns, performance optimization, and cross-platform compatibility following modern readdirp best practices</description>
+    <created-at utc-timestamp="1744245220">January 27, 2025, 11:40 AM</created-at>
+    <last-updated-at utc-timestamp="1744245220">January 27, 2025, 11:40 AM</last-updated-at>
+    <applies-to>
+      <file-matcher glob="**/package.json">Package configuration files that may include readdirp dependencies</file-matcher>
+      <file-matcher glob="**/*.{js,ts,tsx,jsx,mjs,cjs}">JavaScript and TypeScript files using readdirp</file-matcher>
+      <file-matcher glob="**/*.{json,md,yml,yaml}">Configuration and documentation files</file-matcher>
+      <action-matcher action="directory-traversal">Triggered when implementing directory traversal or file system navigation</action-matcher>
+    </applies-to>
+  </meta>
+
+  <requirements>
+    <non-negotiable priority="critical">
+      <description>Use readdirp with proper async/await patterns and stream handling for efficient directory traversal with error handling and resource cleanup.</description>
+      <examples>
+        <example title="Async Directory Traversal with Error Handling">
+          <correct-example title="Proper async/await with error handling" conditions="Traversing directories with readdirp" expected-result="Efficient directory traversal with proper error handling" correctness-criteria="Uses async/await, handles errors, cleans up resources, provides progress feedback"><![CDATA[// TypeScript - Comprehensive directory traversal service
+import readdirp from 'readdirp';
+import { EventEmitter } from 'events';
+import path from 'path';
+import { promises as fs } from 'fs';
+
+interface TraversalOptions {
+  root: string;
+  fileFilter?: string | string[] | ((entry: readdirp.EntryInfo) => boolean);
+  directoryFilter?: string | string[] | ((entry: readdirp.EntryInfo) => boolean);
+  type?: 'files' | 'directories' | 'files_directories' | 'all';
+  depth?: number;
+  alwaysStatDirectory?: boolean;
+  lstat?: boolean;
+}
+
+interface TraversalResult {
+  files: readdirp.EntryInfo[];
+  directories: readdirp.EntryInfo[];
+  stats: {
+    totalFiles: number;
+    totalDirectories: number;
+    totalSize: number;
+    duration: number;
+  };
+  errors: Array<{ path: string; error: Error }>;
+}
+
+interface TraversalProgress {
+  filesProcessed: number;
+  directoriesProcessed: number;
+  currentPath: string;
+  estimatedTotal?: number;
+}
+
+class DirectoryTraversalService extends EventEmitter {
+  private abortController?: AbortController;
+  private isRunning = false;
+
+  async traverseDirectory(options: TraversalOptions): Promise<TraversalResult> {
+    const startTime = Date.now();
+    const files: readdirp.EntryInfo[] = [];
+    const directories: readdirp.EntryInfo[] = [];
+    const errors: Array<{ path: string; error: Error }> = [];
+    let totalSize = 0;
+    let filesProcessed = 0;
+    let directoriesProcessed = 0;
+
+    // Validate input
+    await this.validateTraversalOptions(options);
+
+    // Setup abort controller for cancellation
+    this.abortController = new AbortController();
+    this.isRunning = true;
+
+    try {
+      // Configure readdirp options
+      const readdirpOptions: readdirp.ReaddirpOptions = {
+        root: options.root,
+        fileFilter: options.fileFilter,
+        directoryFilter: options.directoryFilter,
+        type: options.type || 'files',
+        depth: options.depth,
+        alwaysStatDirectory: options.alwaysStatDirectory,
+        lstat: options.lstat
+      };
+
+      // Create readable stream
+      const stream = readdirp(options.root, readdirpOptions);
+
+      // Handle stream events
+      stream.on('data', (entry: readdirp.EntryInfo) => {
+        if (this.abortController?.signal.aborted) {
+          stream.destroy();
+          return;
+        }
+
+        try {
+          if (entry.dirent.isFile()) {
+            files.push(entry);
+            filesProcessed++;
+            if (entry.stats) {
+              totalSize += entry.stats.size;
+            }
+          } else if (entry.dirent.isDirectory()) {
+            directories.push(entry);
+            directoriesProcessed++;
+          }
+
+          // Emit progress event
+          this.emit('progress', {
+            filesProcessed,
+            directoriesProcessed,
+            currentPath: entry.fullPath
+          } as TraversalProgress);
+
+        } catch (error) {
+          errors.push({
+            path: entry.fullPath,
+            error: error as Error
+          });
+          this.emit('error', error, entry.fullPath);
+        }
+      });
+
+      stream.on('warn', (error: Error) => {
+        errors.push({
+          path: 'unknown',
+          error
+        });
+        this.emit('warn', error);
+      });
+
+      // Wait for stream completion
+      await new Promise<void>((resolve, reject) => {
+        stream.on('end', resolve);
+        stream.on('error', reject);
+        
+        // Handle abort signal
+        this.abortController?.signal.addEventListener('abort', () => {
+          stream.destroy();
+          reject(new Error('Directory traversal aborted'));
+        });
+      });
+
+      const duration = Date.now() - startTime;
+
+      return {
+        files,
+        directories,
+        stats: {
+          totalFiles: files.length,
+          totalDirectories: directories.length,
+          totalSize,
+          duration
+        },
+        errors
+      };
+
+    } catch (error) {
+      this.emit('error', error);
+      throw error;
+    } finally {
+      this.isRunning = false;
+      this.abortController = undefined;
+    }
+  }
+
+  async traverseWithFilter(
+    root: string,
+    filterFn: (entry: readdirp.EntryInfo) => boolean
+  ): Promise<readdirp.EntryInfo[]> {
+    const results: readdirp.EntryInfo[] = [];
+
+    const stream = readdirp(root, {
+      type: 'files',
+      fileFilter: filterFn
+    });
+
+    return new Promise((resolve, reject) => {
+      stream.on('data', (entry) => {
+        results.push(entry);
+      });
+
+      stream.on('end', () => {
+        resolve(results);
+      });
+
+      stream.on('error', reject);
+    });
+  }
+
+  async findFilesByExtension(
+    root: string,
+    extensions: string[]
+  ): Promise<readdirp.EntryInfo[]> {
+    const normalizedExtensions = extensions.map(ext => 
+      ext.startsWith('.') ? ext : `.${ext}`
+    );
+
+    return this.traverseWithFilter(root, (entry) => {
+      const ext = path.extname(entry.name);
+      return normalizedExtensions.includes(ext);
+    });
+  }
+
+  async findFilesByPattern(
+    root: string,
+    patterns: string[]
+  ): Promise<readdirp.EntryInfo[]> {
+    const regexPatterns = patterns.map(pattern => new RegExp(pattern));
+
+    return this.traverseWithFilter(root, (entry) => {
+      return regexPatterns.some(pattern => pattern.test(entry.name));
+    });
+  }
+
+  async findLargeFiles(
+    root: string,
+    minSizeBytes: number
+  ): Promise<readdirp.EntryInfo[]> {
+    return this.traverseWithFilter(root, (entry) => {
+      return entry.stats ? entry.stats.size >= minSizeBytes : false;
+    });
+  }
+
+  async getDirectoryStats(root: string): Promise<{
+    fileCount: number;
+    directoryCount: number;
+    totalSize: number;
+    largestFile: { name: string; size: number } | null;
+    fileExtensions: Record<string, number>;
+  }> {
+    const result = await this.traverseDirectory({
+      root,
+      type: 'files_directories',
+      alwaysStatDirectory: true
+    });
+
+    const fileExtensions: Record<string, number> = {};
+    let largestFile: { name: string; size: number } | null = null;
+
+    result.files.forEach(file => {
+      const ext = path.extname(file.name) || 'no-extension';
+      fileExtensions[ext] = (fileExtensions[ext] || 0) + 1;
+
+      if (file.stats && (!largestFile || file.stats.size > largestFile.size)) {
+        largestFile = { name: file.name, size: file.stats.size };
+      }
+    });
+
+    return {
+      fileCount: result.stats.totalFiles,
+      directoryCount: result.stats.totalDirectories,
+      totalSize: result.stats.totalSize,
+      largestFile,
+      fileExtensions
+    };
+  }
+
+  abort(): void {
+    if (this.isRunning && this.abortController) {
+      this.abortController.abort();
+    }
+  }
+
+  private async validateTraversalOptions(options: TraversalOptions): Promise<void> {
+    if (!options.root) {
+      throw new Error('Root directory is required');
+    }
+
+    try {
+      const stats = await fs.stat(options.root);
+      if (!stats.isDirectory()) {
+        throw new Error(`Root path is not a directory: ${options.root}`);
+      }
+    } catch (error) {
+      throw new Error(`Cannot access root directory: ${options.root}`);
+    }
+
+    if (options.depth !== undefined && options.depth < 0) {
+      throw new Error('Depth must be non-negative');
+    }
+  }
+}
+
+// Utility functions for common use cases
+export class ReaddirpUtils {
+  static async findPackageJsonFiles(root: string): Promise<readdirp.EntryInfo[]> {
+    return readdirp.promise(root, {
+      fileFilter: 'package.json',
+      type: 'files'
+    });
+  }
+
+  static async findSourceFiles(
+    root: string,
+    extensions: string[] = ['.js', '.ts', '.tsx', '.jsx']
+  ): Promise<readdirp.EntryInfo[]> {
+    const fileFilter = (entry: readdirp.EntryInfo) => {
+      const ext = path.extname(entry.name);
+      return extensions.includes(ext);
+    };
+
+    return readdirp.promise(root, {
+      fileFilter,
+      type: 'files'
+    });
+  }
+
+  static async findTestFiles(root: string): Promise<readdirp.EntryInfo[]> {
+    const testPatterns = [
+      /\.test\.(js|ts|tsx|jsx)$/,
+      /\.spec\.(js|ts|tsx|jsx)$/,
+      /__tests__\//
+    ];
+
+    const fileFilter = (entry: readdirp.EntryInfo) => {
+      return testPatterns.some(pattern => pattern.test(entry.path));
+    };
+
+    return readdirp.promise(root, {
+      fileFilter,
+      type: 'files'
+    });
+  }
+
+  static async findConfigFiles(root: string): Promise<readdirp.EntryInfo[]> {
+    const configPatterns = [
+      /^\..*rc$/,
+      /^.*\.config\.(js|ts|json)$/,
+      /^(package|tsconfig|babel)\.json$/,
+      /^(Dockerfile|docker-compose\.yml)$/
+    ];
+
+    const fileFilter = (entry: readdirp.EntryInfo) => {
+      return configPatterns.some(pattern => pattern.test(entry.name));
+    };
+
+    return readdirp.promise(root, {
+      fileFilter,
+      type: 'files'
+    });
+  }
+
+  static async findEmptyDirectories(root: string): Promise<readdirp.EntryInfo[]> {
+    const allDirs = await readdirp.promise(root, {
+      type: 'directories'
+    });
+
+    const emptyDirs: readdirp.EntryInfo[] = [];
+
+    for (const dir of allDirs) {
+      try {
+        const contents = await fs.readdir(dir.fullPath);
+        if (contents.length === 0) {
+          emptyDirs.push(dir);
+        }
+      } catch {
+        // Skip directories we can't read
+      }
+    }
+
+    return emptyDirs;
+  }
+
+  static createProgressReporter(
+    onProgress: (progress: TraversalProgress) => void
+  ) {
+    let lastReportTime = 0;
+    const reportInterval = 100; // Report every 100ms
+
+    return (progress: TraversalProgress) => {
+      const now = Date.now();
+      if (now - lastReportTime >= reportInterval) {
+        onProgress(progress);
+        lastReportTime = now;
+      }
+    };
+  }
+}
+
+// Example usage in different contexts
+export class ProjectAnalyzer {
+  private traversalService = new DirectoryTraversalService();
+
+  async analyzeProject(projectRoot: string) {
+    console.log(`Analyzing project: ${projectRoot}`);
+
+    // Setup progress reporting
+    this.traversalService.on('progress', (progress: TraversalProgress) => {
+      process.stdout.write(`\rProcessed: ${progress.filesProcessed} files, ${progress.directoriesProcessed} dirs`);
+    });
+
+    try {
+      // Get comprehensive project stats
+      const result = await this.traversalService.traverseDirectory({
+        root: projectRoot,
+        type: 'files_directories',
+        alwaysStatDirectory: true,
+        directoryFilter: (entry) => {
+          // Skip common ignore directories
+          const ignoreDirs = ['node_modules', '.git', 'dist', 'build', 'coverage'];
+          return !ignoreDirs.includes(entry.name);
+        }
+      });
+
+      console.log('\n\nProject Analysis Results:');
+      console.log(`Files: ${result.stats.totalFiles}`);
+      console.log(`Directories: ${result.stats.totalDirectories}`);
+      console.log(`Total Size: ${this.formatBytes(result.stats.totalSize)}`);
+      console.log(`Scan Duration: ${result.stats.duration}ms`);
+
+      if (result.errors.length > 0) {
+        console.log(`\nErrors encountered: ${result.errors.length}`);
+        result.errors.forEach(error => {
+          console.log(`  ${error.path}: ${error.error.message}`);
+        });
+      }
+
+      return result;
+
+    } catch (error) {
+      console.error('\nAnalysis failed:', error);
+      throw error;
+    }
+  }
+
+  private formatBytes(bytes: number): string {
+    const units = ['B', 'KB', 'MB', 'GB'];
+    let size = bytes;
+    let unitIndex = 0;
+
+    while (size >= 1024 && unitIndex < units.length - 1) {
+      size /= 1024;
+      unitIndex++;
+    }
+
+    return `${size.toFixed(2)} ${units[unitIndex]}`;
+  }
+}
+
+// JavaScript - Basic usage patterns
+const readdirp = require('readdirp');
+const path = require('path');
+const { promises: fs } = require('fs');
+
+async function findAllJavaScriptFiles(directory) {
+  try {
+    const files = [];
+    
+    const stream = readdirp(directory, {
+      fileFilter: ['*.js', '*.ts', '*.jsx', '*.tsx'],
+      directoryFilter: ['!node_modules', '!.git']
+    });
+
+    for await (const entry of stream) {
+      files.push({
+        name: entry.name,
+        path: entry.path,
+        fullPath: entry.fullPath,
+        size: entry.stats?.size || 0
+      });
+    }
+
+    return files;
+  } catch (error) {
+    console.error('Error scanning directory:', error);
+    throw error;
+  }
+}
+
+async function getDirectoryStructure(rootDir, maxDepth = 3) {
+  const structure = {
+    name: path.basename(rootDir),
+    type: 'directory',
+    children: []
+  };
+
+  try {
+    const entries = await readdirp.promise(rootDir, {
+      type: 'files_directories',
+      depth: maxDepth,
+      directoryFilter: ['!node_modules', '!.git', '!dist']
+    });
+
+    // Group entries by directory level
+    const byLevel = new Map();
+    
+    entries.forEach(entry => {
+      const level = entry.path.split(path.sep).length;
+      if (!byLevel.has(level)) {
+        byLevel.set(level, []);
+      }
+      byLevel.get(level).push(entry);
+    });
+
+    // Build tree structure
+    for (const [level, levelEntries] of byLevel) {
+      levelEntries.forEach(entry => {
+        const item = {
+          name: entry.name,
+          type: entry.dirent.isDirectory() ? 'directory' : 'file',
+          path: entry.path,
+          size: entry.stats?.size
+        };
+        
+        // Add to appropriate parent (simplified for example)
+        structure.children.push(item);
+      });
+    }
+
+    return structure;
+  } catch (error) {
+    console.error('Error building directory structure:', error);
+    throw error;
+  }
+}
+
+module.exports = {
+  findAllJavaScriptFiles,
+  getDirectoryStructure
+};]]></correct-example>
+          <incorrect-example title="Poor async handling and no error management" conditions="Traversing directories with readdirp" expected-result="Efficient directory traversal with proper error handling" incorrectness-criteria="No error handling, blocking operations, memory leaks, no progress feedback"><![CDATA[// Bad - Synchronous-style usage with poor error handling
+const readdirp = require('readdirp');
+
+function badDirectoryTraversal(directory) {
+  const files = [];
+  
+  // Bad: No error handling
+  const stream = readdirp(directory);
+  
+  // Bad: No async/await, blocking event loop
+  stream.on('data', (entry) => {
+    files.push(entry);
+    // Bad: Synchronous file operations
+    const content = require('fs').readFileSync(entry.fullPath);
+    // Bad: No memory management
+    entry.content = content;
+  });
+  
+  // Bad: No completion handling
+  return files; // Will return empty array
+}
+
+// Bad: No error boundaries
+async function badUsage() {
+  // Bad: No try/catch
+  const files = badDirectoryTraversal('/some/path');
+  console.log(files); // Will be empty
+}
+
+// Bad: Resource leaks
+class BadTraversal {
+  async scan(dir) {
+    const stream = readdirp(dir);
+    // Bad: No stream cleanup
+    // Bad: No abort mechanism
+    // Bad: No progress tracking
+    return new Promise((resolve) => {
+      const results = [];
+      stream.on('data', (entry) => {
+        results.push(entry);
+      });
+      // Bad: No error handling
+      stream.on('end', () => resolve(results));
+    });
+  }
+}]]></incorrect-example>
+        </example>
+      </examples>
+    </non-negotiable>
+
+    <non-negotiable priority="critical">
+      <description>Implement robust filtering patterns with glob patterns, regex filters, and custom filter functions for precise file selection and directory exclusion.</description>
+      <examples>
+        <example title="Advanced Filtering Patterns">
+          <correct-example title="Comprehensive filtering with performance optimization" conditions="Filtering files and directories during traversal" expected-result="Precise file selection with optimized filtering" correctness-criteria="Uses glob patterns, regex filters, custom functions, excludes irrelevant directories"><![CDATA[// TypeScript - Advanced filtering service
+import readdirp from 'readdirp';
+import { minimatch } from 'minimatch';
+import path from 'path';
+
+interface FilterConfig {
+  // File filters
+  includeFiles?: string | string[] | RegExp | RegExp[];
+  excludeFiles?: string | string[] | RegExp | RegExp[];
+  
+  // Directory filters  
+  includeDirectories?: string | string[] | RegExp | RegExp[];
+  excludeDirectories?: string | string[] | RegExp | RegExp[];
+  
+  // Size filters
+  minFileSize?: number;
+  maxFileSize?: number;
+  
+  // Date filters
+  modifiedAfter?: Date;
+  modifiedBefore?: Date;
+  
+  // Custom filters
+  customFileFilter?: (entry: readdirp.EntryInfo) => boolean;
+  customDirectoryFilter?: (entry: readdirp.EntryInfo) => boolean;
+  
+  // Performance options
+  maxDepth?: number;
+  caseSensitive?: boolean;
+}
+
+class AdvancedFilterService {
+  private static readonly DEFAULT_EXCLUDE_DIRS = [
+    'node_modules',
+    '.git',
+    '.svn',
+    '.hg',
+    'dist',
+    'build',
+    'coverage',
+    '.nyc_output',
+    'tmp',
+    'temp',
+    '.cache',
+    '.next',
+    '.nuxt'
+  ];
+
+  private static readonly DEFAULT_EXCLUDE_FILES = [
+    '.DS_Store',
+    'Thumbs.db',
+    '*.log',
+    '*.tmp',
+    '*.swp',
+    '*.bak'
+  ];
+
+  static createFileFilter(config: FilterConfig): (entry: readdirp.EntryInfo) => boolean {
+    return (entry: readdirp.EntryInfo) => {
+      try {
+        // Apply size filters
+        if (!this.checkSizeFilters(entry, config)) {
+          return false;
+        }
+
+        // Apply date filters
+        if (!this.checkDateFilters(entry, config)) {
+          return false;
+        }
+
+        // Apply include patterns
+        if (config.includeFiles && !this.matchesPatterns(entry.name, config.includeFiles, config.caseSensitive)) {
+          return false;
+        }
+
+        // Apply exclude patterns
+        if (config.excludeFiles && this.matchesPatterns(entry.name, config.excludeFiles, config.caseSensitive)) {
+          return false;
+        }
+
+        // Apply default excludes
+        if (this.matchesPatterns(entry.name, this.DEFAULT_EXCLUDE_FILES, config.caseSensitive)) {
+          return false;
+        }
+
+        // Apply custom filter
+        if (config.customFileFilter && !config.customFileFilter(entry)) {
+          return false;
+        }
+
+        return true;
+      } catch (error) {
+        console.warn(`Filter error for file ${entry.fullPath}:`, error);
+        return false;
+      }
+    };
+  }
+
+  static createDirectoryFilter(config: FilterConfig): (entry: readdirp.EntryInfo) => boolean {
+    return (entry: readdirp.EntryInfo) => {
+      try {
+        // Apply include patterns
+        if (config.includeDirectories && !this.matchesPatterns(entry.name, config.includeDirectories, config.caseSensitive)) {
+          return false;
+        }
+
+        // Apply exclude patterns
+        if (config.excludeDirectories && this.matchesPatterns(entry.name, config.excludeDirectories, config.caseSensitive)) {
+          return false;
+        }
+
+        // Apply default excludes
+        if (this.matchesPatterns(entry.name, this.DEFAULT_EXCLUDE_DIRS, config.caseSensitive)) {
+          return false;
+        }
+
+        // Apply custom filter
+        if (config.customDirectoryFilter && !config.customDirectoryFilter(entry)) {
+          return false;
+        }
+
+        return true;
+      } catch (error) {
+        console.warn(`Filter error for directory ${entry.fullPath}:`, error);
+        return false;
+      }
+    };
+  }
+
+  private static checkSizeFilters(entry: readdirp.EntryInfo, config: FilterConfig): boolean {
+    if (!entry.stats) return true;
+
+    if (config.minFileSize !== undefined && entry.stats.size < config.minFileSize) {
+      return false;
+    }
+
+    if (config.maxFileSize !== undefined && entry.stats.size > config.maxFileSize) {
+      return false;
+    }
+
+    return true;
+  }
+
+  private static checkDateFilters(entry: readdirp.EntryInfo, config: FilterConfig): boolean {
+    if (!entry.stats) return true;
+
+    if (config.modifiedAfter && entry.stats.mtime < config.modifiedAfter) {
+      return false;
+    }
+
+    if (config.modifiedBefore && entry.stats.mtime > config.modifiedBefore) {
+      return false;
+    }
+
+    return true;
+  }
+
+  private static matchesPatterns(
+    filename: string,
+    patterns: string | string[] | RegExp | RegExp[],
+    caseSensitive = true
+  ): boolean {
+    const patternsArray = Array.isArray(patterns) ? patterns : [patterns];
+
+    return patternsArray.some(pattern => {
+      if (pattern instanceof RegExp) {
+        return pattern.test(filename);
+      }
+
+      // Handle glob patterns
+      return minimatch(filename, pattern, { 
+        nocase: !caseSensitive,
+        dot: true 
+      });
+    });
+  }
+
+  static async findWithAdvancedFilters(
+    rootPath: string,
+    config: FilterConfig
+  ): Promise<readdirp.EntryInfo[]> {
+    const readdirpOptions: readdirp.ReaddirpOptions = {
+      root: rootPath,
+      type: 'files',
+      depth: config.maxDepth,
+      fileFilter: this.createFileFilter(config),
+      directoryFilter: this.createDirectoryFilter(config)
+    };
+
+    return readdirp.promise(rootPath, readdirpOptions);
+  }
+}
+
+// Specialized filter presets
+export class FilterPresets {
+  static sourceCode(languages: string[] = ['javascript', 'typescript']): FilterConfig {
+    const extensionMap: Record<string, string[]> = {
+      javascript: ['*.js', '*.jsx', '*.mjs', '*.cjs'],
+      typescript: ['*.ts', '*.tsx', '*.d.ts'],
+      python: ['*.py', '*.pyw'],
+      java: ['*.java'],
+      csharp: ['*.cs'],
+      php: ['*.php'],
+      ruby: ['*.rb'],
+      go: ['*.go'],
+      rust: ['*.rs'],
+      swift: ['*.swift'],
+      kotlin: ['*.kt', '*.kts']
+    };
+
+    const includeFiles = languages.flatMap(lang => extensionMap[lang] || []);
+
+    return {
+      includeFiles,
+      excludeDirectories: [
+        'node_modules',
+        '.git',
+        'dist',
+        'build',
+        'coverage',
+        '__pycache__',
+        'target',
+        'bin',
+        'obj'
+      ],
+      maxDepth: 10
+    };
+  }
+
+  static documentationFiles(): FilterConfig {
+    return {
+      includeFiles: [
+        '*.md',
+        '*.rst',
+        '*.txt',
+        '*.adoc',
+        'README*',
+        'CHANGELOG*',
+        'LICENSE*',
+        'CONTRIBUTING*'
+      ],
+      maxDepth: 5
+    };
+  }
+
+  static configurationFiles(): FilterConfig {
+    return {
+      includeFiles: [
+        '*.json',
+        '*.yaml',
+        '*.yml',
+        '*.toml',
+        '*.ini',
+        '*.config.*',
+        '.*rc',
+        '.*rc.*',
+        'Dockerfile*',
+        'docker-compose*',
+        'package.json',
+        'tsconfig.json',
+        'babel.config.*',
+        'webpack.config.*',
+        'rollup.config.*',
+        'vite.config.*'
+      ],
+      maxDepth: 3
+    };
+  }
+
+  static testFiles(): FilterConfig {
+    return {
+      includeFiles: [
+        '*.test.*',
+        '*.spec.*',
+        '*Test.*',
+        '*Spec.*'
+      ],
+      includeDirectories: [
+        '__tests__',
+        'test',
+        'tests',
+        'spec',
+        'specs'
+      ],
+      maxDepth: 8
+    };
+  }
+
+  static largeFiles(minSizeMB = 10): FilterConfig {
+    return {
+      minFileSize: minSizeMB * 1024 * 1024,
+      excludeDirectories: ['node_modules', '.git']
+    };
+  }
+
+  static recentFiles(daysSince = 7): FilterConfig {
+    const modifiedAfter = new Date();
+    modifiedAfter.setDate(modifiedAfter.getDate() - daysSince);
+
+    return {
+      modifiedAfter,
+      excludeDirectories: ['node_modules', '.git', 'dist', 'build']
+    };
+  }
+
+  static mediaFiles(): FilterConfig {
+    return {
+      includeFiles: [
+        '*.jpg',
+        '*.jpeg',
+        '*.png',
+        '*.gif',
+        '*.bmp',
+        '*.svg',
+        '*.webp',
+        '*.mp4',
+        '*.avi',
+        '*.mov',
+        '*.mp3',
+        '*.wav',
+        '*.flac'
+      ]
+    };
+  }
+
+  static duplicateNameFinder(): FilterConfig {
+    const nameMap = new Map<string, string[]>();
+
+    return {
+      customFileFilter: (entry) => {
+        const basename = path.parse(entry.name).name;
+        if (!nameMap.has(basename)) {
+          nameMap.set(basename, []);
+        }
+        nameMap.get(basename)!.push(entry.fullPath);
+        
+        // Return true for now, we'll filter duplicates after collection
+        return true;
+      }
+    };
+  }
+}
+
+// JavaScript - Simple filtering examples
+const readdirp = require('readdirp');
+
+// Find JavaScript files excluding node_modules
+async function findJavaScriptFiles(directory) {
+  return readdirp.promise(directory, {
+    fileFilter: ['*.js', '*.jsx', '*.ts', '*.tsx'],
+    directoryFilter: '!node_modules'
+  });
+}
+
+// Find large files over 1MB
+async function findLargeFiles(directory) {
+  const results = [];
+  
+  for await (const entry of readdirp(directory, { type: 'files' })) {
+    if (entry.stats && entry.stats.size > 1024 * 1024) {
+      results.push({
+        name: entry.name,
+        path: entry.fullPath,
+        size: entry.stats.size
+      });
+    }
+  }
+  
+  return results.sort((a, b) => b.size - a.size);
+}
+
+// Find files modified in last week
+async function findRecentFiles(directory) {
+  const oneWeekAgo = new Date();
+  oneWeekAgo.setDate(oneWeekAgo.getDate() - 7);
+  
+  const results = [];
+  
+  for await (const entry of readdirp(directory, { type: 'files' })) {
+    if (entry.stats && entry.stats.mtime > oneWeekAgo) {
+      results.push(entry);
+    }
+  }
+  
+  return results;
+}
+
+// Complex filtering with custom logic
+async function findProjectFiles(directory) {
+  const projectFiles = {
+    source: [],
+    tests: [],
+    configs: [],
+    docs: []
+  };
+  
+  const stream = readdirp(directory, {
+    directoryFilter: ['!node_modules', '!.git', '!dist'],
+    fileFilter: (entry) => {
+      // Skip hidden files except specific ones
+      if (entry.name.startsWith('.') && 
+          !['gitignore', 'env', 'eslintrc'].some(name => entry.name.includes(name))) {
+        return false;
+      }
+      return true;
+    }
+  });
+  
+  for await (const entry of stream) {
+    const ext = path.extname(entry.name);
+    const basename = path.basename(entry.name, ext);
+    
+    if (['.js', '.ts', '.jsx', '.tsx'].includes(ext)) {
+      if (basename.includes('test') || basename.includes('spec')) {
+        projectFiles.tests.push(entry);
+      } else {
+        projectFiles.source.push(entry);
+      }
+    } else if (['.json', '.yaml', '.yml'].includes(ext) || entry.name.startsWith('.')) {
+      projectFiles.configs.push(entry);
+    } else if (['.md', '.txt'].includes(ext)) {
+      projectFiles.docs.push(entry);
+    }
+  }
+  
+  return projectFiles;
+}
+
+module.exports = {
+  findJavaScriptFiles,
+  findLargeFiles,
+  findRecentFiles,
+  findProjectFiles
+};]]></correct-example>
+          <incorrect-example title="Poor filtering with performance issues" conditions="Filtering files and directories during traversal" expected-result="Precise file selection with optimized filtering" incorrectness-criteria="No glob support, inefficient filtering, poor pattern matching, includes unnecessary files"><![CDATA[// Bad - Inefficient filtering
+const readdirp = require('readdirp');
+
+// Bad: No exclusion of irrelevant directories
+async function badFiltering(directory) {
+  const results = [];
+  
+  // Bad: Includes node_modules and other large directories
+  for await (const entry of readdirp(directory)) {
+    // Bad: String matching instead of glob patterns
+    if (entry.name.endsWith('.js')) {
+      results.push(entry);
+    }
+  }
+  
+  return results;
+}
+
+// Bad: Post-processing instead of efficient filtering
+async function veryBadFiltering(directory) {
+  // Bad: Get ALL files first
+  const allFiles = await readdirp.promise(directory);
+  
+  // Bad: Filter after reading everything
+  return allFiles.filter(file => {
+    // Bad: Inefficient string operations
+    if (file.path.includes('node_modules')) return false;
+    if (file.path.includes('.git')) return false;
+    if (file.name.startsWith('.')) return false;
+    
+    // Bad: No proper extension handling
+    return file.name.includes('.js') || file.name.includes('.ts');
+  });
+}
+
+// Bad: No error handling in filters
+function badCustomFilter() {
+  return readdirp(directory, {
+    fileFilter: (entry) => {
+      // Bad: Can throw errors
+      return entry.stats.size > 1000; // stats might be undefined
+    },
+    directoryFilter: (entry) => {
+      // Bad: No error handling
+      return !entry.name.match(/node_modules/); // match can throw
+    }
+  });
+}]]></incorrect-example>
+        </example>
+      </examples>
+    </non-negotiable>
+
+    <non-negotiable priority="critical">
+      <description>Implement performance optimization strategies including stream processing, memory management, progress tracking, and cancellation support for large directory structures.</description>
+      <examples>
+        <example title="Performance Optimization and Resource Management">
+          <correct-example title="Optimized directory traversal with resource management" conditions="Processing large directory structures efficiently" expected-result="High-performance traversal with controlled resource usage" correctness-criteria="Uses streaming, manages memory, provides progress tracking, supports cancellation"><![CDATA[// TypeScript - High-performance directory traversal
+import readdirp from 'readdirp';
+import { Transform, pipeline } from 'stream';
+import { promisify } from 'util';
+import { EventEmitter } from 'events';
+
+const pipelineAsync = promisify(pipeline);
+
+interface PerformanceConfig {
+  batchSize?: number;
+  maxConcurrency?: number;
+  progressInterval?: number;
+  memoryThreshold?: number;
+  timeoutMs?: number;
+}
+
+interface PerformanceMetrics {
+  filesProcessed: number;
+  bytesProcessed: number;
+  processingRate: number; // files per second
+  memoryUsage: NodeJS.MemoryUsage;
+  elapsedTime: number;
+  estimatedTimeRemaining?: number;
+}
+
+class HighPerformanceTraversal extends EventEmitter {
+  private abortController = new AbortController();
+  private metrics: PerformanceMetrics;
+  private startTime: number;
+  private config: Required<PerformanceConfig>;
+
+  constructor(config: PerformanceConfig = {}) {
+    super();
+    this.config = {
+      batchSize: config.batchSize || 100,
+      maxConcurrency: config.maxConcurrency || 10,
+      progressInterval: config.progressInterval || 1000, // ms
+      memoryThreshold: config.memoryThreshold || 500 * 1024 * 1024, // 500MB
+      timeoutMs: config.timeoutMs || 30000 // 30 seconds
+    };
+    
+    this.resetMetrics();
+  }
+
+  async processDirectoryStream<T>(
+    rootPath: string,
+    processor: (entry: readdirp.EntryInfo) => Promise<T>,
+    options: readdirp.ReaddirpOptions = {}
+  ): Promise<T[]> {
+    this.resetMetrics();
+    this.startTime = Date.now();
+
+    const results: T[] = [];
+    const batch: readdirp.EntryInfo[] = [];
+    let activePromises = 0;
+
+    // Setup timeout
+    const timeout = setTimeout(() => {
+      this.abortController.abort();
+    }, this.config.timeoutMs);
+
+    try {
+      // Create readable stream
+      const stream = readdirp(rootPath, {
+        ...options,
+        root: rootPath
+      });
+
+      // Setup progress reporting
+      const progressTimer = setInterval(() => {
+        this.updateMetrics();
+        this.emit('progress', this.metrics);
+        this.checkMemoryUsage();
+      }, this.config.progressInterval);
+
+      // Process entries in batches
+      const batchProcessor = new Transform({
+        objectMode: true,
+        transform: async (entry: readdirp.EntryInfo, encoding, callback) => {
+          if (this.abortController.signal.aborted) {
+            callback(new Error('Processing aborted'));
+            return;
+          }
+
+          batch.push(entry);
+
+          if (batch.length >= this.config.batchSize || activePromises >= this.config.maxConcurrency) {
+            await this.processBatch(batch, processor, results);
+            batch.length = 0;
+          }
+
+          callback();
+        },
+        flush: async (callback) => {
+          if (batch.length > 0) {
+            await this.processBatch(batch, processor, results);
+          }
+          callback();
+        }
+      });
+
+      // Handle abort signal
+      this.abortController.signal.addEventListener('abort', () => {
+        stream.destroy();
+        clearInterval(progressTimer);
+        clearTimeout(timeout);
+      });
+
+      // Pipeline the streams
+      await pipelineAsync(stream, batchProcessor);
+
+      clearInterval(progressTimer);
+      clearTimeout(timeout);
+
+      this.updateMetrics();
+      this.emit('complete', this.metrics);
+
+      return results;
+
+    } catch (error) {
+      clearTimeout(timeout);
+      this.emit('error', error);
+      throw error;
+    }
+  }
+
+  private async processBatch<T>(
+    batch: readdirp.EntryInfo[],
+    processor: (entry: readdirp.EntryInfo) => Promise<T>,
+    results: T[]
+  ): Promise<void> {
+    const promises = batch.map(async (entry) => {
+      if (this.abortController.signal.aborted) {
+        throw new Error('Processing aborted');
+      }
+
+      try {
+        const result = await processor(entry);
+        this.metrics.filesProcessed++;
+        this.metrics.bytesProcessed += entry.stats?.size || 0;
+        return result;
+      } catch (error) {
+        this.emit('processingError', { entry, error });
+        return null;
+      }
+    });
+
+    const batchResults = await Promise.allSettled(promises);
+    
+    batchResults.forEach((result) => {
+      if (result.status === 'fulfilled' && result.value !== null) {
+        results.push(result.value);
+      }
+    });
+  }
+
+  private resetMetrics(): void {
+    this.metrics = {
+      filesProcessed: 0,
+      bytesProcessed: 0,
+      processingRate: 0,
+      memoryUsage: process.memoryUsage(),
+      elapsedTime: 0
+    };
+  }
+
+  private updateMetrics(): void {
+    const now = Date.now();
+    this.metrics.elapsedTime = now - this.startTime;
+    
+    if (this.metrics.elapsedTime > 0) {
+      this.metrics.processingRate = this.metrics.filesProcessed / (this.metrics.elapsedTime / 1000);
+    }
+
+    this.metrics.memoryUsage = process.memoryUsage();
+
+    // Estimate time remaining if we have processing rate
+    if (this.metrics.processingRate > 0) {
+      // This is a rough estimate - in real usage you'd want total file count
+      this.metrics.estimatedTimeRemaining = undefined; // Would need total count
+    }
+  }
+
+  private checkMemoryUsage(): void {
+    const { heapUsed } = this.metrics.memoryUsage;
+    
+    if (heapUsed > this.config.memoryThreshold) {
+      this.emit('memoryWarning', {
+        current: heapUsed,
+        threshold: this.config.memoryThreshold
+      });
+
+      // Force garbage collection if available
+      if (global.gc) {
+        global.gc();
+      }
+    }
+  }
+
+  abort(): void {
+    this.abortController.abort();
+  }
+}
+
+// Optimized file processing utilities
+export class OptimizedProcessors {
+  static async fileHashProcessor(entry: readdirp.EntryInfo): Promise<{
+    path: string;
+    hash: string;
+    size: number;
+  }> {
+    const crypto = await import('crypto');
+    const fs = await import('fs');
+    
+    return new Promise((resolve, reject) => {
+      const hash = crypto.createHash('sha256');
+      const stream = fs.createReadStream(entry.fullPath);
+      
+      stream.on('data', (data) => hash.update(data));
+      stream.on('end', () => {
+        resolve({
+          path: entry.fullPath,
+          hash: hash.digest('hex'),
+          size: entry.stats?.size || 0
+        });
+      });
+      stream.on('error', reject);
+    });
+  }
+
+  static async metadataProcessor(entry: readdirp.EntryInfo): Promise<{
+    path: string;
+    size: number;
+    modified: Date;
+    extension: string;
+  }> {
+    const path = await import('path');
+    
+    return {
+      path: entry.fullPath,
+      size: entry.stats?.size || 0,
+      modified: entry.stats?.mtime || new Date(),
+      extension: path.extname(entry.name)
+    };
+  }
+
+  static async contentAnalysisProcessor(entry: readdirp.EntryInfo): Promise<{
+    path: string;
+    lineCount: number;
+    wordCount: number;
+    characterCount: number;
+  }> {
+    const fs = await import('fs');
+    
+    try {
+      const content = await fs.promises.readFile(entry.fullPath, 'utf-8');
+      const lines = content.split('\n').length;
+      const words = content.split(/\s+/).filter(word => word.length > 0).length;
+      const characters = content.length;
+
+      return {
+        path: entry.fullPath,
+        lineCount: lines,
+        wordCount: words,
+        characterCount: characters
+      };
+    } catch {
+      return {
+        path: entry.fullPath,
+        lineCount: 0,
+        wordCount: 0,
+        characterCount: 0
+      };
+    }
+  }
+}
+
+// Memory-efficient directory analysis
+export class MemoryEfficientAnalyzer {
+  private traversal = new HighPerformanceTraversal({
+    batchSize: 50,
+    maxConcurrency: 5,
+    memoryThreshold: 200 * 1024 * 1024 // 200MB
+  });
+
+  async analyzeDirectory(rootPath: string): Promise<{
+    totalFiles: number;
+    totalSize: number;
+    averageFileSize: number;
+    extensionCounts: Record<string, number>;
+    largestFiles: Array<{ path: string; size: number }>;
+  }> {
+    let totalFiles = 0;
+    let totalSize = 0;
+    const extensionCounts: Record<string, number> = {};
+    const largestFiles: Array<{ path: string; size: number }> = [];
+
+    // Setup progress tracking
+    this.traversal.on('progress', (metrics) => {
+      console.log(`Processed: ${metrics.filesProcessed} files (${metrics.processingRate.toFixed(1)} files/sec)`);
+    });
+
+    this.traversal.on('memoryWarning', (warning) => {
+      console.warn(`Memory usage high: ${Math.round(warning.current / 1024 / 1024)}MB`);
+    });
+
+    await this.traversal.processDirectoryStream(
+      rootPath,
+      async (entry) => {
+        if (!entry.dirent.isFile()) return null;
+
+        const path = await import('path');
+        const ext = path.extname(entry.name) || 'no-extension';
+        const size = entry.stats?.size || 0;
+
+        totalFiles++;
+        totalSize += size;
+        extensionCounts[ext] = (extensionCounts[ext] || 0) + 1;
+
+        // Track largest files (keep only top 10)
+        largestFiles.push({ path: entry.fullPath, size });
+        largestFiles.sort((a, b) => b.size - a.size);
+        if (largestFiles.length > 10) {
+          largestFiles.pop();
+        }
+
+        return { processed: true };
+      },
+      {
+        type: 'files',
+        directoryFilter: ['!node_modules', '!.git']
+      }
+    );
+
+    return {
+      totalFiles,
+      totalSize,
+      averageFileSize: totalFiles > 0 ? totalSize / totalFiles : 0,
+      extensionCounts,
+      largestFiles
+    };
+  }
+}
+
+// JavaScript - Performance-focused implementations
+const readdirp = require('readdirp');
+const { EventEmitter } = require('events');
+
+class PerformantDirectoryScanner extends EventEmitter {
+  constructor(options = {}) {
+    super();
+    this.batchSize = options.batchSize || 100;
+    this.concurrency = options.concurrency || 10;
+    this.cancelled = false;
+  }
+
+  async scanWithBatching(directory, processor) {
+    const results = [];
+    const batch = [];
+    let processed = 0;
+
+    const stream = readdirp(directory, {
+      directoryFilter: ['!node_modules', '!.git']
+    });
+
+    for await (const entry of stream) {
+      if (this.cancelled) break;
+
+      batch.push(entry);
+
+      if (batch.length >= this.batchSize) {
+        await this.processBatch(batch, processor, results);
+        processed += batch.length;
+        this.emit('progress', { processed, current: entry.path });
+        batch.length = 0;
+      }
+    }
+
+    // Process remaining items
+    if (batch.length > 0 && !this.cancelled) {
+      await this.processBatch(batch, processor, results);
+    }
+
+    return results;
+  }
+
+  async processBatch(batch, processor, results) {
+    const promises = batch.map(async (entry) => {
+      try {
+        return await processor(entry);
+      } catch (error) {
+        this.emit('error', { entry, error });
+        return null;
+      }
+    });
+
+    const batchResults = await Promise.allSettled(promises);
+    batchResults.forEach(result => {
+      if (result.status === 'fulfilled' && result.value !== null) {
+        results.push(result.value);
+      }
+    });
+  }
+
+  cancel() {
+    this.cancelled = true;
+  }
+}
+
+// Memory monitoring utilities
+function monitorMemoryUsage(interval = 5000) {
+  const logMemory = () => {
+    const usage = process.memoryUsage();
+    console.log('Memory Usage:', {
+      rss: `${Math.round(usage.rss / 1024 / 1024)}MB`,
+      heapUsed: `${Math.round(usage.heapUsed / 1024 / 1024)}MB`,
+      heapTotal: `${Math.round(usage.heapTotal / 1024 / 1024)}MB`
+    });
+  };
+
+  const timer = setInterval(logMemory, interval);
+  return () => clearInterval(timer);
+}
+
+module.exports = {
+  PerformantDirectoryScanner,
+  monitorMemoryUsage
+};]]></correct-example>
+          <incorrect-example title="Poor performance with memory leaks" conditions="Processing large directory structures efficiently" expected-result="High-performance traversal with controlled resource usage" incorrectness-criteria="No streaming, memory leaks, no progress tracking, no cancellation support"><![CDATA[// Bad - Inefficient processing with memory issues
+const readdirp = require('readdirp');
+
+// Bad: Load everything into memory
+async function badLargeDirectoryProcessing(directory) {
+  // Bad: Get all entries at once - memory intensive
+  const allEntries = await readdirp.promise(directory);
+  
+  const results = [];
+  
+  // Bad: Process everything synchronously
+  for (const entry of allEntries) {
+    // Bad: Synchronous file operations
+    const fs = require('fs');
+    const content = fs.readFileSync(entry.fullPath);
+    
+    // Bad: Keep large content in memory
+    results.push({
+      ...entry,
+      content: content,
+      processed: new Date()
+    });
+  }
+  
+  return results; // Huge memory usage
+}
+
+// Bad: No cancellation support
+class BadTraversal {
+  async process(directory) {
+    const results = [];
+    
+    // Bad: No abort mechanism
+    const stream = readdirp(directory);
+    
+    // Bad: No progress tracking
+    // Bad: No error handling
+    // Bad: No memory management
+    for await (const entry of stream) {
+      // Bad: Await in loop - no concurrency
+      const result = await this.expensiveOperation(entry);
+      results.push(result);
+    }
+    
+    return results;
+  }
+  
+  async expensiveOperation(entry) {
+    // Bad: No timeout
+    // Bad: No error boundaries
+    const fs = require('fs');
+    return fs.readFileSync(entry.fullPath);
+  }
+}
+
+// Bad: No resource cleanup
+function badStreamHandling(directory) {
+  const stream = readdirp(directory);
+  const results = [];
+  
+  stream.on('data', (entry) => {
+    results.push(entry);
+  });
+  
+  // Bad: No cleanup
+  // Bad: No error handling
+  // Bad: Memory keeps growing
+  return results;
+}]]></incorrect-example>
+        </example>
+      </examples>
+    </non-negotiable>
+
+    <requirement priority="high">
+      <description>Implement comprehensive error handling with graceful degradation, detailed error reporting, and recovery strategies for common file system issues.</description>
+      <examples>
+        <example title="Robust Error Handling and Recovery">
+          <correct-example title="Comprehensive error handling with recovery strategies" conditions="Handling file system errors during directory traversal" expected-result="Resilient traversal with detailed error reporting" correctness-criteria="Handles permission errors, provides recovery options, logs detailed error information"><![CDATA[// TypeScript - Robust error handling system
+import readdirp from 'readdirp';
+import { promises as fs } from 'fs';
+import path from 'path';
+
+enum ErrorType {
+  PERMISSION_DENIED = 'PERMISSION_DENIED',
+  FILE_NOT_FOUND = 'FILE_NOT_FOUND',
+  DIRECTORY_NOT_FOUND = 'DIRECTORY_NOT_FOUND',
+  INVALID_PATH = 'INVALID_PATH',
+  SYMLINK_ERROR = 'SYMLINK_ERROR',
+  DISK_FULL = 'DISK_FULL',
+  NETWORK_ERROR = 'NETWORK_ERROR',
+  TIMEOUT = 'TIMEOUT',
+  UNKNOWN = 'UNKNOWN'
+}
+
+interface TraversalError {
+  type: ErrorType;
+  code: string;
+  message: string;
+  path: string;
+  timestamp: Date;
+  originalError: Error;
+  recoveryAttempted: boolean;
+  recoverySuccessful?: boolean;
+}
+
+interface ErrorRecoveryStrategy {
+  maxRetries: number;
+  retryDelay: number;
+  skipOnError: boolean;
+  logErrors: boolean;
+  continueOnPermissionDenied: boolean;
+}
+
+class RobustDirectoryTraversal {
+  private errors: TraversalError[] = [];
+  private recoveryStrategy: ErrorRecoveryStrategy;
+
+  constructor(recoveryStrategy: Partial<ErrorRecoveryStrategy> = {}) {
+    this.recoveryStrategy = {
+      maxRetries: 3,
+      retryDelay: 1000,
+      skipOnError: true,
+      logErrors: true,
+      continueOnPermissionDenied: true,
+      ...recoveryStrategy
+    };
+  }
+
+  async traverseWithErrorHandling(
+    rootPath: string,
+    options: readdirp.ReaddirpOptions = {}
+  ): Promise<{
+    entries: readdirp.EntryInfo[];
+    errors: TraversalError[];
+    summary: {
+      totalProcessed: number;
+      totalErrors: number;
+      errorsByType: Record<ErrorType, number>;
+    };
+  }> {
+    const entries: readdirp.EntryInfo[] = [];
+    this.errors = [];
+
+    try {
+      // Validate root path first
+      await this.validateRootPath(rootPath);
+
+      const stream = readdirp(rootPath, {
+        ...options,
+        root: rootPath
+      });
+
+      // Handle stream events with error recovery
+      stream.on('data', (entry) => {
+        try {
+          entries.push(entry);
+        } catch (error) {
+          this.handleError(error as Error, entry.fullPath, 'PROCESSING_ENTRY');
+        }
+      });
+
+      stream.on('warn', (error) => {
+        this.handleWarning(error, rootPath);
+      });
+
+      stream.on('error', (error) => {
+        this.handleStreamError(error, rootPath);
+      });
+
+      // Wait for completion
+      await new Promise<void>((resolve, reject) => {
+        stream.on('end', resolve);
+        stream.on('error', (error) => {
+          if (this.recoveryStrategy.skipOnError) {
+            this.handleError(error, rootPath, 'STREAM_ERROR');
+            resolve();
+          } else {
+            reject(error);
+          }
+        });
+      });
+
+    } catch (error) {
+      await this.handleRootError(error as Error, rootPath);
+    }
+
+    return {
+      entries,
+      errors: this.errors,
+      summary: this.generateErrorSummary()
+    };
+  }
+
+  private async validateRootPath(rootPath: string): Promise<void> {
+    try {
+      const stats = await fs.stat(rootPath);
+      if (!stats.isDirectory()) {
+        throw new Error(`Path is not a directory: ${rootPath}`);
+      }
+    } catch (error) {
+      const nodeError = error as NodeJS.ErrnoException;
+      
+      switch (nodeError.code) {
+        case 'ENOENT':
+          throw this.createTraversalError(
+            ErrorType.DIRECTORY_NOT_FOUND,
+            nodeError,
+            rootPath,
+            `Directory not found: ${rootPath}`
+          );
+        case 'EACCES':
+          throw this.createTraversalError(
+            ErrorType.PERMISSION_DENIED,
+            nodeError,
+            rootPath,
+            `Permission denied accessing: ${rootPath}`
+          );
+        default:
+          throw this.createTraversalError(
+            ErrorType.UNKNOWN,
+            nodeError,
+            rootPath,
+            `Error accessing directory: ${nodeError.message}`
+          );
+      }
+    }
+  }
+
+  private handleError(error: Error, filePath: string, context: string): void {
+    const nodeError = error as NodeJS.ErrnoException;
+    let errorType: ErrorType;
+    let shouldRetry = false;
+
+    switch (nodeError.code) {
+      case 'ENOENT':
+        errorType = ErrorType.FILE_NOT_FOUND;
+        break;
+      case 'EACCES':
+      case 'EPERM':
+        errorType = ErrorType.PERMISSION_DENIED;
+        shouldRetry = !this.recoveryStrategy.continueOnPermissionDenied;
+        break;
+      case 'ELOOP':
+        errorType = ErrorType.SYMLINK_ERROR;
+        break;
+      case 'ENOSPC':
+        errorType = ErrorType.DISK_FULL;
+        break;
+      case 'ENETUNREACH':
+      case 'EHOSTUNREACH':
+        errorType = ErrorType.NETWORK_ERROR;
+        shouldRetry = true;
+        break;
+      case 'ETIMEDOUT':
+        errorType = ErrorType.TIMEOUT;
+        shouldRetry = true;
+        break;
+      default:
+        errorType = ErrorType.UNKNOWN;
+        shouldRetry = true;
+    }
+
+    const traversalError = this.createTraversalError(
+      errorType,
+      error,
+      filePath,
+      `${context}: ${error.message}`
+    );
+
+    if (shouldRetry && this.recoveryStrategy.maxRetries > 0) {
+      this.attemptRecovery(traversalError, filePath);
+    } else {
+      this.errors.push(traversalError);
+      if (this.recoveryStrategy.logErrors) {
+        console.error(`Traversal error: ${traversalError.message}`, traversalError);
+      }
+    }
+  }
+
+  private handleWarning(error: Error, path: string): void {
+    const warning = this.createTraversalError(
+      ErrorType.UNKNOWN,
+      error,
+      path,
+      `Warning: ${error.message}`
+    );
+    
+    this.errors.push(warning);
+    
+    if (this.recoveryStrategy.logErrors) {
+      console.warn(`Traversal warning: ${warning.message}`);
+    }
+  }
+
+  private handleStreamError(error: Error, path: string): void {
+    const streamError = this.createTraversalError(
+      ErrorType.UNKNOWN,
+      error,
+      path,
+      `Stream error: ${error.message}`
+    );
+    
+    this.errors.push(streamError);
+    
+    if (this.recoveryStrategy.logErrors) {
+      console.error(`Stream error: ${streamError.message}`, streamError);
+    }
+  }
+
+  private async handleRootError(error: Error, rootPath: string): Promise<void> {
+    const rootError = this.createTraversalError(
+      ErrorType.INVALID_PATH,
+      error,
+      rootPath,
+      `Root path error: ${error.message}`
+    );
+    
+    this.errors.push(rootError);
+    
+    if (this.recoveryStrategy.logErrors) {
+      console.error(`Root path error: ${rootError.message}`, rootError);
+    }
+  }
+
+  private async attemptRecovery(
+    error: TraversalError,
+    filePath: string
+  ): Promise<void> {
+    error.recoveryAttempted = true;
+    
+    for (let attempt = 1; attempt <= this.recoveryStrategy.maxRetries; attempt++) {
+      try {
+        await this.delay(this.recoveryStrategy.retryDelay * attempt);
+        
+        // Attempt to access the path again
+        await fs.access(filePath);
+        
+        error.recoverySuccessful = true;
+        if (this.recoveryStrategy.logErrors) {
+          console.info(`Recovery successful for: ${filePath} (attempt ${attempt})`);
+        }
+        return;
+        
+      } catch (retryError) {
+        if (this.recoveryStrategy.logErrors) {
+          console.warn(`Recovery attempt ${attempt} failed for: ${filePath}`);
+        }
+      }
+    }
+    
+    error.recoverySuccessful = false;
+    this.errors.push(error);
+    
+    if (this.recoveryStrategy.logErrors) {
+      console.error(`All recovery attempts failed for: ${filePath}`);
+    }
+  }
+
+  private createTraversalError(
+    type: ErrorType,
+    originalError: Error,
+    path: string,
+    message: string
+  ): TraversalError {
+    return {
+      type,
+      code: (originalError as NodeJS.ErrnoException).code || 'UNKNOWN',
+      message,
+      path,
+      timestamp: new Date(),
+      originalError,
+      recoveryAttempted: false
+    };
+  }
+
+  private generateErrorSummary() {
+    const errorsByType: Record<ErrorType, number> = {} as Record<ErrorType, number>;
+    
+    Object.values(ErrorType).forEach(type => {
+      errorsByType[type] = 0;
+    });
+    
+    this.errors.forEach(error => {
+      errorsByType[error.type]++;
+    });
+    
+    return {
+      totalProcessed: 0, // Would be calculated in actual implementation
+      totalErrors: this.errors.length,
+      errorsByType
+    };
+  }
+
+  private delay(ms: number): Promise<void> {
+    return new Promise(resolve => setTimeout(resolve, ms));
+  }
+
+  // Error analysis and reporting
+  getDetailedErrorReport(): {
+    errorSummary: Record<ErrorType, TraversalError[]>;
+    recommendations: string[];
+    recoverableErrors: TraversalError[];
+    criticalErrors: TraversalError[];
+  } {
+    const errorSummary: Record<ErrorType, TraversalError[]> = {} as Record<ErrorType, TraversalError[]>;
+    const recommendations: string[] = [];
+    const recoverableErrors: TraversalError[] = [];
+    const criticalErrors: TraversalError[] = [];
+
+    // Group errors by type
+    Object.values(ErrorType).forEach(type => {
+      errorSummary[type] = this.errors.filter(error => error.type === type);
+    });
+
+    // Analyze errors and provide recommendations
+    if (errorSummary[ErrorType.PERMISSION_DENIED].length > 0) {
+      recommendations.push('Consider running with elevated permissions or adjusting file system permissions');
+      criticalErrors.push(...errorSummary[ErrorType.PERMISSION_DENIED]);
+    }
+
+    if (errorSummary[ErrorType.TIMEOUT].length > 0) {
+      recommendations.push('Network or disk I/O issues detected - consider increasing timeout values');
+      recoverableErrors.push(...errorSummary[ErrorType.TIMEOUT]);
+    }
+
+    if (errorSummary[ErrorType.DISK_FULL].length > 0) {
+      recommendations.push('Disk space is full - free up space before continuing');
+      criticalErrors.push(...errorSummary[ErrorType.DISK_FULL]);
+    }
+
+    if (errorSummary[ErrorType.SYMLINK_ERROR].length > 0) {
+      recommendations.push('Symbolic link issues detected - check link targets');
+      recoverableErrors.push(...errorSummary[ErrorType.SYMLINK_ERROR]);
+    }
+
+    return {
+      errorSummary,
+      recommendations,
+      recoverableErrors,
+      criticalErrors
+    };
+  }
+}
+
+// JavaScript - Simplified error handling
+const readdirp = require('readdirp');
+const fs = require('fs').promises;
+
+class SimpleErrorHandler {
+  constructor() {
+    this.errors = [];
+  }
+
+  async traverseWithRetry(directory, maxRetries = 3) {
+    const results = [];
+    
+    for (let attempt = 1; attempt <= maxRetries; attempt++) {
+      try {
+        const entries = await readdirp.promise(directory, {
+          directoryFilter: ['!node_modules']
+        });
+        
+        results.push(...entries);
+        break; // Success, exit retry loop
+        
+      } catch (error) {
+        console.warn(`Attempt ${attempt} failed:`, error.message);
+        
+        if (attempt === maxRetries) {
+          this.errors.push({
+            directory,
+            error: error.message,
+            attempts: maxRetries,
+            timestamp: new Date()
+          });
+          throw error;
+        }
+        
+        // Wait before retrying
+        await this.delay(1000 * attempt);
+      }
+    }
+    
+    return {
+      results,
+      errors: this.errors
+    };
+  }
+
+  async traverseWithErrorSkipping(directory) {
+    const results = [];
+    const errors = [];
+
+    const stream = readdirp(directory, {
+      directoryFilter: (entry) => {
+        try {
+          // Test if we can access the directory
+          require('fs').accessSync(entry.fullPath);
+          return true;
+        } catch (error) {
+          errors.push({
+            path: entry.fullPath,
+            error: error.message,
+            type: 'directory_access'
+          });
+          return false;
+        }
+      }
+    });
+
+    try {
+      for await (const entry of stream) {
+        try {
+          // Additional validation for each entry
+          await fs.access(entry.fullPath);
+          results.push(entry);
+        } catch (error) {
+          errors.push({
+            path: entry.fullPath,
+            error: error.message,
+            type: 'file_access'
+          });
+        }
+      }
+    } catch (streamError) {
+      errors.push({
+        path: directory,
+        error: streamError.message,
+        type: 'stream_error'
+      });
+    }
+
+    return { results, errors };
+  }
+
+  delay(ms) {
+    return new Promise(resolve => setTimeout(resolve, ms));
+  }
+}
+
+module.exports = { SimpleErrorHandler };]]></correct-example>
+          <incorrect-example title="Poor error handling with no recovery" conditions="Handling file system errors during directory traversal" expected-result="Resilient traversal with detailed error reporting" incorrectness-criteria="No error handling, crashes on errors, no recovery strategies, poor error reporting"><![CDATA[// Bad - No error handling
+const readdirp = require('readdirp');
+
+// Bad: No error handling at all
+async function badTraversal(directory) {
+  // Bad: Will crash on any error
+  const entries = await readdirp.promise(directory);
+  return entries;
+}
+
+// Bad: Poor error handling
+async function poorErrorHandling(directory) {
+  try {
+    const entries = await readdirp.promise(directory);
+    return entries;
+  } catch (error) {
+    // Bad: Just log and rethrow
+    console.log('Error:', error.message);
+    throw error;
+  }
+}
+
+// Bad: Ignore all errors
+function ignoreErrors(directory) {
+  const stream = readdirp(directory);
+  const results = [];
+  
+  stream.on('data', (entry) => {
+    results.push(entry);
+  });
+  
+  // Bad: Ignore all errors
+  stream.on('error', () => {
+    // Do nothing
+  });
+  
+  return results;
+}
+
+// Bad: No recovery strategies
+class BadErrorHandling {
+  async traverse(directory) {
+    // Bad: No validation
+    // Bad: No retry logic
+    // Bad: No graceful degradation
+    return readdirp.promise(directory);
+  }
+  
+  joinPaths(base, relative) {
+    // Bad: Manual path joining
+    return base + '/' + relative;
+  }
+}
+
+// Bad: Windows-only code
+function windowsOnlyTraversal(directory) {
+  // Bad: Assumes Windows path format
+  if (!directory.match(/^[A-Z]:\\/)) {
+    throw new Error('Invalid Windows path');
+  }
+  
+  return readdirp.promise(directory);
+}]]></incorrect-example>
+        </example>
+      </examples>
+    </requirement>
+
+    <requirement priority="high">
+      <description>Implement cross-platform compatibility with proper path handling, file system differences awareness, and platform-specific optimizations.</description>
+      <examples>
+        <example title="Cross-Platform Compatibility">
+          <correct-example title="Platform-aware directory traversal" conditions="Ensuring cross-platform compatibility" expected-result="Consistent behavior across Windows, macOS, and Linux" correctness-criteria="Handles path separators, file system differences, platform-specific features"><![CDATA[// TypeScript - Cross-platform directory traversal
+import readdirp from 'readdirp';
+import path from 'path';
+import { promises as fs } from 'fs';
+import os from 'os';
+
+interface PlatformConfig {
+  platform: NodeJS.Platform;
+  caseSensitive: boolean;
+  maxPathLength: number;
+  pathSeparator: string;
+  invalidCharacters: string[];
+  reservedNames: string[];
+  supportsSymlinks: boolean;
+  supportsHardLinks: boolean;
+}
+
+class CrossPlatformTraversal {
+  private platformConfig: PlatformConfig;
+
+  constructor() {
+    this.platformConfig = this.detectPlatformConfig();
+  }
+
+  private detectPlatformConfig(): PlatformConfig {
+    const platform = os.platform();
+    
+    switch (platform) {
+      case 'win32':
+        return {
+          platform,
+          caseSensitive: false,
+          maxPathLength: 260, // NTFS limitation
+          pathSeparator: '\\',
+          invalidCharacters: ['<', '>', ':', '"', '|', '?', '*'],
+          reservedNames: [
+            'CON', 'PRN', 'AUX', 'NUL',
+            'COM1', 'COM2', 'COM3', 'COM4', 'COM5', 'COM6', 'COM7', 'COM8', 'COM9',
+            'LPT1', 'LPT2', 'LPT3', 'LPT4', 'LPT5', 'LPT6', 'LPT7', 'LPT8', 'LPT9'
+          ],
+          supportsSymlinks: true, // With proper permissions
+          supportsHardLinks: true
+        };
+      
+      case 'darwin':
+        return {
+          platform,
+          caseSensitive: false, // By default, but can be case-sensitive
+          maxPathLength: 1024,
+          pathSeparator: '/',
+          invalidCharacters: ['\0'],
+          reservedNames: [],
+          supportsSymlinks: true,
+          supportsHardLinks: true
+        };
+      
+      default: // Linux and other Unix-like systems
+        return {
+          platform,
+          caseSensitive: true,
+          maxPathLength: 4096,
+          pathSeparator: '/',
+          invalidCharacters: ['\0'],
+          reservedNames: [],
+          supportsSymlinks: true,
+          supportsHardLinks: true
+        };
+    }
+  }
+
+  normalizePath(inputPath: string): string {
+    // Normalize path separators
+    let normalizedPath = path.normalize(inputPath);
+    
+    // Handle Windows drive letters
+    if (this.platformConfig.platform === 'win32') {
+      // Ensure proper drive letter format
+      if (/^[a-zA-Z]:/.test(normalizedPath)) {
+        normalizedPath = normalizedPath.charAt(0).toUpperCase() + normalizedPath.slice(1);
+      }
+    }
+    
+    return normalizedPath;
+  }
+
+  validatePath(inputPath: string): { valid: boolean; errors: string[] } {
+    const errors: string[] = [];
+    const normalizedPath = this.normalizePath(inputPath);
+    
+    // Check path length
+    if (normalizedPath.length > this.platformConfig.maxPathLength) {
+      errors.push(`Path exceeds maximum length of ${this.platformConfig.maxPathLength} characters`);
+    }
+    
+    // Check for invalid characters
+    const invalidChars = this.platformConfig.invalidCharacters.filter(char => 
+      normalizedPath.includes(char)
+    );
+    if (invalidChars.length > 0) {
+      errors.push(`Path contains invalid characters: ${invalidChars.join(', ')}`);
+    }
+    
+    // Check for reserved names (Windows)
+    if (this.platformConfig.platform === 'win32') {
+      const pathParts = normalizedPath.split(path.sep);
+      const reservedFound = pathParts.filter(part => {
+        const nameWithoutExt = path.parse(part).name.toUpperCase();
+        return this.platformConfig.reservedNames.includes(nameWithoutExt);
+      });
+      
+      if (reservedFound.length > 0) {
+        errors.push(`Path contains reserved names: ${reservedFound.join(', ')}`);
+      }
+    }
+    
+    return {
+      valid: errors.length === 0,
+      errors
+    };
+  }
+
+  createPlatformAwareFilter(): (entry: readdirp.EntryInfo) => boolean {
+    return (entry: readdirp.EntryInfo) => {
+      // Platform-specific filtering
+      switch (this.platformConfig.platform) {
+        case 'win32':
+          return this.windowsFileFilter(entry);
+        case 'darwin':
+          return this.macOSFileFilter(entry);
+        default:
+          return this.linuxFileFilter(entry);
+      }
+    };
+  }
+
+  private windowsFileFilter(entry: readdirp.EntryInfo): boolean {
+    // Skip Windows system files
+    if (entry.name.startsWith('$') || entry.name === 'desktop.ini') {
+      return false;
+    }
+    
+    // Skip files with Windows attributes that indicate system/hidden
+    if (entry.stats && (entry.stats as any).isHidden?.()) {
+      return false;
+    }
+    
+    // Skip junction points and reparse points
+    if (entry.dirent.isSymbolicLink()) {
+      // Additional Windows-specific symlink checks could go here
+    }
+    
+    return true;
+  }
+
+  private macOSFileFilter(entry: readdirp.EntryInfo): boolean {
+    // Skip macOS specific files
+    const macOSSystemFiles = [
+      '.DS_Store',
+      '.AppleDouble',
+      '.LSOverride',
+      'Icon\r', // Icon files have a carriage return
+      '._*' // AppleDouble files
+    ];
+    
+    if (macOSSystemFiles.some(pattern => {
+      if (pattern.includes('*')) {
+        return entry.name.startsWith(pattern.replace('*', ''));
+      }
+      return entry.name === pattern;
+    })) {
+      return false;
+    }
+    
+    // Skip .app bundles unless specifically included
+    if (entry.name.endsWith('.app') && entry.dirent.isDirectory()) {
+      return false;
+    }
+    
+    return true;
+  }
+
+  private linuxFileFilter(entry: readdirp.EntryInfo): boolean {
+    // Skip common Linux system directories when not root
+    const systemDirs = [
+      'proc',
+      'sys',
+      'dev',
+      'run',
+      'tmp'
+    ];
+    
+    if (entry.dirent.isDirectory() && systemDirs.includes(entry.name)) {
+      // Only skip if we're at root level
+      const pathDepth = entry.path.split(path.sep).length;
+      if (pathDepth === 1) {
+        return false;
+      }
+    }
+    
+    return true;
+  }
+
+  async traverseWithPlatformOptimizations(
+    rootPath: string,
+    options: readdirp.ReaddirpOptions = {}
+  ): Promise<readdirp.EntryInfo[]> {
+    // Validate and normalize the root path
+    const normalizedRoot = this.normalizePath(rootPath);
+    const validation = this.validatePath(normalizedRoot);
+    
+    if (!validation.valid) {
+      throw new Error(`Invalid path: ${validation.errors.join(', ')}`);
+    }
+    
+    // Create platform-specific options
+    const platformOptions: readdirp.ReaddirpOptions = {
+      ...options,
+      root: normalizedRoot,
+      fileFilter: options.fileFilter || this.createPlatformAwareFilter(),
+      directoryFilter: options.directoryFilter || this.createPlatformAwareDirectoryFilter(),
+      
+      // Platform-specific optimizations
+      ...(this.platformConfig.platform === 'win32' && {
+        // Windows-specific optimizations
+        alwaysStatDirectory: false, // Faster on Windows
+      }),
+      
+      ...(this.platformConfig.platform === 'darwin' && {
+        // macOS-specific optimizations
+        lstat: true, // Better symlink handling on macOS
+      })
+    };
+    
+    return readdirp.promise(normalizedRoot, platformOptions);
+  }
+
+  private createPlatformAwareDirectoryFilter(): (entry: readdirp.EntryInfo) => boolean {
+    return (entry: readdirp.EntryInfo) => {
+      // Common exclusions across platforms
+      const commonExcludes = [
+        'node_modules',
+        '.git',
+        '.svn',
+        '.hg'
+      ];
+      
+      if (commonExcludes.includes(entry.name)) {
+        return false;
+      }
+      
+      // Platform-specific directory exclusions
+      switch (this.platformConfig.platform) {
+        case 'win32':
+          const windowsExcludes = [
+            'System Volume Information',
+            '$Recycle.Bin',
+            'Windows',
+            'Program Files',
+            'Program Files (x86)'
+          ];
+          return !windowsExcludes.includes(entry.name);
+          
+        case 'darwin':
+          const macOSExcludes = [
+            '.Trashes',
+            '.Spotlight-V100',
+            '.fseventsd',
+            '.DocumentRevisions-V100',
+            '.TemporaryItems'
+          ];
+          return !macOSExcludes.includes(entry.name);
+          
+        default:
+          const linuxExcludes = [
+            'proc',
+            'sys',
+            'dev',
+            'run'
+          ];
+          // Only exclude system directories at root level
+          const isRootLevel = entry.path.split(path.sep).length === 1;
+          return !(isRootLevel && linuxExcludes.includes(entry.name));
+      }
+    };
+  }
+
+  // Utility methods for cross-platform path operations
+  joinPaths(...paths: string[]): string {
+    return path.join(...paths.map(p => this.normalizePath(p)));
+  }
+
+  relativePath(from: string, to: string): string {
+    return path.relative(this.normalizePath(from), this.normalizePath(to));
+  }
+
+  resolvePath(inputPath: string): string {
+    return path.resolve(this.normalizePath(inputPath));
+  }
+
+  // Platform information
+  getPlatformInfo(): {
+    platform: NodeJS.Platform;
+    arch: string;
+    version: string;
+    capabilities: {
+      caseSensitive: boolean;
+      maxPathLength: number;
+      supportsSymlinks: boolean;
+      supportsHardLinks: boolean;
+    };
+  } {
+    return {
+      platform: this.platformConfig.platform,
+      arch: os.arch(),
+      version: os.release(),
+      capabilities: {
+        caseSensitive: this.platformConfig.caseSensitive,
+        maxPathLength: this.platformConfig.maxPathLength,
+        supportsSymlinks: this.platformConfig.supportsSymlinks,
+        supportsHardLinks: this.platformConfig.supportsHardLinks
+      }
+    };
+  }
+}
+
+// JavaScript - Simplified cross-platform utilities
+const readdirp = require('readdirp');
+const path = require('path');
+const os = require('os');
+
+class SimpleCrossPlatform {
+  constructor() {
+    this.isWindows = os.platform() === 'win32';
+    this.isMacOS = os.platform() === 'darwin';
+    this.isLinux = os.platform() === 'linux';
+  }
+
+  normalizePath(inputPath) {
+    // Convert all paths to use forward slashes internally
+    return path.normalize(inputPath).replace(/\\/g, '/');
+  }
+
+  createPlatformFilter() {
+    return (entry) => {
+      // Skip platform-specific system files
+      const skipPatterns = [
+        // Windows
+        /^\$.*/, // Windows system files
+        /^desktop\.ini$/i,
+        
+        // macOS
+        /^\.DS_Store$/,
+        /^\._.*/, // AppleDouble files
+        /^\.AppleDouble$/,
+        
+        // Linux
+        /^\..*/ // Hidden files (optional)
+      ];
+
+      return !skipPatterns.some(pattern => pattern.test(entry.name));
+    };
+  }
+
+  async safeCrossPlatformTraversal(directory) {
+    const normalizedDir = this.normalizePath(directory);
+    
+    const options = {
+      fileFilter: this.createPlatformFilter(),
+      directoryFilter: (entry) => {
+        // Skip common system/build directories
+        const skipDirs = [
+          'node_modules',
+          '.git',
+          'System Volume Information', // Windows
+          '.Trashes', // macOS
+          'proc', // Linux
+          'sys' // Linux
+        ];
+        
+        return !skipDirs.includes(entry.name);
+      }
+    };
+
+    try {
+      return await readdirp.promise(normalizedDir, options);
+    } catch (error) {
+      console.error(`Platform-specific error on ${os.platform()}:`, error.message);
+      throw error;
+    }
+  }
+
+  // Utility for handling path case sensitivity
+  pathEquals(path1, path2) {
+    const norm1 = this.normalizePath(path1);
+    const norm2 = this.normalizePath(path2);
+    
+    if (this.isWindows || this.isMacOS) {
+      // Case-insensitive comparison
+      return norm1.toLowerCase() === norm2.toLowerCase();
+    } else {
+      // Case-sensitive comparison
+      return norm1 === norm2;
+    }
+  }
+}
+
+module.exports = { SimpleCrossPlatform };]]></correct-example>
+          <incorrect-example title="Platform-specific issues and incompatibility" conditions="Ensuring cross-platform compatibility" expected-result="Consistent behavior across Windows, macOS, and Linux" incorrectness-criteria="Hardcoded path separators, no platform awareness, path handling issues"><![CDATA[// Bad - Platform-specific issues
+const readdirp = require('readdirp');
+
+// Bad: Hardcoded path separators
+function badPathHandling(directory) {
+  // Bad: Assumes Unix-style paths
+  const configPath = directory + '/config/settings.json';
+  
+  return readdirp.promise(directory, {
+    // Bad: Unix-only directory filter
+    directoryFilter: (entry) => !entry.path.includes('/node_modules/')
+  });
+}
+
+// Bad: No platform awareness
+class BadCrossPlatform {
+  async traverse(directory) {
+    // Bad: No path normalization
+    // Bad: No platform-specific exclusions
+    // Bad: Assumes case-sensitive file system
+    
+    return readdirp.promise(directory, {
+      fileFilter: (entry) => {
+        // Bad: Case-sensitive comparison on Windows/macOS
+        return entry.name !== '.DS_Store';
+      }
+    });
+  }
+  
+  joinPaths(base, relative) {
+    // Bad: Manual path joining
+    return base + '/' + relative;
+  }
+}
+
+// Bad: Windows-only code
+function windowsOnlyTraversal(directory) {
+  // Bad: Assumes Windows path format
+  if (!directory.match(/^[A-Z]:\\/)) {
+    throw new Error('Invalid Windows path');
+  }
+  
+  return readdirp.promise(directory);
+}]]></incorrect-example>
+        </example>
+      </examples>
+    </requirement>
+  </requirements>
+
+  <context description="Modern directory traversal and file system navigation">
+    The readdirp library is a powerful tool for recursive directory traversal in Node.js applications. It provides efficient streaming-based directory reading with extensive filtering capabilities, making it ideal for file system analysis, build tools, and content processing applications.
+
+    Key advantages of readdirp include:
+    - Stream-based processing for memory efficiency with large directory structures
+    - Comprehensive filtering options including glob patterns and custom functions
+    - Cross-platform compatibility with proper path handling
+    - Built-in error handling and recovery mechanisms
+    - Support for both callback and promise-based APIs
+
+    Modern usage patterns emphasize async/await syntax, proper error handling, and performance optimization through streaming and batch processing. The library excels in scenarios requiring selective file processing, directory analysis, and build automation.
+
+    Best practices include implementing proper filtering to avoid unnecessary file system operations, using streaming for large datasets, providing progress feedback for long-running operations, and handling platform-specific file system differences gracefully.
+  </context>
+
+  <references>
+    <reference as="dependency" href=".cursor/rules/000-core/002-cursor-rules-creation.mdc" reason="Follows standard rule format">Base rule format definition</reference>
+    <reference as="context" href="https://www.npmjs.com/package/readdirp" reason="Official readdirp documentation">readdirp npm package documentation</reference>
+    <reference as="context" href="https://nodejs.org/api/fs.html" reason="Node.js file system API">Node.js File System API documentation</reference>
+    <reference as="context" href="https://nodejs.org/api/stream.html" reason="Node.js streams">Node.js Streams API documentation</reference>
+    <reference as="context" href="https://www.npmjs.com/package/minimatch" reason="Glob pattern matching">minimatch for glob pattern support</reference>
+  </references>
+</rule>

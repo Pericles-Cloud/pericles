@@ -1,0 +1,157 @@
+---
+description: Standards and guidance for integrating with the GDELT Full Text Search API, including endpoints, outputs, query commands, embedding, and error handling
+globs: "*"
+alwaysApply: false
+---
+
+<rule>
+  <meta>
+    <title>GDELT Full Text Search API Integration Standards</title>
+    <description>Guidance for using GDELT Full Text Search API: constructing queries, output formats, embedding, internationalization, and robust error handling.</description>
+    <created-at utc-timestamp="1750876800">June 26, 2025, 00:00 UTC</created-at>
+    <last-updated-at utc-timestamp="1750876800">June 26, 2025, 00:00 UTC</last-updated-at>
+    <applies-to>
+      <file-matcher glob="*">All application code calling GDELT Full Text Search API</file-matcher>
+      <action-matcher action="integration">When implementing or refactoring GDELT calls</action-matcher>
+    </applies-to>
+  </meta>
+  <requirements>
+    <non-negotiable priority="critical">
+      <description>Follow the Cursor Rule File Format dependency; this rule must adhere to 000-core/002-cursor-rules-creation.mdc for structure.</description>
+      <examples>
+        <example title="Dependency Reference">
+          <correct-example title="References core rule format" conditions="Creating or editing this rule" expected-result="Valid reference to base format" correctness-criteria="Includes a reference to 000-core/002-cursor-rules-creation.mdc"><![CDATA[
+<references>
+  <reference as="dependency" href=".cursor/rules/000-core/002-cursor-rules-creation.mdc" reason="Rule file structure and validation">Cursor Rule file format</reference>
+</references>]]></correct-example>
+        </example>
+      </examples>
+    </non-negotiable>
+
+    <requirement priority="critical">
+      <description>Use the official endpoint and supported outputs per GDELT docs. Base: https://api.gdeltproject.org/api/v1/search_ftxtsearch/search_ftxtsearch</description>
+      <examples>
+        <example title="Outputs">
+          <correct-example title="Article lists and timelines" conditions="Choosing output" expected-result="Supported outputs only" correctness-criteria="Use artlist, artimgonlylist, artimglist, imagecollagelist, timeline(vol|tone), url list"><![CDATA[
+// Text-only list
+https://api.gdeltproject.org/api/v1/search_ftxtsearch/search_ftxtsearch?query=nigeria&output=artlist&dropdup=true
+
+// Image-only list
+https://api.gdeltproject.org/api/v1/search_ftxtsearch/search_ftxtsearch?query=nigeria&output=artimgonlylist&dropdup=true
+
+// Mixed article list
+https://api.gdeltproject.org/api/v1/search_ftxtsearch/search_ftxtsearch?query=nigeria&output=artimglist&dropdup=true
+
+// Image collage list
+https://api.gdeltproject.org/api/v1/search_ftxtsearch/search_ftxtsearch?query=nigeria&output=imgcollagelist&dropdup=true
+
+// Volume timeline (with smoothing)
+https://api.gdeltproject.org/api/v1/search_ftxtsearch/search_ftxtsearch?query=nigeria&output=timeline&outputtype=vol&timelinesmooth=5
+
+// Tone timeline (with smoothing)
+https://api.gdeltproject.org/api/v1/search_ftxtsearch/search_ftxtsearch?query=nigeria&output=timeline&outputtype=tone&timelinesmooth=5
+
+// URL CSV list
+https://api.gdeltproject.org/api/v1/search_ftxtsearch/search_ftxtsearch?query=nigeria&output=urlonly
+]]></correct-example>
+          <incorrect-example title="Unsupported wordcloud" conditions="Selecting output" expected-result="Avoid deprecated outputs" incorrectness-criteria="Uses no-longer-supported wordcloud"><![CDATA[
+// wordcloud output is no longer supported per GDELT blog; do not rely on it
+https://api.gdeltproject.org/api/v1/search_ftxtsearch/search_ftxtsearch?query=nigeria&output=wordcloud // WRONG
+]]></incorrect-example>
+        </example>
+      </examples>
+    </requirement>
+
+    <requirement priority="high">
+      <description>Construct queries using supported query commands; commands are lowercase and AND’d together.</description>
+      <examples>
+        <example title="Query Commands">
+          <correct-example title="Language, sorting, max rows, dedup, translate" conditions="Building query" expected-result="Valid query parameters" correctness-criteria="Use searchlang/sourcelang, sort/sortby, maxrows, dropdup, trans=googtrans where applicable"><![CDATA[
+// Arabic native phrase, mixed list, dedup
+https://api.gdeltproject.org/api/v1/search_ftxtsearch/search_ftxtsearch?query=searchlang:arabic%20%D8%A7%D9%84%D8%AF%D9%88%D9%84%D8%A9%20%D8%A7%D9%84%D8%A5%D8%B3%D9%84%D8%A7%D9%85%D9%8A%D8%A9&output=artimglist&dropdup=true
+
+// Latest coverage for keyword with maxrows
+https://api.gdeltproject.org/api/v1/search_ftxtsearch/search_ftxtsearch?query=nigeria%20sortby:date&output=artlist&maxrows=50
+
+// Translate headlines in HTML list outputs
+https://api.gdeltproject.org/api/v1/search_ftxtsearch/search_ftxtsearch?query=nigeria&output=artlist&trans=googtrans
+]]></correct-example>
+          <incorrect-example title="Uppercase commands" conditions="Building query" expected-result="Lowercase commands" incorrectness-criteria="Non-lowercase or unsupported keys"><![CDATA[
+...query=SORTBY:DATE // WRONG, commands must be lowercase
+]]></incorrect-example>
+        </example>
+      </examples>
+    </requirement>
+
+    <requirement priority="high">
+      <description>Embedding: use iframe for HTML visualizations; for machine workflows, prefer URL CSV (output=urlonly).</description>
+      <examples>
+        <example title="Embedding">
+          <correct-example title="iframe" conditions="Embedding visualizations" expected-result="Simple iframe embed" correctness-criteria="Uses documented src URL"><![CDATA[
+<iframe
+  src="https://api.gdeltproject.org/api/v1/search_ftxtsearch/search_ftxtsearch?query=sourcecountry:nigeria&output=artimglist&sort=desc"
+  width="500"
+  height="500"
+  scrolling="no"
+></iframe>
+]]></correct-example>
+          <correct-example title="Machine CSV" conditions="Automated workflows" expected-result="CSV URL list" correctness-criteria="Use output=urlonly"><![CDATA[
+https://api.gdeltproject.org/api/v1/search_ftxtsearch/search_ftxtsearch?query=nigeria&output=urlonly
+]]></correct-example>
+        </example>
+      </examples>
+    </requirement>
+
+    <requirement priority="high">
+      <description>Internationalization: GDELT searches English translations across 65 languages; support searchlang/sourcelang and optional trans=googtrans for HTML outputs.</description>
+    </requirement>
+
+    <requirement priority="medium">
+      <description>Error handling: detect and surface HTTP errors; GDELT may return HTML for human outputs—prefer JSON parsing only where applicable or treat as text for diagnostics.</description>
+      <examples>
+        <example title="Error normalization">
+          <correct-example title="Consistent mapping" conditions="Handling errors" expected-result="Status-aware errors" correctness-criteria="Include status, text body excerpt"><![CDATA[
+async function fetchGdelt(url) {
+  const res = await fetch(url, { cache: 'no-store' });
+  if (!res.ok) {
+    const body = await res.text();
+    const err = new Error(`gdelt ${res.status}`);
+    err.status = res.status;
+    err.details = body.slice(0, 1000);
+    throw err;
+  }
+  return res.text(); // HTML or CSV depending on output
+}
+]]></correct-example>
+        </example>
+      </examples>
+    </requirement>
+
+    <requirement priority="medium">
+      <description>Performance: throttle concurrent requests, add backoff on 429/5xx, and cache stable queries where safe.</description>
+    </requirement>
+
+    <requirement priority="medium">
+      <description>Security: sanitize user-provided query fragments before constructing URLs; avoid reflecting untrusted HTML.</description>
+    </requirement>
+  </requirements>
+
+  <grammar>
+    <grammar-entry title="Endpoint and parameters">
+      <pattern description="Base endpoint">https://api\.gdeltproject\.org/api/v1/search_ftxtsearch/search_ftxtsearch</pattern>
+      <pattern description="Outputs">output=(artlist|artimgonlylist|artimglist|imgcollagelist|timeline|urlonly)</pattern>
+      <pattern description="Timeline output types">outputtype=(vol|tone)</pattern>
+      <pattern description="Common commands in query">(sortby:[a-z]+|searchlang:[a-z]+|sourcelang:[a-z]+|maxrows=\d+|timelinesmooth=\d|dropdup=true|trans=googtrans)</pattern>
+    </grammar-entry>
+  </grammar>
+
+  <context description="GDELT Full Text Search API reference">
+    The GDELT Full Text Search API provides article lists (text/image/mixed), timeline visualizations (volume/tone), and URL CSV outputs. Commands are lowercase and AND’d together. Word cloud outputs noted in early docs are no longer supported.
+  </context>
+
+  <references>
+    <reference as="dependency" href=".cursor/rules/000-core/002-cursor-rules-creation.mdc" reason="Rule file format and validation">Cursor Rule File Format</reference>
+    <reference as="context" href="https://blog.gdeltproject.org/announcing-the-gdelt-full-text-search-api/" reason="Official blog announcement and usage examples">GDELT Full Text Search API</reference>
+  </references>
+</rule>
+

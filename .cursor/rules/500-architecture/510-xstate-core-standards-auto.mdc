@@ -1,0 +1,1054 @@
+<rule>
+  <meta>
+    <title>XState Core Standards</title>
+    <description>XState finite state machines best practices with TypeScript, React integration, testing patterns, and state management following modern state machine principles</description>
+    <created-at utc-timestamp="1744157700">January 25, 2025, 10:15 AM</created-at>
+    <last-updated-at utc-timestamp="1744157700">January 25, 2025, 10:15 AM</last-updated-at>
+    <applies-to>
+      <file-matcher glob="**/*.{ts,tsx,js,jsx}">TypeScript and JavaScript files using XState</file-matcher>
+      <file-matcher glob="**/state/**/*">State machine implementation files</file-matcher>
+      <file-matcher glob="**/machines/**/*">Machine definition files</file-matcher>
+      <file-matcher glob="**/*machine*">Machine-related files</file-matcher>
+      <action-matcher action="state-machine">Triggered when working with finite state machines</action-matcher>
+    </applies-to>
+  </meta>
+  <requirements>
+    <non-negotiable priority="critical">
+      <description>Use proper XState machine definitions with TypeScript integration. Implement hierarchical states, guards, actions, and services with type safety and predictable state transitions.</description>
+      <examples>
+        <example title="XState Machine Definition with TypeScript">
+          <correct-example title="Comprehensive XState machine with TypeScript" conditions="Creating state machines with XState" expected-result="Type-safe, well-structured state machine" correctness-criteria="Proper machine definition, TypeScript types, guards, actions, services, hierarchical states"><![CDATA[// TypeScript - Comprehensive XState machine implementation
+import { createMachine, assign, interpret, StateMachine } from 'xstate';
+
+// Type definitions for the machine
+interface UserContext {
+  user: User | null;
+  users: User[];
+  selectedUserId: string | null;
+  error: string | null;
+  retryCount: number;
+}
+
+interface User {
+  id: string;
+  name: string;
+  email: string;
+  status: 'active' | 'inactive';
+}
+
+type UserEvent =
+  | { type: 'FETCH_USERS' }
+  | { type: 'FETCH_SUCCESS'; users: User[] }
+  | { type: 'FETCH_ERROR'; error: string }
+  | { type: 'SELECT_USER'; userId: string }
+  | { type: 'DESELECT_USER' }
+  | { type: 'UPDATE_USER'; user: Partial<User> }
+  | { type: 'UPDATE_SUCCESS'; user: User }
+  | { type: 'UPDATE_ERROR'; error: string }
+  | { type: 'DELETE_USER'; userId: string }
+  | { type: 'DELETE_SUCCESS'; userId: string }
+  | { type: 'DELETE_ERROR'; error: string }
+  | { type: 'RETRY' }
+  | { type: 'RESET' };
+
+type UserState =
+  | { value: 'idle'; context: UserContext }
+  | { value: 'loading'; context: UserContext }
+  | { value: 'success'; context: UserContext }
+  | { value: { success: 'viewing' }; context: UserContext }
+  | { value: { success: 'editing' }; context: UserContext }
+  | { value: { success: { editing: 'updating' } }; context: UserContext }
+  | { value: { success: { editing: 'updateSuccess' } }; context: UserContext }
+  | { value: { success: { editing: 'updateError' } }; context: UserContext }
+  | { value: 'error'; context: UserContext };
+
+// Machine definition with comprehensive configuration
+export const userMachine: StateMachine<UserContext, any, UserEvent> = createMachine<
+  UserContext,
+  UserEvent,
+  UserState
+>({
+  id: 'userMachine',
+  initial: 'idle',
+  context: {
+    user: null,
+    users: [],
+    selectedUserId: null,
+    error: null,
+    retryCount: 0
+  },
+  states: {
+    idle: {
+      on: {
+        FETCH_USERS: {
+          target: 'loading',
+          actions: 'clearError'
+        }
+      }
+    },
+    loading: {
+      invoke: {
+        id: 'fetchUsers',
+        src: 'fetchUsersService',
+        onDone: {
+          target: 'success',
+          actions: 'setUsers'
+        },
+        onError: {
+          target: 'error',
+          actions: 'setError'
+        }
+      },
+      on: {
+        FETCH_SUCCESS: {
+          target: 'success',
+          actions: 'setUsers'
+        },
+        FETCH_ERROR: {
+          target: 'error',
+          actions: 'setError'
+        }
+      }
+    },
+    success: {
+      initial: 'viewing',
+      states: {
+        viewing: {
+          on: {
+            SELECT_USER: {
+              target: 'editing',
+              actions: 'selectUser',
+              cond: 'isValidUser'
+            }
+          }
+        },
+        editing: {
+          initial: 'idle',
+          states: {
+            idle: {
+              on: {
+                UPDATE_USER: {
+                  target: 'updating',
+                  cond: 'hasSelectedUser'
+                }
+              }
+            },
+            updating: {
+              invoke: {
+                id: 'updateUser',
+                src: 'updateUserService',
+                onDone: {
+                  target: 'updateSuccess',
+                  actions: 'updateUserInList'
+                },
+                onError: {
+                  target: 'updateError',
+                  actions: 'setUpdateError'
+                }
+              }
+            },
+            updateSuccess: {
+              after: {
+                2000: 'idle'
+              },
+              on: {
+                UPDATE_USER: 'updating'
+              }
+            },
+            updateError: {
+              on: {
+                RETRY: 'updating',
+                UPDATE_USER: 'updating'
+              }
+            }
+          },
+          on: {
+            DESELECT_USER: {
+              target: 'viewing',
+              actions: 'clearSelection'
+            },
+            DELETE_USER: {
+              target: '#userMachine.deleting',
+              actions: 'setDeletingUser',
+              cond: 'hasSelectedUser'
+            }
+          }
+        }
+      },
+      on: {
+        FETCH_USERS: {
+          target: 'loading',
+          actions: 'clearError'
+        }
+      }
+    },
+    deleting: {
+      invoke: {
+        id: 'deleteUser',
+        src: 'deleteUserService',
+        onDone: {
+          target: 'success',
+          actions: ['removeUserFromList', 'clearSelection']
+        },
+        onError: {
+          target: 'error',
+          actions: 'setError'
+        }
+      }
+    },
+    error: {
+      on: {
+        RETRY: [
+          {
+            target: 'loading',
+            cond: 'canRetry',
+            actions: 'incrementRetry'
+          },
+          {
+            target: 'error',
+            actions: 'setMaxRetriesError'
+          }
+        ],
+        RESET: {
+          target: 'idle',
+          actions: 'resetContext'
+        }
+      }
+    }
+  }
+}, {
+  actions: {
+    clearError: assign({
+      error: null
+    }),
+    setUsers: assign({
+      users: (_, event) => event.type === 'FETCH_SUCCESS' ? event.users : [],
+      error: null,
+      retryCount: 0
+    }),
+    setError: assign({
+      error: (_, event) => event.type === 'FETCH_ERROR' ? event.error : 'Unknown error'
+    }),
+    selectUser: assign({
+      selectedUserId: (_, event) => event.type === 'SELECT_USER' ? event.userId : null,
+      user: (context, event) => {
+        if (event.type === 'SELECT_USER') {
+          return context.users.find(u => u.id === event.userId) || null;
+        }
+        return context.user;
+      }
+    }),
+    clearSelection: assign({
+      selectedUserId: null,
+      user: null
+    }),
+    updateUserInList: assign({
+      users: (context, event) => {
+        if (event.type === 'UPDATE_SUCCESS') {
+          return context.users.map(u => 
+            u.id === event.user.id ? { ...u, ...event.user } : u
+          );
+        }
+        return context.users;
+      },
+      user: (context, event) => {
+        if (event.type === 'UPDATE_SUCCESS' && context.user?.id === event.user.id) {
+          return { ...context.user, ...event.user };
+        }
+        return context.user;
+      }
+    }),
+    setUpdateError: assign({
+      error: (_, event) => event.type === 'UPDATE_ERROR' ? event.error : null
+    }),
+    setDeletingUser: assign({
+      selectedUserId: (_, event) => event.type === 'DELETE_USER' ? event.userId : null
+    }),
+    removeUserFromList: assign({
+      users: (context, event) => {
+        if (event.type === 'DELETE_SUCCESS') {
+          return context.users.filter(u => u.id !== event.userId);
+        }
+        return context.users;
+      }
+    }),
+    incrementRetry: assign({
+      retryCount: context => context.retryCount + 1
+    }),
+    setMaxRetriesError: assign({
+      error: 'Maximum retry attempts exceeded'
+    }),
+    resetContext: assign({
+      user: null,
+      users: [],
+      selectedUserId: null,
+      error: null,
+      retryCount: 0
+    })
+  },
+  guards: {
+    isValidUser: (context, event) => {
+      if (event.type === 'SELECT_USER') {
+        return context.users.some(u => u.id === event.userId);
+      }
+      return false;
+    },
+    hasSelectedUser: (context) => context.selectedUserId !== null,
+    canRetry: (context) => context.retryCount < 3
+  },
+  services: {
+    fetchUsersService: async () => {
+      const response = await fetch('/api/users');
+      if (!response.ok) {
+        throw new Error(`Failed to fetch users: ${response.statusText}`);
+      }
+      return response.json();
+    },
+    updateUserService: async (context, event) => {
+      if (event.type === 'UPDATE_USER' && context.selectedUserId) {
+        const response = await fetch(`/api/users/${context.selectedUserId}`, {
+          method: 'PUT',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify(event.user)
+        });
+        if (!response.ok) {
+          throw new Error(`Failed to update user: ${response.statusText}`);
+        }
+        return response.json();
+      }
+      throw new Error('No user selected for update');
+    },
+    deleteUserService: async (context) => {
+      if (context.selectedUserId) {
+        const response = await fetch(`/api/users/${context.selectedUserId}`, {
+          method: 'DELETE'
+        });
+        if (!response.ok) {
+          throw new Error(`Failed to delete user: ${response.statusText}`);
+        }
+        return context.selectedUserId;
+      }
+      throw new Error('No user selected for deletion');
+    }
+  }
+});]]></correct-example>
+          <incorrect-example title="Poor XState implementation without proper structure" conditions="Creating state machines" expected-result="Proper XState machine definition" incorrectness-criteria="No TypeScript types, poor state organization, missing guards and actions, no error handling"><![CDATA[// BAD: Poor XState implementation
+import { createMachine } from 'xstate';
+
+// No TypeScript types
+const badUserMachine = createMachine({
+  initial: 'idle',
+  states: {
+    idle: {
+      on: {
+        FETCH: 'loading'
+      }
+    },
+    loading: {
+      on: {
+        SUCCESS: 'success',
+        ERROR: 'error'
+      }
+    },
+    success: {},
+    error: {}
+  }
+});
+
+// No context definition
+// No proper actions
+// No guards
+// No services
+// No hierarchical states
+// No error handling
+// No type safety]]></incorrect-example>
+        </example>
+      </examples>
+    </non-negotiable>
+
+    <requirement priority="high">
+      <description>Implement proper React integration with XState using @xstate/react hooks. Use proper state machine visualization and debugging tools for development.</description>
+      <examples>
+        <example title="XState React Integration">
+          <correct-example title="React integration with XState hooks and visualization" conditions="Using XState with React" expected-result="Seamless React-XState integration with proper hooks" correctness-criteria="Uses @xstate/react, proper hook patterns, visualization setup, debugging integration"><![CDATA[// TypeScript - React integration with XState
+import React from 'react';
+import { useMachine, useInterpret, useActor } from '@xstate/react';
+import { inspect } from '@xstate/inspect';
+import { userMachine } from '../machines/userMachine';
+
+// Enable XState inspector in development
+if (process.env.NODE_ENV === 'development') {
+  inspect({
+    url: 'https://stately.ai/viz?inspect',
+    iframe: false
+  });
+}
+
+// Main component using the user machine
+export const UserManagement: React.FC = () => {
+  const [state, send] = useMachine(userMachine, {
+    devTools: process.env.NODE_ENV === 'development'
+  });
+
+  const { users, user, error, selectedUserId } = state.context;
+
+  React.useEffect(() => {
+    send('FETCH_USERS');
+  }, [send]);
+
+  const handleSelectUser = (userId: string) => {
+    send({ type: 'SELECT_USER', userId });
+  };
+
+  const handleUpdateUser = (updates: Partial<User>) => {
+    send({ type: 'UPDATE_USER', user: updates });
+  };
+
+  const handleDeleteUser = (userId: string) => {
+    if (confirm('Are you sure you want to delete this user?')) {
+      send({ type: 'DELETE_USER', userId });
+    }
+  };
+
+  const handleRetry = () => {
+    send('RETRY');
+  };
+
+  const handleReset = () => {
+    send('RESET');
+  };
+
+  return (
+    <div className="user-management">
+      <h1>User Management</h1>
+      
+      {/* Display current state for debugging */}
+      {process.env.NODE_ENV === 'development' && (
+        <div className="debug-info">
+          <strong>Current State:</strong> {JSON.stringify(state.value)}
+        </div>
+      )}
+
+      {/* Loading state */}
+      {state.matches('loading') && (
+        <div className="loading">
+          <p>Loading users...</p>
+        </div>
+      )}
+
+      {/* Error state */}
+      {state.matches('error') && (
+        <div className="error">
+          <p>Error: {error}</p>
+          <button onClick={handleRetry}>Retry</button>
+          <button onClick={handleReset}>Reset</button>
+        </div>
+      )}
+
+      {/* Success state */}
+      {state.matches('success') && (
+        <div className="success">
+          <UserList 
+            users={users}
+            selectedUserId={selectedUserId}
+            onSelectUser={handleSelectUser}
+            onDeleteUser={handleDeleteUser}
+          />
+          
+          {/* User editing form */}
+          {state.matches({ success: 'editing' }) && user && (
+            <UserEditForm
+              user={user}
+              onUpdate={handleUpdateUser}
+              onCancel={() => send('DESELECT_USER')}
+              isUpdating={state.matches({ success: { editing: 'updating' } })}
+              updateSuccess={state.matches({ success: { editing: 'updateSuccess' } })}
+              updateError={state.matches({ success: { editing: 'updateError' } })}
+              error={error}
+            />
+          )}
+        </div>
+      )}
+
+      {/* Deleting state */}
+      {state.matches('deleting') && (
+        <div className="deleting">
+          <p>Deleting user...</p>
+        </div>
+      )}
+    </div>
+  );
+};
+
+// User list component
+interface UserListProps {
+  users: User[];
+  selectedUserId: string | null;
+  onSelectUser: (userId: string) => void;
+  onDeleteUser: (userId: string) => void;
+}
+
+const UserList: React.FC<UserListProps> = ({
+  users,
+  selectedUserId,
+  onSelectUser,
+  onDeleteUser
+}) => {
+  return (
+    <div className="user-list">
+      <h2>Users ({users.length})</h2>
+      {users.map(user => (
+        <div 
+          key={user.id}
+          className={`user-item ${selectedUserId === user.id ? 'selected' : ''}`}
+        >
+          <div className="user-info">
+            <h3>{user.name}</h3>
+            <p>{user.email}</p>
+            <span className={`status ${user.status}`}>{user.status}</span>
+          </div>
+          <div className="user-actions">
+            <button onClick={() => onSelectUser(user.id)}>
+              Edit
+            </button>
+            <button 
+              onClick={() => onDeleteUser(user.id)}
+              className="danger"
+            >
+              Delete
+            </button>
+          </div>
+        </div>
+      ))}
+    </div>
+  );
+};
+
+// User edit form component
+interface UserEditFormProps {
+  user: User;
+  onUpdate: (updates: Partial<User>) => void;
+  onCancel: () => void;
+  isUpdating: boolean;
+  updateSuccess: boolean;
+  updateError: boolean;
+  error: string | null;
+}
+
+const UserEditForm: React.FC<UserEditFormProps> = ({
+  user,
+  onUpdate,
+  onCancel,
+  isUpdating,
+  updateSuccess,
+  updateError,
+  error
+}) => {
+  const [formData, setFormData] = React.useState({
+    name: user.name,
+    email: user.email,
+    status: user.status
+  });
+
+  const handleSubmit = (e: React.FormEvent) => {
+    e.preventDefault();
+    onUpdate(formData);
+  };
+
+  const handleChange = (field: keyof typeof formData) => (
+    e: React.ChangeEvent<HTMLInputElement | HTMLSelectElement>
+  ) => {
+    setFormData(prev => ({
+      ...prev,
+      [field]: e.target.value
+    }));
+  };
+
+  return (
+    <div className="user-edit-form">
+      <h2>Edit User</h2>
+      
+      {updateSuccess && (
+        <div className="success-message">
+          User updated successfully!
+        </div>
+      )}
+      
+      {updateError && error && (
+        <div className="error-message">
+          Error: {error}
+        </div>
+      )}
+
+      <form onSubmit={handleSubmit}>
+        <div className="form-group">
+          <label htmlFor="name">Name:</label>
+          <input
+            id="name"
+            type="text"
+            value={formData.name}
+            onChange={handleChange('name')}
+            disabled={isUpdating}
+            required
+          />
+        </div>
+
+        <div className="form-group">
+          <label htmlFor="email">Email:</label>
+          <input
+            id="email"
+            type="email"
+            value={formData.email}
+            onChange={handleChange('email')}
+            disabled={isUpdating}
+            required
+          />
+        </div>
+
+        <div className="form-group">
+          <label htmlFor="status">Status:</label>
+          <select
+            id="status"
+            value={formData.status}
+            onChange={handleChange('status')}
+            disabled={isUpdating}
+          >
+            <option value="active">Active</option>
+            <option value="inactive">Inactive</option>
+          </select>
+        </div>
+
+        <div className="form-actions">
+          <button 
+            type="submit" 
+            disabled={isUpdating}
+            className="primary"
+          >
+            {isUpdating ? 'Updating...' : 'Update'}
+          </button>
+          <button 
+            type="button" 
+            onClick={onCancel}
+            disabled={isUpdating}
+          >
+            Cancel
+          </button>
+        </div>
+      </form>
+    </div>
+  );
+};
+
+// Custom hook for user machine
+export const useUserMachine = () => {
+  return useMachine(userMachine, {
+    devTools: process.env.NODE_ENV === 'development'
+  });
+};
+
+// Higher-order component for machine debugging
+export const withMachineDebugging = <P extends object>(
+  Component: React.ComponentType<P>,
+  machineName: string
+) => {
+  return (props: P) => {
+    if (process.env.NODE_ENV === 'development') {
+      return (
+        <div>
+          <div className="machine-debug">
+            Machine: {machineName}
+          </div>
+          <Component {...props} />
+        </div>
+      );
+    }
+    return <Component {...props} />;
+  };
+};]]></correct-example>
+          <incorrect-example title="Poor React integration without proper hooks" conditions="Using XState with React" expected-result="Proper React-XState integration" incorrectness-criteria="No proper hooks, manual state management, no visualization, poor component structure"><![CDATA[// BAD: Poor React integration
+import React, { useState, useEffect } from 'react';
+import { interpret } from 'xstate';
+import { userMachine } from '../machines/userMachine';
+
+const BadUserComponent = () => {
+  // Manual state management instead of useMachine
+  const [machineState, setMachineState] = useState(userMachine.initialState);
+  
+  useEffect(() => {
+    // Manual interpreter setup
+    const service = interpret(userMachine);
+    service.onTransition(state => setMachineState(state));
+    service.start();
+    
+    // No cleanup
+    // No proper service management
+  }, []);
+
+  // Direct DOM manipulation instead of React patterns
+  const handleClick = () => {
+    // No send function
+    // Manual state updates
+    setMachineState(prev => ({...prev, value: 'loading'}));
+  };
+
+  return (
+    <div>
+      {/* No proper state matching */}
+      {machineState.value === 'loading' && <div>Loading...</div>}
+      {/* Poor state management */}
+    </div>
+  );
+};
+
+// No debugging tools
+// No visualization
+// No proper error handling
+// No TypeScript integration]]></incorrect-example>
+        </example>
+      </examples>
+    </requirement>
+
+    <requirement priority="high">
+      <description>Implement comprehensive testing strategies for XState machines including state transitions, guards, actions, and services with proper mocking and assertions.</description>
+      <examples>
+        <example title="XState Machine Testing">
+          <correct-example title="Comprehensive XState machine testing" conditions="Testing state machines" expected-result="Thorough test coverage for machine behavior" correctness-criteria="State transition testing, guard testing, action testing, service mocking, edge case coverage"><![CDATA[// TypeScript - Comprehensive XState machine testing
+import { interpret, Interpreter } from 'xstate';
+import { userMachine, UserContext, UserEvent } from '../machines/userMachine';
+
+describe('User Machine', () => {
+  let service: Interpreter<UserContext, any, UserEvent>;
+
+  beforeEach(() => {
+    service = interpret(userMachine).start();
+  });
+
+  afterEach(() => {
+    service.stop();
+  });
+
+  describe('Initial state', () => {
+    test('should start in idle state', () => {
+      expect(service.state.value).toBe('idle');
+      expect(service.state.context).toEqual({
+        user: null,
+        users: [],
+        selectedUserId: null,
+        error: null,
+        retryCount: 0
+      });
+    });
+  });
+
+  describe('State transitions', () => {
+    test('should transition from idle to loading on FETCH_USERS', () => {
+      service.send('FETCH_USERS');
+      expect(service.state.value).toBe('loading');
+      expect(service.state.context.error).toBeNull();
+    });
+
+    test('should transition from loading to success on FETCH_SUCCESS', () => {
+      const users = [
+        { id: '1', name: 'John', email: 'john@test.com', status: 'active' as const }
+      ];
+
+      service.send('FETCH_USERS');
+      service.send({ type: 'FETCH_SUCCESS', users });
+
+      expect(service.state.value).toEqual({ success: 'viewing' });
+      expect(service.state.context.users).toEqual(users);
+      expect(service.state.context.error).toBeNull();
+    });
+
+    test('should transition from loading to error on FETCH_ERROR', () => {
+      service.send('FETCH_USERS');
+      service.send({ type: 'FETCH_ERROR', error: 'Network error' });
+
+      expect(service.state.value).toBe('error');
+      expect(service.state.context.error).toBe('Network error');
+    });
+
+    test('should transition to editing when selecting a valid user', () => {
+      const users = [
+        { id: '1', name: 'John', email: 'john@test.com', status: 'active' as const }
+      ];
+
+      // Setup success state with users
+      service.send('FETCH_USERS');
+      service.send({ type: 'FETCH_SUCCESS', users });
+
+      // Select user
+      service.send({ type: 'SELECT_USER', userId: '1' });
+
+      expect(service.state.value).toEqual({ success: 'editing' });
+      expect(service.state.context.selectedUserId).toBe('1');
+      expect(service.state.context.user).toEqual(users[0]);
+    });
+  });
+
+  describe('Guards', () => {
+    test('should prevent selecting invalid user', () => {
+      const users = [
+        { id: '1', name: 'John', email: 'john@test.com', status: 'active' as const }
+      ];
+
+      service.send('FETCH_USERS');
+      service.send({ type: 'FETCH_SUCCESS', users });
+
+      // Try to select non-existent user
+      service.send({ type: 'SELECT_USER', userId: 'invalid' });
+
+      // Should remain in viewing state
+      expect(service.state.value).toEqual({ success: 'viewing' });
+      expect(service.state.context.selectedUserId).toBeNull();
+    });
+
+    test('should prevent update without selected user', () => {
+      service.send('FETCH_USERS');
+      service.send({ type: 'FETCH_SUCCESS', users: [] });
+
+      // Try to update without selection
+      service.send({ type: 'UPDATE_USER', user: { name: 'Updated' } });
+
+      // Should remain in viewing state
+      expect(service.state.value).toEqual({ success: 'viewing' });
+    });
+
+    test('should respect retry limits', () => {
+      // Set context to max retries
+      service = interpret(userMachine.withContext({
+        user: null,
+        users: [],
+        selectedUserId: null,
+        error: 'Network error',
+        retryCount: 3
+      })).start();
+
+      service.send({ type: 'FETCH_ERROR', error: 'Network error' });
+      service.send('RETRY');
+
+      expect(service.state.value).toBe('error');
+      expect(service.state.context.error).toBe('Maximum retry attempts exceeded');
+    });
+  });
+
+  describe('Actions', () => {
+    test('should clear error when fetching users', () => {
+      // Set initial error state
+      service = interpret(userMachine.withContext({
+        user: null,
+        users: [],
+        selectedUserId: null,
+        error: 'Previous error',
+        retryCount: 0
+      })).start();
+
+      service.send('FETCH_USERS');
+
+      expect(service.state.context.error).toBeNull();
+    });
+
+    test('should update user in list correctly', () => {
+      const users = [
+        { id: '1', name: 'John', email: 'john@test.com', status: 'active' as const },
+        { id: '2', name: 'Jane', email: 'jane@test.com', status: 'inactive' as const }
+      ];
+
+      service.send('FETCH_USERS');
+      service.send({ type: 'FETCH_SUCCESS', users });
+      service.send({ type: 'SELECT_USER', userId: '1' });
+
+      // Simulate successful update
+      const updatedUser = { id: '1', name: 'John Updated', email: 'john.updated@test.com', status: 'active' as const };
+      service.send({ type: 'UPDATE_SUCCESS', user: updatedUser });
+
+      expect(service.state.context.users[0]).toEqual(updatedUser);
+      expect(service.state.context.user).toEqual(updatedUser);
+    });
+
+    test('should remove user from list on delete success', () => {
+      const users = [
+        { id: '1', name: 'John', email: 'john@test.com', status: 'active' as const },
+        { id: '2', name: 'Jane', email: 'jane@test.com', status: 'inactive' as const }
+      ];
+
+      service.send('FETCH_USERS');
+      service.send({ type: 'FETCH_SUCCESS', users });
+
+      // Simulate successful delete
+      service.send({ type: 'DELETE_SUCCESS', userId: '1' });
+
+      expect(service.state.context.users).toHaveLength(1);
+      expect(service.state.context.users[0].id).toBe('2');
+      expect(service.state.context.selectedUserId).toBeNull();
+    });
+  });
+
+  describe('Services', () => {
+    test('should handle fetch service success', (done) => {
+      const mockUsers = [
+        { id: '1', name: 'John', email: 'john@test.com', status: 'active' as const }
+      ];
+
+      // Mock fetch service
+      const machineWithMockService = userMachine.withConfig({
+        services: {
+          fetchUsersService: async () => mockUsers
+        }
+      });
+
+      const testService = interpret(machineWithMockService).start();
+
+      testService.onTransition((state) => {
+        if (state.matches({ success: 'viewing' })) {
+          expect(state.context.users).toEqual(mockUsers);
+          testService.stop();
+          done();
+        }
+      });
+
+      testService.send('FETCH_USERS');
+    });
+
+    test('should handle fetch service error', (done) => {
+      const errorMessage = 'Network error';
+
+      // Mock fetch service that throws
+      const machineWithMockService = userMachine.withConfig({
+        services: {
+          fetchUsersService: async () => {
+            throw new Error(errorMessage);
+          }
+        }
+      });
+
+      const testService = interpret(machineWithMockService).start();
+
+      testService.onTransition((state) => {
+        if (state.matches('error')) {
+          expect(state.context.error).toBe(errorMessage);
+          testService.stop();
+          done();
+        }
+      });
+
+      testService.send('FETCH_USERS');
+    });
+  });
+
+  describe('Complex scenarios', () => {
+    test('should handle complete user editing flow', () => {
+      const users = [
+        { id: '1', name: 'John', email: 'john@test.com', status: 'active' as const }
+      ];
+
+      // Initial fetch
+      service.send('FETCH_USERS');
+      service.send({ type: 'FETCH_SUCCESS', users });
+
+      // Select user
+      service.send({ type: 'SELECT_USER', userId: '1' });
+      expect(service.state.value).toEqual({ success: 'editing' });
+
+      // Start update
+      service.send({ type: 'UPDATE_USER', user: { name: 'John Updated' } });
+      expect(service.state.value).toEqual({ success: { editing: 'updating' } });
+
+      // Complete update
+      const updatedUser = { ...users[0], name: 'John Updated' };
+      service.send({ type: 'UPDATE_SUCCESS', user: updatedUser });
+      expect(service.state.value).toEqual({ success: { editing: 'updateSuccess' } });
+
+      // Auto transition back to idle after timeout would happen in real scenario
+    });
+
+    test('should handle retry mechanism correctly', () => {
+      // Initial error
+      service.send('FETCH_USERS');
+      service.send({ type: 'FETCH_ERROR', error: 'Network error' });
+      expect(service.state.context.retryCount).toBe(0);
+
+      // First retry
+      service.send('RETRY');
+      expect(service.state.value).toBe('loading');
+      expect(service.state.context.retryCount).toBe(1);
+
+      // Second error and retry
+      service.send({ type: 'FETCH_ERROR', error: 'Network error' });
+      service.send('RETRY');
+      expect(service.state.context.retryCount).toBe(2);
+
+      // Third error and retry
+      service.send({ type: 'FETCH_ERROR', error: 'Network error' });
+      service.send('RETRY');
+      expect(service.state.context.retryCount).toBe(3);
+
+      // Fourth error - should not allow more retries
+      service.send({ type: 'FETCH_ERROR', error: 'Network error' });
+      service.send('RETRY');
+      expect(service.state.value).toBe('error');
+      expect(service.state.context.error).toBe('Maximum retry attempts exceeded');
+    });
+  });
+
+  describe('Edge cases', () => {
+    test('should handle empty user list', () => {
+      service.send('FETCH_USERS');
+      service.send({ type: 'FETCH_SUCCESS', users: [] });
+
+      expect(service.state.value).toEqual({ success: 'viewing' });
+      expect(service.state.context.users).toEqual([]);
+    });
+
+    test('should handle rapid state transitions', () => {
+      // Rapid fire events
+      service.send('FETCH_USERS');
+      service.send('FETCH_USERS'); // Should not cause issues
+      service.send({ type: 'FETCH_SUCCESS', users: [] });
+
+      expect(service.state.value).toEqual({ success: 'viewing' });
+    });
+  });
+});]]></correct-example>
+          <incorrect-example title="Poor XState testing without proper patterns" conditions="Testing state machines" expected-result="Comprehensive machine testing" incorrectness-criteria="No state transition testing, missing guard testing, no service mocking, poor assertions"><![CDATA[// BAD: Poor XState testing
+describe('Bad User Machine Test', () => {
+  test('should work', () => {
+    const service = interpret(userMachine).start();
+    
+    // No proper state testing
+    expect(service.state).toBeDefined();
+    
+    // No transition testing
+    // No guard testing
+    // No action testing
+    // No service mocking
+    // No edge cases
+    // No cleanup
+  });
+});]]></incorrect-example>
+        </example>
+      </examples>
+    </requirement>
+  </requirements>
+  
+  <context description="XState finite state machine considerations">
+    XState is a library for creating, interpreting, and executing finite state machines and statecharts, as well as managing invocations of those machines as actors. It provides a declarative way to manage complex application state with predictable behavior.
+
+    Key considerations include:
+    - Proper machine definition with hierarchical states and parallel states
+    - Type safety with TypeScript for context, events, and state definitions
+    - Guards for conditional transitions and actions for side effects
+    - Services for handling asynchronous operations and external integrations
+    - React integration with @xstate/react for seamless component integration
+    - Visualization and debugging tools for development and maintenance
+    - Testing strategies covering state transitions, guards, actions, and services
+
+    XState is particularly effective for complex UI flows, form wizards, authentication flows, and any application state that benefits from explicit state modeling and predictable transitions.
+  </context>
+  
+  <references>
+    <reference as="dependency" href=".cursor/rules/000-core/002-cursor-rules-creation.mdc" reason="Follows standard rule format">Base rule format definition</reference>
+    <reference as="context" href="https://xstate.js.org/" reason="Official XState documentation">XState Documentation</reference>
+    <reference as="context" href="https://github.com/statelyai/xstate" reason="XState source code and examples">XState GitHub Repository</reference>
+  </references>
+</rule>

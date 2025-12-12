@@ -1,0 +1,480 @@
+---
+description: Modern MobX React integration using mobx-react-lite with TypeScript and functional components
+globs: "*.{ts,tsx,js,jsx}"
+alwaysApply: false
+---
+
+<rule>
+  <meta>
+    <title>MobX React Lite Core Standards Auto</title>
+    <description>Modern MobX React integration using mobx-react-lite with TypeScript and functional components</description>
+    <created-at utc-timestamp="1744164320">July 16, 2025, 5:32 PM</created-at>
+    <last-updated-at utc-timestamp="1744164320">July 16, 2025, 5:32 PM</last-updated-at>
+    <applies-to>
+      <file-matcher glob="*.{ts,tsx,js,jsx}">TypeScript and JavaScript React component files using MobX</file-matcher>
+      <action-matcher action="mobx-react-development">Triggered when developing React applications with MobX state management</action-matcher>
+    </applies-to>
+  </meta>
+  <requirements>
+    <non-negotiable priority="critical">
+      <description>Use mobx-react-lite instead of mobx-react for React functional components. Always use observer HOC for components that consume observable data.</description>
+      <examples>
+        <example title="Observer Component Pattern">
+          <correct-example title="Functional component with observer" conditions="Creating React component consuming MobX observables" expected-result="Reactive component that updates on observable changes" correctness-criteria="Uses observer HOC, functional component, proper TypeScript typing"><![CDATA[import React from 'react';
+import { observer } from 'mobx-react-lite';
+import { useStore } from '../stores/StoreContext';
+
+interface UserProfileProps {
+  userId: string;
+}
+
+export const UserProfile: React.FC<UserProfileProps> = observer(({ userId }) => {
+  const { userStore } = useStore();
+  const user = userStore.getUserById(userId);
+
+  if (!user) {
+    return <div>Loading...</div>;
+  }
+
+  return (
+    <div>
+      <h2>{user.name}</h2>
+      <p>Email: {user.email}</p>
+      <p>Status: {user.isOnline ? 'Online' : 'Offline'}</p>
+    </div>
+  );
+});
+
+UserProfile.displayName = 'UserProfile';]]></correct-example>
+          <incorrect-example title="Class component or missing observer" conditions="Creating React component consuming MobX observables" expected-result="Reactive component that updates on observable changes" incorrectness-criteria="Uses class component or missing observer HOC"><![CDATA[// Bad: Class component with mobx-react (deprecated approach)
+import React, { Component } from 'react';
+import { observer } from 'mobx-react';
+
+@observer
+class UserProfile extends Component {
+  render() {
+    // Class component pattern
+  }
+}
+
+// Bad: Missing observer
+import React from 'react';
+
+export const UserProfile: React.FC = ({ userId }) => {
+  const { userStore } = useStore();
+  const user = userStore.getUserById(userId); // Won't react to changes!
+  
+  return <div>{user?.name}</div>;
+};]]></incorrect-example>
+        </example>
+      </examples>
+    </non-negotiable>
+    <requirement priority="critical">
+      <description>Use useLocalObservable for component-local observable state instead of useState when complex state interactions are needed.</description>
+      <examples>
+        <example title="Local Observable State">
+          <correct-example title="useLocalObservable for complex local state" conditions="Managing complex component state with computed values" expected-result="Reactive local state with computed properties" correctness-criteria="Uses useLocalObservable, includes computed values, proper cleanup"><![CDATA[import React from 'react';
+import { observer, useLocalObservable } from 'mobx-react-lite';
+
+interface TodoFormProps {
+  onSubmit: (todo: { title: string; priority: number }) => void;
+}
+
+export const TodoForm: React.FC<TodoFormProps> = observer(({ onSubmit }) => {
+  const formState = useLocalObservable(() => ({
+    title: '',
+    priority: 1,
+    errors: [] as string[],
+    
+    get isValid() {
+      return this.title.trim().length > 0 && this.errors.length === 0;
+    },
+    
+    get priorityLabel() {
+      const labels = { 1: 'Low', 2: 'Medium', 3: 'High' };
+      return labels[this.priority as keyof typeof labels] || 'Unknown';
+    },
+    
+    setTitle(title: string) {
+      this.title = title;
+      this.validateTitle();
+    },
+    
+    setPriority(priority: number) {
+      this.priority = Math.max(1, Math.min(3, priority));
+    },
+    
+    validateTitle() {
+      this.errors = this.title.trim().length === 0 ? ['Title is required'] : [];
+    },
+    
+    submit() {
+      if (this.isValid) {
+        onSubmit({ title: this.title, priority: this.priority });
+        this.reset();
+      }
+    },
+    
+    reset() {
+      this.title = '';
+      this.priority = 1;
+      this.errors = [];
+    }
+  }));
+
+  return (
+    <form onSubmit={(e) => { e.preventDefault(); formState.submit(); }}>
+      <input
+        type="text"
+        value={formState.title}
+        onChange={(e) => formState.setTitle(e.target.value)}
+        placeholder="Todo title"
+      />
+      <select
+        value={formState.priority}
+        onChange={(e) => formState.setPriority(Number(e.target.value))}
+      >
+        <option value={1}>Low</option>
+        <option value={2}>Medium</option>
+        <option value={3}>High</option>
+      </select>
+      <p>Priority: {formState.priorityLabel}</p>
+      {formState.errors.map((error, index) => (
+        <p key={index} style={{ color: 'red' }}>{error}</p>
+      ))}
+      <button type="submit" disabled={!formState.isValid}>
+        Add Todo
+      </button>
+    </form>
+  );
+});]]></correct-example>
+          <incorrect-example title="useState for complex state interactions" conditions="Managing complex component state with computed values" expected-result="Reactive local state with computed properties" incorrectness-criteria="Uses multiple useState hooks, manual state synchronization, no computed values"><![CDATA[// Bad: Multiple useState hooks for interdependent state
+import React, { useState, useEffect } from 'react';
+
+export const TodoForm: React.FC = ({ onSubmit }) => {
+  const [title, setTitle] = useState('');
+  const [priority, setPriority] = useState(1);
+  const [errors, setErrors] = useState<string[]>([]);
+  const [isValid, setIsValid] = useState(false);
+  const [priorityLabel, setPriorityLabel] = useState('Low');
+
+  // Manual synchronization - error-prone
+  useEffect(() => {
+    const newErrors = title.trim().length === 0 ? ['Title is required'] : [];
+    setErrors(newErrors);
+    setIsValid(newErrors.length === 0);
+  }, [title]);
+
+  useEffect(() => {
+    const labels = { 1: 'Low', 2: 'Medium', 3: 'High' };
+    setPriorityLabel(labels[priority] || 'Unknown');
+  }, [priority]);
+
+  // Complex state update logic scattered across handlers
+};]]></incorrect-example>
+        </example>
+      </examples>
+    </requirement>
+    <requirement priority="high">
+      <description>Use React Context pattern with MobX stores for dependency injection, avoiding global store instances and enabling better testing.</description>
+      <examples>
+        <example title="Store Context Pattern">
+          <correct-example title="Store dependency injection with React Context" conditions="Providing MobX stores to React component tree" expected-result="Testable store architecture with proper dependency injection" correctness-criteria="Uses React Context, store interfaces, proper TypeScript support"><![CDATA[// stores/StoreContext.tsx
+import React, { createContext, useContext, ReactNode } from 'react';
+import { UserStore } from './UserStore';
+import { TodoStore } from './TodoStore';
+
+export interface RootStore {
+  userStore: UserStore;
+  todoStore: TodoStore;
+}
+
+const StoreContext = createContext<RootStore | null>(null);
+
+export const useStore = (): RootStore => {
+  const store = useContext(StoreContext);
+  if (!store) {
+    throw new Error('useStore must be used within a StoreProvider');
+  }
+  return store;
+};
+
+interface StoreProviderProps {
+  children: ReactNode;
+  store?: RootStore; // Optional for testing
+}
+
+export const StoreProvider: React.FC<StoreProviderProps> = ({ 
+  children, 
+  store 
+}) => {
+  const rootStore = store || {
+    userStore: new UserStore(),
+    todoStore: new TodoStore(),
+  };
+
+  return (
+    <StoreContext.Provider value={rootStore}>
+      {children}
+    </StoreContext.Provider>
+  );
+};
+
+// Usage in component
+import { observer } from 'mobx-react-lite';
+import { useStore } from '../stores/StoreContext';
+
+export const UserList: React.FC = observer(() => {
+  const { userStore } = useStore();
+  
+  return (
+    <div>
+      {userStore.users.map(user => (
+        <div key={user.id}>{user.name}</div>
+      ))}
+    </div>
+  );
+});]]></correct-example>
+          <incorrect-example title="Global store instances" conditions="Providing MobX stores to React component tree" expected-result="Testable store architecture with proper dependency injection" incorrectness-criteria="Uses global store instances, tight coupling, difficult to test"><![CDATA[// Bad: Global store instances
+// stores/index.ts
+export const userStore = new UserStore();
+export const todoStore = new TodoStore();
+
+// Component directly importing global stores
+import React from 'react';
+import { observer } from 'mobx-react-lite';
+import { userStore } from '../stores'; // Hard dependency
+
+export const UserList: React.FC = observer(() => {
+  return (
+    <div>
+      {userStore.users.map(user => ( // Tightly coupled
+        <div key={user.id}>{user.name}</div>
+      ))}
+    </div>
+  );
+});
+
+// Testing becomes difficult - can't inject mock stores]]></incorrect-example>
+        </example>
+      </examples>
+    </requirement>
+    <requirement priority="high">
+      <description>Implement proper MobX store patterns with makeObservable, action decorators, and computed properties using TypeScript.</description>
+      <examples>
+        <example title="MobX Store Implementation">
+          <correct-example title="Modern MobX store with TypeScript" conditions="Creating MobX store class" expected-result="Type-safe store with proper MobX annotations" correctness-criteria="Uses makeObservable, proper action/observable annotations, TypeScript interfaces"><![CDATA[// stores/UserStore.ts
+import { makeObservable, observable, action, computed, runInAction } from 'mobx';
+
+export interface User {
+  id: string;
+  name: string;
+  email: string;
+  isOnline: boolean;
+  lastSeen: Date;
+}
+
+export class UserStore {
+  users = new Map<string, User>();
+  loading = false;
+  error: string | null = null;
+
+  constructor() {
+    makeObservable(this, {
+      users: observable,
+      loading: observable,
+      error: observable,
+      onlineUsers: computed,
+      userCount: computed,
+      setUsers: action,
+      addUser: action,
+      updateUser: action,
+      removeUser: action,
+      setLoading: action,
+      setError: action,
+      fetchUsers: action,
+    });
+  }
+
+  get onlineUsers(): User[] {
+    return Array.from(this.users.values()).filter(user => user.isOnline);
+  }
+
+  get userCount(): number {
+    return this.users.size;
+  }
+
+  setUsers(users: User[]): void {
+    this.users.clear();
+    users.forEach(user => this.users.set(user.id, user));
+  }
+
+  addUser(user: User): void {
+    this.users.set(user.id, user);
+  }
+
+  updateUser(id: string, updates: Partial<User>): void {
+    const user = this.users.get(id);
+    if (user) {
+      Object.assign(user, updates);
+    }
+  }
+
+  removeUser(id: string): void {
+    this.users.delete(id);
+  }
+
+  setLoading(loading: boolean): void {
+    this.loading = loading;
+  }
+
+  setError(error: string | null): void {
+    this.error = error;
+  }
+
+  async fetchUsers(): Promise<void> {
+    this.setLoading(true);
+    this.setError(null);
+    
+    try {
+      const response = await fetch('/api/users');
+      const users: User[] = await response.json();
+      
+      runInAction(() => {
+        this.setUsers(users);
+        this.setLoading(false);
+      });
+    } catch (error) {
+      runInAction(() => {
+        this.setError(error instanceof Error ? error.message : 'Unknown error');
+        this.setLoading(false);
+      });
+    }
+  }
+
+  getUserById(id: string): User | undefined {
+    return this.users.get(id);
+  }
+}]]></correct-example>
+          <incorrect-example title="Poor MobX store implementation" conditions="Creating MobX store class" expected-result="Type-safe store with proper MobX annotations" incorrectness-criteria="Missing makeObservable, incorrect annotations, poor async handling"><![CDATA[// Bad: Missing makeObservable and proper annotations
+import { observable, action, computed } from 'mobx';
+
+export class UserStore {
+  @observable users = []; // Missing type annotations
+  @observable loading = false;
+
+  // Missing constructor with makeObservable
+
+  @computed get onlineUsers() {
+    return this.users.filter(user => user.isOnline); // No type safety
+  }
+
+  @action setUsers(users) { // No parameter typing
+    this.users = users;
+  }
+
+  // Bad: Async action without runInAction
+  @action async fetchUsers() {
+    this.loading = true;
+    const response = await fetch('/api/users');
+    const users = await response.json();
+    this.users = users; // Modifying observable outside action
+    this.loading = false; // Modifying observable outside action
+  }
+}]]></incorrect-example>
+        </example>
+      </examples>
+    </requirement>
+    <requirement priority="high">
+      <description>Use enableStaticRendering for SSR compatibility and configure MobX properly for React applications with Strict Mode.</description>
+      <examples>
+        <example title="MobX SSR and React Configuration">
+          <correct-example title="SSR-compatible MobX setup" conditions="Setting up MobX for Next.js or SSR application" expected-result="MobX configuration that works with SSR and React Strict Mode" correctness-criteria="Uses enableStaticRendering, proper React 18 compatibility"><![CDATA[// utils/mobx-config.ts
+import { configure, enableStaticRendering } from 'mobx';
+
+// Enable static rendering for SSR
+enableStaticRendering(typeof window === 'undefined');
+
+// Configure MobX for React applications
+configure({
+  enforceActions: 'always',
+  computedRequiresReaction: true,
+  reactionRequiresObservable: true,
+  observableRequiresReaction: true,
+  disableErrorBoundaries: true, // Let React handle errors
+});
+
+// App initialization (pages/_app.tsx in Next.js)
+import { StoreProvider } from '../stores/StoreContext';
+import { RootStore } from '../stores/RootStore';
+import '../utils/mobx-config'; // Import configuration
+
+let store: RootStore | undefined;
+
+function initializeStore(initialData?: any): RootStore {
+  const _store = store ?? new RootStore();
+
+  // If page has initial data, hydrate the store
+  if (initialData) {
+    _store.hydrate(initialData);
+  }
+
+  // For SSG and SSR always create a new store
+  if (typeof window === 'undefined') return _store;
+  
+  // Create the store once on the client
+  if (!store) store = _store;
+  return _store;
+}
+
+export default function App({ Component, pageProps }: AppProps) {
+  const store = initializeStore(pageProps.initialStoreData);
+
+  return (
+    <StoreProvider store={store}>
+      <Component {...pageProps} />
+    </StoreProvider>
+  );
+}]]></correct-example>
+          <incorrect-example title="Improper SSR configuration" conditions="Setting up MobX for Next.js or SSR application" expected-result="MobX configuration that works with SSR and React Strict Mode" incorrectness-criteria="Missing enableStaticRendering, improper store initialization, hydration issues"><![CDATA[// Bad: Missing SSR configuration
+import { configure } from 'mobx';
+
+// Missing enableStaticRendering - will cause hydration mismatches
+configure({
+  enforceActions: 'observed', // Too permissive
+});
+
+// Bad: Global store instance on client
+const globalStore = new RootStore(); // Will cause issues with SSR
+
+export default function App({ Component, pageProps }: AppProps) {
+  return (
+    <StoreProvider store={globalStore}> {/* Same instance for all requests */}
+      <Component {...pageProps} />
+    </StoreProvider>
+  );
+}]]></incorrect-example>
+        </example>
+      </examples>
+    </requirement>
+  </requirements>
+  <context description="MobX React Lite development considerations">
+    MobX React Lite is the recommended package for integrating MobX with React functional components. It provides a smaller bundle size and better performance compared to the original mobx-react package. The library is designed specifically for React hooks and functional components.
+
+    Key advantages of mobx-react-lite:
+    - Smaller bundle size (no class component support)
+    - Better React 18 and Concurrent Features compatibility
+    - Optimized for functional components and hooks
+    - Improved TypeScript support
+
+    Common patterns include using observer HOC for reactive components, useLocalObservable for component-local state, and React Context for store dependency injection. The library works well with SSR frameworks like Next.js when properly configured with enableStaticRendering.
+
+    Performance considerations include proper use of computed values, minimizing observer components, and avoiding unnecessary re-renders through strategic component design.
+  </context>
+  <references>
+    <reference as="dependency" href=".cursor/rules/000-core/002-cursor-rules-creation.mdc" reason="Follows standard rule format">Base rule format definition</reference>
+    <reference as="context" href=".cursor/rules/400-frameworks/402-react-core-standards-auto.mdc" reason="React development patterns">React component best practices</reference>
+    <reference as="context" href="https://mobx.js.org/react-integration.html" reason="Official documentation">MobX React integration guide</reference>
+    <reference as="context" href="https://github.com/mobxjs/mobx-react-lite" reason="Library documentation">mobx-react-lite official repository</reference>
+  </references>
+</rule>

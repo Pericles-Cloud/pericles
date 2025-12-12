@@ -1,0 +1,119 @@
+---
+description: "Pericles Plans core standards for incident response planning, workflows, communications, and decision support integrated with Atlas, Events, and Insights"
+globs: "*"
+alwaysApply: false
+---
+
+<rule>
+  <meta>
+    <title>Pericles Plans Core Standards</title>
+    <description>Defines core standards for creating, executing, and improving incident response plans with deep integration to Atlas, Events, and Insights.</description>
+  </meta>
+  <requirements>
+    <requirement priority="high">
+      <description>Define business goals and objectives for Plans aligned to organizational resilience and MTTR reduction.</description>
+      <examples>
+        <example title="Business Goals">
+          <correct-example><![CDATA[
+Goals documented and visible within Plans admin UI.
+Objectives traceable to measurable KPIs (e.g., MTTR, response coverage).
+]]></correct-example>
+        </example>
+      </examples>
+    </requirement>
+    <requirement priority="high">
+      <description>Capture user stories for all primary roles (CISO, IT, Comms, HR, Operations) across plan lifecycle.</description>
+      <examples>
+        <example title="User Stories">
+          <correct-example><![CDATA[
+Backlog of role-based user stories exists with acceptance criteria.
+Stories trace to features and tests in CI.
+]]></correct-example>
+        </example>
+      </examples>
+    </requirement>
+    <requirement priority="critical">
+      <description>Implement role-based access, tenant isolation, and audit logging for all plan actions.</description>
+      <examples>
+        <example title="Security & Audit">
+          <correct-example><![CDATA[
+Unauthorized actions return 403 and are logged.
+All create/update/delete/export actions generate audit entries with user, time, scope.
+]]></correct-example>
+        </example>
+      </examples>
+    </requirement>
+    <requirement priority="high">
+      <description>Ensure performance targets for UI interactions and exports under realistic loads.</description>
+      <examples>
+        <example title="Performance Targets">
+          <correct-example><![CDATA[
+Dashboard P95 load < 2s on warm cache; interactions 60 FPS; exports complete under 30s P95.
+Tables are virtualized; queries paginated and indexed.
+]]></correct-example>
+        </example>
+      </examples>
+    </requirement>
+    <requirement priority="high">
+      <description>Accessibility conformance at WCAG 2.1 AA for all user-facing components.</description>
+      <examples>
+        <example title="Accessibility">
+          <correct-example><![CDATA[
+Automated a11y scans show zero critical violations.
+Keyboard navigation and ARIA labeling validated on core flows.
+]]></correct-example>
+        </example>
+      </examples>
+    </requirement>
+  </requirements>
+  <context description="Plans Features, Integrations, Compliance, and Notes">
+    <![CDATA[
+Features:
+  core:
+    - title: Plan Creation & Customization
+      description: Templates for common scenarios with organizational customization and version control.
+      options: ["cyber breach", "ransomware", "natural disaster", "supply chain disruption", "workplace violence"]
+    - title: Roles, Responsibilities & Escalation Paths
+      description: Role-based assignments and escalation workflows with directory integration.
+      options: ["CISO", "IT", "Communications", "HR", "Legal", "Operations"]
+    - title: Automated Response Workflows
+      description: Task orchestration with completion tracking, conditional branching, and tool integrations.
+      options: ["Conditional playbooks", "Jira", "ServiceNow", "SIEM", "SOAR"]
+    - title: Communication & Collaboration
+      description: Centralized communications, multi-channel alerts, Slack/Teams integration, and PR templates.
+      options: ["email", "SMS", "push notifications", "voice calls", "Slack", "Microsoft Teams"]
+    - title: Monitoring & Detection Integrations
+      description: Ingest feeds from SIEM/EDR/threat intel and auto-generate incidents upon triggers.
+      options: ["SIEM", "EDR", "Threat Intelligence"]
+    - title: Simulation & Testing (Tabletop Exercises)
+      description: Built-in drills, scenario tracking, outcomes analysis, and improvement recommendations.
+      options: ["tabletop scenarios", "automated recommendations"]
+    - title: Audit, Reporting & Compliance
+      description: Detailed logs, communications, action histories, and regulatory reporting with dashboards.
+      options: ["ISO 27001", "NIST", "HIPAA", "GDPR", "MTTR metrics"]
+    - title: Post-Incident Review & Continuous Improvement
+      description: Root cause analysis, linkage to risk registers/mitigation plans, and lessons learned.
+      options: ["RCA", "risk register linkage", "playbook updates"]
+  premium:
+    - title: AI-driven Recommendations
+      description: Prioritize responses and resources using AI based on incident context.
+      options: ["priority suggestions", "confidence scoring"]
+    - title: Geospatial Risk Mapping
+      description: Physical incident overlays and proximity analysis in Atlas for plan activation.
+      options: ["facility proximity", "route impact"]
+    - title: Third-Party Coordination
+      description: Workflows for vendors, regulators, insurers with secure collaboration.
+      options: ["external invites", "document exchange"]
+    - title: Mobile-first Field Operations
+      description: Optimized mobile access for on-site actions and updates.
+      options: ["offline-ready", "push actions"]
+
+Integrations: ["Jira", "ServiceNow", "Slack", "Microsoft Teams", "SIEM", "SOAR", "EDR", "Threat Intelligence", "Email/SMS/Push/Voice Providers", "HR/IT Directory"]
+Compliance: ["ISO 27001", "NIST", "HIPAA", "GDPR"]
+Auditing:
+  enabled: true
+  notes: All plan lifecycle actions (create/update/activate/escalate/close/export) are audited with user, timestamp, scope, and diff.
+Notes: UI color palette and detailed styling follow Admin Portal/Atlas standards; specific provider details for HR/IT directories and voice providers may vary by tenant and are noted as integrations.
+    ]]>
+  </context>
+</rule>

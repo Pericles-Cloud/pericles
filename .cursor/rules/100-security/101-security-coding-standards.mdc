@@ -1,0 +1,2189 @@
+---
+description: "Security Coding Standards"
+globs: ["*.{py,ts,tsx,js,jsx,ex,exs,eex,heex,leex,json,yaml,yml,md}"]
+alwaysApply: false
+---
+
+<rule>
+  <meta>
+    <title>Security Coding Standards</title>
+    <description>Comprehensive security coding standards covering SAST, DAST, security by design, password management, access control, error handling, cryptographic practices, and input validation with best practices for Python, TypeScript, and Elixir</description>
+    <created-at utc-timestamp="1744245220">January 27, 2025, 11:40 AM</created-at>
+    <last-updated-at utc-timestamp="1744245220">January 27, 2025, 11:40 AM</last-updated-at>
+    <applies-to>
+      <file-matcher glob="*.{py,ts,tsx,js,jsx,ex,exs,eex,heex,leex,json,yaml,yml,md}">All source code, configuration, and documentation files</file-matcher>
+      <action-matcher action="security-coding">Triggered when implementing security-sensitive code</action-matcher>
+    </applies-to>
+  </meta>
+  <requirements>
+    <non-negotiable priority="critical">
+      <description>Implement Security by Design principles from the earliest stages of development with threat modeling, secure architecture patterns, and defense in depth.</description>
+      <examples>
+        <example title="Security by Design Implementation">
+          <correct-example title="Secure architecture with proper layering" conditions="Designing application security" expected-result="Layered security with proper boundaries" correctness-criteria="Uses defense in depth, principle of least privilege, and secure defaults"><![CDATA[# Python - Secure API design
+from typing import Optional
+from dataclasses import dataclass
+from enum import Enum
+import logging
+
+class UserRole(Enum):
+    USER = "user"
+    ADMIN = "admin"
+    MODERATOR = "moderator"
+
+@dataclass
+class SecurityContext:
+    user_id: str
+    roles: List[UserRole]
+    permissions: List[str]
+    session_id: str
+    ip_address: str
+
+class SecureAPIHandler:
+    def __init__(self, auth_service, audit_service):
+        self.auth_service = auth_service
+        self.audit_service = audit_service
+    
+    def handle_request(self, request, required_permission: str):
+        # Authentication
+        context = self.auth_service.authenticate(request)
+        if not context:
+            self.audit_service.log_auth_failure(request.ip)
+            raise UnauthorizedError("Authentication failed")
+        
+        # Authorization
+        if not self.auth_service.has_permission(context, required_permission):
+            self.audit_service.log_authz_failure(context.user_id, required_permission)
+            raise ForbiddenError("Insufficient permissions")
+        
+        # Input validation
+        validated_data = self.validate_input(request.data)
+        
+        # Business logic with audit trail
+        result = self.process_request(validated_data, context)
+        self.audit_service.log_action(context.user_id, "request_processed", result.id)
+        
+        return result
+
+# TypeScript - Secure frontend architecture
+interface SecurityHeaders {
+  'Content-Security-Policy': string;
+  'X-Frame-Options': string;
+  'X-Content-Type-Options': string;
+  'Strict-Transport-Security': string;
+  'X-XSS-Protection': string;
+}
+
+class SecurityService {
+  private readonly apiClient: SecureAPIClient;
+  private readonly tokenStorage: SecureTokenStorage;
+  private readonly auditLogger: AuditLogger;
+
+  constructor(config: SecurityConfig) {
+    this.apiClient = new SecureAPIClient(config.apiUrl);
+    this.tokenStorage = new SecureTokenStorage();
+    this.auditLogger = new AuditLogger();
+  }
+
+  async authenticateUser(credentials: LoginCredentials): Promise<AuthResult> {
+    try {
+      // Input validation
+      const validatedCredentials = this.validateCredentials(credentials);
+      
+      // Secure API call
+      const response = await this.apiClient.post('/auth/login', validatedCredentials);
+      
+      // Secure token storage
+      await this.tokenStorage.store(response.token);
+      
+      // Audit logging
+      this.auditLogger.logAuthSuccess(credentials.username);
+      
+      return { success: true, user: response.user };
+    } catch (error) {
+      this.auditLogger.logAuthFailure(credentials.username, error.message);
+      throw new AuthenticationError('Authentication failed');
+    }
+  }
+
+  private validateCredentials(credentials: LoginCredentials): LoginCredentials {
+    if (!credentials.username || !credentials.password) {
+      throw new ValidationError('Username and password are required');
+    }
+    // Additional validation logic
+    return credentials;
+  }
+}
+
+# Elixir - Secure Phoenix application structure
+defmodule MyApp.Security do
+  @moduledoc """
+  Security utilities and policies for the application.
+  """
+  
+  alias MyApp.Accounts.User
+  alias MyApp.Audit
+  
+  @doc """
+  Authorizes a user action with proper audit logging.
+  """
+  def authorize_action(user, action, resource) do
+    with {:ok, permissions} <- get_user_permissions(user),
+         :ok <- check_permission(permissions, action, resource),
+         :ok <- Audit.log_authorization(user.id, action, resource.id) do
+      :ok
+    else
+      {:error, :unauthorized} ->
+        Audit.log_auth_failure(user.id, action, resource.id)
+        {:error, :unauthorized}
+      {:error, reason} ->
+        Audit.log_error(user.id, action, reason)
+        {:error, reason}
+    end
+  end
+  
+  defp get_user_permissions(%User{} = user) do
+    user
+    |> MyApp.Accounts.get_user_roles()
+    |> Enum.flat_map(&get_role_permissions/1)
+    |> then(&{:ok, &1})
+  rescue
+    error -> {:error, error}
+  end
+  
+  defp check_permission(permissions, action, resource) do
+    if Enum.any?(permissions, &matches_permission?(&1, action, resource)) do
+      :ok
+    else
+      {:error, :unauthorized}
+    end
+  end
+end]]></correct-example>
+          <incorrect-example title="Insecure architecture without proper security layers" conditions="Designing application security" expected-result="Layered security with proper boundaries" incorrectness-criteria="Missing authentication, no authorization, no audit logging, no input validation"><![CDATA[# Python - Insecure API design
+def handle_request(request):
+    # No authentication
+    # No authorization
+    # No input validation
+    # No audit logging
+    result = process_request(request.data)
+    return result
+
+# TypeScript - Insecure frontend
+class APIService {
+  async login(username: string, password: string) {
+    // No input validation
+    // No secure storage
+    // No error handling
+    const response = await fetch('/api/login', {
+      method: 'POST',
+      body: JSON.stringify({ username, password })
+    });
+    return response.json();
+  }
+}
+
+# Elixir - Insecure Phoenix controller
+defmodule MyAppWeb.UserController do
+  use MyAppWeb, :controller
+  
+  def update(conn, %{"id" => id, "user" => user_params}) do
+    # No authentication check
+    # No authorization
+    # No input validation
+    # No audit logging
+    user = MyApp.Accounts.get_user!(id)
+    {:ok, user} = MyApp.Accounts.update_user(user, user_params)
+    render(conn, "show.json", user: user)
+  end
+end]]></incorrect-example>
+        </example>
+      </examples>
+    </non-negotiable>
+
+    <non-negotiable priority="critical">
+      <description>Implement secure password management with proper hashing, salting, and password policies following OWASP guidelines.</description>
+      <examples>
+        <example title="Password Security Implementation">
+          <correct-example title="Secure password handling" conditions="Implementing password management" expected-result="Strong password security" correctness-criteria="Uses secure hashing, proper salting, and enforces password policies"><![CDATA[# Python - Secure password management
+import bcrypt
+import secrets
+import re
+from typing import Optional, Dict, Any
+from dataclasses import dataclass
+
+@dataclass
+class PasswordPolicy:
+    min_length: int = 12
+    require_uppercase: bool = True
+    require_lowercase: bool = True
+    require_numbers: bool = True
+    require_special: bool = True
+    max_age_days: int = 90
+    history_count: int = 12
+
+class SecurePasswordManager:
+    def __init__(self, policy: PasswordPolicy):
+        self.policy = policy
+        self.rounds = 12  # bcrypt rounds
+    
+    def hash_password(self, password: str) -> str:
+        """Hash password with bcrypt and random salt."""
+        if not self.validate_password(password):
+            raise ValueError("Password does not meet policy requirements")
+        
+        salt = bcrypt.gensalt(rounds=self.rounds)
+        return bcrypt.hashpw(password.encode('utf-8'), salt).decode('utf-8')
+    
+    def verify_password(self, password: str, hashed: str) -> bool:
+        """Verify password against hash."""
+        try:
+            return bcrypt.checkpw(password.encode('utf-8'), hashed.encode('utf-8'))
+        except Exception:
+            return False
+    
+    def validate_password(self, password: str) -> bool:
+        """Validate password against policy."""
+        if len(password) < self.policy.min_length:
+            return False
+        
+        if self.policy.require_uppercase and not re.search(r'[A-Z]', password):
+            return False
+        
+        if self.policy.require_lowercase and not re.search(r'[a-z]', password):
+            return False
+        
+        if self.policy.require_numbers and not re.search(r'\d', password):
+            return False
+        
+        if self.policy.require_special and not re.search(r'[!@#$%^&*(),.?":{}|<>]', password):
+            return False
+        
+        return True
+    
+    def generate_secure_token(self, length: int = 32) -> str:
+        """Generate cryptographically secure token."""
+        return secrets.token_urlsafe(length)
+
+# TypeScript - Secure password handling
+interface PasswordPolicy {
+  minLength: number;
+  requireUppercase: boolean;
+  requireLowercase: boolean;
+  requireNumbers: boolean;
+  requireSpecial: boolean;
+  maxAgeDays: number;
+  historyCount: number;
+}
+
+class PasswordValidator {
+  private readonly policy: PasswordPolicy;
+  
+  constructor(policy: PasswordPolicy) {
+    this.policy = policy;
+  }
+  
+  validatePassword(password: string): { isValid: boolean; errors: string[] } {
+    const errors: string[] = [];
+    
+    if (password.length < this.policy.minLength) {
+      errors.push(`Password must be at least ${this.policy.minLength} characters`);
+    }
+    
+    if (this.policy.requireUppercase && !/[A-Z]/.test(password)) {
+      errors.push('Password must contain uppercase letter');
+    }
+    
+    if (this.policy.requireLowercase && !/[a-z]/.test(password)) {
+      errors.push('Password must contain lowercase letter');
+    }
+    
+    if (this.policy.requireNumbers && !/\d/.test(password)) {
+      errors.push('Password must contain number');
+    }
+    
+    if (this.policy.requireSpecial && !/[!@#$%^&*(),.?":{}|<>]/.test(password)) {
+      errors.push('Password must contain special character');
+    }
+    
+    return { isValid: errors.length === 0, errors };
+  }
+  
+  generateSecurePassword(length: number = 16): string {
+    const charset = 'abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789!@#$%^&*(),.?":{}|<>';
+    const array = new Uint8Array(length);
+    crypto.getRandomValues(array);
+    
+    return Array.from(array, byte => charset[byte % charset.length]).join('');
+  }
+}
+
+# Elixir - Secure password management
+defmodule MyApp.Accounts.Password do
+  @moduledoc """
+  Secure password management with bcrypt hashing and policy enforcement.
+  """
+  
+  alias Bcrypt
+  
+  @password_policy %{
+    min_length: 12,
+    require_uppercase: true,
+    require_lowercase: true,
+    require_numbers: true,
+    require_special: true,
+    max_age_days: 90,
+    history_count: 12
+  }
+  
+  @doc """
+  Hash password with bcrypt.
+  """
+  def hash_password(password) when is_binary(password) do
+    with :ok <- validate_password(password) do
+      {:ok, Bcrypt.hash_pwd_salt(password, rounds: 12)}
+    end
+  end
+  
+  @doc """
+  Verify password against hash.
+  """
+  def verify_password(password, hash) when is_binary(password) and is_binary(hash) do
+    Bcrypt.verify_pass(password, hash)
+  end
+  
+  @doc """
+  Validate password against policy.
+  """
+  def validate_password(password) when is_binary(password) do
+    with :ok <- check_length(password),
+         :ok <- check_uppercase(password),
+         :ok <- check_lowercase(password),
+         :ok <- check_numbers(password),
+         :ok <- check_special(password) do
+      :ok
+    end
+  end
+  
+  defp check_length(password) do
+    if String.length(password) >= @password_policy.min_length do
+      :ok
+    else
+      {:error, "Password must be at least #{@password_policy.min_length} characters"}
+    end
+  end
+  
+  defp check_uppercase(password) do
+    if @password_policy.require_uppercase and not Regex.match?(~r/[A-Z]/, password) do
+      {:error, "Password must contain uppercase letter"}
+    else
+      :ok
+    end
+  end
+  
+  defp check_lowercase(password) do
+    if @password_policy.require_lowercase and not Regex.match?(~r/[a-z]/, password) do
+      {:error, "Password must contain lowercase letter"}
+    else
+      :ok
+    end
+  end
+  
+  defp check_numbers(password) do
+    if @password_policy.require_numbers and not Regex.match?(~r/\d/, password) do
+      {:error, "Password must contain number"}
+    else
+      :ok
+    end
+  end
+  
+  defp check_special(password) do
+    if @password_policy.require_special and not Regex.match?(~r/[!@#$%^&*(),.?":{}|<>]/, password) do
+      {:error, "Password must contain special character"}
+    else
+      :ok
+    end
+  end
+  
+  @doc """
+  Generate secure random token.
+  """
+  def generate_secure_token(length \\ 32) do
+    length
+    |> :crypto.strong_rand_bytes()
+    |> Base.url_encode64()
+    |> String.slice(0, length)
+  end
+end]]></correct-example>
+          <incorrect-example title="Insecure password handling" conditions="Implementing password management" expected-result="Strong password security" incorrectness-criteria="Uses weak hashing, no salt, no password policy enforcement"><![CDATA[# Python - Insecure password handling
+import hashlib
+
+def hash_password(password):
+    # Using MD5 - weak hash function
+    return hashlib.md5(password.encode()).hexdigest()
+
+def verify_password(password, hash):
+    return hashlib.md5(password.encode()).hexdigest() == hash
+
+# TypeScript - Insecure password handling
+class BadPasswordManager {
+  hashPassword(password: string): string {
+    // Using SHA-1 without salt - vulnerable
+    return btoa(password);
+  }
+  
+  verifyPassword(password: string, hash: string): boolean {
+    return btoa(password) === hash;
+  }
+}
+
+# Elixir - Insecure password handling
+defmodule BadPasswordManager do
+  def hash_password(password) do
+    # Using SHA-256 without salt - vulnerable to rainbow tables
+    :crypto.hash(:sha256, password) |> Base.encode16()
+  end
+  
+  def verify_password(password, hash) do
+    hash_password(password) == hash
+  end
+end]]></incorrect-example>
+        </example>
+      </examples>
+    </non-negotiable>
+
+    <non-negotiable priority="critical">
+      <description>Implement comprehensive input validation and output encoding to prevent injection attacks including XSS, SQL injection, command injection, and other attack vectors.</description>
+      <examples>
+        <example title="Input Validation and Output Encoding">
+          <correct-example title="Secure input validation and output encoding" conditions="Handling user input and output" expected-result="Protection against injection attacks" correctness-criteria="Uses parameterized queries, input validation, output encoding, and CSP headers"><![CDATA[# Python - Secure input validation
+import re
+import html
+import json
+from typing import Any, Dict, List, Optional, Union
+from dataclasses import dataclass
+from enum import Enum
+
+class ValidationType(Enum):
+    EMAIL = "email"
+    USERNAME = "username"
+    PASSWORD = "password"
+    PHONE = "phone"
+    URL = "url"
+    INTEGER = "integer"
+    FLOAT = "float"
+    ALPHANUMERIC = "alphanumeric"
+
+@dataclass
+class ValidationRule:
+    type: ValidationType
+    min_length: Optional[int] = None
+    max_length: Optional[int] = None
+    pattern: Optional[str] = None
+    required: bool = True
+    sanitize: bool = True
+
+class SecureInputValidator:
+    VALIDATION_PATTERNS = {
+        ValidationType.EMAIL: r'^[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}$',
+        ValidationType.USERNAME: r'^[a-zA-Z0-9_]{3,30}$',
+        ValidationType.PHONE: r'^\+?1?-?\.?\s?\(?\d{3}\)?[\s.-]?\d{3}[\s.-]?\d{4}$',
+        ValidationType.URL: r'^https?:\/\/(www\.)?[-a-zA-Z0-9@:%._\+~#=]{1,256}\.[a-zA-Z0-9()]{1,6}\b([-a-zA-Z0-9()@:%_\+.~#?&//=]*)$',
+        ValidationType.ALPHANUMERIC: r'^[a-zA-Z0-9]+$'
+    }
+    
+    def validate_input(self, value: Any, rules: List[ValidationRule]) -> Dict[str, Any]:
+        """Validate input against multiple rules."""
+        errors = []
+        sanitized_value = value
+        
+        for rule in rules:
+            try:
+                sanitized_value = self._validate_single_rule(sanitized_value, rule)
+            except ValueError as e:
+                errors.append(str(e))
+        
+        return {
+            'value': sanitized_value,
+            'errors': errors,
+            'valid': len(errors) == 0
+        }
+    
+    def _validate_single_rule(self, value: Any, rule: ValidationRule) -> Any:
+        """Validate against a single rule."""
+        if value is None or value == '':
+            if rule.required:
+                raise ValueError(f"Field is required")
+            return value
+        
+        # Convert to string for validation
+        str_value = str(value).strip()
+        
+        # Length validation
+        if rule.min_length and len(str_value) < rule.min_length:
+            raise ValueError(f"Must be at least {rule.min_length} characters")
+        
+        if rule.max_length and len(str_value) > rule.max_length:
+            raise ValueError(f"Must not exceed {rule.max_length} characters")
+        
+        # Pattern validation
+        pattern = rule.pattern or self.VALIDATION_PATTERNS.get(rule.type)
+        if pattern and not re.match(pattern, str_value):
+            raise ValueError(f"Invalid {rule.type.value} format")
+        
+        # Type-specific validation
+        if rule.type == ValidationType.INTEGER:
+            try:
+                return int(str_value)
+            except ValueError:
+                raise ValueError("Must be a valid integer")
+        
+        elif rule.type == ValidationType.FLOAT:
+            try:
+                return float(str_value)
+            except ValueError:
+                raise ValueError("Must be a valid number")
+        
+        # Sanitization
+        if rule.sanitize:
+            str_value = self._sanitize_input(str_value)
+        
+        return str_value
+    
+    def _sanitize_input(self, value: str) -> str:
+        """Sanitize input to remove potentially harmful content."""
+        # Remove null bytes
+        value = value.replace('\0', '')
+        
+        # Remove control characters except newlines and tabs
+        value = re.sub(r'[\x00-\x08\x0B\x0C\x0E-\x1F\x7F]', '', value)
+        
+        # HTML encode for XSS prevention
+        value = html.escape(value, quote=True)
+        
+        return value.strip()
+
+class SecureOutputEncoder:
+    @staticmethod
+    def encode_html(value: str) -> str:
+        """Encode output for HTML context."""
+        return html.escape(str(value), quote=True)
+    
+    @staticmethod
+    def encode_json(value: Any) -> str:
+        """Encode output for JSON context."""
+        return json.dumps(value, ensure_ascii=True, separators=(',', ':'))
+    
+    @staticmethod
+    def encode_url(value: str) -> str:
+        """Encode output for URL context."""
+        from urllib.parse import quote
+        return quote(str(value), safe='')
+    
+    @staticmethod
+    def encode_css(value: str) -> str:
+        """Encode output for CSS context."""
+        import re
+        # Remove non-alphanumeric characters except spaces and hyphens
+        return re.sub(r'[^a-zA-Z0-9\s\-]', '', str(value))
+
+# TypeScript - Secure input validation
+interface ValidationRule {
+  type: 'email' | 'username' | 'password' | 'phone' | 'url' | 'integer' | 'float' | 'alphanumeric';
+  minLength?: number;
+  maxLength?: number;
+  pattern?: RegExp;
+  required?: boolean;
+  sanitize?: boolean;
+}
+
+interface ValidationResult {
+  value: any;
+  errors: string[];
+  valid: boolean;
+}
+
+class SecureInputValidator {
+  private readonly patterns: Record<string, RegExp> = {
+    email: /^[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}$/,
+    username: /^[a-zA-Z0-9_]{3,30}$/,
+    phone: /^\+?1?-?\.?\s?\(?\d{3}\)?[\s.-]?\d{3}[\s.-]?\d{4}$/,
+    url: /^https?:\/\/(www\.)?[-a-zA-Z0-9@:%._\+~#=]{1,256}\.[a-zA-Z0-9()]{1,6}\b([-a-zA-Z0-9()@:%_\+.~#?&//=]*)$/,
+    alphanumeric: /^[a-zA-Z0-9]+$/
+  };
+  
+  validateInput(value: any, rules: ValidationRule[]): ValidationResult {
+    const errors: string[] = [];
+    let sanitizedValue = value;
+    
+    for (const rule of rules) {
+      try {
+        sanitizedValue = this.validateSingleRule(sanitizedValue, rule);
+      } catch (error) {
+        errors.push(error.message);
+      }
+    }
+    
+    return {
+      value: sanitizedValue,
+      errors,
+      valid: errors.length === 0
+    };
+  }
+  
+  private validateSingleRule(value: any, rule: ValidationRule): any {
+    if (value === null || value === undefined || value === '') {
+      if (rule.required) {
+        throw new Error('Field is required');
+      }
+      return value;
+    }
+    
+    const strValue = String(value).trim();
+    
+    // Length validation
+    if (rule.minLength && strValue.length < rule.minLength) {
+      throw new Error(`Must be at least ${rule.minLength} characters`);
+    }
+    
+    if (rule.maxLength && strValue.length > rule.maxLength) {
+      throw new Error(`Must not exceed ${rule.maxLength} characters`);
+    }
+    
+    // Pattern validation
+    const pattern = rule.pattern || this.patterns[rule.type];
+    if (pattern && !pattern.test(strValue)) {
+      throw new Error(`Invalid ${rule.type} format`);
+    }
+    
+    // Type-specific validation
+    if (rule.type === 'integer') {
+      const intValue = parseInt(strValue, 10);
+      if (isNaN(intValue)) {
+        throw new Error('Must be a valid integer');
+      }
+      return intValue;
+    }
+    
+    if (rule.type === 'float') {
+      const floatValue = parseFloat(strValue);
+      if (isNaN(floatValue)) {
+        throw new Error('Must be a valid number');
+      }
+      return floatValue;
+    }
+    
+    // Sanitization
+    if (rule.sanitize) {
+      return this.sanitizeInput(strValue);
+    }
+    
+    return strValue;
+  }
+  
+  private sanitizeInput(value: string): string {
+    return value
+      .replace(/\0/g, '') // Remove null bytes
+      .replace(/[\x00-\x08\x0B\x0C\x0E-\x1F\x7F]/g, '') // Remove control characters
+      .replace(/[<>'"&]/g, (match) => { // HTML encode
+        const htmlEntities: Record<string, string> = {
+          '<': '&lt;',
+          '>': '&gt;',
+          '"': '&quot;',
+          "'": '&#39;',
+          '&': '&amp;'
+        };
+        return htmlEntities[match];
+      })
+      .trim();
+  }
+}
+
+class SecureOutputEncoder {
+  static encodeHtml(value: string): string {
+    return String(value).replace(/[<>'"&]/g, (match) => {
+      const htmlEntities: Record<string, string> = {
+        '<': '&lt;',
+        '>': '&gt;',
+        '"': '&quot;',
+        "'": '&#39;',
+        '&': '&amp;'
+      };
+      return htmlEntities[match];
+    });
+  }
+  
+  static encodeJson(value: any): string {
+    return JSON.stringify(value).replace(/</g, '\\u003c').replace(/>/g, '\\u003e');
+  }
+  
+  static encodeUrl(value: string): string {
+    return encodeURIComponent(String(value));
+  }
+}
+
+# Elixir - Secure input validation
+defmodule MyApp.Security.InputValidator do
+  @moduledoc """
+  Secure input validation and sanitization.
+  """
+  
+  @validation_patterns %{
+    email: ~r/^[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}$/,
+    username: ~r/^[a-zA-Z0-9_]{3,30}$/,
+    phone: ~r/^\+?1?-?\.?\s?\(?\d{3}\)?[\s.-]?\d{3}[\s.-]?\d{4}$/,
+    url: ~r/^https?:\/\/(www\.)?[-a-zA-Z0-9@:%._\+~#=]{1,256}\.[a-zA-Z0-9()]{1,6}\b([-a-zA-Z0-9()@:%_\+.~#?&\/\/=]*)$/,
+    alphanumeric: ~r/^[a-zA-Z0-9]+$/
+  }
+  
+  @doc """
+  Validate input against validation rules.
+  """
+  def validate_input(value, rules) when is_list(rules) do
+    Enum.reduce_while(rules, {:ok, value}, fn rule, {:ok, acc_value} ->
+      case validate_single_rule(acc_value, rule) do
+        {:ok, validated_value} -> {:cont, {:ok, validated_value}}
+        {:error, reason} -> {:halt, {:error, reason}}
+      end
+    end)
+  end
+  
+  defp validate_single_rule(value, rule) do
+    with :ok <- check_required(value, rule),
+         :ok <- check_length(value, rule),
+         :ok <- check_pattern(value, rule),
+         {:ok, typed_value} <- check_type(value, rule),
+         {:ok, sanitized_value} <- sanitize_if_needed(typed_value, rule) do
+      {:ok, sanitized_value}
+    end
+  end
+  
+  defp check_required(value, %{required: true}) when value in [nil, ""], do: {:error, "Field is required"}
+  defp check_required(_, _), do: :ok
+  
+  defp check_length(value, %{min_length: min}) when is_binary(value) and byte_size(value) < min do
+    {:error, "Must be at least #{min} characters"}
+  end
+  defp check_length(value, %{max_length: max}) when is_binary(value) and byte_size(value) > max do
+    {:error, "Must not exceed #{max} characters"}
+  end
+  defp check_length(_, _), do: :ok
+  
+  defp check_pattern(value, %{type: type}) when is_binary(value) do
+    pattern = Map.get(@validation_patterns, type)
+    if pattern && !Regex.match?(pattern, value) do
+      {:error, "Invalid #{type} format"}
+    else
+      :ok
+    end
+  end
+  defp check_pattern(_, _), do: :ok
+  
+  defp check_type(value, %{type: :integer}) when is_binary(value) do
+    case Integer.parse(value) do
+      {int_value, ""} -> {:ok, int_value}
+      _ -> {:error, "Must be a valid integer"}
+    end
+  end
+  defp check_type(value, %{type: :float}) when is_binary(value) do
+    case Float.parse(value) do
+      {float_value, ""} -> {:ok, float_value}
+      _ -> {:error, "Must be a valid number"}
+    end
+  end
+  defp check_type(value, _), do: {:ok, value}
+  
+  defp sanitize_if_needed(value, %{sanitize: true}) when is_binary(value) do
+    {:ok, sanitize_input(value)}
+  end
+  defp sanitize_if_needed(value, _), do: {:ok, value}
+  
+  @doc """
+  Sanitize input to remove potentially harmful content.
+  """
+  def sanitize_input(value) when is_binary(value) do
+    value
+    |> String.replace(~r/\0/, "")  # Remove null bytes
+    |> String.replace(~r/[\x00-\x08\x0B\x0C\x0E-\x1F\x7F]/, "")  # Remove control chars
+    |> Phoenix.HTML.html_escape()  # HTML encode
+    |> Phoenix.HTML.safe_to_string()
+    |> String.trim()
+  end
+end
+
+defmodule MyApp.Security.OutputEncoder do
+  @moduledoc """
+  Secure output encoding for different contexts.
+  """
+  
+  @doc """
+  Encode output for HTML context.
+  """
+  def encode_html(value) do
+    value
+    |> to_string()
+    |> Phoenix.HTML.html_escape()
+    |> Phoenix.HTML.safe_to_string()
+  end
+  
+  @doc """
+  Encode output for JSON context.
+  """
+  def encode_json(value) do
+    Jason.encode!(value)
+  end
+  
+  @doc """
+  Encode output for URL context.
+  """
+  def encode_url(value) do
+    value
+    |> to_string()
+    |> URI.encode()
+  end
+end]]></correct-example>
+          <incorrect-example title="Insecure input handling" conditions="Handling user input and output" expected-result="Protection against injection attacks" incorrectness-criteria="No input validation, no output encoding, vulnerable to injection attacks"><![CDATA[# Python - Insecure input handling
+def process_user_input(user_input):
+    # No validation or sanitization
+    query = f"SELECT * FROM users WHERE name = '{user_input}'"  # SQL injection
+    return execute_query(query)
+
+def render_user_content(content):
+    # No output encoding - XSS vulnerability
+    return f"<div>{content}</div>"
+
+# TypeScript - Insecure input handling
+class InsecureAPI {
+  processInput(input: string): string {
+    // No validation
+    // No sanitization
+    return input;
+  }
+  
+  renderContent(content: string): string {
+    // No output encoding - XSS vulnerability
+    return `<div>${content}</div>`;
+  }
+}
+
+# Elixir - Insecure input handling
+defmodule InsecureController do
+  def search(conn, %{"query" => query}) do
+    # No input validation
+    # SQL injection vulnerability
+    results = Ecto.Adapters.SQL.query(Repo, "SELECT * FROM posts WHERE title = '#{query}'")
+    
+    # No output encoding
+    render(conn, "search.html", results: results, query: query)
+  end
+end]]></incorrect-example>
+        </example>
+      </examples>
+    </non-negotiable>
+
+    <non-negotiable priority="critical">
+      <description>Implement secure cryptographic practices using industry-standard algorithms, proper key management, and secure random number generation.</description>
+      <examples>
+        <example title="Cryptographic Security Implementation">
+          <correct-example title="Secure cryptographic implementation" conditions="Implementing cryptographic operations" expected-result="Strong cryptographic security" correctness-criteria="Uses modern algorithms, proper key management, secure random generation"><![CDATA[# Python - Secure cryptographic implementation
+import os
+import base64
+import secrets
+from cryptography.hazmat.primitives import hashes, serialization
+from cryptography.hazmat.primitives.asymmetric import rsa, padding
+from cryptography.hazmat.primitives.ciphers import Cipher, algorithms, modes
+from cryptography.hazmat.primitives.kdf.pbkdf2 import PBKDF2HMAC
+from cryptography.hazmat.backends import default_backend
+import jwt
+from datetime import datetime, timedelta
+
+class SecureCrypto:
+    def __init__(self):
+        self.backend = default_backend()
+    
+    def generate_secure_random(self, length: int = 32) -> bytes:
+        """Generate cryptographically secure random bytes."""
+        return secrets.token_bytes(length)
+    
+    def generate_symmetric_key(self, password: str, salt: bytes = None) -> bytes:
+        """Generate symmetric key from password using PBKDF2."""
+        if salt is None:
+            salt = self.generate_secure_random(16)
+        
+        kdf = PBKDF2HMAC(
+            algorithm=hashes.SHA256(),
+            length=32,
+            salt=salt,
+            iterations=100000,  # OWASP recommended minimum
+            backend=self.backend
+        )
+        return kdf.derive(password.encode())
+    
+    def encrypt_symmetric(self, data: bytes, key: bytes) -> dict:
+        """Encrypt data using AES-256-GCM."""
+        iv = self.generate_secure_random(12)  # 96-bit IV for GCM
+        cipher = Cipher(
+            algorithms.AES(key),
+            modes.GCM(iv),
+            backend=self.backend
+        )
+        encryptor = cipher.encryptor()
+        ciphertext = encryptor.update(data) + encryptor.finalize()
+        
+        return {
+            'ciphertext': base64.b64encode(ciphertext).decode(),
+            'iv': base64.b64encode(iv).decode(),
+            'tag': base64.b64encode(encryptor.tag).decode()
+        }
+    
+    def decrypt_symmetric(self, encrypted_data: dict, key: bytes) -> bytes:
+        """Decrypt data using AES-256-GCM."""
+        ciphertext = base64.b64decode(encrypted_data['ciphertext'])
+        iv = base64.b64decode(encrypted_data['iv'])
+        tag = base64.b64decode(encrypted_data['tag'])
+        
+        cipher = Cipher(
+            algorithms.AES(key),
+            modes.GCM(iv, tag),
+            backend=self.backend
+        )
+        decryptor = cipher.decryptor()
+        return decryptor.update(ciphertext) + decryptor.finalize()
+    
+    def generate_rsa_keypair(self, key_size: int = 2048) -> tuple:
+        """Generate RSA key pair."""
+        private_key = rsa.generate_private_key(
+            public_exponent=65537,
+            key_size=key_size,
+            backend=self.backend
+        )
+        public_key = private_key.public_key()
+        return private_key, public_key
+    
+    def sign_data(self, data: bytes, private_key) -> bytes:
+        """Sign data using RSA-PSS."""
+        signature = private_key.sign(
+            data,
+            padding.PSS(
+                mgf=padding.MGF1(hashes.SHA256()),
+                salt_length=padding.PSS.MAX_LENGTH
+            ),
+            hashes.SHA256()
+        )
+        return signature
+    
+    def verify_signature(self, data: bytes, signature: bytes, public_key) -> bool:
+        """Verify signature using RSA-PSS."""
+        try:
+            public_key.verify(
+                signature,
+                data,
+                padding.PSS(
+                    mgf=padding.MGF1(hashes.SHA256()),
+                    salt_length=padding.PSS.MAX_LENGTH
+                ),
+                hashes.SHA256()
+            )
+            return True
+        except Exception:
+            return False
+    
+    def create_jwt_token(self, payload: dict, secret: str, algorithm: str = 'HS256') -> str:
+        """Create JWT token with secure settings."""
+        payload['exp'] = datetime.utcnow() + timedelta(hours=1)
+        payload['iat'] = datetime.utcnow()
+        payload['jti'] = secrets.token_urlsafe(32)  # Unique token ID
+        
+        return jwt.encode(payload, secret, algorithm=algorithm)
+    
+    def verify_jwt_token(self, token: str, secret: str, algorithm: str = 'HS256') -> dict:
+        """Verify JWT token."""
+        try:
+            payload = jwt.decode(token, secret, algorithms=[algorithm])
+            return {'valid': True, 'payload': payload}
+        except jwt.ExpiredSignatureError:
+            return {'valid': False, 'error': 'Token expired'}
+        except jwt.InvalidTokenError:
+            return {'valid': False, 'error': 'Invalid token'}
+
+# TypeScript - Secure cryptographic implementation
+import { webcrypto } from 'crypto';
+
+class SecureCrypto {
+  private crypto: Crypto;
+  
+  constructor() {
+    this.crypto = webcrypto as Crypto;
+  }
+  
+  async generateSecureRandom(length: number = 32): Promise<Uint8Array> {
+    const array = new Uint8Array(length);
+    this.crypto.getRandomValues(array);
+    return array;
+  }
+  
+  async generateSymmetricKey(): Promise<CryptoKey> {
+    return await this.crypto.subtle.generateKey(
+      {
+        name: 'AES-GCM',
+        length: 256
+      },
+      true,
+      ['encrypt', 'decrypt']
+    );
+  }
+  
+  async encryptSymmetric(data: ArrayBuffer, key: CryptoKey): Promise<{
+    ciphertext: ArrayBuffer;
+    iv: ArrayBuffer;
+  }> {
+    const iv = await this.generateSecureRandom(12);
+    
+    const ciphertext = await this.crypto.subtle.encrypt(
+      {
+        name: 'AES-GCM',
+        iv: iv
+      },
+      key,
+      data
+    );
+    
+    return { ciphertext, iv };
+  }
+  
+  async decryptSymmetric(
+    ciphertext: ArrayBuffer,
+    iv: ArrayBuffer,
+    key: CryptoKey
+  ): Promise<ArrayBuffer> {
+    return await this.crypto.subtle.decrypt(
+      {
+        name: 'AES-GCM',
+        iv: iv
+      },
+      key,
+      ciphertext
+    );
+  }
+  
+  async generateRSAKeyPair(): Promise<CryptoKeyPair> {
+    return await this.crypto.subtle.generateKey(
+      {
+        name: 'RSA-PSS',
+        modulusLength: 2048,
+        publicExponent: new Uint8Array([1, 0, 1]),
+        hash: 'SHA-256'
+      },
+      true,
+      ['sign', 'verify']
+    );
+  }
+  
+  async signData(data: ArrayBuffer, privateKey: CryptoKey): Promise<ArrayBuffer> {
+    return await this.crypto.subtle.sign(
+      {
+        name: 'RSA-PSS',
+        saltLength: 32
+      },
+      privateKey,
+      data
+    );
+  }
+  
+  async verifySignature(
+    data: ArrayBuffer,
+    signature: ArrayBuffer,
+    publicKey: CryptoKey
+  ): Promise<boolean> {
+    try {
+      return await this.crypto.subtle.verify(
+        {
+          name: 'RSA-PSS',
+          saltLength: 32
+        },
+        publicKey,
+        signature,
+        data
+      );
+    } catch {
+      return false;
+    }
+  }
+  
+  async hashData(data: ArrayBuffer): Promise<ArrayBuffer> {
+    return await this.crypto.subtle.digest('SHA-256', data);
+  }
+  
+  // Convert ArrayBuffer to base64 string
+  arrayBufferToBase64(buffer: ArrayBuffer): string {
+    const bytes = new Uint8Array(buffer);
+    const binary = Array.from(bytes, byte => String.fromCharCode(byte)).join('');
+    return btoa(binary);
+  }
+  
+  // Convert base64 string to ArrayBuffer
+  base64ToArrayBuffer(base64: string): ArrayBuffer {
+    const binary = atob(base64);
+    const bytes = new Uint8Array(binary.length);
+    for (let i = 0; i < binary.length; i++) {
+      bytes[i] = binary.charCodeAt(i);
+    }
+    return bytes.buffer;
+  }
+}
+
+# Elixir - Secure cryptographic implementation
+defmodule MyApp.Security.Crypto do
+  @moduledoc """
+  Secure cryptographic operations using modern algorithms.
+  """
+  
+  @doc """
+  Generate cryptographically secure random bytes.
+  """
+  def generate_secure_random(length \\ 32) do
+    :crypto.strong_rand_bytes(length)
+  end
+  
+  @doc """
+  Generate symmetric key from password using PBKDF2.
+  """
+  def generate_symmetric_key(password, salt \\ nil) do
+    salt = salt || generate_secure_random(16)
+    
+    :crypto.pbkdf2_hmac(:sha256, password, salt, 100_000, 32)
+  end
+  
+  @doc """
+  Encrypt data using AES-256-GCM.
+  """
+  def encrypt_symmetric(data, key) do
+    iv = generate_secure_random(12)
+    
+    {ciphertext, tag} = :crypto.crypto_one_time_aead(:aes_256_gcm, key, iv, data, "", true)
+    
+    %{
+      ciphertext: Base.encode64(ciphertext),
+      iv: Base.encode64(iv),
+      tag: Base.encode64(tag)
+    }
+  end
+  
+  @doc """
+  Decrypt data using AES-256-GCM.
+  """
+  def decrypt_symmetric(encrypted_data, key) do
+    with {:ok, ciphertext} <- Base.decode64(encrypted_data.ciphertext),
+         {:ok, iv} <- Base.decode64(encrypted_data.iv),
+         {:ok, tag} <- Base.decode64(encrypted_data.tag) do
+      case :crypto.crypto_one_time_aead(:aes_256_gcm, key, iv, ciphertext, "", tag, false) do
+        data when is_binary(data) -> {:ok, data}
+        _ -> {:error, :decryption_failed}
+      end
+    else
+      _ -> {:error, :invalid_input}
+    end
+  end
+  
+  @doc """
+  Generate RSA key pair.
+  """
+  def generate_rsa_keypair(key_size \\ 2048) do
+    :crypto.generate_key(:rsa, {key_size, 65537})
+  end
+  
+  @doc """
+  Sign data using RSA-PSS.
+  """
+  def sign_data(data, private_key) do
+    :crypto.sign(:rsa, :sha256, data, private_key)
+  end
+  
+  @doc """
+  Verify signature using RSA-PSS.
+  """
+  def verify_signature(data, signature, public_key) do
+    :crypto.verify(:rsa, :sha256, data, signature, public_key)
+  end
+  
+  @doc """
+  Hash data using SHA-256.
+  """
+  def hash_data(data) do
+    :crypto.hash(:sha256, data)
+  end
+  
+  @doc """
+  Create secure JWT token.
+  """
+  def create_jwt_token(payload, secret) do
+    claims = Map.merge(payload, %{
+      "exp" => DateTime.utc_now() |> DateTime.add(3600, :second) |> DateTime.to_unix(),
+      "iat" => DateTime.utc_now() |> DateTime.to_unix(),
+      "jti" => generate_secure_random(32) |> Base.url_encode64()
+    })
+    
+    Joken.generate_and_sign!(%{}, claims, Joken.Signer.create("HS256", secret))
+  end
+  
+  @doc """
+  Verify JWT token.
+  """
+  def verify_jwt_token(token, secret) do
+    signer = Joken.Signer.create("HS256", secret)
+    
+    case Joken.verify_and_validate(%{}, token, signer) do
+      {:ok, claims} -> {:ok, claims}
+      {:error, reason} -> {:error, reason}
+    end
+  end
+end]]></correct-example>
+          <incorrect-example title="Insecure cryptographic implementation" conditions="Implementing cryptographic operations" expected-result="Strong cryptographic security" incorrectness-criteria="Uses weak algorithms, poor key management, insecure random generation"><![CDATA[# Python - Insecure cryptographic implementation
+import hashlib
+import random
+import string
+
+class InsecureCrypto:
+    def generate_random(self, length=32):
+        # Using weak random - predictable
+        return ''.join(random.choices(string.ascii_letters, k=length))
+    
+    def encrypt_data(self, data, key):
+        # Using weak encryption
+        result = ""
+        for i, char in enumerate(data):
+            result += chr(ord(char) ^ ord(key[i % len(key)]))
+        return result
+    
+    def hash_password(self, password):
+        # Using MD5 - weak hash
+        return hashlib.md5(password.encode()).hexdigest()
+    
+    def create_token(self, payload):
+        # Insecure token creation
+        return base64.b64encode(json.dumps(payload).encode()).decode()
+
+# TypeScript - Insecure cryptographic implementation
+class InsecureCrypto {
+  generateRandom(length: number = 32): string {
+    // Using Math.random() - not cryptographically secure
+    return Math.random().toString(36).substring(2, length + 2);
+  }
+  
+  encryptData(data: string, key: string): string {
+    // XOR encryption - weak
+    let result = '';
+    for (let i = 0; i < data.length; i++) {
+      result += String.fromCharCode(data.charCodeAt(i) ^ key.charCodeAt(i % key.length));
+    }
+    return btoa(result);
+  }
+  
+  hashPassword(password: string): string {
+    // Using simple hash - vulnerable
+    return btoa(password);
+  }
+}
+
+# Elixir - Insecure cryptographic implementation
+defmodule InsecureCrypto do
+  def generate_random(length \\ 32) do
+    # Using weak random
+    :rand.uniform(1000000) |> to_string()
+  end
+  
+  def encrypt_data(data, key) do
+    # Simple XOR - weak encryption
+    :crypto.exor(data, key)
+  end
+  
+  def hash_password(password) do
+    # Using MD5 - weak hash
+    :crypto.hash(:md5, password) |> Base.encode16()
+  end
+end]]></incorrect-example>
+        </example>
+      </examples>
+    </non-negotiable>
+
+    <requirement priority="critical">
+      <description>Implement comprehensive error handling and security logging with proper audit trails, avoiding information disclosure in error messages.</description>
+      <examples>
+        <example title="Secure Error Handling and Logging">
+          <correct-example title="Secure error handling with audit logging" conditions="Implementing error handling and logging" expected-result="Secure error handling with comprehensive audit trails" correctness-criteria="Logs security events, sanitizes error messages, maintains audit trails"><![CDATA[# Python - Secure error handling and logging
+import logging
+import json
+import traceback
+from datetime import datetime
+from typing import Dict, Any, Optional
+from dataclasses import dataclass
+from enum import Enum
+
+class SecurityEventType(Enum):
+    AUTH_SUCCESS = "auth_success"
+    AUTH_FAILURE = "auth_failure"
+    AUTHZ_FAILURE = "authz_failure"
+    INPUT_VALIDATION_ERROR = "input_validation_error"
+    SUSPICIOUS_ACTIVITY = "suspicious_activity"
+    DATA_ACCESS = "data_access"
+    SYSTEM_ERROR = "system_error"
+
+@dataclass
+class SecurityEvent:
+    event_type: SecurityEventType
+    user_id: Optional[str]
+    ip_address: str
+    user_agent: str
+    timestamp: datetime
+    details: Dict[str, Any]
+    severity: str  # LOW, MEDIUM, HIGH, CRITICAL
+
+class SecurityLogger:
+    def __init__(self, logger_name: str = "security"):
+        self.logger = logging.getLogger(logger_name)
+        self.logger.setLevel(logging.INFO)
+        
+        # Create secure log handler
+        handler = logging.StreamHandler()
+        formatter = logging.Formatter(
+            '%(asctime)s - %(name)s - %(levelname)s - %(message)s'
+        )
+        handler.setFormatter(formatter)
+        self.logger.addHandler(handler)
+    
+    def log_security_event(self, event: SecurityEvent) -> None:
+        """Log security event with structured data."""
+        log_data = {
+            'event_type': event.event_type.value,
+            'user_id': event.user_id,
+            'ip_address': event.ip_address,
+            'user_agent': event.user_agent,
+            'timestamp': event.timestamp.isoformat(),
+            'details': event.details,
+            'severity': event.severity
+        }
+        
+        if event.severity in ['HIGH', 'CRITICAL']:
+            self.logger.error(f"SECURITY_EVENT: {json.dumps(log_data)}")
+        else:
+            self.logger.info(f"SECURITY_EVENT: {json.dumps(log_data)}")
+    
+    def log_authentication_success(self, user_id: str, ip_address: str, user_agent: str) -> None:
+        """Log successful authentication."""
+        event = SecurityEvent(
+            event_type=SecurityEventType.AUTH_SUCCESS,
+            user_id=user_id,
+            ip_address=ip_address,
+            user_agent=user_agent,
+            timestamp=datetime.utcnow(),
+            details={'action': 'login'},
+            severity='LOW'
+        )
+        self.log_security_event(event)
+    
+    def log_authentication_failure(self, username: str, ip_address: str, reason: str) -> None:
+        """Log failed authentication attempt."""
+        event = SecurityEvent(
+            event_type=SecurityEventType.AUTH_FAILURE,
+            user_id=None,
+            ip_address=ip_address,
+            user_agent='',
+            timestamp=datetime.utcnow(),
+            details={'username': username, 'reason': reason},
+            severity='MEDIUM'
+        )
+        self.log_security_event(event)
+    
+    def log_suspicious_activity(self, user_id: str, ip_address: str, activity: str) -> None:
+        """Log suspicious activity."""
+        event = SecurityEvent(
+            event_type=SecurityEventType.SUSPICIOUS_ACTIVITY,
+            user_id=user_id,
+            ip_address=ip_address,
+            user_agent='',
+            timestamp=datetime.utcnow(),
+            details={'activity': activity},
+            severity='HIGH'
+        )
+        self.log_security_event(event)
+
+class SecureExceptionHandler:
+    def __init__(self, security_logger: SecurityLogger):
+        self.security_logger = security_logger
+    
+    def handle_exception(self, e: Exception, user_id: Optional[str] = None, 
+                        ip_address: str = "", request_data: Dict[str, Any] = None) -> Dict[str, str]:
+        """Handle exceptions securely without exposing sensitive information."""
+        
+        # Log full exception details internally
+        internal_details = {
+            'exception_type': type(e).__name__,
+            'exception_message': str(e),
+            'traceback': traceback.format_exc(),
+            'request_data': request_data
+        }
+        
+        # Log security event
+        event = SecurityEvent(
+            event_type=SecurityEventType.SYSTEM_ERROR,
+            user_id=user_id,
+            ip_address=ip_address,
+            user_agent='',
+            timestamp=datetime.utcnow(),
+            details=internal_details,
+            severity='HIGH'
+        )
+        self.security_logger.log_security_event(event)
+        
+        # Return sanitized error message to user
+        if isinstance(e, ValueError):
+            return {'error': 'Invalid input provided'}
+        elif isinstance(e, PermissionError):
+            return {'error': 'Access denied'}
+        elif isinstance(e, FileNotFoundError):
+            return {'error': 'Resource not found'}
+        else:
+            return {'error': 'An internal error occurred'}
+
+# TypeScript - Secure error handling and logging
+enum SecurityEventType {
+  AUTH_SUCCESS = 'auth_success',
+  AUTH_FAILURE = 'auth_failure',
+  AUTHZ_FAILURE = 'authz_failure',
+  INPUT_VALIDATION_ERROR = 'input_validation_error',
+  SUSPICIOUS_ACTIVITY = 'suspicious_activity',
+  DATA_ACCESS = 'data_access',
+  SYSTEM_ERROR = 'system_error'
+}
+
+interface SecurityEvent {
+  eventType: SecurityEventType;
+  userId?: string;
+  ipAddress: string;
+  userAgent: string;
+  timestamp: Date;
+  details: Record<string, any>;
+  severity: 'LOW' | 'MEDIUM' | 'HIGH' | 'CRITICAL';
+}
+
+class SecurityLogger {
+  private logger: Console;
+  
+  constructor() {
+    this.logger = console;
+  }
+  
+  logSecurityEvent(event: SecurityEvent): void {
+    const logData = {
+      eventType: event.eventType,
+      userId: event.userId,
+      ipAddress: event.ipAddress,
+      userAgent: event.userAgent,
+      timestamp: event.timestamp.toISOString(),
+      details: event.details,
+      severity: event.severity
+    };
+    
+    if (event.severity === 'HIGH' || event.severity === 'CRITICAL') {
+      this.logger.error('SECURITY_EVENT:', JSON.stringify(logData));
+    } else {
+      this.logger.info('SECURITY_EVENT:', JSON.stringify(logData));
+    }
+  }
+  
+  logAuthenticationSuccess(userId: string, ipAddress: string, userAgent: string): void {
+    this.logSecurityEvent({
+      eventType: SecurityEventType.AUTH_SUCCESS,
+      userId,
+      ipAddress,
+      userAgent,
+      timestamp: new Date(),
+      details: { action: 'login' },
+      severity: 'LOW'
+    });
+  }
+  
+  logAuthenticationFailure(username: string, ipAddress: string, reason: string): void {
+    this.logSecurityEvent({
+      eventType: SecurityEventType.AUTH_FAILURE,
+      userId: undefined,
+      ipAddress,
+      userAgent: '',
+      timestamp: new Date(),
+      details: { username, reason },
+      severity: 'MEDIUM'
+    });
+  }
+  
+  logSuspiciousActivity(userId: string, ipAddress: string, activity: string): void {
+    this.logSecurityEvent({
+      eventType: SecurityEventType.SUSPICIOUS_ACTIVITY,
+      userId,
+      ipAddress,
+      userAgent: '',
+      timestamp: new Date(),
+      details: { activity },
+      severity: 'HIGH'
+    });
+  }
+}
+
+class SecureErrorHandler {
+  private securityLogger: SecurityLogger;
+  
+  constructor(securityLogger: SecurityLogger) {
+    this.securityLogger = securityLogger;
+  }
+  
+  handleError(error: Error, userId?: string, ipAddress: string = '', requestData?: any): { error: string } {
+    // Log full error details internally
+    const internalDetails = {
+      errorType: error.constructor.name,
+      errorMessage: error.message,
+      stack: error.stack,
+      requestData
+    };
+    
+    // Log security event
+    this.securityLogger.logSecurityEvent({
+      eventType: SecurityEventType.SYSTEM_ERROR,
+      userId,
+      ipAddress,
+      userAgent: '',
+      timestamp: new Date(),
+      details: internalDetails,
+      severity: 'HIGH'
+    });
+    
+    // Return sanitized error message
+    if (error instanceof ValidationError) {
+      return { error: 'Invalid input provided' };
+    } else if (error instanceof AuthorizationError) {
+      return { error: 'Access denied' };
+    } else if (error instanceof NotFoundError) {
+      return { error: 'Resource not found' };
+    } else {
+      return { error: 'An internal error occurred' };
+    }
+  }
+}
+
+# Elixir - Secure error handling and logging
+defmodule MyApp.Security.Logger do
+  @moduledoc """
+  Secure logging for security events and audit trails.
+  """
+  
+  require Logger
+  
+  @security_events [
+    :auth_success,
+    :auth_failure,
+    :authz_failure,
+    :input_validation_error,
+    :suspicious_activity,
+    :data_access,
+    :system_error
+  ]
+  
+  @doc """
+  Log security event with structured data.
+  """
+  def log_security_event(event_type, user_id, ip_address, details, severity \\ :medium) 
+      when event_type in @security_events do
+    log_data = %{
+      event_type: event_type,
+      user_id: user_id,
+      ip_address: ip_address,
+      timestamp: DateTime.utc_now(),
+      details: details,
+      severity: severity,
+      node: Node.self()
+    }
+    
+    case severity do
+      severity when severity in [:high, :critical] ->
+        Logger.error("SECURITY_EVENT: #{Jason.encode!(log_data)}")
+      _ ->
+        Logger.info("SECURITY_EVENT: #{Jason.encode!(log_data)}")
+    end
+  end
+  
+  @doc """
+  Log authentication success.
+  """
+  def log_authentication_success(user_id, ip_address) do
+    log_security_event(:auth_success, user_id, ip_address, %{action: "login"}, :low)
+  end
+  
+  @doc """
+  Log authentication failure.
+  """
+  def log_authentication_failure(username, ip_address, reason) do
+    log_security_event(:auth_failure, nil, ip_address, %{username: username, reason: reason}, :medium)
+  end
+  
+  @doc """
+  Log suspicious activity.
+  """
+  def log_suspicious_activity(user_id, ip_address, activity) do
+    log_security_event(:suspicious_activity, user_id, ip_address, %{activity: activity}, :high)
+  end
+  
+  @doc """
+  Log data access.
+  """
+  def log_data_access(user_id, ip_address, resource, action) do
+    log_security_event(:data_access, user_id, ip_address, %{resource: resource, action: action}, :low)
+  end
+end
+
+defmodule MyApp.Security.ErrorHandler do
+  @moduledoc """
+  Secure error handling that sanitizes error messages.
+  """
+  
+  alias MyApp.Security.Logger, as: SecurityLogger
+  
+  @doc """
+  Handle errors securely without exposing sensitive information.
+  """
+  def handle_error(error, user_id \\ nil, ip_address \\ "", request_data \\ %{}) do
+    # Log full error details internally
+    internal_details = %{
+      error_type: error.__struct__,
+      error_message: Exception.message(error),
+      stacktrace: Exception.format_stacktrace(__STACKTRACE__),
+      request_data: request_data
+    }
+    
+    # Log security event
+    SecurityLogger.log_security_event(:system_error, user_id, ip_address, internal_details, :high)
+    
+    # Return sanitized error message
+    case error do
+      %Ecto.Changeset{} ->
+        %{error: "Invalid input provided"}
+      %MyApp.UnauthorizedError{} ->
+        %{error: "Access denied"}
+      %MyApp.NotFoundError{} ->
+        %{error: "Resource not found"}
+      _ ->
+        %{error: "An internal error occurred"}
+    end
+  end
+  
+  @doc """
+  Handle and log validation errors.
+  """
+  def handle_validation_error(changeset, user_id, ip_address) do
+    errors = Ecto.Changeset.traverse_errors(changeset, fn {msg, opts} ->
+      Enum.reduce(opts, msg, fn {key, value}, acc ->
+        String.replace(acc, "%{#{key}}", to_string(value))
+      end)
+    end)
+    
+    SecurityLogger.log_security_event(
+      :input_validation_error,
+      user_id,
+      ip_address,
+      %{validation_errors: errors},
+      :medium
+    )
+    
+    %{error: "Invalid input provided", details: errors}
+  end
+end]]></correct-example>
+          <incorrect-example title="Insecure error handling" conditions="Implementing error handling and logging" expected-result="Secure error handling with comprehensive audit trails" incorrectness-criteria="Exposes sensitive information, no audit logging, poor error handling"><![CDATA[# Python - Insecure error handling
+def handle_request(request):
+    try:
+        # Business logic
+        result = process_request(request)
+        return result
+    except Exception as e:
+        # Exposing sensitive information
+        return {
+            'error': str(e),
+            'traceback': traceback.format_exc(),
+            'request_data': request.__dict__
+        }
+
+# TypeScript - Insecure error handling  
+class APIHandler {
+  handleRequest(request: any): any {
+    try {
+      return this.processRequest(request);
+    } catch (error) {
+      // Exposing sensitive information
+      return {
+        error: error.message,
+        stack: error.stack,
+        requestData: request
+      };
+    }
+  }
+}
+
+# Elixir - Insecure error handling
+defmodule BadErrorHandler do
+  def handle_request(request) do
+    try do
+      process_request(request)
+    rescue
+      error ->
+        # Exposing sensitive information
+        %{
+          error: Exception.message(error),
+          stacktrace: Exception.format_stacktrace(__STACKTRACE__),
+          request_data: request
+        }
+    end
+  end
+end]]></incorrect-example>
+        </example>
+      </examples>
+    </requirement>
+
+    <requirement priority="critical">
+      <description>Implement SAST (Static Application Security Testing) and DAST (Dynamic Application Security Testing) integration with automated security scanning in CI/CD pipelines.</description>
+      <examples>
+        <example title="SAST and DAST Integration">
+          <correct-example title="Comprehensive security testing integration" conditions="Setting up automated security testing" expected-result="Automated security scanning in CI/CD" correctness-criteria="Integrates SAST tools, DAST tools, and security scanning in automated pipelines"><![CDATA[# GitHub Actions - Comprehensive security testing workflow
+name: Security Testing
+
+on:
+  push:
+    branches: [ main, develop ]
+  pull_request:
+    branches: [ main ]
+
+jobs:
+  sast-analysis:
+    name: Static Application Security Testing
+    runs-on: ubuntu-latest
+    
+    steps:
+    - uses: actions/checkout@v3
+    
+    # Python SAST
+    - name: Python SAST with Bandit
+      if: contains(github.event.head_commit.message, 'python') || contains(github.ref, 'python')
+      run: |
+        pip install bandit[toml]
+        bandit -r . -f json -o bandit-report.json
+        bandit -r . -f txt
+    
+    - name: Python SAST with Semgrep
+      uses: returntocorp/semgrep-action@v1
+      with:
+        config: >- 
+          p/security-audit
+          p/owasp-top-ten
+          p/python
+    
+    # TypeScript/JavaScript SAST
+    - name: TypeScript SAST with ESLint Security
+      if: contains(github.event.head_commit.message, 'typescript') || contains(github.ref, 'typescript')
+      run: |
+        npm install eslint-plugin-security
+        npx eslint --ext .ts,.tsx,.js,.jsx . --config .eslintrc.security.js
+    
+    - name: JavaScript SAST with CodeQL
+      uses: github/codeql-action/init@v2
+      with:
+        languages: javascript
+        
+    - name: Perform CodeQL Analysis
+      uses: github/codeql-action/analyze@v2
+    
+    # Elixir SAST
+    - name: Elixir SAST with Sobelow
+      if: contains(github.event.head_commit.message, 'elixir') || contains(github.ref, 'elixir')
+      run: |
+        mix deps.get
+        mix sobelow --config .sobelow-conf
+    
+    # Generic SAST
+    - name: Generic SAST with Checkov
+      uses: bridgecrewio/checkov-action@master
+      with:
+        framework: all
+        output_format: sarif
+        output_file_path: checkov-results.sarif
+    
+    # Upload SARIF results
+    - name: Upload SARIF file
+      uses: github/codeql-action/upload-sarif@v2
+      with:
+        sarif_file: checkov-results.sarif
+  
+  dependency-check:
+    name: Dependency Security Scanning
+    runs-on: ubuntu-latest
+    
+    steps:
+    - uses: actions/checkout@v3
+    
+    # Python dependency scanning
+    - name: Python Security Check with Safety
+      run: |
+        pip install safety
+        safety check --json --output safety-report.json
+        safety check
+    
+    # Node.js dependency scanning  
+    - name: Node.js Security Audit
+      run: |
+        npm audit --audit-level high
+        npm audit --json > npm-audit-report.json
+    
+    # Elixir dependency scanning
+    - name: Elixir Security Check with mix audit
+      run: |
+        mix deps.get
+        mix deps.audit
+    
+    # Generic dependency scanning with Snyk
+    - name: Run Snyk to check for vulnerabilities
+      uses: snyk/actions/setup@master
+    - run: snyk test --severity-threshold=high
+      env:
+        SNYK_TOKEN: ${{ secrets.SNYK_TOKEN }}
+  
+  dast-analysis:
+    name: Dynamic Application Security Testing
+    runs-on: ubuntu-latest
+    needs: [sast-analysis]
+    
+    steps:
+    - uses: actions/checkout@v3
+    
+    # Start application for DAST
+    - name: Start Application
+      run: |
+        docker-compose up -d
+        sleep 30  # Wait for application to start
+    
+    # OWASP ZAP DAST
+    - name: OWASP ZAP Full Scan
+      uses: zaproxy/action-full-scan@v0.7.0
+      with:
+        target: 'http://localhost:4000'
+        rules_file_name: '.zap/rules.tsv'
+        cmd_options: '-a'
+    
+    # Custom DAST with specific security tests
+    - name: Custom Security Tests
+      run: |
+        # SQL Injection tests
+        python scripts/security_tests/sql_injection_test.py
+        
+        # XSS tests
+        python scripts/security_tests/xss_test.py
+        
+        # Authentication tests
+        python scripts/security_tests/auth_test.py
+        
+        # Authorization tests
+        python scripts/security_tests/authz_test.py
+    
+    # Container security scanning
+    - name: Container Security Scan with Trivy
+      uses: aquasecurity/trivy-action@master
+      with:
+        image-ref: 'myapp:latest'
+        format: 'sarif'
+        output: 'trivy-results.sarif'
+    
+    - name: Upload Trivy scan results
+      uses: github/codeql-action/upload-sarif@v2
+      with:
+        sarif_file: 'trivy-results.sarif'
+
+# Security configuration files
+
+# .bandit (Python SAST configuration)
+[bandit]
+exclude_dirs = ["/tests", "/venv", "/.venv"]
+skips = ["B101", "B601"]
+
+# .eslintrc.security.js (TypeScript/JavaScript SAST)
+module.exports = {
+  plugins: ['security'],
+  extends: ['plugin:security/recommended'],
+  rules: {
+    'security/detect-object-injection': 'error',
+    'security/detect-non-literal-regexp': 'error',
+    'security/detect-non-literal-fs-filename': 'error',
+    'security/detect-eval-with-expression': 'error',
+    'security/detect-pseudoRandomBytes': 'error',
+    'security/detect-possible-timing-attacks': 'error',
+    'security/detect-no-csrf-before-method-override': 'error',
+    'security/detect-buffer-noassert': 'error',
+    'security/detect-child-process': 'error',
+    'security/detect-disable-mustache-escape': 'error',
+    'security/detect-unsafe-regex': 'error'
+  }
+};
+
+# .sobelow-conf (Elixir SAST configuration)
+[
+  verbose: true,
+  private: false,
+  skip: false,
+  exit: "high",
+  format: "json",
+  out: "sobelow-report.json",
+  threshold: "high"
+]
+
+# .zap/rules.tsv (OWASP ZAP DAST rules)
+10003	IGNORE	(Vulnerable JS Library)
+10010	IGNORE	(Cookie No HttpOnly Flag)
+10011	IGNORE	(Cookie Without Secure Flag)
+10020	IGNORE	(X-Frame-Options Header)
+10021	IGNORE	(X-Content-Type-Options Header Missing)
+10023	IGNORE	(Information Disclosure - Debug Error Messages)
+10024	IGNORE	(Information Disclosure - Sensitive Information in URL)
+10025	IGNORE	(Information Disclosure - Sensitive Information in HTTP Referrer Header)
+10026	IGNORE	(HTTP Parameter Override)
+10027	IGNORE	(Information Disclosure - Suspicious Comments)
+10028	IGNORE	(Open Redirect)
+10029	IGNORE	(Cookie Poisoning)
+10030	IGNORE	(User Controllable Charset)
+10031	IGNORE	(User Controllable HTML Element Attribute (Potential XSS))
+10032	IGNORE	(Viewstate)
+10033	IGNORE	(Directory Browsing)
+10034	IGNORE	(Heartbleed OpenSSL Vulnerability)
+10035	IGNORE	(Strict-Transport-Security Header)
+10036	IGNORE	(HTTP Server Response Header)
+10037	IGNORE	(Server Leaks Information via "X-Powered-By" HTTP Response Header Field(s))
+10038	IGNORE	(Content Security Policy (CSP) Header Not Set)
+10039	IGNORE	(X-Backend-Server Header Information Leak)
+10040	IGNORE	(Secure Pages Include Mixed Content)
+10041	IGNORE	(HTTP to HTTPS Insecure Transition in Form Post)
+10042	IGNORE	(HTTPS to HTTP Insecure Transition in Form Post)
+10043	IGNORE	(User Controllable JavaScript Event (XSS))
+10044	IGNORE	(Big Redirect Detected (Potential Sensitive Information Leak))
+10045	IGNORE	(Source Code Disclosure - /WEB-INF folder)
+10046	IGNORE	(Source Code Disclosure - Git)
+10047	IGNORE	(Source Code Disclosure - SVN)
+10048	IGNORE	(Remote Code Execution - Shell Shock)
+10049	IGNORE	(Content Cacheability)
+10050	IGNORE	(Retrieved from Cache)
+10051	IGNORE	(Relative Path Confusion)
+10052	IGNORE	(X-ChromeLogger-Data (XCOLD) Header Information Leak)
+10053	IGNORE	(Apache Range Header DoS (CVE-2011-3192))
+10054	IGNORE	(Cookie Without SameSite Attribute)
+10055	IGNORE	(CSP)
+10056	IGNORE	(X-Debug-Token Information Leak)
+10057	IGNORE	(Username Hash Found)
+10058	IGNORE	(GET for POST)
+10059	IGNORE	(Multiple X-Frame-Options Header Entries)
+10060	IGNORE	(Source Code Disclosure - CVE-2012-1823)
+10061	IGNORE	(Source Code Disclosure - PHP)
+10062	IGNORE	(PII Disclosure)
+10063	IGNORE	(Permissions Policy Header Not Set)
+10096	IGNORE	(Timestamp Disclosure)
+10097	IGNORE	(Hash Disclosure)
+10098	IGNORE	(Cross-Domain Misconfiguration)
+10099	IGNORE	(Source Code Disclosure)
+10109	IGNORE	(Modern Web Application)
+10110	IGNORE	(Dangerous JS Functions)
+10202	IGNORE	(Absence of Anti-CSRF Tokens)
+
+# Security testing scripts
+
+# scripts/security_tests/sql_injection_test.py
+#!/usr/bin/env python3
+"""
+SQL Injection security tests for DAST.
+"""
+
+import requests
+import json
+import sys
+
+def test_sql_injection():
+    base_url = "http://localhost:4000"
+    
+    # Common SQL injection payloads
+    payloads = [
+        "' OR '1'='1",
+        "'; DROP TABLE users; --",
+        "' UNION SELECT * FROM users --",
+        "1' OR '1'='1' --",
+        "admin'--",
+        "' OR 1=1#"
+    ]
+    
+    # Test endpoints
+    endpoints = [
+        "/api/login",
+        "/api/users/search",
+        "/api/posts/search"
+    ]
+    
+    vulnerabilities = []
+    
+    for endpoint in endpoints:
+        for payload in payloads:
+            try:
+                # Test in different parameters
+                test_data = {
+                    "username": payload,
+                    "password": "test",
+                    "search": payload,
+                    "id": payload
+                }
+                
+                response = requests.post(f"{base_url}{endpoint}", json=test_data, timeout=10)
+                
+                # Check for SQL error messages
+                if any(error in response.text.lower() for error in 
+                       ["sql", "mysql", "postgresql", "sqlite", "ora-", "syntax error"]):
+                    vulnerabilities.append({
+                        "endpoint": endpoint,
+                        "payload": payload,
+                        "response": response.text[:200]
+                    })
+                    
+            except requests.exceptions.RequestException:
+                pass
+    
+    if vulnerabilities:
+        print("SQL Injection vulnerabilities found:")
+        for vuln in vulnerabilities:
+            print(f"  - {vuln['endpoint']}: {vuln['payload']}")
+        sys.exit(1)
+    else:
+        print("No SQL injection vulnerabilities detected")
+
+if __name__ == "__main__":
+    test_sql_injection()
+
+# scripts/security_tests/xss_test.py
+#!/usr/bin/env python3
+"""
+XSS security tests for DAST.
+"""
+
+import requests
+import json
+import sys
+
+def test_xss():
+    base_url = "http://localhost:4000"
+    
+    # XSS payloads
+    payloads = [
+        "<script>alert('XSS')</script>",
+        "<img src=x onerror=alert('XSS')>",
+        "javascript:alert('XSS')",
+        "<svg onload=alert('XSS')>",
+        "'><script>alert('XSS')</script>",
+        "<iframe src=javascript:alert('XSS')>",
+        "<body onload=alert('XSS')>"
+    ]
+    
+    # Test endpoints
+    endpoints = [
+        "/api/comments",
+        "/api/posts",
+        "/api/profile/update"
+    ]
+    
+    vulnerabilities = []
+    
+    for endpoint in endpoints:
+        for payload in payloads:
+            try:
+                test_data = {
+                    "content": payload,
+                    "title": payload,
+                    "name": payload,
+                    "description": payload
+                }
+                
+                response = requests.post(f"{base_url}{endpoint}", json=test_data, timeout=10)
+                
+                # Check if payload is reflected without encoding
+                if payload in response.text:
+                    vulnerabilities.append({
+                        "endpoint": endpoint,
+                        "payload": payload,
+                        "type": "Reflected XSS"
+                    })
+                    
+            except requests.exceptions.RequestException:
+                pass
+    
+    if vulnerabilities:
+        print("XSS vulnerabilities found:")
+        for vuln in vulnerabilities:
+            print(f"  - {vuln['endpoint']}: {vuln['type']}")
+        sys.exit(1)
+    else:
+        print("No XSS vulnerabilities detected")
+
+if __name__ == "__main__":
+    test_xss()]]></correct-example>
+          <incorrect-example title="No security testing integration" conditions="Setting up automated security testing" expected-result="Automated security scanning in CI/CD" incorrectness-criteria="Missing SAST/DAST tools, no security scanning, no automated security testing"><![CDATA[# Basic GitHub Actions without security testing
+name: Basic CI
+
+on:
+  push:
+    branches: [ main ]
+  pull_request:
+    branches: [ main ]
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    
+    steps:
+    - uses: actions/checkout@v3
+    
+    - name: Run tests
+      run: |
+        npm test
+        
+    - name: Build application
+      run: |
+        npm run build
+
+# Problems:
+# - No SAST tools integration
+# - No DAST testing
+# - No dependency vulnerability scanning
+# - No security-focused CI/CD pipeline
+# - No automated security testing]]></incorrect-example>
+        </example>
+      </examples>
+    </requirement>
+  </requirements>
+
+  <context description="Comprehensive security practices for modern applications">
+    Security must be integrated throughout the entire software development lifecycle, from design through deployment and maintenance. This comprehensive approach covers multiple layers of security including secure coding practices, automated security testing, and continuous security monitoring.
+
+    Key security principles include:
+    - Security by Design: Building security into the application architecture from the beginning
+    - Defense in Depth: Multiple layers of security controls
+    - Principle of Least Privilege: Granting minimum necessary permissions
+    - Zero Trust Architecture: Never trust, always verify
+    - Secure Defaults: Systems should be secure by default
+    - Fail Securely: Systems should fail in a secure manner
+
+    Modern security practices require integration of both static (SAST) and dynamic (DAST) security testing, comprehensive logging and monitoring, proper secret management, and regular security assessments. The combination of automated security testing with manual security reviews provides comprehensive coverage.
+
+    Language-specific security considerations include understanding common vulnerabilities in each language ecosystem, using appropriate security libraries, and following established security patterns for each technology stack.
+  </context>
+
+  <references>
+    <reference as="dependency" href=".cursor/rules/000-core/002-cursor-rules-creation.mdc" reason="Follows standard rule format">Base rule format definition</reference>
+    <reference as="context" href="https://owasp.org/www-project-top-ten/" reason="OWASP Top 10 security risks">OWASP Top 10 Application Security Risks</reference>
+    <reference as="context" href="https://owasp.org/www-project-application-security-verification-standard/" reason="OWASP ASVS">OWASP Application Security Verification Standard</reference>
+    <reference as="context" href="https://cheatsheetseries.owasp.org/" reason="OWASP cheat sheets">OWASP Security Cheat Sheets</reference>
+    <reference as="context" href="https://nvd.nist.gov/vuln-metrics/cvss" reason="CVSS scoring">Common Vulnerability Scoring System</reference>
+    <reference as="context" href="https://cwe.mitre.org/" reason="Common weakness enumeration">Common Weakness Enumeration (CWE)</reference>
+  </references>
+</rule>

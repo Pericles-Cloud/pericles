@@ -1,0 +1,135 @@
+---
+description: "Rules for SQLite best practices with Python, SQLAlchemy, and Alembic"
+globs: ["*.py"]
+alwaysApply: false
+---
+<rule>
+  <meta>
+    <title>Python SQLite Best Practices with SQLAlchemy and Alembic</title>
+    <description>A rule to enforce best practices for using SQLite in Python applications with SQLAlchemy and Alembic.</description>
+    <created-at utc-timestamp="1744413300">April 12, 2025, 11:15 AM AEST</created-at>
+    <last-updated-at utc-timestamp="1744413300">April 12, 2025, 11:15 AM AEST</last-updated-at>
+    <applies-to>
+      <file-matcher glob="*.py">All Python files, especially those using SQLAlchemy.</file-matcher>
+      <action-matcher action="code-commit">Triggered when committing code changes.</action-matcher>
+    </applies-to>
+  </meta>
+  <requirements>
+    <requirement priority="critical">
+      <description>Enable Write-Ahead Logging (WAL) and Foreign Key enforcement for SQLite via SQLAlchemy engine events.</description>
+      <examples>
+        <example title="Engine Configuration for SQLite">
+          <correct-example title="Enabling WAL and Foreign Keys" conditions="Creating a SQLAlchemy engine" expected-result="Improved concurrency and data integrity" correctness-criteria="Uses event listener to set PRAGMAs"><![CDATA[
+from sqlalchemy import create_engine, event
+from sqlalchemy.engine import Engine
+
+# Enable foreign key support for SQLite
+@event.listens_for(Engine, "connect")
+def set_sqlite_pragma(dbapi_connection, connection_record):
+    cursor = dbapi_connection.cursor()
+    cursor.execute("PRAGMA foreign_keys=ON")
+    cursor.execute("PRAGMA journal_mode=WAL") # Enable Write-Ahead Logging
+    cursor.close()
+
+engine = create_engine("sqlite:///mydatabase.db")
+]]></correct-example>
+        </example>
+      </examples>
+    </requirement>
+    <non-negotiable priority="critical">
+        <description>Use the SQLAlchemy ORM to prevent SQL injection. Never use raw string formatting to build queries.</description>
+        <examples>
+            <example title="Safe ORM Querying">
+                <correct-example title="Using the ORM session" conditions="Querying with user-provided data" expected-result="A safe, parameterized query" correctness-criteria="Uses the SQLAlchemy expression language"><![CDATA[
+from sqlalchemy import select
+
+# This is safe. SQLAlchemy parameterizes the query.
+stmt = select(User).where(User.name == user_provided_name)
+user = session.execute(stmt).scalar_one_or_none()
+]]></correct-example>
+                <incorrect-example title="Using raw SQL with f-strings" conditions="Querying with user-provided data" expected-result="A safe query" incorrectness-criteria="Injects user input directly into a raw SQL string, creating a vulnerability."><![CDATA[
+from sqlalchemy import text
+
+# Unsafe: Vulnerable to SQL injection
+session.execute(text(f"SELECT * FROM users WHERE name = '{user_provided_name}'"))
+]]></incorrect-example>
+            </example>
+        </examples>
+    </non-negotiable>
+    <requirement priority="high">
+      <description>Use modern SQLAlchemy 2.0 ORM syntax with Python type hints for better code clarity and maintainability.</description>
+      <examples>
+        <example title="Modern ORM Model Definition">
+          <correct-example title="Typed ORM model" conditions="Defining a database model" expected-result="A fully typed SQLAlchemy model" correctness-criteria="Uses DeclarativeBase, Mapped, and mapped_column"><![CDATA[
+from sqlalchemy.orm import DeclarativeBase, Mapped, mapped_column
+from typing import Optional
+
+class Base(DeclarativeBase):
+    pass
+
+class User(Base):
+    __tablename__ = "user_account"
+    
+    id: Mapped[int] = mapped_column(primary_key=True)
+    name: Mapped[str]
+    fullname: Mapped[Optional[str]]
+]]></correct-example>
+        </example>
+      </examples>
+    </requirement>
+    <requirement priority="high">
+        <description>Always review auto-generated Alembic migration scripts before applying them.</description>
+        <context>Alembic's autogenerate feature is powerful but not infallible. It may miss complex changes, such as type alterations or constraint modifications.</context>
+        <examples>
+            <example title="Alembic Workflow">
+                <correct-example title="Generate and review migration" conditions="After changing an ORM model" expected-result="A safe and accurate database migration" correctness-criteria="The developer manually reviews the generated script."><![CDATA[
+# 1. Generate the migration script
+alembic revision --autogenerate -m "add fullname to user"
+
+# 2. Open and carefully review the generated file in versions/
+#    - Check that the `upgrade()` and `downgrade()` functions are correct.
+#    - Ensure no unexpected changes are included.
+
+# 3. Apply the migration
+alembic upgrade head
+]]></correct-example>
+            </example>
+        </examples>
+    </requirement>
+    <requirement priority="medium">
+        <description>Manage database sessions carefully, typically by scoping one session per application request or transaction.</description>
+        <examples>
+            <example title="Session Management in a Web App (e.g., FastAPI)">
+                <correct-example title="Per-request session with dependency injection" conditions="In a web application endpoint" expected-result="A single session is created for the request and closed afterward" correctness-criteria="Uses a context manager or dependency injector to manage the session lifecycle."><![CDATA[
+# db/session.py
+from sqlalchemy import create_engine
+from sqlalchemy.orm import sessionmaker
+
+engine = create_engine("sqlite:///mydatabase.db")
+SessionLocal = sessionmaker(autocommit=False, autoflush=False, bind=engine)
+
+# main.py / app.py
+def get_db():
+    db = SessionLocal()
+    try:
+        yield db
+    finally:
+        db.close()
+
+# In an endpoint
+@app.post("/users/")
+def create_user(user: UserCreate, db: Session = Depends(get_db)):
+    # ... use db session ...
+    pass
+]]></correct-example>
+            </example>
+        </examples>
+    </requirement>
+  </requirements>
+  <context description="Development considerations for Python and SQLite">
+    This stack is powerful for rapid development and suitable for many production applications. SQLAlchemy provides a robust ORM, while Alembic handles schema evolution. Following these rules ensures that the application is secure, maintainable, and performs well by leveraging the full capabilities of each tool and properly configuring SQLite.
+  </context>
+  <references>
+    <reference as="dependency" href=".cursor/rules/rules.mdc" reason="Follows standard rule format">Base rule format definition</reference>
+  </references>
+</rule>

@@ -1,0 +1,1781 @@
+<rule>
+  <meta>
+    <title>Req Core Standards</title>
+    <description>Comprehensive Req HTTP client standards for Elixir with modern HTTP features, middleware support, error handling, and performance optimization following HTTP best practices</description>
+    <created-at utc-timestamp="1744157700">January 25, 2025, 10:15 AM</created-at>
+    <last-updated-at utc-timestamp="1744157700">January 25, 2025, 10:15 AM</last-updated-at>
+    <applies-to>
+      <file-matcher glob="*.{ex,exs}">Elixir source files using Req for HTTP communication</file-matcher>
+      <file-matcher glob="**/http/**/*">HTTP client and communication files</file-matcher>
+      <file-matcher glob="**/req/**/*">Req-specific modules and configurations</file-matcher>
+      <file-matcher glob="**/client/**/*">HTTP client-related files</file-matcher>
+      <file-matcher glob="**/*http*">HTTP-related files throughout the application</file-matcher>
+      <action-matcher action="http-client">Triggered when working with HTTP client communications</action-matcher>
+    </applies-to>
+  </meta>
+  <requirements>
+    <non-negotiable priority="critical">
+      <description>Use Req for modern HTTP client functionality with proper middleware configuration, error handling, performance optimization, and security measures. Implement comprehensive retry policies, request/response transformation, authentication, and monitoring with proper connection management and circuit breaking patterns.</description>
+      <examples>
+        <example title="Comprehensive Req Implementation">
+          <correct-example title="Production-ready HTTP client setup with middleware and monitoring" conditions="Implementing HTTP client communications with Req" expected-result="Robust, secure HTTP client with comprehensive error handling and monitoring" correctness-criteria="Middleware configuration, error handling, retry policies, authentication, monitoring, performance optimization"><![CDATA[# Elixir - Comprehensive Req implementation
+
+# Dependencies in mix.exs
+defp deps do
+  [
+    {:req, "~> 0.4"},
+    {:telemetry, "~> 1.2"},
+    {:jason, "~> 1.4"},
+    {:mint, "~> 1.5"},
+    {:castore, "~> 1.0"}
+  ]
+end
+
+# Configuration (config/config.exs)
+import Config
+
+config :my_app, MyApp.HTTPClient,
+  # Default request configuration
+  default_options: [
+    timeout: 30_000,
+    receive_timeout: 30_000,
+    connect_timeout: 10_000,
+    pool_timeout: 5_000,
+    retry: :safe_transient,
+    retry_delay: 1000,
+    max_retries: 3
+  ],
+  
+  # Connection pool configuration
+  pool: [
+    size: 50,
+    max_idle_time: 30_000,
+    checkout_timeout: 5_000
+  ],
+  
+  # Circuit breaker configuration
+  circuit_breaker: [
+    failure_threshold: 10,
+    timeout: 60_000,
+    monitor: true
+  ],
+  
+  # Security settings
+  security: [
+    verify_hostname: true,
+    verify_peer: true,
+    follow_redirects: true,
+    max_redirects: 5,
+    secure_cookies: true
+  ],
+  
+  # Monitoring and logging
+  telemetry: [
+    enabled: true,
+    log_requests: true,
+    log_responses: false,  # Don't log response bodies for security
+    metrics: [:duration, :status, :retries]
+  ]
+
+# Main HTTP client module with comprehensive Req configuration
+defmodule MyApp.HTTPClient do
+  @moduledoc """
+  Production-ready HTTP client using Req with advanced features including
+  middleware pipeline, comprehensive error handling, monitoring, and
+  security-focused request processing.
+  """
+
+  require Logger
+
+  # Client configuration defaults
+  @default_timeout 30_000
+  @default_retries 3
+  @default_headers [
+    {"user-agent", "MyApp/1.0"},
+    {"accept", "application/json"},
+    {"content-type", "application/json"}
+  ]
+
+  # Type definitions
+  @type http_method :: :get | :post | :put | :patch | :delete | :head | :options
+  @type url :: String.t()
+  @type headers :: [{String.t(), String.t()}]
+  @type body :: term()
+  @type request_options :: keyword()
+  @type response :: {:ok, Req.Response.t()} | {:error, term()}
+
+  # API functions with comprehensive error handling
+  @spec get(url(), request_options()) :: response()
+  def get(url, opts \\ []) do
+    request(:get, url, nil, opts)
+  end
+
+  @spec post(url(), body(), request_options()) :: response()
+  def post(url, body, opts \\ []) do
+    request(:post, url, body, opts)
+  end
+
+  @spec put(url(), body(), request_options()) :: response()
+  def put(url, body, opts \\ []) do
+    request(:put, url, body, opts)
+  end
+
+  @spec patch(url(), body(), request_options()) :: response()
+  def patch(url, body, opts \\ []) do
+    request(:patch, url, body, opts)
+  end
+
+  @spec delete(url(), request_options()) :: response()
+  def delete(url, opts \\ []) do
+    request(:delete, url, nil, opts)
+  end
+
+  @spec head(url(), request_options()) :: response()
+  def head(url, opts \\ []) do
+    request(:head, url, nil, opts)
+  end
+
+  @spec options(url(), request_options()) :: response()
+  def options(url, opts \\ []) do
+    request(:options, url, nil, opts)
+  end
+
+  # Main request function with comprehensive middleware pipeline
+  @spec request(http_method(), url(), body(), request_options()) :: response()
+  def request(method, url, body \\ nil, opts \\ []) do
+    start_time = System.monotonic_time(:microsecond)
+    request_id = generate_request_id()
+    
+    try do
+      # Build request with middleware pipeline
+      req = build_request(method, url, body, opts, request_id)
+      
+      # Execute request
+      case Req.request(req) do
+        {:ok, %Req.Response{} = response} ->
+          record_success_metrics(method, url, response, start_time, request_id)
+          {:ok, response}
+          
+        {:error, reason} = error ->
+          record_error_metrics(method, url, reason, start_time, request_id)
+          error
+      end
+      
+    rescue
+      error ->
+        record_exception_metrics(method, url, error, start_time, request_id)
+        Logger.error("HTTP request exception", 
+          method: method,
+          url: sanitize_url(url),
+          error: inspect(error),
+          request_id: request_id
+        )
+        {:error, {:request_exception, error}}
+    end
+  end
+
+  # Streaming request support
+  @spec stream(http_method(), url(), body(), request_options()) :: Enumerable.t()
+  def stream(method, url, body \\ nil, opts \\ []) do
+    request_id = generate_request_id()
+    
+    req = 
+      build_request(method, url, body, opts, request_id)
+      |> Req.Request.put_option(:stream, true)
+    
+    Stream.resource(
+      fn -> Req.request(req) end,
+      fn
+        {:ok, %Req.Response{body: body}} when is_function(body) ->
+          case body.() do
+            {:ok, chunk} -> {[chunk], body}
+            {:error, _} = error -> {:halt, error}
+            :done -> {:halt, :done}
+          end
+        {:error, reason} -> 
+          {:halt, {:error, reason}}
+        other -> 
+          {:halt, other}
+      end,
+      fn 
+        :done -> :ok
+        {:error, _} -> :ok
+        _ -> :ok
+      end
+    )
+  end
+
+  # Batch request processing
+  @spec batch_request([{http_method(), url(), body(), request_options()}]) :: 
+    [response()]
+  def batch_request(requests) when is_list(requests) do
+    batch_id = generate_batch_id()
+    start_time = System.monotonic_time(:microsecond)
+    
+    Logger.info("Starting batch request", 
+      batch_id: batch_id,
+      request_count: length(requests)
+    )
+    
+    try do
+      results = 
+        requests
+        |> Enum.with_index()
+        |> Enum.map(fn {{method, url, body, opts}, index} ->
+          Task.async(fn ->
+            request_opts = Keyword.put(opts, :batch_id, batch_id)
+            request_opts = Keyword.put(request_opts, :batch_index, index)
+            
+            request(method, url, body, request_opts)
+          end)
+        end)
+        |> Task.await_many(:timer.minutes(5))
+      
+      record_batch_metrics(batch_id, results, start_time)
+      results
+      
+    rescue
+      error ->
+        Logger.error("Batch request error", 
+          batch_id: batch_id,
+          error: inspect(error)
+        )
+        
+        # Return error for all requests
+        Enum.map(requests, fn _ -> {:error, {:batch_error, error}} end)
+    end
+  end
+
+  # Request building with comprehensive middleware
+  defp build_request(method, url, body, opts, request_id) do
+    base_options = Application.get_env(:my_app, __MODULE__, [])
+    default_options = Keyword.get(base_options, :default_options, [])
+    merged_opts = Keyword.merge(default_options, opts)
+    
+    # Create base request
+    req = 
+      Req.new(
+        method: method,
+        url: url,
+        body: prepare_body(body),
+        headers: build_headers(merged_opts),
+        options: build_options(merged_opts, request_id)
+      )
+      |> add_middleware_pipeline(merged_opts)
+    
+    req
+  end
+
+  defp add_middleware_pipeline(req, opts) do
+    req
+    |> add_authentication_middleware(opts)
+    |> add_retry_middleware(opts)
+    |> add_circuit_breaker_middleware(opts)
+    |> add_compression_middleware(opts)
+    |> add_caching_middleware(opts)
+    |> add_rate_limiting_middleware(opts)
+    |> add_telemetry_middleware(opts)
+    |> add_request_id_middleware(opts)
+    |> add_timeout_middleware(opts)
+    |> add_redirect_middleware(opts)
+    |> add_decompression_middleware(opts)
+    |> add_json_middleware(opts)
+    |> add_logging_middleware(opts)
+  end
+
+  # Authentication middleware
+  defp add_authentication_middleware(req, opts) do
+    case Keyword.get(opts, :auth) do
+      nil -> 
+        req
+        
+      {:bearer, token} ->
+        Req.Request.put_header(req, "authorization", "Bearer #{token}")
+        
+      {:basic, {username, password}} ->
+        credentials = Base.encode64("#{username}:#{password}")
+        Req.Request.put_header(req, "authorization", "Basic #{credentials}")
+        
+      {:api_key, key} ->
+        api_key_header = Keyword.get(opts, :api_key_header, "x-api-key")
+        Req.Request.put_header(req, api_key_header, key)
+        
+      {:custom, auth_fn} when is_function(auth_fn, 1) ->
+        auth_fn.(req)
+        
+      other ->
+        Logger.warning("Unknown auth type", auth: other)
+        req
+    end
+  end
+
+  # Retry middleware with exponential backoff
+  defp add_retry_middleware(req, opts) do
+    retry_config = %{
+      max_retries: Keyword.get(opts, :max_retries, @default_retries),
+      base_delay: Keyword.get(opts, :retry_delay, 1000),
+      max_delay: Keyword.get(opts, :max_retry_delay, 30_000),
+      backoff: Keyword.get(opts, :backoff, :exponential),
+      retry_log_level: Keyword.get(opts, :retry_log_level, :warning)
+    }
+    
+    Req.Request.register_options(req, retry: [
+      retry: &should_retry?/2,
+      delay: &calculate_retry_delay(&1, retry_config),
+      max_retries: retry_config.max_retries
+    ])
+  end
+
+  # Circuit breaker middleware
+  defp add_circuit_breaker_middleware(req, opts) do
+    case Keyword.get(opts, :circuit_breaker, true) do
+      false -> 
+        req
+      true -> 
+        # Add circuit breaker logic
+        host = URI.parse(req.url).host
+        circuit_breaker_key = "circuit_breaker:#{host}"
+        
+        case get_circuit_breaker_state(circuit_breaker_key) do
+          :open ->
+            # Circuit is open, fail fast
+            raise "Circuit breaker is open for #{host}"
+          :half_open ->
+            # Allow single request to test
+            req
+          :closed ->
+            # Normal operation
+            req
+        end
+    end
+  end
+
+  # Compression middleware
+  defp add_compression_middleware(req, opts) do
+    if Keyword.get(opts, :compress, true) do
+      Req.Request.put_header(req, "accept-encoding", "gzip, deflate")
+    else
+      req
+    end
+  end
+
+  # Caching middleware
+  defp add_caching_middleware(req, opts) do
+    case Keyword.get(opts, :cache) do
+      nil -> 
+        req
+      cache_opts when is_list(cache_opts) ->
+        # Add cache headers based on configuration
+        ttl = Keyword.get(cache_opts, :ttl, 300)
+        if req.method == :get do
+          Req.Request.put_header(req, "cache-control", "max-age=#{ttl}")
+        else
+          req
+        end
+      _ ->
+        req
+    end
+  end
+
+  # Rate limiting middleware
+  defp add_rate_limiting_middleware(req, opts) do
+    case Keyword.get(opts, :rate_limit) do
+      nil -> 
+        req
+      rate_limit_opts ->
+        # Implement rate limiting logic
+        host = URI.parse(req.url).host
+        check_rate_limit(host, rate_limit_opts)
+        req
+    end
+  end
+
+  # Telemetry middleware
+  defp add_telemetry_middleware(req, opts) do
+    request_id = Keyword.get(opts, :request_id)
+    
+    # Add telemetry hooks
+    req
+    |> Req.Request.put_private(:telemetry_enabled, true)
+    |> Req.Request.put_private(:request_id, request_id)
+  end
+
+  # Request ID middleware
+  defp add_request_id_middleware(req, opts) do
+    request_id = Keyword.get(opts, :request_id, generate_request_id())
+    Req.Request.put_header(req, "x-request-id", request_id)
+  end
+
+  # Timeout middleware
+  defp add_timeout_middleware(req, opts) do
+    timeout = Keyword.get(opts, :timeout, @default_timeout)
+    receive_timeout = Keyword.get(opts, :receive_timeout, timeout)
+    connect_timeout = Keyword.get(opts, :connect_timeout, 10_000)
+    
+    req
+    |> Req.Request.put_option(:timeout, timeout)
+    |> Req.Request.put_option(:receive_timeout, receive_timeout)
+    |> Req.Request.put_option(:connect_timeout, connect_timeout)
+  end
+
+  # Redirect middleware
+  defp add_redirect_middleware(req, opts) do
+    follow_redirects = Keyword.get(opts, :follow_redirects, true)
+    max_redirects = Keyword.get(opts, :max_redirects, 5)
+    
+    if follow_redirects do
+      req
+      |> Req.Request.put_option(:follow_redirects, true)
+      |> Req.Request.put_option(:max_redirects, max_redirects)
+    else
+      req
+    end
+  end
+
+  # Decompression middleware
+  defp add_decompression_middleware(req, opts) do
+    if Keyword.get(opts, :decompress, true) do
+      Req.Request.put_option(req, :decompress_body, true)
+    else
+      req
+    end
+  end
+
+  # JSON middleware
+  defp add_json_middleware(req, opts) do
+    case Keyword.get(opts, :json, :auto) do
+      :auto ->
+        # Auto-detect based on content-type
+        req
+      true ->
+        # Always encode/decode JSON
+        req
+        |> Req.Request.put_header("accept", "application/json")
+        |> Req.Request.put_option(:json, true)
+      false ->
+        req
+    end
+  end
+
+  # Logging middleware
+  defp add_logging_middleware(req, opts) do
+    log_level = Keyword.get(opts, :log_level, :info)
+    log_requests = Keyword.get(opts, :log_requests, true)
+    
+    if log_requests do
+      Req.Request.put_private(req, :log_level, log_level)
+    else
+      req
+    end
+  end
+
+  # Helper functions
+  defp prepare_body(nil), do: nil
+  defp prepare_body(body) when is_binary(body), do: body
+  defp prepare_body(body) when is_map(body) do
+    case Jason.encode(body) do
+      {:ok, json} -> json
+      {:error, reason} ->
+        Logger.error("Failed to encode request body", reason: inspect(reason))
+        raise "JSON encoding failed: #{inspect(reason)}"
+    end
+  end
+  defp prepare_body(body), do: body
+
+  defp build_headers(opts) do
+    custom_headers = Keyword.get(opts, :headers, [])
+    
+    @default_headers
+    |> Keyword.merge(custom_headers)
+    |> add_conditional_headers(opts)
+  end
+
+  defp add_conditional_headers(headers, opts) do
+    headers
+    |> maybe_add_content_length(opts)
+    |> maybe_add_accept_encoding(opts)
+    |> maybe_add_user_agent(opts)
+  end
+
+  defp maybe_add_content_length(headers, opts) do
+    case Keyword.get(opts, :content_length) do
+      nil -> headers
+      length -> Keyword.put(headers, "content-length", to_string(length))
+    end
+  end
+
+  defp maybe_add_accept_encoding(headers, opts) do
+    if Keyword.get(opts, :compress, true) do
+      existing = Keyword.get(headers, "accept-encoding", "")
+      if existing == "" do
+        Keyword.put(headers, "accept-encoding", "gzip, deflate")
+      else
+        headers
+      end
+    else
+      headers
+    end
+  end
+
+  defp maybe_add_user_agent(headers, opts) do
+    case Keyword.get(opts, :user_agent) do
+      nil -> headers
+      ua -> Keyword.put(headers, "user-agent", ua)
+    end
+  end
+
+  defp build_options(opts, request_id) do
+    [
+      timeout: Keyword.get(opts, :timeout, @default_timeout),
+      receive_timeout: Keyword.get(opts, :receive_timeout, @default_timeout),
+      connect_timeout: Keyword.get(opts, :connect_timeout, 10_000),
+      pool_timeout: Keyword.get(opts, :pool_timeout, 5_000),
+      request_id: request_id
+    ]
+  end
+
+  # Retry logic
+  defp should_retry?({:error, %Mint.TransportError{}}, _), do: true
+  defp should_retry?({:error, %Mint.HTTPError{reason: :timeout}}, _), do: true
+  defp should_retry?({:error, %Mint.HTTPError{reason: :closed}}, _), do: true
+  defp should_retry?({:ok, %Req.Response{status: status}}, _) when status in 500..599, do: true
+  defp should_retry?({:ok, %Req.Response{status: 429}}, _), do: true  # Rate limited
+  defp should_retry?(_, _), do: false
+
+  defp calculate_retry_delay(attempt, config) do
+    case config.backoff do
+      :exponential ->
+        delay = config.base_delay * :math.pow(2, attempt - 1)
+        min(trunc(delay), config.max_delay)
+      :linear ->
+        min(config.base_delay * attempt, config.max_delay)
+      :constant ->
+        config.base_delay
+    end
+  end
+
+  # Circuit breaker functions
+  defp get_circuit_breaker_state(key) do
+    # Simplified circuit breaker state check
+    # In production, this would integrate with a proper circuit breaker library
+    :closed
+  end
+
+  defp check_rate_limit(host, opts) do
+    # Simplified rate limiting check
+    # In production, this would integrate with a rate limiting system
+    :ok
+  end
+
+  # Utility functions
+  defp generate_request_id do
+    :crypto.strong_rand_bytes(16) |> Base.encode64(padding: false)
+  end
+
+  defp generate_batch_id do
+    :crypto.strong_rand_bytes(8) |> Base.encode64(padding: false)
+  end
+
+  defp sanitize_url(url) when is_binary(url) do
+    # Remove sensitive information from URL for logging
+    uri = URI.parse(url)
+    
+    sanitized_uri = %{uri |
+      userinfo: nil,
+      query: sanitize_query(uri.query)
+    }
+    
+    URI.to_string(sanitized_uri)
+  end
+
+  defp sanitize_query(nil), do: nil
+  defp sanitize_query(query) do
+    # Remove sensitive query parameters
+    sensitive_params = ["password", "token", "key", "secret", "api_key"]
+    
+    query
+    |> URI.decode_query()
+    |> Enum.map(fn {key, value} ->
+      if String.downcase(key) in sensitive_params do
+        {key, "[REDACTED]"}
+      else
+        {key, value}
+      end
+    end)
+    |> URI.encode_query()
+  end
+
+  # Metrics and monitoring
+  defp record_success_metrics(method, url, response, start_time, request_id) do
+    end_time = System.monotonic_time(:microsecond)
+    duration = end_time - start_time
+    
+    :telemetry.execute([:my_app, :http_client, :request], %{
+      duration: duration,
+      response_size: get_response_size(response)
+    }, %{
+      method: method,
+      status: response.status,
+      host: get_host_from_url(url),
+      request_id: request_id
+    })
+    
+    Logger.info("HTTP request completed", 
+      method: method,
+      url: sanitize_url(url),
+      status: response.status,
+      duration_ms: div(duration, 1000),
+      request_id: request_id
+    )
+  end
+
+  defp record_error_metrics(method, url, reason, start_time, request_id) do
+    end_time = System.monotonic_time(:microsecond)
+    duration = end_time - start_time
+    
+    :telemetry.execute([:my_app, :http_client, :error], %{
+      duration: duration
+    }, %{
+      method: method,
+      host: get_host_from_url(url),
+      error_type: classify_error(reason),
+      request_id: request_id
+    })
+    
+    Logger.warning("HTTP request failed", 
+      method: method,
+      url: sanitize_url(url),
+      reason: inspect(reason),
+      duration_ms: div(duration, 1000),
+      request_id: request_id
+    )
+  end
+
+  defp record_exception_metrics(method, url, error, start_time, request_id) do
+    end_time = System.monotonic_time(:microsecond)
+    duration = end_time - start_time
+    
+    :telemetry.execute([:my_app, :http_client, :exception], %{
+      duration: duration
+    }, %{
+      method: method,
+      host: get_host_from_url(url),
+      error_type: error.__struct__ || :unknown,
+      request_id: request_id
+    })
+  end
+
+  defp record_batch_metrics(batch_id, results, start_time) do
+    end_time = System.monotonic_time(:microsecond)
+    duration = end_time - start_time
+    
+    success_count = Enum.count(results, &match?({:ok, _}, &1))
+    error_count = length(results) - success_count
+    
+    :telemetry.execute([:my_app, :http_client, :batch], %{
+      duration: duration,
+      total_requests: length(results),
+      success_count: success_count,
+      error_count: error_count
+    }, %{
+      batch_id: batch_id
+    })
+    
+    Logger.info("Batch request completed", 
+      batch_id: batch_id,
+      total: length(results),
+      success: success_count,
+      errors: error_count,
+      duration_ms: div(duration, 1000)
+    )
+  end
+
+  defp get_response_size(%Req.Response{body: body}) when is_binary(body) do
+    byte_size(body)
+  end
+  defp get_response_size(_), do: 0
+
+  defp get_host_from_url(url) when is_binary(url) do
+    case URI.parse(url) do
+      %URI{host: host} when is_binary(host) -> host
+      _ -> "unknown"
+    end
+  end
+
+  defp classify_error({:error, %Mint.TransportError{reason: reason}}) do
+    case reason do
+      :timeout -> :timeout
+      :closed -> :connection_closed
+      :econnrefused -> :connection_refused
+      _ -> :transport_error
+    end
+  end
+  defp classify_error({:error, %Mint.HTTPError{reason: reason}}) do
+    case reason do
+      :timeout -> :timeout
+      :closed -> :connection_closed
+      _ -> :http_error
+    end
+  end
+  defp classify_error(_), do: :unknown
+end
+
+# Specialized HTTP clients for different services
+defmodule MyApp.HTTPClient.JSONAPIClient do
+  @moduledoc """
+  JSON API client with automatic serialization/deserialization and error handling.
+  """
+
+  @spec get(String.t(), keyword()) :: {:ok, map()} | {:error, term()}
+  def get(url, opts \\ []) do
+    opts = Keyword.put(opts, :json, true)
+    
+    case MyApp.HTTPClient.get(url, opts) do
+      {:ok, %Req.Response{body: body}} when is_map(body) ->
+        {:ok, body}
+      {:ok, %Req.Response{body: body}} when is_binary(body) ->
+        case Jason.decode(body) do
+          {:ok, json} -> {:ok, json}
+          {:error, reason} -> {:error, {:json_decode_error, reason}}
+        end
+      {:error, reason} ->
+        {:error, reason}
+    end
+  end
+
+  @spec post(String.t(), map(), keyword()) :: {:ok, map()} | {:error, term()}
+  def post(url, data, opts \\ []) do
+    opts = 
+      opts
+      |> Keyword.put(:json, true)
+      |> Keyword.put_new(:headers, [{"content-type", "application/json"}])
+    
+    case MyApp.HTTPClient.post(url, data, opts) do
+      {:ok, %Req.Response{body: body}} when is_map(body) ->
+        {:ok, body}
+      {:ok, %Req.Response{body: body}} when is_binary(body) ->
+        case Jason.decode(body) do
+          {:ok, json} -> {:ok, json}
+          {:error, reason} -> {:error, {:json_decode_error, reason}}
+        end
+      {:error, reason} ->
+        {:error, reason}
+    end
+  end
+
+  @spec put(String.t(), map(), keyword()) :: {:ok, map()} | {:error, term()}
+  def put(url, data, opts \\ []) do
+    opts = 
+      opts
+      |> Keyword.put(:json, true)
+      |> Keyword.put_new(:headers, [{"content-type", "application/json"}])
+    
+    case MyApp.HTTPClient.put(url, data, opts) do
+      {:ok, %Req.Response{body: body}} when is_map(body) ->
+        {:ok, body}
+      {:ok, %Req.Response{body: body}} when is_binary(body) ->
+        case Jason.decode(body) do
+          {:ok, json} -> {:ok, json}
+          {:error, reason} -> {:error, {:json_decode_error, reason}}
+        end
+      {:error, reason} ->
+        {:error, reason}
+    end
+  end
+
+  @spec patch(String.t(), map(), keyword()) :: {:ok, map()} | {:error, term()}
+  def patch(url, data, opts \\ []) do
+    opts = 
+      opts
+      |> Keyword.put(:json, true)
+      |> Keyword.put_new(:headers, [{"content-type", "application/json"}])
+    
+    case MyApp.HTTPClient.patch(url, data, opts) do
+      {:ok, %Req.Response{body: body}} when is_map(body) ->
+        {:ok, body}
+      {:ok, %Req.Response{body: body}} when is_binary(body) ->
+        case Jason.decode(body) do
+          {:ok, json} -> {:ok, json}
+          {:error, reason} -> {:error, {:json_decode_error, reason}}
+        end
+      {:error, reason} ->
+        {:error, reason}
+    end
+  end
+
+  @spec delete(String.t(), keyword()) :: {:ok, map()} | {:error, term()}
+  def delete(url, opts \\ []) do
+    opts = Keyword.put(opts, :json, true)
+    
+    case MyApp.HTTPClient.delete(url, opts) do
+      {:ok, %Req.Response{body: body}} when is_map(body) ->
+        {:ok, body}
+      {:ok, %Req.Response{body: body}} when is_binary(body) ->
+        case Jason.decode(body) do
+          {:ok, json} -> {:ok, json}
+          {:error, reason} -> {:error, {:json_decode_error, reason}}
+        end
+      {:ok, %Req.Response{status: 204}} ->
+        {:ok, %{}}  # No content
+      {:error, reason} ->
+        {:error, reason}
+    end
+  end
+end
+
+# Form data client for file uploads and form submissions
+defmodule MyApp.HTTPClient.FormClient do
+  @moduledoc """
+  HTTP client specialized for form data submissions and file uploads.
+  """
+
+  @spec post_form(String.t(), keyword() | map(), keyword()) :: 
+    {:ok, Req.Response.t()} | {:error, term()}
+  def post_form(url, form_data, opts \\ []) do
+    headers = [
+      {"content-type", "application/x-www-form-urlencoded"}
+      | Keyword.get(opts, :headers, [])
+    ]
+    
+    encoded_data = encode_form_data(form_data)
+    
+    opts = 
+      opts
+      |> Keyword.put(:headers, headers)
+      |> Keyword.delete(:json)
+    
+    MyApp.HTTPClient.post(url, encoded_data, opts)
+  end
+
+  @spec post_multipart(String.t(), keyword() | map(), keyword()) :: 
+    {:ok, Req.Response.t()} | {:error, term()}
+  def post_multipart(url, multipart_data, opts \\ []) do
+    boundary = generate_boundary()
+    
+    headers = [
+      {"content-type", "multipart/form-data; boundary=#{boundary}"}
+      | Keyword.get(opts, :headers, [])
+    ]
+    
+    encoded_data = encode_multipart_data(multipart_data, boundary)
+    
+    opts = 
+      opts
+      |> Keyword.put(:headers, headers)
+      |> Keyword.delete(:json)
+    
+    MyApp.HTTPClient.post(url, encoded_data, opts)
+  end
+
+  @spec upload_file(String.t(), String.t(), Path.t(), keyword()) :: 
+    {:ok, Req.Response.t()} | {:error, term()}
+  def upload_file(url, field_name, file_path, opts \\ []) do
+    case File.read(file_path) do
+      {:ok, file_content} ->
+        filename = Path.basename(file_path)
+        content_type = guess_content_type(file_path)
+        
+        multipart_data = [
+          {field_name, file_content, [filename: filename, content_type: content_type]}
+        ]
+        
+        post_multipart(url, multipart_data, opts)
+        
+      {:error, reason} ->
+        {:error, {:file_read_error, reason}}
+    end
+  end
+
+  # Private helper functions
+  defp encode_form_data(data) when is_map(data) do
+    data
+    |> Enum.map(fn {key, value} -> "#{URI.encode_www_form(to_string(key))}=#{URI.encode_www_form(to_string(value))}" end)
+    |> Enum.join("&")
+  end
+  defp encode_form_data(data) when is_list(data) do
+    data
+    |> Enum.map(fn {key, value} -> "#{URI.encode_www_form(to_string(key))}=#{URI.encode_www_form(to_string(value))}" end)
+    |> Enum.join("&")
+  end
+
+  defp encode_multipart_data(data, boundary) when is_map(data) do
+    encode_multipart_data(Map.to_list(data), boundary)
+  end
+  defp encode_multipart_data(data, boundary) when is_list(data) do
+    parts = 
+      data
+      |> Enum.map(&encode_multipart_part(&1, boundary))
+      |> Enum.join("\r\n")
+    
+    parts <> "\r\n--#{boundary}--\r\n"
+  end
+
+  defp encode_multipart_part({field_name, value}, boundary) when is_binary(value) do
+    "--#{boundary}\r\n" <>
+    "Content-Disposition: form-data; name=\"#{field_name}\"\r\n" <>
+    "\r\n" <>
+    value
+  end
+  defp encode_multipart_part({field_name, file_content, opts}, boundary) when is_binary(file_content) do
+    filename = Keyword.get(opts, :filename, "file")
+    content_type = Keyword.get(opts, :content_type, "application/octet-stream")
+    
+    "--#{boundary}\r\n" <>
+    "Content-Disposition: form-data; name=\"#{field_name}\"; filename=\"#{filename}\"\r\n" <>
+    "Content-Type: #{content_type}\r\n" <>
+    "\r\n" <>
+    file_content
+  end
+
+  defp generate_boundary do
+    :crypto.strong_rand_bytes(16) |> Base.encode16(case: :lower)
+  end
+
+  defp guess_content_type(file_path) do
+    case Path.extname(file_path) |> String.downcase() do
+      ".jpg" -> "image/jpeg"
+      ".jpeg" -> "image/jpeg"
+      ".png" -> "image/png"
+      ".gif" -> "image/gif"
+      ".pdf" -> "application/pdf"
+      ".txt" -> "text/plain"
+      ".json" -> "application/json"
+      ".xml" -> "application/xml"
+      ".html" -> "text/html"
+      ".css" -> "text/css"
+      ".js" -> "application/javascript"
+      _ -> "application/octet-stream"
+    end
+  end
+end
+
+# WebSocket client support
+defmodule MyApp.HTTPClient.WebSocketClient do
+  @moduledoc """
+  WebSocket client implementation using Req for initial HTTP upgrade.
+  """
+
+  use GenServer
+  require Logger
+
+  # Client state
+  defstruct [
+    :url,
+    :conn,
+    :handler,
+    :options,
+    :ping_interval,
+    :ping_timer,
+    :connection_state
+  ]
+
+  @type websocket_message :: :text | :binary | :ping | :pong | :close
+  @type handler :: {module(), atom(), [term()]} | function()
+
+  def start_link(url, handler, opts \\ []) do
+    GenServer.start_link(__MODULE__, {url, handler, opts})
+  end
+
+  def send_message(pid, message) do
+    GenServer.call(pid, {:send_message, message})
+  end
+
+  def close(pid) do
+    GenServer.call(pid, :close)
+  end
+
+  @impl true
+  def init({url, handler, opts}) do
+    # Convert HTTP URL to WebSocket URL
+    ws_url = String.replace_prefix(url, "http", "ws")
+    
+    state = %__MODULE__{
+      url: ws_url,
+      handler: handler,
+      options: opts,
+      ping_interval: Keyword.get(opts, :ping_interval, 30_000),
+      connection_state: :connecting
+    }
+    
+    # Start connection process
+    send(self(), :connect)
+    
+    {:ok, state}
+  end
+
+  @impl true
+  def handle_info(:connect, state) do
+    case establish_websocket_connection(state.url, state.options) do
+      {:ok, conn} ->
+        # Start ping timer
+        ping_timer = if state.ping_interval > 0 do
+          Process.send_after(self(), :ping, state.ping_interval)
+        else
+          nil
+        end
+        
+        new_state = %{state | 
+          conn: conn, 
+          ping_timer: ping_timer,
+          connection_state: :connected
+        }
+        
+        Logger.info("WebSocket connected", url: state.url)
+        notify_handler(state.handler, :connected, %{})
+        
+        {:noreply, new_state}
+        
+      {:error, reason} ->
+        Logger.error("WebSocket connection failed", 
+          url: state.url, 
+          reason: inspect(reason)
+        )
+        
+        notify_handler(state.handler, :connection_failed, %{reason: reason})
+        
+        # Retry connection after delay
+        Process.send_after(self(), :connect, 5000)
+        
+        {:noreply, state}
+    end
+  end
+
+  @impl true
+  def handle_info(:ping, %{connection_state: :connected} = state) do
+    case send_websocket_frame(state.conn, :ping, "") do
+      :ok ->
+        # Schedule next ping
+        ping_timer = Process.send_after(self(), :ping, state.ping_interval)
+        {:noreply, %{state | ping_timer: ping_timer}}
+        
+      {:error, reason} ->
+        Logger.warning("WebSocket ping failed", reason: inspect(reason))
+        handle_connection_error(state, reason)
+    end
+  end
+
+  @impl true
+  def handle_info(:ping, state) do
+    # Not connected, skip ping
+    {:noreply, state}
+  end
+
+  @impl true
+  def handle_call({:send_message, message}, _from, %{connection_state: :connected} = state) do
+    case send_websocket_frame(state.conn, :text, message) do
+      :ok ->
+        {:reply, :ok, state}
+      {:error, reason} ->
+        {:reply, {:error, reason}, state}
+    end
+  end
+
+  @impl true
+  def handle_call({:send_message, _message}, _from, state) do
+    {:reply, {:error, :not_connected}, state}
+  end
+
+  @impl true
+  def handle_call(:close, _from, state) do
+    case state.conn do
+      nil -> 
+        {:reply, :ok, state}
+      conn ->
+        send_websocket_frame(conn, :close, "")
+        new_state = %{state | conn: nil, connection_state: :closed}
+        {:reply, :ok, new_state}
+    end
+  end
+
+  # Private helper functions
+  defp establish_websocket_connection(url, opts) do
+    # Use Req to perform WebSocket upgrade
+    headers = [
+      {"connection", "upgrade"},
+      {"upgrade", "websocket"},
+      {"sec-websocket-version", "13"},
+      {"sec-websocket-key", generate_websocket_key()}
+      | Keyword.get(opts, :headers, [])
+    ]
+    
+    case MyApp.HTTPClient.get(url, headers: headers) do
+      {:ok, %Req.Response{status: 101}} ->
+        # WebSocket upgrade successful
+        {:ok, :websocket_connection}  # Simplified for example
+      {:ok, %Req.Response{status: status}} ->
+        {:error, {:upgrade_failed, status}}
+      {:error, reason} ->
+        {:error, reason}
+    end
+  end
+
+  defp send_websocket_frame(conn, frame_type, data) do
+    # Simplified WebSocket frame sending
+    # In production, would use proper WebSocket library
+    :ok
+  end
+
+  defp generate_websocket_key do
+    :crypto.strong_rand_bytes(16) |> Base.encode64()
+  end
+
+  defp notify_handler({module, function, args}, event, data) do
+    apply(module, function, [event, data | args])
+  rescue
+    error ->
+      Logger.error("WebSocket handler error", 
+        error: inspect(error),
+        event: event
+      )
+  end
+
+  defp notify_handler(handler_fn, event, data) when is_function(handler_fn) do
+    handler_fn.(event, data)
+  rescue
+    error ->
+      Logger.error("WebSocket handler error", 
+        error: inspect(error),
+        event: event
+      )
+  end
+
+  defp handle_connection_error(state, reason) do
+    Logger.warning("WebSocket connection error", reason: inspect(reason))
+    
+    notify_handler(state.handler, :connection_error, %{reason: reason})
+    
+    # Reconnect after delay
+    Process.send_after(self(), :connect, 5000)
+    
+    new_state = %{state | 
+      conn: nil, 
+      connection_state: :reconnecting,
+      ping_timer: nil
+    }
+    
+    {:noreply, new_state}
+  end
+end]]></correct-example>
+          <incorrect-example title="Poor Req usage without proper middleware or error handling" conditions="Implementing HTTP client communications" expected-result="Robust HTTP client system" incorrectness-criteria="No middleware configuration, missing error handling, poor security, no monitoring"><![CDATA[# BAD: Poor Req implementation
+
+# Basic configuration without comprehensive setup
+defmodule BadHTTPClient do
+  
+  def get(url) do
+    Req.get!(url)
+  end
+
+  def post(url, data) do
+    Req.post!(url, json: data)
+  end
+
+  # No error handling
+  # No retry mechanisms
+  # No authentication support
+  # No middleware pipeline
+  # No monitoring or logging
+  # No timeout configuration
+  # No security measures
+  # No request/response transformation
+  # No caching support
+  # No rate limiting
+  # No circuit breaker
+  # No connection pooling
+  # No batch request support
+end]]></incorrect-example>
+        </example>
+      </examples>
+    </non-negotiable>
+
+    <requirement priority="high">
+      <description>Implement comprehensive testing for Req HTTP client functionality including middleware validation, error handling verification, authentication testing, and performance evaluation.</description>
+      <examples>
+        <example title="Req Testing Patterns">
+          <correct-example title="Comprehensive testing for HTTP client operations and middleware" conditions="Testing Req HTTP client implementations" expected-result="Thorough test coverage with middleware and integration validation" correctness-criteria="HTTP operations testing, middleware testing, authentication testing, error handling validation"><![CDATA[# Elixir - Comprehensive Req testing
+
+defmodule MyApp.HTTPClientTest do
+  use ExUnit.Case, async: false
+  
+  import ExUnit.CaptureLog
+  import Mox
+
+  # Setup mock adapter
+  setup_all do
+    Mox.defmock(HTTPAdapterMock, for: Req.Adapter)
+    :ok
+  end
+
+  setup do
+    # Verify mocks and reset state
+    verify_on_exit!()
+    
+    # Set test adapter
+    Application.put_env(:req, :adapter, HTTPAdapterMock)
+    
+    on_exit(fn ->
+      Application.delete_env(:req, :adapter)
+    end)
+    
+    :ok
+  end
+
+  describe "basic HTTP operations" do
+    test "GET request with successful response" do
+      url = "https://api.example.com/users"
+      
+      HTTPAdapterMock
+      |> expect(:request, fn %Req.Request{method: :get, url: ^url} ->
+        {:ok, %Req.Response{
+          status: 200,
+          headers: [{"content-type", "application/json"}],
+          body: Jason.encode!(%{"users" => []})
+        }}
+      end)
+      
+      assert {:ok, response} = MyApp.HTTPClient.get(url)
+      assert response.status == 200
+      assert is_binary(response.body)
+    end
+
+    test "POST request with JSON data" do
+      url = "https://api.example.com/users"
+      data = %{"name" => "John Doe", "email" => "john@example.com"}
+      
+      HTTPAdapterMock
+      |> expect(:request, fn %Req.Request{method: :post, url: ^url, body: body} ->
+        # Verify request body is properly encoded
+        assert body == Jason.encode!(data)
+        
+        {:ok, %Req.Response{
+          status: 201,
+          headers: [{"content-type", "application/json"}],
+          body: Jason.encode!(%{"id" => 1, "name" => "John Doe"})
+        }}
+      end)
+      
+      assert {:ok, response} = MyApp.HTTPClient.post(url, data)
+      assert response.status == 201
+    end
+
+    test "PUT request updates data correctly" do
+      url = "https://api.example.com/users/1"
+      data = %{"name" => "Jane Doe"}
+      
+      HTTPAdapterMock
+      |> expect(:request, fn %Req.Request{method: :put, url: ^url} ->
+        {:ok, %Req.Response{
+          status: 200,
+          headers: [{"content-type", "application/json"}],
+          body: Jason.encode!(%{"id" => 1, "name" => "Jane Doe"})
+        }}
+      end)
+      
+      assert {:ok, response} = MyApp.HTTPClient.put(url, data)
+      assert response.status == 200
+    end
+
+    test "DELETE request removes resource" do
+      url = "https://api.example.com/users/1"
+      
+      HTTPAdapterMock
+      |> expect(:request, fn %Req.Request{method: :delete, url: ^url} ->
+        {:ok, %Req.Response{
+          status: 204,
+          headers: [],
+          body: ""
+        }}
+      end)
+      
+      assert {:ok, response} = MyApp.HTTPClient.delete(url)
+      assert response.status == 204
+    end
+  end
+
+  describe "authentication middleware" do
+    test "adds Bearer token authentication" do
+      url = "https://api.example.com/protected"
+      token = "abc123token"
+      
+      HTTPAdapterMock
+      |> expect(:request, fn %Req.Request{headers: headers} ->
+        # Verify authorization header is present
+        auth_header = Enum.find(headers, fn {key, _value} -> 
+          key == "authorization" 
+        end)
+        
+        assert auth_header == {"authorization", "Bearer #{token}"}
+        
+        {:ok, %Req.Response{status: 200, body: "protected data"}}
+      end)
+      
+      assert {:ok, _response} = MyApp.HTTPClient.get(url, auth: {:bearer, token})
+    end
+
+    test "adds Basic authentication" do
+      url = "https://api.example.com/protected"
+      username = "user"
+      password = "pass"
+      
+      HTTPAdapterMock
+      |> expect(:request, fn %Req.Request{headers: headers} ->
+        # Verify basic auth header
+        expected_credentials = Base.encode64("#{username}:#{password}")
+        expected_header = {"authorization", "Basic #{expected_credentials}"}
+        
+        assert expected_header in headers
+        
+        {:ok, %Req.Response{status: 200, body: "protected data"}}
+      end)
+      
+      assert {:ok, _response} = MyApp.HTTPClient.get(url, auth: {:basic, {username, password}})
+    end
+
+    test "adds API key authentication" do
+      url = "https://api.example.com/data"
+      api_key = "secret-api-key"
+      
+      HTTPAdapterMock
+      |> expect(:request, fn %Req.Request{headers: headers} ->
+        # Verify API key header
+        api_key_header = {"x-api-key", api_key}
+        assert api_key_header in headers
+        
+        {:ok, %Req.Response{status: 200, body: "api data"}}
+      end)
+      
+      assert {:ok, _response} = MyApp.HTTPClient.get(url, auth: {:api_key, api_key})
+    end
+  end
+
+  describe "retry middleware" do
+    test "retries on timeout errors" do
+      url = "https://api.example.com/timeout"
+      
+      HTTPAdapterMock
+      |> expect(:request, fn _request ->
+        {:error, %Mint.HTTPError{reason: :timeout}}
+      end)
+      |> expect(:request, fn _request ->
+        {:ok, %Req.Response{status: 200, body: "success after retry"}}
+      end)
+      
+      assert {:ok, response} = MyApp.HTTPClient.get(url, max_retries: 2)
+      assert response.status == 200
+      assert response.body == "success after retry"
+    end
+
+    test "retries on 5xx server errors" do
+      url = "https://api.example.com/server-error"
+      
+      HTTPAdapterMock
+      |> expect(:request, fn _request ->
+        {:ok, %Req.Response{status: 503, body: "Service Unavailable"}}
+      end)
+      |> expect(:request, fn _request ->
+        {:ok, %Req.Response{status: 200, body: "success"}}
+      end)
+      
+      assert {:ok, response} = MyApp.HTTPClient.get(url, max_retries: 2)
+      assert response.status == 200
+    end
+
+    test "does not retry on 4xx client errors" do
+      url = "https://api.example.com/not-found"
+      
+      HTTPAdapterMock
+      |> expect(:request, fn _request ->
+        {:ok, %Req.Response{status: 404, body: "Not Found"}}
+      end)
+      
+      assert {:ok, response} = MyApp.HTTPClient.get(url, max_retries: 2)
+      assert response.status == 404
+    end
+
+    test "gives up after max retries exceeded" do
+      url = "https://api.example.com/always-fails"
+      
+      HTTPAdapterMock
+      |> expect(:request, 3, fn _request ->
+        {:error, %Mint.TransportError{reason: :timeout}}
+      end)
+      
+      assert {:error, %Mint.TransportError{reason: :timeout}} = 
+        MyApp.HTTPClient.get(url, max_retries: 2)
+    end
+  end
+
+  describe "JSON middleware" do
+    test "automatically encodes request body as JSON" do
+      url = "https://api.example.com/json"
+      data = %{"key" => "value", "number" => 42}
+      
+      HTTPAdapterMock
+      |> expect(:request, fn %Req.Request{body: body, headers: headers} ->
+        # Verify JSON encoding
+        assert body == Jason.encode!(data)
+        
+        # Verify content-type header
+        content_type_header = {"content-type", "application/json"}
+        assert content_type_header in headers
+        
+        {:ok, %Req.Response{status: 200, body: Jason.encode!(%{"success" => true})}}
+      end)
+      
+      assert {:ok, _response} = MyApp.HTTPClient.post(url, data, json: true)
+    end
+
+    test "automatically decodes JSON response" do
+      url = "https://api.example.com/json"
+      response_data = %{"message" => "Hello", "count" => 5}
+      
+      HTTPAdapterMock
+      |> expect(:request, fn _request ->
+        {:ok, %Req.Response{
+          status: 200,
+          headers: [{"content-type", "application/json"}],
+          body: Jason.encode!(response_data)
+        }}
+      end)
+      
+      assert {:ok, response} = MyApp.HTTPClient.get(url, json: true)
+      
+      # Verify response is automatically decoded
+      assert is_map(response.body)
+      assert response.body["message"] == "Hello"
+      assert response.body["count"] == 5
+    end
+  end
+
+  describe "error handling" do
+    test "handles network connection errors" do
+      url = "https://api.example.com/unreachable"
+      
+      HTTPAdapterMock
+      |> expect(:request, fn _request ->
+        {:error, %Mint.TransportError{reason: :econnrefused}}
+      end)
+      
+      log_output = capture_log(fn ->
+        assert {:error, %Mint.TransportError{reason: :econnrefused}} = 
+          MyApp.HTTPClient.get(url)
+      end)
+      
+      assert log_output =~ "HTTP request failed"
+    end
+
+    test "handles HTTP error responses" do
+      url = "https://api.example.com/error"
+      
+      HTTPAdapterMock
+      |> expect(:request, fn _request ->
+        {:ok, %Req.Response{
+          status: 400,
+          headers: [{"content-type", "application/json"}],
+          body: Jason.encode!(%{"error" => "Bad Request"})
+        }}
+      end)
+      
+      assert {:ok, response} = MyApp.HTTPClient.get(url)
+      assert response.status == 400
+    end
+
+    test "handles request timeout" do
+      url = "https://api.example.com/slow"
+      
+      HTTPAdapterMock
+      |> expect(:request, fn _request ->
+        Process.sleep(100)  # Simulate slow response
+        {:error, %Mint.HTTPError{reason: :timeout}}
+      end)
+      
+      assert {:error, %Mint.HTTPError{reason: :timeout}} = 
+        MyApp.HTTPClient.get(url, timeout: 50)
+    end
+
+    test "handles malformed JSON response" do
+      url = "https://api.example.com/bad-json"
+      
+      HTTPAdapterMock
+      |> expect(:request, fn _request ->
+        {:ok, %Req.Response{
+          status: 200,
+          headers: [{"content-type", "application/json"}],
+          body: "{invalid json"
+        }}
+      end)
+      
+      # Using JSON API client that expects valid JSON
+      assert {:error, {:json_decode_error, _reason}} = 
+        MyApp.HTTPClient.JSONAPIClient.get(url)
+    end
+  end
+
+  describe "batch requests" do
+    test "executes multiple requests concurrently" do
+      requests = [
+        {:get, "https://api.example.com/1", nil, []},
+        {:get, "https://api.example.com/2", nil, []},
+        {:post, "https://api.example.com/3", %{"data" => "test"}, []}
+      ]
+      
+      HTTPAdapterMock
+      |> expect(:request, 3, fn %Req.Request{url: url} ->
+        response_body = %{"url" => url, "timestamp" => DateTime.utc_now()}
+        {:ok, %Req.Response{
+          status: 200,
+          body: Jason.encode!(response_body)
+        }}
+      end)
+      
+      results = MyApp.HTTPClient.batch_request(requests)
+      
+      assert length(results) == 3
+      assert Enum.all?(results, fn result -> match?({:ok, _}, result) end)
+    end
+
+    test "handles mixed success and failure in batch" do
+      requests = [
+        {:get, "https://api.example.com/success", nil, []},
+        {:get, "https://api.example.com/failure", nil, []}
+      ]
+      
+      HTTPAdapterMock
+      |> expect(:request, fn %Req.Request{url: url} ->
+        case url do
+          "https://api.example.com/success" ->
+            {:ok, %Req.Response{status: 200, body: "success"}}
+          "https://api.example.com/failure" ->
+            {:error, %Mint.TransportError{reason: :timeout}}
+        end
+      end)
+      
+      results = MyApp.HTTPClient.batch_request(requests)
+      
+      assert length(results) == 2
+      assert match?({:ok, _}, Enum.at(results, 0))
+      assert match?({:error, _}, Enum.at(results, 1))
+    end
+  end
+
+  describe "form data handling" do
+    test "sends form data correctly" do
+      url = "https://api.example.com/form"
+      form_data = %{"name" => "John", "email" => "john@example.com"}
+      
+      HTTPAdapterMock
+      |> expect(:request, fn %Req.Request{body: body, headers: headers} ->
+        # Verify form encoding
+        assert body =~ "name=John"
+        assert body =~ "email=john%40example.com"
+        
+        # Verify content-type header
+        content_type_header = {"content-type", "application/x-www-form-urlencoded"}
+        assert content_type_header in headers
+        
+        {:ok, %Req.Response{status: 200, body: "form submitted"}}
+      end)
+      
+      assert {:ok, response} = MyApp.HTTPClient.FormClient.post_form(url, form_data)
+      assert response.status == 200
+    end
+
+    test "handles multipart form data" do
+      url = "https://api.example.com/upload"
+      multipart_data = [
+        {"name", "John"},
+        {"file", "file content", [filename: "test.txt", content_type: "text/plain"]}
+      ]
+      
+      HTTPAdapterMock
+      |> expect(:request, fn %Req.Request{body: body, headers: headers} ->
+        # Verify multipart structure
+        assert body =~ "Content-Disposition: form-data"
+        assert body =~ "name=\"name\""
+        assert body =~ "John"
+        assert body =~ "filename=\"test.txt\""
+        
+        # Verify content-type header includes boundary
+        content_type = Enum.find_value(headers, fn
+          {"content-type", value} -> value
+          _ -> nil
+        end)
+        
+        assert content_type =~ "multipart/form-data"
+        assert content_type =~ "boundary="
+        
+        {:ok, %Req.Response{status: 200, body: "upload successful"}}
+      end)
+      
+      assert {:ok, response} = MyApp.HTTPClient.FormClient.post_multipart(url, multipart_data)
+      assert response.status == 200
+    end
+  end
+
+  describe "telemetry integration" do
+    test "emits telemetry events for successful requests" do
+      url = "https://api.example.com/test"
+      
+      HTTPAdapterMock
+      |> expect(:request, fn _request ->
+        {:ok, %Req.Response{status: 200, body: "success"}}
+      end)
+      
+      ref = make_ref()
+      
+      :telemetry.attach(
+        "http-client-test",
+        [:my_app, :http_client, :request],
+        fn event, measurements, metadata, test_ref ->
+          send(test_ref, {:telemetry, event, measurements, metadata})
+        end,
+        self()
+      )
+      
+      MyApp.HTTPClient.get(url)
+      
+      assert_receive {:telemetry, [:my_app, :http_client, :request], 
+                      %{duration: duration}, %{method: :get, status: 200}}, 1000
+      
+      assert is_integer(duration)
+      assert duration > 0
+      
+      :telemetry.detach("http-client-test")
+    end
+
+    test "emits telemetry events for failed requests" do
+      url = "https://api.example.com/error"
+      
+      HTTPAdapterMock
+      |> expect(:request, fn _request ->
+        {:error, %Mint.TransportError{reason: :timeout}}
+      end)
+      
+      :telemetry.attach(
+        "http-client-error-test",
+        [:my_app, :http_client, :error],
+        fn event, measurements, metadata, test_pid ->
+          send(test_pid, {:telemetry_error, event, measurements, metadata})
+        end,
+        self()
+      )
+      
+      MyApp.HTTPClient.get(url)
+      
+      assert_receive {:telemetry_error, [:my_app, :http_client, :error], 
+                      %{duration: _}, %{method: :get, error_type: :timeout}}, 1000
+      
+      :telemetry.detach("http-client-error-test")
+    end
+  end
+
+  describe "performance" do
+    @tag :performance
+    test "handles high-frequency requests efficiently" do
+      url = "https://api.example.com/perf"
+      
+      HTTPAdapterMock
+      |> expect(:request, 100, fn _request ->
+        {:ok, %Req.Response{status: 200, body: "response"}}
+      end)
+      
+      start_time = System.monotonic_time(:millisecond)
+      
+      # Make 100 concurrent requests
+      tasks = Enum.map(1..100, fn _i ->
+        Task.async(fn ->
+          MyApp.HTTPClient.get(url)
+        end)
+      end)
+      
+      results = Task.await_many(tasks, 10_000)
+      
+      end_time = System.monotonic_time(:millisecond)
+      duration = end_time - start_time
+      
+      # All requests should succeed
+      assert Enum.all?(results, fn result -> match?({:ok, _}, result) end)
+      
+      # Should complete within reasonable time
+      assert duration < 5000  # Less than 5 seconds
+    end
+
+    @tag :performance
+    test "maintains low memory usage during batch operations" do
+      initial_memory = :erlang.memory(:total)
+      
+      # Large batch request
+      requests = Enum.map(1..1000, fn i ->
+        {:get, "https://api.example.com/item/#{i}", nil, []}
+      end)
+      
+      HTTPAdapterMock
+      |> expect(:request, 1000, fn _request ->
+        {:ok, %Req.Response{status: 200, body: "item data"}}
+      end)
+      
+      _results = MyApp.HTTPClient.batch_request(requests)
+      
+      # Force garbage collection
+      :erlang.garbage_collect()
+      
+      final_memory = :erlang.memory(:total)
+      memory_increase = final_memory - initial_memory
+      
+      # Memory increase should be reasonable
+      assert memory_increase < 50 * 1024 * 1024  # Less than 50MB
+    end
+  end
+end]]></correct-example>
+          <incorrect-example title="Poor Req testing without comprehensive validation" conditions="Testing HTTP client functionality" expected-result="Comprehensive HTTP client testing" incorrectness-criteria="No middleware testing, missing error handling tests, no authentication testing, poor integration coverage"><![CDATA[# BAD: Poor Req testing
+
+defmodule BadHTTPClientTest do
+  use ExUnit.Case
+  
+  # Only basic functionality testing
+  test "makes request" do
+    response = Req.get!("https://httpbin.org/json")
+    assert response.status == 200
+  end
+
+  # No middleware testing
+  # No authentication testing
+  # No error handling testing
+  # No retry mechanism testing
+  # No batch request testing
+  # No form data testing
+  # No telemetry testing
+  # No performance testing
+  # No timeout testing
+  # No security testing
+  
+  test "request works" do
+    # No comprehensive validation
+    assert true
+  end
+end]]></incorrect-example>
+        </example>
+      </examples>
+    </requirement>
+  </requirements>
+  
+  <context description="Req HTTP client considerations">
+    Req is a modern HTTP client for Elixir that provides a composable middleware pipeline, automatic JSON handling, authentication support, and comprehensive error handling. It's designed for building robust HTTP clients with advanced features like retry policies, circuit breaking, and performance monitoring.
+
+    Key considerations include:
+    - Middleware pipeline for request/response transformation and cross-cutting concerns
+    - Comprehensive error handling and retry mechanisms for network reliability
+    - Authentication strategies for different API security models
+    - Performance optimization through connection pooling and request batching
+    - Security measures including SSL verification and request sanitization
+    - Integration with telemetry systems for operational monitoring
+
+    Req is essential for applications requiring reliable HTTP communication with external services, providing modern patterns for API integration and service-to-service communication.
+  </context>
+  
+  <references>
+    <reference as="dependency" href=".cursor/rules/000-core/002-cursor-rules-creation.mdc" reason="Follows standard rule format">Base rule format definition</reference>
+    <reference as="context" href="https://hexdocs.pm/req/" reason="Official Req documentation">Req Package Documentation</reference>
+    <reference as="context" href="https://github.com/wojtekmach/req" reason="Req source code and examples">Req GitHub Repository</reference>
+  </references>
+</rule>
+ 

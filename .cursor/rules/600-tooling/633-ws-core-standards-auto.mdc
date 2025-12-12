@@ -1,0 +1,1787 @@
+<rule>
+  <meta>
+    <title>WebSocket (ws) Core Standards</title>
+    <description>Comprehensive WebSocket (ws) library standards for real-time communication, connection management, message handling, security, and performance optimization following WebSocket protocol best practices</description>
+    <created-at utc-timestamp="1744157700">January 25, 2025, 10:15 AM</created-at>
+    <last-updated-at utc-timestamp="1744157700">January 25, 2025, 10:15 AM</last-updated-at>
+    <applies-to>
+      <file-matcher glob="**/*.{ts,tsx,js,jsx}">TypeScript and JavaScript files using WebSocket ws library</file-matcher>
+      <file-matcher glob="**/websocket/**/*">WebSocket-related files</file-matcher>
+      <file-matcher glob="**/ws/**/*">WebSocket ws library files</file-matcher>
+      <file-matcher glob="**/realtime/**/*">Real-time communication files</file-matcher>
+      <action-matcher action="websocket">Triggered when working with WebSocket connections</action-matcher>
+    </applies-to>
+  </meta>
+  <requirements>
+    <non-negotiable priority="critical">
+      <description>Use WebSocket (ws) library with proper connection management, message validation, error handling, security measures, and performance optimization. Implement comprehensive authentication, rate limiting, heartbeat mechanisms, and scalable architecture patterns.</description>
+      <examples>
+        <example title="Comprehensive WebSocket Server Implementation">
+          <correct-example title="Production-ready WebSocket server with security and performance optimization" conditions="Building WebSocket server with ws library" expected-result="Secure, scalable, and robust WebSocket implementation" correctness-criteria="Security, performance, error handling, connection management, message validation"><![CDATA[// TypeScript - Comprehensive WebSocket server implementation
+import WebSocket, { WebSocketServer, RawData } from 'ws';
+import { IncomingMessage, Server } from 'http';
+import { URL } from 'url';
+import { EventEmitter } from 'events';
+import jwt from 'jsonwebtoken';
+import rateLimit from 'express-rate-limit';
+import compression from 'compression';
+import helmet from 'helmet';
+
+// Type definitions for enhanced type safety
+interface AuthenticatedWebSocket extends WebSocket {
+  userId?: string;
+  sessionId: string;
+  lastPing: number;
+  rateLimiter: Map<string, number>;
+  subscriptions: Set<string>;
+  metadata: {
+    userAgent?: string;
+    ip: string;
+    connectedAt: number;
+    lastActivity: number;
+  };
+}
+
+interface WebSocketMessage {
+  type: string;
+  data: any;
+  timestamp: number;
+  messageId: string;
+  userId?: string;
+}
+
+interface WebSocketConfig {
+  port: number;
+  path: string;
+  maxConnections: number;
+  heartbeatInterval: number;
+  messageRateLimit: number;
+  maxMessageSize: number;
+  enableCompression: boolean;
+  cors: {
+    origin: string | string[];
+    credentials: boolean;
+  };
+  auth: {
+    required: boolean;
+    jwtSecret: string;
+    tokenExpiry: number;
+  };
+  ssl?: {
+    key: string;
+    cert: string;
+  };
+}
+
+interface ConnectionMetrics {
+  totalConnections: number;
+  activeConnections: number;
+  messagesPerSecond: number;
+  errorsPerMinute: number;
+  averageResponseTime: number;
+  bytesTransferred: number;
+}
+
+// Enhanced WebSocket server with comprehensive features
+export class WebSocketManager extends EventEmitter {
+  private wss: WebSocketServer;
+  private server: Server;
+  private connections: Map<string, AuthenticatedWebSocket>;
+  private rooms: Map<string, Set<string>>;
+  private metrics: ConnectionMetrics;
+  private heartbeatInterval: NodeJS.Timeout;
+  private config: WebSocketConfig;
+  private messageQueue: Map<string, WebSocketMessage[]>;
+  private rateLimiters: Map<string, Map<string, number>>;
+
+  constructor(config: WebSocketConfig, server?: Server) {
+    super();
+    
+    this.config = config;
+    this.connections = new Map();
+    this.rooms = new Map();
+    this.messageQueue = new Map();
+    this.rateLimiters = new Map();
+    
+    this.metrics = {
+      totalConnections: 0,
+      activeConnections: 0,
+      messagesPerSecond: 0,
+      errorsPerMinute: 0,
+      averageResponseTime: 0,
+      bytesTransferred: 0
+    };
+
+    this.initializeServer(server);
+    this.setupHeartbeat();
+    this.setupMetricsTracking();
+  }
+
+  private initializeServer(server?: Server): void {
+    // Create WebSocket server with security configurations
+    this.wss = new WebSocketServer({
+      server,
+      port: server ? undefined : this.config.port,
+      path: this.config.path,
+      maxPayload: this.config.maxMessageSize,
+      
+      // Compression support
+      perMessageDeflate: this.config.enableCompression ? {
+        zlibDeflateOptions: {
+          level: 6,
+          chunkSize: 1024,
+          windowBits: 13,
+          memLevel: 8
+        },
+        threshold: 1024,
+        concurrencyLimit: 10,
+        serverMaxWindowBits: 15,
+        clientMaxWindowBits: 15,
+        serverMaxNoContextTakeover: false,
+        clientMaxNoContextTakeover: false
+      } : false,
+
+      // Client tracking
+      clientTracking: true,
+
+      // Verification function for authentication and rate limiting
+      verifyClient: (info: {
+        origin: string;
+        secure: boolean;
+        req: IncomingMessage;
+      }) => this.verifyClient(info)
+    });
+
+    this.setupConnectionHandling();
+    this.setupErrorHandling();
+  }
+
+  private async verifyClient(info: {
+    origin: string;
+    secure: boolean;
+    req: IncomingMessage;
+  }): Promise<boolean> {
+    try {
+      // CORS validation
+      if (!this.validateCORS(info.origin)) {
+        console.warn(`CORS validation failed for origin: ${info.origin}`);
+        return false;
+      }
+
+      // Rate limiting by IP
+      const clientIP = this.getClientIP(info.req);
+      if (!this.checkRateLimit(clientIP)) {
+        console.warn(`Rate limit exceeded for IP: ${clientIP}`);
+        return false;
+      }
+
+      // Connection limit check
+      if (this.connections.size >= this.config.maxConnections) {
+        console.warn('Maximum connections reached');
+        return false;
+      }
+
+      // Authentication if required
+      if (this.config.auth.required) {
+        const token = this.extractToken(info.req);
+        if (!token || !await this.validateToken(token)) {
+          console.warn('Authentication failed');
+          return false;
+        }
+      }
+
+      return true;
+    } catch (error) {
+      console.error('Client verification error:', error);
+      return false;
+    }
+  }
+
+  private validateCORS(origin: string): boolean {
+    const allowedOrigins = Array.isArray(this.config.cors.origin) 
+      ? this.config.cors.origin 
+      : [this.config.cors.origin];
+    
+    return allowedOrigins.includes('*') || allowedOrigins.includes(origin);
+  }
+
+  private getClientIP(req: IncomingMessage): string {
+    return (req.headers['x-forwarded-for'] as string)?.split(',')[0] ||
+           (req.headers['x-real-ip'] as string) ||
+           req.socket.remoteAddress ||
+           'unknown';
+  }
+
+  private checkRateLimit(clientIP: string): boolean {
+    const now = Date.now();
+    const windowMs = 60000; // 1 minute
+    
+    if (!this.rateLimiters.has(clientIP)) {
+      this.rateLimiters.set(clientIP, new Map());
+    }
+    
+    const clientLimiter = this.rateLimiters.get(clientIP)!;
+    const windowStart = Math.floor(now / windowMs) * windowMs;
+    
+    const currentCount = clientLimiter.get(windowStart) || 0;
+    if (currentCount >= this.config.messageRateLimit) {
+      return false;
+    }
+    
+    clientLimiter.set(windowStart, currentCount + 1);
+    
+    // Cleanup old entries
+    for (const [timestamp] of clientLimiter.entries()) {
+      if (timestamp < now - windowMs) {
+        clientLimiter.delete(timestamp);
+      }
+    }
+    
+    return true;
+  }
+
+  private extractToken(req: IncomingMessage): string | null {
+    const url = new URL(req.url!, `http://${req.headers.host}`);
+    return url.searchParams.get('token') || 
+           req.headers.authorization?.replace('Bearer ', '') ||
+           null;
+  }
+
+  private async validateToken(token: string): Promise<boolean> {
+    try {
+      jwt.verify(token, this.config.auth.jwtSecret);
+      return true;
+    } catch (error) {
+      return false;
+    }
+  }
+
+  private setupConnectionHandling(): void {
+    this.wss.on('connection', (ws: WebSocket, req: IncomingMessage) => {
+      this.handleNewConnection(ws as AuthenticatedWebSocket, req);
+    });
+  }
+
+  private async handleNewConnection(ws: AuthenticatedWebSocket, req: IncomingMessage): Promise<void> {
+    try {
+      // Initialize connection metadata
+      const sessionId = this.generateSessionId();
+      const clientIP = this.getClientIP(req);
+      
+      ws.sessionId = sessionId;
+      ws.lastPing = Date.now();
+      ws.rateLimiter = new Map();
+      ws.subscriptions = new Set();
+      ws.metadata = {
+        userAgent: req.headers['user-agent'],
+        ip: clientIP,
+        connectedAt: Date.now(),
+        lastActivity: Date.now()
+      };
+
+      // Authenticate if required
+      if (this.config.auth.required) {
+        const token = this.extractToken(req);
+        if (token) {
+          const decoded = jwt.verify(token, this.config.auth.jwtSecret) as any;
+          ws.userId = decoded.userId;
+        }
+      }
+
+      // Register connection
+      this.connections.set(sessionId, ws);
+      this.updateMetrics('connect');
+
+      // Setup message handling
+      this.setupMessageHandling(ws);
+      
+      // Setup connection lifecycle events
+      this.setupConnectionEvents(ws);
+
+      // Send welcome message
+      await this.sendMessage(ws, {
+        type: 'connection',
+        data: {
+          sessionId,
+          connectedAt: ws.metadata.connectedAt,
+          serverTime: Date.now()
+        }
+      });
+
+      this.emit('connection', {
+        sessionId,
+        userId: ws.userId,
+        metadata: ws.metadata
+      });
+
+      console.log(`New WebSocket connection: ${sessionId} (${clientIP})`);
+      
+    } catch (error) {
+      console.error('Connection setup error:', error);
+      ws.close(1011, 'Internal server error');
+    }
+  }
+
+  private setupMessageHandling(ws: AuthenticatedWebSocket): void {
+    ws.on('message', async (data: RawData, isBinary: boolean) => {
+      try {
+        // Update activity timestamp
+        ws.metadata.lastActivity = Date.now();
+        
+        // Rate limiting per connection
+        if (!this.checkConnectionRateLimit(ws)) {
+          await this.sendError(ws, 'Rate limit exceeded', 'RATE_LIMIT');
+          return;
+        }
+
+        // Parse message
+        const message = this.parseMessage(data, isBinary);
+        if (!message) {
+          await this.sendError(ws, 'Invalid message format', 'INVALID_FORMAT');
+          return;
+        }
+
+        // Validate message
+        const validation = this.validateMessage(message);
+        if (!validation.valid) {
+          await this.sendError(ws, validation.error!, 'VALIDATION_ERROR');
+          return;
+        }
+
+        // Handle message by type
+        await this.handleMessage(ws, message);
+        
+        // Update metrics
+        this.updateMetrics('message', data.length);
+
+      } catch (error) {
+        console.error('Message handling error:', error);
+        await this.sendError(ws, 'Message processing failed', 'PROCESSING_ERROR');
+        this.updateMetrics('error');
+      }
+    });
+  }
+
+  private setupConnectionEvents(ws: AuthenticatedWebSocket): void {
+    // Pong handler for heartbeat
+    ws.on('pong', () => {
+      ws.lastPing = Date.now();
+    });
+
+    // Error handler
+    ws.on('error', (error: Error) => {
+      console.error(`WebSocket error for ${ws.sessionId}:`, error);
+      this.updateMetrics('error');
+      this.emit('error', { sessionId: ws.sessionId, error });
+    });
+
+    // Close handler
+    ws.on('close', (code: number, reason: Buffer) => {
+      this.handleConnectionClose(ws, code, reason.toString());
+    });
+  }
+
+  private checkConnectionRateLimit(ws: AuthenticatedWebSocket): boolean {
+    const now = Date.now();
+    const windowMs = 1000; // 1 second
+    const windowStart = Math.floor(now / windowMs) * windowMs;
+    
+    const currentCount = ws.rateLimiter.get(windowStart) || 0;
+    if (currentCount >= 10) { // 10 messages per second per connection
+      return false;
+    }
+    
+    ws.rateLimiter.set(windowStart, currentCount + 1);
+    
+    // Cleanup old entries
+    for (const [timestamp] of ws.rateLimiter.entries()) {
+      if (timestamp < now - windowMs) {
+        ws.rateLimiter.delete(timestamp);
+      }
+    }
+    
+    return true;
+  }
+
+  private parseMessage(data: RawData, isBinary: boolean): WebSocketMessage | null {
+    try {
+      if (isBinary) {
+        // Handle binary data if needed
+        return null;
+      }
+      
+      const messageText = data.toString('utf8');
+      const parsed = JSON.parse(messageText);
+      
+      return {
+        type: parsed.type,
+        data: parsed.data,
+        timestamp: parsed.timestamp || Date.now(),
+        messageId: parsed.messageId || this.generateMessageId(),
+        userId: parsed.userId
+      };
+    } catch (error) {
+      return null;
+    }
+  }
+
+  private validateMessage(message: WebSocketMessage): { valid: boolean; error?: string } {
+    if (!message.type) {
+      return { valid: false, error: 'Message type is required' };
+    }
+
+    if (typeof message.type !== 'string') {
+      return { valid: false, error: 'Message type must be a string' };
+    }
+
+    if (message.type.length > 50) {
+      return { valid: false, error: 'Message type too long' };
+    }
+
+    // Additional validation based on message type
+    switch (message.type) {
+      case 'subscribe':
+        if (!message.data?.channel) {
+          return { valid: false, error: 'Channel is required for subscription' };
+        }
+        break;
+      
+      case 'broadcast':
+        if (!message.data?.content) {
+          return { valid: false, error: 'Content is required for broadcast' };
+        }
+        break;
+        
+      case 'private_message':
+        if (!message.data?.recipientId || !message.data?.content) {
+          return { valid: false, error: 'Recipient and content are required for private message' };
+        }
+        break;
+    }
+
+    return { valid: true };
+  }
+
+  private async handleMessage(ws: AuthenticatedWebSocket, message: WebSocketMessage): Promise<void> {
+    const startTime = Date.now();
+    
+    try {
+      switch (message.type) {
+        case 'ping':
+          await this.handlePing(ws, message);
+          break;
+          
+        case 'subscribe':
+          await this.handleSubscribe(ws, message);
+          break;
+          
+        case 'unsubscribe':
+          await this.handleUnsubscribe(ws, message);
+          break;
+          
+        case 'broadcast':
+          await this.handleBroadcast(ws, message);
+          break;
+          
+        case 'private_message':
+          await this.handlePrivateMessage(ws, message);
+          break;
+          
+        case 'join_room':
+          await this.handleJoinRoom(ws, message);
+          break;
+          
+        case 'leave_room':
+          await this.handleLeaveRoom(ws, message);
+          break;
+          
+        default:
+          await this.sendError(ws, `Unknown message type: ${message.type}`, 'UNKNOWN_TYPE');
+      }
+      
+      // Track response time
+      const responseTime = Date.now() - startTime;
+      this.updateResponseTime(responseTime);
+      
+    } catch (error) {
+      console.error(`Error handling message type ${message.type}:`, error);
+      await this.sendError(ws, 'Internal server error', 'INTERNAL_ERROR');
+    }
+  }
+
+  private async handlePing(ws: AuthenticatedWebSocket, message: WebSocketMessage): Promise<void> {
+    await this.sendMessage(ws, {
+      type: 'pong',
+      data: {
+        timestamp: Date.now(),
+        serverTime: Date.now()
+      }
+    });
+  }
+
+  private async handleSubscribe(ws: AuthenticatedWebSocket, message: WebSocketMessage): Promise<void> {
+    const channel = message.data.channel;
+    
+    if (!this.validateChannelAccess(ws, channel)) {
+      await this.sendError(ws, 'Access denied to channel', 'ACCESS_DENIED');
+      return;
+    }
+    
+    ws.subscriptions.add(channel);
+    
+    await this.sendMessage(ws, {
+      type: 'subscribed',
+      data: { channel }
+    });
+    
+    this.emit('subscribe', {
+      sessionId: ws.sessionId,
+      userId: ws.userId,
+      channel
+    });
+  }
+
+  private async handleUnsubscribe(ws: AuthenticatedWebSocket, message: WebSocketMessage): Promise<void> {
+    const channel = message.data.channel;
+    ws.subscriptions.delete(channel);
+    
+    await this.sendMessage(ws, {
+      type: 'unsubscribed',
+      data: { channel }
+    });
+  }
+
+  private async handleBroadcast(ws: AuthenticatedWebSocket, message: WebSocketMessage): Promise<void> {
+    const { channel, content } = message.data;
+    
+    if (!ws.subscriptions.has(channel)) {
+      await this.sendError(ws, 'Not subscribed to channel', 'NOT_SUBSCRIBED');
+      return;
+    }
+    
+    await this.broadcastToChannel(channel, {
+      type: 'broadcast',
+      data: {
+        channel,
+        content,
+        senderId: ws.userId,
+        timestamp: Date.now()
+      }
+    }, ws.sessionId);
+  }
+
+  private async handlePrivateMessage(ws: AuthenticatedWebSocket, message: WebSocketMessage): Promise<void> {
+    const { recipientId, content } = message.data;
+    
+    const recipientConnection = this.findConnectionByUserId(recipientId);
+    if (!recipientConnection) {
+      await this.sendError(ws, 'Recipient not found or offline', 'RECIPIENT_OFFLINE');
+      return;
+    }
+    
+    await this.sendMessage(recipientConnection, {
+      type: 'private_message',
+      data: {
+        content,
+        senderId: ws.userId,
+        timestamp: Date.now()
+      }
+    });
+    
+    // Send confirmation to sender
+    await this.sendMessage(ws, {
+      type: 'message_sent',
+      data: { recipientId }
+    });
+  }
+
+  private async handleJoinRoom(ws: AuthenticatedWebSocket, message: WebSocketMessage): Promise<void> {
+    const roomId = message.data.roomId;
+    
+    if (!this.rooms.has(roomId)) {
+      this.rooms.set(roomId, new Set());
+    }
+    
+    this.rooms.get(roomId)!.add(ws.sessionId);
+    
+    await this.sendMessage(ws, {
+      type: 'room_joined',
+      data: { roomId }
+    });
+    
+    // Notify other room members
+    await this.broadcastToRoom(roomId, {
+      type: 'user_joined',
+      data: {
+        userId: ws.userId,
+        roomId,
+        timestamp: Date.now()
+      }
+    }, ws.sessionId);
+  }
+
+  private async handleLeaveRoom(ws: AuthenticatedWebSocket, message: WebSocketMessage): Promise<void> {
+    const roomId = message.data.roomId;
+    
+    if (this.rooms.has(roomId)) {
+      this.rooms.get(roomId)!.delete(ws.sessionId);
+      
+      // Clean up empty rooms
+      if (this.rooms.get(roomId)!.size === 0) {
+        this.rooms.delete(roomId);
+      }
+    }
+    
+    await this.sendMessage(ws, {
+      type: 'room_left',
+      data: { roomId }
+    });
+  }
+
+  private validateChannelAccess(ws: AuthenticatedWebSocket, channel: string): boolean {
+    // Implement channel access validation logic
+    // For example, check user permissions, channel existence, etc.
+    return true; // Placeholder implementation
+  }
+
+  private findConnectionByUserId(userId: string): AuthenticatedWebSocket | null {
+    for (const connection of this.connections.values()) {
+      if (connection.userId === userId) {
+        return connection;
+      }
+    }
+    return null;
+  }
+
+  // Public methods for external usage
+  public async broadcastToChannel(
+    channel: string, 
+    message: Partial<WebSocketMessage>, 
+    excludeSessionId?: string
+  ): Promise<void> {
+    const fullMessage = {
+      ...message,
+      timestamp: Date.now(),
+      messageId: this.generateMessageId()
+    };
+    
+    const promises: Promise<void>[] = [];
+    
+    for (const connection of this.connections.values()) {
+      if (connection.sessionId !== excludeSessionId && 
+          connection.subscriptions.has(channel) &&
+          connection.readyState === WebSocket.OPEN) {
+        promises.push(this.sendMessage(connection, fullMessage));
+      }
+    }
+    
+    await Promise.allSettled(promises);
+  }
+
+  public async broadcastToRoom(
+    roomId: string, 
+    message: Partial<WebSocketMessage>, 
+    excludeSessionId?: string
+  ): Promise<void> {
+    const room = this.rooms.get(roomId);
+    if (!room) return;
+    
+    const fullMessage = {
+      ...message,
+      timestamp: Date.now(),
+      messageId: this.generateMessageId()
+    };
+    
+    const promises: Promise<void>[] = [];
+    
+    for (const sessionId of room) {
+      if (sessionId !== excludeSessionId) {
+        const connection = this.connections.get(sessionId);
+        if (connection && connection.readyState === WebSocket.OPEN) {
+          promises.push(this.sendMessage(connection, fullMessage));
+        }
+      }
+    }
+    
+    await Promise.allSettled(promises);
+  }
+
+  public async sendMessage(ws: AuthenticatedWebSocket, message: Partial<WebSocketMessage>): Promise<void> {
+    if (ws.readyState !== WebSocket.OPEN) {
+      throw new Error('Connection is not open');
+    }
+    
+    const fullMessage = {
+      ...message,
+      timestamp: Date.now(),
+      messageId: message.messageId || this.generateMessageId()
+    };
+    
+    return new Promise((resolve, reject) => {
+      ws.send(JSON.stringify(fullMessage), (error) => {
+        if (error) {
+          reject(error);
+        } else {
+          resolve();
+        }
+      });
+    });
+  }
+
+  public async sendError(ws: AuthenticatedWebSocket, message: string, code: string): Promise<void> {
+    await this.sendMessage(ws, {
+      type: 'error',
+      data: {
+        message,
+        code,
+        timestamp: Date.now()
+      }
+    });
+  }
+
+  private handleConnectionClose(ws: AuthenticatedWebSocket, code: number, reason: string): void {
+    console.log(`Connection closed: ${ws.sessionId} (${code}: ${reason})`);
+    
+    // Remove from all rooms
+    for (const [roomId, members] of this.rooms.entries()) {
+      if (members.has(ws.sessionId)) {
+        members.delete(ws.sessionId);
+        
+        // Notify other room members
+        this.broadcastToRoom(roomId, {
+          type: 'user_left',
+          data: {
+            userId: ws.userId,
+            roomId,
+            timestamp: Date.now()
+          }
+        }, ws.sessionId);
+        
+        // Clean up empty rooms
+        if (members.size === 0) {
+          this.rooms.delete(roomId);
+        }
+      }
+    }
+    
+    // Remove connection
+    this.connections.delete(ws.sessionId);
+    this.updateMetrics('disconnect');
+    
+    this.emit('disconnect', {
+      sessionId: ws.sessionId,
+      userId: ws.userId,
+      code,
+      reason
+    });
+  }
+
+  private setupHeartbeat(): void {
+    this.heartbeatInterval = setInterval(() => {
+      const now = Date.now();
+      const timeout = this.config.heartbeatInterval * 2;
+      
+      for (const [sessionId, connection] of this.connections.entries()) {
+        if (now - connection.lastPing > timeout) {
+          console.log(`Terminating inactive connection: ${sessionId}`);
+          connection.terminate();
+          this.connections.delete(sessionId);
+        } else if (connection.readyState === WebSocket.OPEN) {
+          connection.ping();
+        }
+      }
+    }, this.config.heartbeatInterval);
+  }
+
+  private setupErrorHandling(): void {
+    this.wss.on('error', (error) => {
+      console.error('WebSocket server error:', error);
+      this.emit('serverError', error);
+    });
+
+    process.on('SIGTERM', () => this.gracefulShutdown());
+    process.on('SIGINT', () => this.gracefulShutdown());
+  }
+
+  private setupMetricsTracking(): void {
+    setInterval(() => {
+      this.metrics.activeConnections = this.connections.size;
+      this.emit('metrics', { ...this.metrics });
+    }, 5000);
+  }
+
+  private updateMetrics(type: 'connect' | 'disconnect' | 'message' | 'error', bytes?: number): void {
+    switch (type) {
+      case 'connect':
+        this.metrics.totalConnections++;
+        this.metrics.activeConnections = this.connections.size;
+        break;
+        
+      case 'disconnect':
+        this.metrics.activeConnections = this.connections.size;
+        break;
+        
+      case 'message':
+        this.metrics.messagesPerSecond++;
+        if (bytes) {
+          this.metrics.bytesTransferred += bytes;
+        }
+        break;
+        
+      case 'error':
+        this.metrics.errorsPerMinute++;
+        break;
+    }
+  }
+
+  private updateResponseTime(responseTime: number): void {
+    // Simple moving average
+    this.metrics.averageResponseTime = 
+      (this.metrics.averageResponseTime * 0.9) + (responseTime * 0.1);
+  }
+
+  private generateSessionId(): string {
+    return `ws_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`;
+  }
+
+  private generateMessageId(): string {
+    return `msg_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`;
+  }
+
+  // Public utility methods
+  public getMetrics(): ConnectionMetrics {
+    return { ...this.metrics };
+  }
+
+  public getConnectionCount(): number {
+    return this.connections.size;
+  }
+
+  public getRoomMembers(roomId: string): string[] {
+    return Array.from(this.rooms.get(roomId) || []);
+  }
+
+  public async gracefulShutdown(): Promise<void> {
+    console.log('Shutting down WebSocket server...');
+    
+    clearInterval(this.heartbeatInterval);
+    
+    // Notify all connections
+    const closePromises: Promise<void>[] = [];
+    for (const connection of this.connections.values()) {
+      closePromises.push(
+        this.sendMessage(connection, {
+          type: 'server_shutdown',
+          data: { message: 'Server is shutting down' }
+        }).then(() => {
+          connection.close(1001, 'Server shutdown');
+        }).catch(() => {
+          connection.terminate();
+        })
+      );
+    }
+    
+    await Promise.allSettled(closePromises);
+    
+    // Close server
+    return new Promise((resolve) => {
+      this.wss.close(() => {
+        console.log('WebSocket server closed');
+        resolve();
+      });
+    });
+  }
+}
+
+// Example usage and integration patterns
+export class WebSocketService {
+  private wsManager: WebSocketManager;
+
+  constructor(config: WebSocketConfig, server?: Server) {
+    this.wsManager = new WebSocketManager(config, server);
+    this.setupEventHandlers();
+  }
+
+  private setupEventHandlers(): void {
+    this.wsManager.on('connection', (event) => {
+      console.log('New client connected:', event.sessionId);
+    });
+
+    this.wsManager.on('disconnect', (event) => {
+      console.log('Client disconnected:', event.sessionId);
+    });
+
+    this.wsManager.on('subscribe', (event) => {
+      console.log(`Client ${event.sessionId} subscribed to ${event.channel}`);
+    });
+
+    this.wsManager.on('metrics', (metrics) => {
+      this.handleMetrics(metrics);
+    });
+
+    this.wsManager.on('error', (event) => {
+      console.error('WebSocket error:', event.error);
+    });
+  }
+
+  private handleMetrics(metrics: ConnectionMetrics): void {
+    // Send metrics to monitoring system
+    // Log performance data
+    // Trigger alerts if needed
+  }
+
+  public async broadcastNotification(notification: {
+    type: string;
+    data: any;
+    channels?: string[];
+    userIds?: string[];
+  }): Promise<void> {
+    if (notification.channels) {
+      for (const channel of notification.channels) {
+        await this.wsManager.broadcastToChannel(channel, {
+          type: notification.type,
+          data: notification.data
+        });
+      }
+    }
+
+    if (notification.userIds) {
+      // Implementation for broadcasting to specific users
+      // This would require additional tracking of user connections
+    }
+  }
+
+  public getStatus(): {
+    connections: number;
+    rooms: number;
+    metrics: ConnectionMetrics;
+  } {
+    return {
+      connections: this.wsManager.getConnectionCount(),
+      rooms: 0, // Would need to expose this from WebSocketManager
+      metrics: this.wsManager.getMetrics()
+    };
+  }
+
+  public async shutdown(): Promise<void> {
+    await this.wsManager.gracefulShutdown();
+  }
+}
+
+// Configuration factory for different environments
+export const createWebSocketConfig = (env: 'development' | 'production' | 'test'): WebSocketConfig => {
+  const baseConfig: WebSocketConfig = {
+    port: 8080,
+    path: '/ws',
+    maxConnections: 1000,
+    heartbeatInterval: 30000,
+    messageRateLimit: 100,
+    maxMessageSize: 1024 * 1024, // 1MB
+    enableCompression: true,
+    cors: {
+      origin: ['http://localhost:3000'],
+      credentials: true
+    },
+    auth: {
+      required: false,
+      jwtSecret: process.env.JWT_SECRET || 'default-secret',
+      tokenExpiry: 3600
+    }
+  };
+
+  switch (env) {
+    case 'development':
+      return {
+        ...baseConfig,
+        maxConnections: 100,
+        messageRateLimit: 50,
+        cors: {
+          origin: ['http://localhost:3000', 'http://localhost:3001'],
+          credentials: true
+        }
+      };
+
+    case 'production':
+      return {
+        ...baseConfig,
+        maxConnections: 10000,
+        messageRateLimit: 1000,
+        enableCompression: true,
+        auth: {
+          required: true,
+          jwtSecret: process.env.JWT_SECRET!,
+          tokenExpiry: 3600
+        },
+        cors: {
+          origin: [process.env.FRONTEND_URL!],
+          credentials: true
+        }
+      };
+
+    case 'test':
+      return {
+        ...baseConfig,
+        port: 0, // Random port
+        maxConnections: 10,
+        heartbeatInterval: 5000,
+        messageRateLimit: 10
+      };
+
+    default:
+      return baseConfig;
+  }
+};]]></correct-example>
+          <incorrect-example title="Poor WebSocket implementation without security or proper error handling" conditions="Building WebSocket server" expected-result="Secure WebSocket implementation" incorrectness-criteria="No security, poor error handling, no rate limiting, missing features"><![CDATA[// BAD: Poor WebSocket implementation
+
+import WebSocket, { WebSocketServer } from 'ws';
+
+// Basic server without security or proper configuration
+const wss = new WebSocketServer({ port: 8080 });
+
+// No authentication
+// No rate limiting
+// No proper error handling
+
+wss.on('connection', (ws) => {
+  console.log('New connection');
+  
+  // No connection validation
+  // No metadata tracking
+  
+  ws.on('message', (data) => {
+    // No message validation
+    // No rate limiting
+    // No error handling
+    
+    try {
+      const message = JSON.parse(data.toString());
+      
+      // No type checking
+      // No security validation
+      
+      // Broadcast to all without filtering
+      wss.clients.forEach((client) => {
+        if (client.readyState === WebSocket.OPEN) {
+          client.send(JSON.stringify(message));
+        }
+      });
+      
+    } catch (error) {
+      // Poor error handling
+      console.log('Error:', error);
+    }
+  });
+  
+  ws.on('close', () => {
+    console.log('Connection closed');
+    // No cleanup
+  });
+  
+  // No heartbeat
+  // No connection tracking
+  // No metrics
+});
+
+// No graceful shutdown
+// No performance monitoring
+// No security measures
+// No compression
+// No proper configuration management]]></incorrect-example>
+        </example>
+      </examples>
+    </non-negotiable>
+
+    <requirement priority="high">
+      <description>Implement comprehensive testing for WebSocket functionality including connection testing, message validation, security testing, performance testing, and integration testing with proper mocking and test isolation.</description>
+      <examples>
+        <example title="WebSocket Testing Patterns">
+          <correct-example title="Comprehensive WebSocket testing with security and performance validation" conditions="Testing WebSocket implementation" expected-result="Thorough test coverage with proper mocking and validation" correctness-criteria="Unit tests, integration tests, security tests, performance tests, proper mocking"><![CDATA[// TypeScript - Comprehensive WebSocket testing
+import WebSocket from 'ws';
+import { WebSocketManager, WebSocketService, createWebSocketConfig } from '../websocket-service';
+import { Server } from 'http';
+import { EventEmitter } from 'events';
+import jwt from 'jsonwebtoken';
+
+describe('WebSocket Service', () => {
+  let server: Server;
+  let wsManager: WebSocketManager;
+  let wsService: WebSocketService;
+  let clientWs: WebSocket;
+  
+  const testConfig = createWebSocketConfig('test');
+  const testPort = 9999;
+
+  beforeEach(async () => {
+    // Create HTTP server for testing
+    server = new Server();
+    server.listen(testPort);
+
+    // Initialize WebSocket service
+    wsManager = new WebSocketManager({ ...testConfig, port: testPort }, server);
+    wsService = new WebSocketService({ ...testConfig, port: testPort }, server);
+
+    // Wait for server to be ready
+    await new Promise(resolve => setTimeout(resolve, 100));
+  });
+
+  afterEach(async () => {
+    // Clean up connections
+    if (clientWs && clientWs.readyState === WebSocket.OPEN) {
+      clientWs.close();
+    }
+
+    // Shutdown service
+    await wsService.shutdown();
+    
+    // Close server
+    await new Promise(resolve => {
+      server.close(() => resolve(void 0));
+    });
+  });
+
+  describe('Connection Management', () => {
+    it('should accept valid connections', async () => {
+      const connectionPromise = new Promise((resolve) => {
+        wsManager.once('connection', resolve);
+      });
+
+      clientWs = new WebSocket(`ws://localhost:${testPort}/ws`);
+      
+      await new Promise(resolve => {
+        clientWs.once('open', resolve);
+      });
+
+      const connectionEvent = await connectionPromise;
+      expect(connectionEvent).toBeDefined();
+      expect(connectionEvent.sessionId).toMatch(/^ws_\d+_/);
+    });
+
+    it('should reject connections exceeding rate limit', async () => {
+      const connections: WebSocket[] = [];
+      const connectionLimit = testConfig.maxConnections;
+
+      // Create connections up to limit
+      for (let i = 0; i < connectionLimit; i++) {
+        const ws = new WebSocket(`ws://localhost:${testPort}/ws`);
+        connections.push(ws);
+        await new Promise(resolve => {
+          ws.once('open', resolve);
+        });
+      }
+
+      // Try to create one more connection (should fail)
+      const extraWs = new WebSocket(`ws://localhost:${testPort}/ws`);
+      
+      await expect(new Promise((resolve, reject) => {
+        extraWs.once('open', () => reject(new Error('Connection should have been rejected')));
+        extraWs.once('error', resolve);
+        setTimeout(() => resolve('timeout'), 1000);
+      })).resolves.toBeDefined();
+
+      // Cleanup
+      connections.forEach(ws => {
+        if (ws.readyState === WebSocket.OPEN) {
+          ws.close();
+        }
+      });
+    });
+
+    it('should handle connection authentication', async () => {
+      const authConfig = {
+        ...testConfig,
+        auth: {
+          required: true,
+          jwtSecret: 'test-secret',
+          tokenExpiry: 3600
+        }
+      };
+
+      const authWsManager = new WebSocketManager(authConfig, server);
+
+      // Valid token
+      const validToken = jwt.sign({ userId: 'user123' }, 'test-secret');
+      const validWs = new WebSocket(`ws://localhost:${testPort}/ws?token=${validToken}`);
+      
+      await new Promise(resolve => {
+        validWs.once('open', resolve);
+      });
+
+      expect(validWs.readyState).toBe(WebSocket.OPEN);
+      validWs.close();
+
+      // Invalid token
+      const invalidWs = new WebSocket(`ws://localhost:${testPort}/ws?token=invalid`);
+      
+      await expect(new Promise((resolve, reject) => {
+        invalidWs.once('open', () => reject(new Error('Should have been rejected')));
+        invalidWs.once('error', resolve);
+        setTimeout(() => resolve('timeout'), 1000);
+      })).resolves.toBeDefined();
+
+      await authWsManager.gracefulShutdown();
+    });
+
+    it('should handle heartbeat and connection health', async () => {
+      clientWs = new WebSocket(`ws://localhost:${testPort}/ws`);
+      
+      await new Promise(resolve => {
+        clientWs.once('open', resolve);
+      });
+
+      // Send ping message
+      const pingPromise = new Promise(resolve => {
+        clientWs.once('message', (data) => {
+          const message = JSON.parse(data.toString());
+          if (message.type === 'pong') {
+            resolve(message);
+          }
+        });
+      });
+
+      clientWs.send(JSON.stringify({
+        type: 'ping',
+        data: { timestamp: Date.now() }
+      }));
+
+      const pongMessage = await pingPromise;
+      expect(pongMessage).toBeDefined();
+      expect(pongMessage.type).toBe('pong');
+    });
+  });
+
+  describe('Message Handling', () => {
+    beforeEach(async () => {
+      clientWs = new WebSocket(`ws://localhost:${testPort}/ws`);
+      await new Promise(resolve => {
+        clientWs.once('open', resolve);
+      });
+    });
+
+    it('should handle subscription messages', async () => {
+      const subscriptionPromise = new Promise(resolve => {
+        clientWs.once('message', (data) => {
+          const message = JSON.parse(data.toString());
+          if (message.type === 'subscribed') {
+            resolve(message);
+          }
+        });
+      });
+
+      clientWs.send(JSON.stringify({
+        type: 'subscribe',
+        data: { channel: 'test-channel' }
+      }));
+
+      const subscriptionResponse = await subscriptionPromise;
+      expect(subscriptionResponse.data.channel).toBe('test-channel');
+    });
+
+    it('should validate message format', async () => {
+      const errorPromise = new Promise(resolve => {
+        clientWs.once('message', (data) => {
+          const message = JSON.parse(data.toString());
+          if (message.type === 'error') {
+            resolve(message);
+          }
+        });
+      });
+
+      // Send invalid message
+      clientWs.send(JSON.stringify({
+        data: { content: 'test' }
+        // Missing type field
+      }));
+
+      const errorResponse = await errorPromise;
+      expect(errorResponse.data.code).toBe('VALIDATION_ERROR');
+    });
+
+    it('should handle rate limiting per connection', async () => {
+      const messageLimit = 10; // Per second limit
+      const messages: Promise<any>[] = [];
+
+      // Send messages rapidly
+      for (let i = 0; i < messageLimit + 5; i++) {
+        const messagePromise = new Promise(resolve => {
+          const timeout = setTimeout(() => resolve({ type: 'timeout' }), 1000);
+          
+          const messageHandler = (data: Buffer) => {
+            const message = JSON.parse(data.toString());
+            clearTimeout(timeout);
+            resolve(message);
+            clientWs.off('message', messageHandler);
+          };
+          
+          clientWs.on('message', messageHandler);
+        });
+
+        clientWs.send(JSON.stringify({
+          type: 'ping',
+          data: { index: i }
+        }));
+
+        messages.push(messagePromise);
+      }
+
+      const responses = await Promise.all(messages);
+      const errorResponses = responses.filter(r => r.type === 'error' && r.data?.code === 'RATE_LIMIT');
+      
+      expect(errorResponses.length).toBeGreaterThan(0);
+    });
+
+    it('should handle broadcast messages', async () => {
+      // Create second client
+      const client2 = new WebSocket(`ws://localhost:${testPort}/ws`);
+      await new Promise(resolve => {
+        client2.once('open', resolve);
+      });
+
+      // Subscribe both clients to channel
+      const subscribePromises = [
+        new Promise(resolve => {
+          clientWs.once('message', (data) => {
+            const message = JSON.parse(data.toString());
+            if (message.type === 'subscribed') resolve(message);
+          });
+        }),
+        new Promise(resolve => {
+          client2.once('message', (data) => {
+            const message = JSON.parse(data.toString());
+            if (message.type === 'subscribed') resolve(message);
+          });
+        })
+      ];
+
+      clientWs.send(JSON.stringify({
+        type: 'subscribe',
+        data: { channel: 'broadcast-test' }
+      }));
+
+      client2.send(JSON.stringify({
+        type: 'subscribe',
+        data: { channel: 'broadcast-test' }
+      }));
+
+      await Promise.all(subscribePromises);
+
+      // Set up broadcast listener on client2
+      const broadcastPromise = new Promise(resolve => {
+        client2.once('message', (data) => {
+          const message = JSON.parse(data.toString());
+          if (message.type === 'broadcast') {
+            resolve(message);
+          }
+        });
+      });
+
+      // Send broadcast from client1
+      clientWs.send(JSON.stringify({
+        type: 'broadcast',
+        data: {
+          channel: 'broadcast-test',
+          content: 'Hello broadcast!'
+        }
+      }));
+
+      const broadcastMessage = await broadcastPromise;
+      expect(broadcastMessage.data.content).toBe('Hello broadcast!');
+
+      client2.close();
+    });
+  });
+
+  describe('Room Management', () => {
+    beforeEach(async () => {
+      clientWs = new WebSocket(`ws://localhost:${testPort}/ws`);
+      await new Promise(resolve => {
+        clientWs.once('open', resolve);
+      });
+    });
+
+    it('should handle room join and leave', async () => {
+      const joinPromise = new Promise(resolve => {
+        clientWs.once('message', (data) => {
+          const message = JSON.parse(data.toString());
+          if (message.type === 'room_joined') {
+            resolve(message);
+          }
+        });
+      });
+
+      clientWs.send(JSON.stringify({
+        type: 'join_room',
+        data: { roomId: 'test-room' }
+      }));
+
+      const joinResponse = await joinPromise;
+      expect(joinResponse.data.roomId).toBe('test-room');
+
+      const leavePromise = new Promise(resolve => {
+        clientWs.once('message', (data) => {
+          const message = JSON.parse(data.toString());
+          if (message.type === 'room_left') {
+            resolve(message);
+          }
+        });
+      });
+
+      clientWs.send(JSON.stringify({
+        type: 'leave_room',
+        data: { roomId: 'test-room' }
+      }));
+
+      const leaveResponse = await leavePromise;
+      expect(leaveResponse.data.roomId).toBe('test-room');
+    });
+
+    it('should notify room members of joins and leaves', async () => {
+      const client2 = new WebSocket(`ws://localhost:${testPort}/ws`);
+      await new Promise(resolve => {
+        client2.once('open', resolve);
+      });
+
+      // Client1 joins room
+      const joinPromise = new Promise(resolve => {
+        clientWs.once('message', (data) => {
+          const message = JSON.parse(data.toString());
+          if (message.type === 'room_joined') resolve(message);
+        });
+      });
+
+      clientWs.send(JSON.stringify({
+        type: 'join_room',
+        data: { roomId: 'notification-test' }
+      }));
+
+      await joinPromise;
+
+      // Set up notification listener on client1
+      const notificationPromise = new Promise(resolve => {
+        clientWs.once('message', (data) => {
+          const message = JSON.parse(data.toString());
+          if (message.type === 'user_joined') {
+            resolve(message);
+          }
+        });
+      });
+
+      // Client2 joins same room
+      client2.send(JSON.stringify({
+        type: 'join_room',
+        data: { roomId: 'notification-test' }
+      }));
+
+      const notification = await notificationPromise;
+      expect(notification.data.roomId).toBe('notification-test');
+
+      client2.close();
+    });
+  });
+
+  describe('Security Testing', () => {
+    it('should prevent message injection attacks', async () => {
+      clientWs = new WebSocket(`ws://localhost:${testPort}/ws`);
+      await new Promise(resolve => {
+        clientWs.once('open', resolve);
+      });
+
+      const errorPromise = new Promise(resolve => {
+        clientWs.once('message', (data) => {
+          const message = JSON.parse(data.toString());
+          if (message.type === 'error') {
+            resolve(message);
+          }
+        });
+      });
+
+      // Attempt to send malicious message
+      clientWs.send(JSON.stringify({
+        type: '<script>alert("xss")</script>',
+        data: { content: 'malicious' }
+      }));
+
+      const errorResponse = await errorPromise;
+      expect(errorResponse).toBeDefined();
+    });
+
+    it('should handle large message size limits', async () => {
+      clientWs = new WebSocket(`ws://localhost:${testPort}/ws`);
+      await new Promise(resolve => {
+        clientWs.once('open', resolve);
+      });
+
+      // Create message larger than limit
+      const largeData = 'x'.repeat(testConfig.maxMessageSize + 1);
+      
+      const closePromise = new Promise(resolve => {
+        clientWs.once('close', resolve);
+      });
+
+      clientWs.send(largeData);
+
+      const closeEvent = await closePromise;
+      expect(closeEvent).toBeDefined();
+    });
+
+    it('should validate CORS origins', async () => {
+      // This would require testing with different origins
+      // Implementation depends on test environment setup
+      expect(true).toBe(true); // Placeholder
+    });
+  });
+
+  describe('Performance Testing', () => {
+    it('should handle concurrent connections efficiently', async () => {
+      const connectionCount = 50;
+      const connections: WebSocket[] = [];
+      const connectionPromises: Promise<void>[] = [];
+
+      const startTime = Date.now();
+
+      // Create multiple connections
+      for (let i = 0; i < connectionCount; i++) {
+        const ws = new WebSocket(`ws://localhost:${testPort}/ws`);
+        connections.push(ws);
+        
+        connectionPromises.push(new Promise(resolve => {
+          ws.once('open', resolve);
+        }));
+      }
+
+      await Promise.all(connectionPromises);
+      const connectionTime = Date.now() - startTime;
+
+      expect(connectionTime).toBeLessThan(5000); // Should connect within 5 seconds
+      expect(wsService.getStatus().connections).toBe(connectionCount);
+
+      // Cleanup
+      const closePromises = connections.map(ws => new Promise<void>(resolve => {
+        ws.once('close', () => resolve());
+        ws.close();
+      }));
+
+      await Promise.all(closePromises);
+    });
+
+    it('should handle high message throughput', async () => {
+      clientWs = new WebSocket(`ws://localhost:${testPort}/ws`);
+      await new Promise(resolve => {
+        clientWs.once('open', resolve);
+      });
+
+      const messageCount = 100;
+      const receivedMessages: any[] = [];
+      
+      const messageHandler = (data: Buffer) => {
+        const message = JSON.parse(data.toString());
+        if (message.type === 'pong') {
+          receivedMessages.push(message);
+        }
+      };
+
+      clientWs.on('message', messageHandler);
+
+      const startTime = Date.now();
+
+      // Send messages rapidly
+      for (let i = 0; i < messageCount; i++) {
+        clientWs.send(JSON.stringify({
+          type: 'ping',
+          data: { index: i }
+        }));
+      }
+
+      // Wait for all responses
+      await new Promise<void>(resolve => {
+        const checkInterval = setInterval(() => {
+          if (receivedMessages.length >= messageCount) {
+            clearInterval(checkInterval);
+            resolve();
+          }
+        }, 10);
+      });
+
+      const totalTime = Date.now() - startTime;
+      const messagesPerSecond = (messageCount * 1000) / totalTime;
+
+      expect(messagesPerSecond).toBeGreaterThan(50); // At least 50 messages/second
+      expect(receivedMessages).toHaveLength(messageCount);
+
+      clientWs.off('message', messageHandler);
+    });
+
+    it('should provide performance metrics', async () => {
+      clientWs = new WebSocket(`ws://localhost:${testPort}/ws`);
+      await new Promise(resolve => {
+        clientWs.once('open', resolve);
+      });
+
+      // Generate some activity
+      for (let i = 0; i < 10; i++) {
+        clientWs.send(JSON.stringify({
+          type: 'ping',
+          data: { index: i }
+        }));
+        await new Promise(resolve => setTimeout(resolve, 10));
+      }
+
+      const metrics = wsService.getStatus().metrics;
+      
+      expect(metrics.totalConnections).toBeGreaterThan(0);
+      expect(metrics.activeConnections).toBeGreaterThan(0);
+      expect(metrics.messagesPerSecond).toBeGreaterThan(0);
+    });
+  });
+
+  describe('Integration Testing', () => {
+    it('should integrate with external services', async () => {
+      // Mock external service
+      const mockNotificationService = {
+        sendNotification: jest.fn().mockResolvedValue(true)
+      };
+
+      // Test notification broadcasting
+      await wsService.broadcastNotification({
+        type: 'system_notification',
+        data: { message: 'System update' },
+        channels: ['general']
+      });
+
+      // Verify integration
+      expect(true).toBe(true); // Placeholder for actual integration test
+    });
+
+    it('should handle graceful shutdown', async () => {
+      clientWs = new WebSocket(`ws://localhost:${testPort}/ws`);
+      await new Promise(resolve => {
+        clientWs.once('open', resolve);
+      });
+
+      const shutdownPromise = new Promise(resolve => {
+        clientWs.once('message', (data) => {
+          const message = JSON.parse(data.toString());
+          if (message.type === 'server_shutdown') {
+            resolve(message);
+          }
+        });
+      });
+
+      const closePromise = new Promise(resolve => {
+        clientWs.once('close', resolve);
+      });
+
+      // Trigger shutdown
+      const shutdownStartTime = Date.now();
+      const gracefulShutdownPromise = wsService.shutdown();
+
+      // Should receive shutdown notification
+      await shutdownPromise;
+      
+      // Connection should close
+      await closePromise;
+      
+      // Shutdown should complete
+      await gracefulShutdownPromise;
+      
+      const shutdownTime = Date.now() - shutdownStartTime;
+      expect(shutdownTime).toBeLessThan(10000); // Should shutdown within 10 seconds
+    });
+  });
+
+  describe('Error Handling', () => {
+    it('should handle malformed JSON messages', async () => {
+      clientWs = new WebSocket(`ws://localhost:${testPort}/ws`);
+      await new Promise(resolve => {
+        clientWs.once('open', resolve);
+      });
+
+      const errorPromise = new Promise(resolve => {
+        clientWs.once('message', (data) => {
+          const message = JSON.parse(data.toString());
+          if (message.type === 'error') {
+            resolve(message);
+          }
+        });
+      });
+
+      // Send invalid JSON
+      clientWs.send('invalid json {');
+
+      const errorResponse = await errorPromise;
+      expect(errorResponse.data.code).toBe('INVALID_FORMAT');
+    });
+
+    it('should handle connection errors gracefully', async () => {
+      clientWs = new WebSocket(`ws://localhost:${testPort}/ws`);
+      await new Promise(resolve => {
+        clientWs.once('open', resolve);
+      });
+
+      const errorHandler = jest.fn();
+      wsManager.on('error', errorHandler);
+
+      // Simulate connection error
+      clientWs.emit('error', new Error('Test error'));
+
+      await new Promise(resolve => setTimeout(resolve, 100));
+      
+      expect(errorHandler).toHaveBeenCalled();
+    });
+  });
+});]]></correct-example>
+          <incorrect-example title="Poor WebSocket testing without proper coverage or validation" conditions="Testing WebSocket functionality" expected-result="Comprehensive test coverage" incorrectness-criteria="No security testing, missing error cases, no performance testing, poor integration coverage"><![CDATA[// BAD: Poor WebSocket testing
+
+describe('Bad WebSocket Tests', () => {
+  
+  // No proper setup or teardown
+  // No comprehensive connection testing
+  
+  it('should connect', (done) => {
+    const ws = new WebSocket('ws://localhost:8080');
+    ws.on('open', () => {
+      expect(true).toBe(true);
+      done();
+    });
+    // No error handling
+    // No cleanup
+  });
+
+  it('should send message', () => {
+    // No actual WebSocket testing
+    expect(true).toBe(true);
+  });
+
+  // No security testing
+  // No performance testing
+  // No error handling testing
+  // No rate limiting testing
+  // No authentication testing
+  // No integration testing
+  
+});]]></incorrect-example>
+        </example>
+      </examples>
+    </requirement>
+  </requirements>
+  
+  <context description="WebSocket (ws) library considerations">
+    The WebSocket (ws) library is a popular Node.js implementation of the WebSocket protocol that provides efficient, full-duplex communication between clients and servers. It's essential for building real-time applications like chat systems, live updates, collaborative tools, and gaming applications.
+
+    Key considerations include:
+    - Security measures including authentication, rate limiting, and input validation
+    - Performance optimization for high-concurrency scenarios and message throughput
+    - Connection management with heartbeat mechanisms and graceful disconnection handling
+    - Message validation and routing for different message types and channels
+    - Scalability patterns for clustering and load balancing across multiple servers
+    - Integration with existing HTTP servers and middleware for authentication and CORS
+
+    WebSocket connections are persistent and stateful, requiring careful resource management and monitoring to ensure optimal performance and security in production environments.
+  </context>
+  
+  <references>
+    <reference as="dependency" href=".cursor/rules/000-core/002-cursor-rules-creation.mdc" reason="Follows standard rule format">Base rule format definition</reference>
+    <reference as="context" href="https://www.npmjs.com/package/ws" reason="Official package documentation">WebSocket (ws) Package Documentation</reference>
+    <reference as="context" href="https://tools.ietf.org/html/rfc6455" reason="WebSocket protocol specification">RFC 6455 WebSocket Protocol</reference>
+  </references>
+</rule>
+ 

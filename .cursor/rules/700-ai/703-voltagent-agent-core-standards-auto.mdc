@@ -1,0 +1,215 @@
+---
+description: "Comprehensive VoltAgent best practices for agent setup, Vercel AI integration, workflows, tools, memory, streaming, security, and observability"
+globs: ["api/**/*.{ts,js}", "src/**/*.{ts,tsx}"]
+alwaysApply: false
+---
+
+<rule>
+  <meta>
+    <title>VoltAgent Agent Core Standards (Auto)</title>
+    <description>Standards for building VoltAgent-based agents with TypeScript: agent definition, Vercel AI SDK integration, workflows, tools (schema validation), memory discipline, streaming, security/tenancy, observability, and testing.</description>
+    <created-at utc-timestamp="1757130900">September 6, 2025, 00:35 UTC</created-at>
+    <last-updated-at utc-timestamp="1757130900">September 6, 2025, 00:35 UTC</last-updated-at>
+    <applies-to>
+      <file-matcher glob="api/**/*.{ts,js}">Server/API handlers configuring or invoking VoltAgent agents</file-matcher>
+      <file-matcher glob="src/**/*.{ts,tsx}">Frontend components/hooks interacting with agent endpoints</file-matcher>
+      <action-matcher action="voltagent-agent">Triggered when creating or updating a VoltAgent agent</action-matcher>
+    </applies-to>
+  </meta>
+  <requirements>
+    <non-negotiable priority="critical">
+      <description>Use VoltAgent with a provider abstraction via Vercel AI SDK. Keep model/provider configuration separate from agent logic; never hardcode secrets.</description>
+      <examples>
+        <example title="Agent and model configuration">
+          <correct-example title="Provider setup with OpenAI via ai-sdk" conditions="Defining agent and model" expected-result="Agent uses configured provider/model" correctness-criteria="Uses @voltagent/vercel-ai and @ai-sdk/openai, no inline secrets"><![CDATA[
+// providers/vercel.ts
+import { VercelAIProvider } from '@voltagent/vercel-ai';
+import { openai } from '@ai-sdk/openai';
+
+export const vercelProvider = new VercelAIProvider();
+export const defaultModel = openai('gpt-4o-mini');
+
+// agents/summarizer.ts
+import { Agent } from '@voltagent/core';
+import { vercelProvider, defaultModel } from '../providers/vercel';
+
+export const summarizer = new Agent({
+  name: 'summarizer-agent',
+  instructions: 'You are an expert at summarizing text.',
+  llm: vercelProvider,
+  model: defaultModel,
+});]]></correct-example>
+          <incorrect-example title="Inline secrets and raw HTTP" conditions="Defining agent and model" expected-result="Provider-based setup, no secrets in code" incorrectness-criteria="Hardcoded API keys, raw fetch to vendor"><![CDATA[
+// BAD: do not inline secrets or call vendor APIs directly
+const res = await fetch('https://api.openai.com/v1/chat/completions', {
+  headers: { Authorization: `Bearer ${'sk-...hardcoded'}` },
+  body: JSON.stringify({ model: 'gpt-4o-mini', messages })
+});]]></incorrect-example>
+        </example>
+      </examples>
+    </non-negotiable>
+
+    <non-negotiable priority="critical">
+      <description>Adopt single-responsibility agents with typed inputs/outputs. Validate user inputs with Zod before passing to the model.</description>
+      <examples>
+        <example title="Typed agent with input validation">
+          <correct-example title="Zod-validated handler" conditions="Processing user input" expected-result="Safe, typed inputs" correctness-criteria="Zod schema, throws on invalid"><![CDATA[
+import { z } from 'zod';
+import { Agent } from '@voltagent/core';
+
+const inputSchema = z.object({ text: z.string().min(1) });
+
+export async function summarize(agent: Agent, input: unknown) {
+  const { text } = inputSchema.parse(input);
+  return agent.run(`Summarize in 3 concise bullets:\n${text}`);
+}]]></correct-example>
+          <incorrect-example title="Unvalidated input" conditions="Processing user input" expected-result="Validated inputs" incorrectness-criteria="Accepts any input, may break or leak"><![CDATA[
+// BAD: passes arbitrary input to model without validation
+export async function summarize(agent, input) {
+  return agent.run(input.text);
+}]]></incorrect-example>
+        </example>
+      </examples>
+    </non-negotiable>
+
+    <requirement priority="critical">
+      <description>Prefer streaming for interactive UX. Use server-side streaming (SSE) and support abort signals. Set appropriate headers.</description>
+      <examples>
+        <example title="SSE streaming from API route">
+          <correct-example title="SSE headers + stream iteration" conditions="Returning streamed output" expected-result="Gradual token delivery" correctness-criteria="text/event-stream, keep-alive, iterative writes"><![CDATA[
+// api/agents/chat.ts
+import type { VercelRequest, VercelResponse } from '@vercel/node';
+import { streamText } from 'ai';
+import { defaultModel } from '../../providers/vercel';
+
+export default async function handler(req: VercelRequest, res: VercelResponse) {
+  if (req.method !== 'POST') return res.status(405).json({ error: 'Method not allowed' });
+  const { messages } = req.body as { messages: Array<{ role: string; content: string }> };
+
+  res.setHeader('Content-Type', 'text/event-stream');
+  res.setHeader('Cache-Control', 'no-cache');
+  res.setHeader('Connection', 'keep-alive');
+
+  const { textStream } = await streamText({ model: defaultModel, messages, temperature: 0.3, maxTokens: 800 });
+  for await (const delta of textStream) res.write(`data: ${JSON.stringify({ delta })}\n\n`);
+  res.end();
+}]]></correct-example>
+          <incorrect-example title="Buffering full response" conditions="Returning streamed output" expected-result="SSE stream" incorrectness-criteria="Responds only at end"><![CDATA[
+// BAD: buffers entire output then returns once
+const { text } = await generateText({ model, prompt });
+return res.json({ text });]]></incorrect-example>
+        </example>
+      </examples>
+    </requirement>
+
+    <requirement priority="high">
+      <description>Define tools with strict schemas and guard execution. Use Zod to validate args, add timeouts/AbortController, and return minimal safe payloads.</description>
+      <examples>
+        <example title="Schema-validated tool">
+          <correct-example title="Safe tool execution" conditions="Implementing a tool" expected-result="Validated inputs and guarded side-effects" correctness-criteria="z.object parameters, timeout, sanitized output"><![CDATA[
+import { z } from 'zod';
+
+export const getStockPrice = {
+  name: 'getStockPrice',
+  description: 'Get latest price for a ticker',
+  parameters: z.object({ ticker: z.string().toUpperCase().min(1) }),
+  execute: async ({ ticker }: { ticker: string }) => {
+    const controller = new AbortController();
+    const timer = setTimeout(() => controller.abort(), 5000);
+    try {
+      const res = await fetch(`https://api.example.com/stocks/${encodeURIComponent(ticker)}`, { signal: controller.signal });
+      const json = await res.json();
+      return { ticker, price: json.price, currency: json.currency };
+    } finally { clearTimeout(timer); }
+  }
+};]]></correct-example>
+          <incorrect-example title="Arbitrary execution" conditions="Implementing a tool" expected-result="Guarded tools" incorrectness-criteria="Executes arbitrary commands or unvalidated args"><![CDATA[
+// BAD: executes arbitrary command from model-provided args
+export const run = { execute: async ({ cmd }: any) => exec(cmd) };]]></incorrect-example>
+        </example>
+      </examples>
+    </requirement>
+
+    <requirement priority="high">
+      <description>Workflows: build deterministic, step-based flows with clear input/output mapping, branching, and retries. Keep steps small and testable.</description>
+      <examples>
+        <example title="Step-based workflow">
+          <correct-example title="Deterministic pipeline" conditions="Designing workflows" expected-result="Traceable steps" correctness-criteria="Explicit steps, parallelization where needed, retry/backoff"><![CDATA[
+import { createWorkflowChain, andThen, andAgent } from '@voltagent/core';
+import { VercelAIProvider } from '@voltagent/vercel-ai';
+import { openai } from '@ai-sdk/openai';
+import { z } from 'zod';
+
+const agent = new (class extends VercelAIProvider {})();
+const model = openai('gpt-4o-mini');
+
+export const analysisWorkflow = createWorkflowChain({
+  id: 'text-analysis-workflow',
+  name: 'Text Analysis',
+  input: z.object({ text: z.string() }),
+  result: z.object({ summary: z.string(), summaryWordCount: z.number() }),
+})
+  .andThen({ name: 'trim', execute: async (d) => ({ trimmedText: d.text.trim() }) })
+  .andAgent((d) => `Summarize in one sentence: "${d.trimmedText}"`, new agent.constructor(), { schema: z.object({ summary: z.string() }) })
+  .andThen({ name: 'count', execute: async (d) => ({ summary: d.summary, summaryWordCount: d.summary.split(' ').length }) });]]></correct-example>
+          <incorrect-example title="Monolithic step" conditions="Designing workflows" expected-result="Small testable steps" incorrectness-criteria="Single step doing all logic"><![CDATA[
+// BAD: one step performs extraction, branching, enrichment, and persistence
+async function pipeline(input) { /* everything here */ }]]></incorrect-example>
+        </example>
+      </examples>
+    </requirement>
+
+    <requirement priority="high">
+      <description>Memory: persist by tenant/thread, set retention/limits, and avoid storing PII. Provide semantic recall only where necessary.</description>
+      <examples>
+        <example title="Scoped memory">
+          <correct-example title="Tenant/thread scoped store" conditions="Configuring memory" expected-result="Bounded memory with redaction" correctness-criteria="Windowed recall, optional vector recall"><![CDATA[
+interface MemoryItem { role: 'user'|'assistant'; content: string; ts: string }
+export class MemoryStore {
+  constructor(private readonly tenantId: string, private readonly threadId: string) {}
+  async add(item: MemoryItem) { /* redact PII and insert with TTL */ }
+  async recent(limit = 20): Promise<MemoryItem[]> { return []; }
+  async semantic(query: string, k = 5): Promise<MemoryItem[]> { return []; }
+}]]></correct-example>
+          <incorrect-example title="Unbounded raw transcript" conditions="Configuring memory" expected-result="Redacted, bounded memory" incorrectness-criteria="Stores raw content indefinitely"><![CDATA[
+// BAD: store all prompts/outputs forever
+const memory: any[] = []; memory.push({ prompt, output });]]></incorrect-example>
+        </example>
+      </examples>
+    </requirement>
+
+    <requirement priority="high">
+      <description>Security & tenancy: keep secrets on server, enforce tenant-scoped reads/writes, sanitize logs (no raw prompts/outputs), and validate all external calls.</description>
+    </requirement>
+
+    <requirement priority="medium">
+      <description>Observability: emit structured logs (agent runs, tools used, token counts, latencies) and integrate tracing/metrics where available.</description>
+    </requirement>
+
+    <requirement priority="medium">
+      <description>Testing: unit-test tools and agents, integration-test workflows and streaming endpoints. Mock provider responses for determinism.</description>
+    </requirement>
+  </requirements>
+
+  <grammar>
+    <grammar-entry title="Provider integration">
+      <pattern description="Expect @voltagent/vercel-ai and @ai-sdk/openai imports">@voltagent\/vercel-ai|@ai-sdk\/openai</pattern>
+    </grammar-entry>
+    <grammar-entry title="No client-side secrets">
+      <pattern description="Disallow VITE_* provider keys in client code">VITE_.*(OPENAI|ANTHROPIC|GEMINI|AI)_KEY</pattern>
+    </grammar-entry>
+    <grammar-entry title="Tool schema presence">
+      <pattern description="Expect Zod schema for tool parameters">z\.object\(\{[\s\S]*\}\)</pattern>
+    </grammar-entry>
+  </grammar>
+
+  <context description="VoltAgent framework notes">
+    VoltAgent provides agent primitives, workflows, and provider integration (including Vercel AI). Define single-responsibility agents, validate inputs, use streaming for interactive experiences, guard tools with schemas and timeouts, scope memory by tenant/thread, and keep secrets server-side.
+  </context>
+
+  <references>
+    <reference as="dependency" href=".cursor/rules/000-core/002-cursor-rules-creation.mdc" reason="Follows standard rule format">Base rule format definition</reference>
+    <reference as="context" href="https://voltagent.dev/docs/" reason="Official VoltAgent documentation">VoltAgent Docs</reference>
+  </references>
+</rule>
+

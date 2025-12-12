@@ -1,0 +1,686 @@
+---
+description: Fast-CSV library best practices for CSV parsing, writing, and transformation with TypeScript and performance optimization
+globs: "*.{ts,js,csv}"
+alwaysApply: false
+---
+
+<rule>
+  <meta>
+    <title>Fast CSV Core Standards Auto</title>
+    <description>Fast-CSV library best practices for CSV parsing, writing, and transformation with TypeScript and performance optimization</description>
+    <created-at utc-timestamp="1744165600">July 16, 2025, 5:46 PM</created-at>
+    <last-updated-at utc-timestamp="1744165600">July 16, 2025, 5:46 PM</last-updated-at>
+    <applies-to>
+      <file-matcher glob="*.{ts,js,csv}">TypeScript/JavaScript files using fast-csv for CSV operations</file-matcher>
+      <action-matcher action="csv-processing">Triggered when processing CSV data with fast-csv</action-matcher>
+    </applies-to>
+  </meta>
+  <requirements>
+    <non-negotiable priority="critical">
+      <description>Use TypeScript interfaces for CSV row definitions and implement proper error handling for CSV parsing and writing operations. Leverage fast-csv's streaming capabilities for optimal performance.</description>
+      <examples>
+        <example title="Type-Safe CSV Operations with fast-csv">
+          <correct-example title="Comprehensive fast-csv implementation" conditions="Reading and writing CSV files with validation" expected-result="Type-safe CSV processing with error handling" correctness-criteria="Uses TypeScript interfaces, streaming operations, error handling, data validation"><![CDATA[// types/csv.ts
+import { ParserRow, FormatterRow } from '@fast-csv/parse';
+
+export interface CSVParseOptions {
+  headers?: boolean | string[] | ((headers: string[]) => string[]);
+  delimiter?: string;
+  quote?: string | boolean;
+  escape?: string | boolean;
+  comment?: string;
+  skipEmptyLines?: boolean;
+  skipLinesWithError?: boolean;
+  maxRows?: number;
+  discardUnmappedColumns?: boolean;
+  strictColumnHandling?: boolean;
+  trim?: boolean;
+  ltrim?: boolean;
+  rtrim?: boolean;
+}
+
+export interface CSVWriteOptions {
+  headers?: boolean | string[];
+  delimiter?: string;
+  quote?: string | boolean;
+  escape?: string;
+  includeEndRowDelimiter?: boolean;
+  writeBOM?: boolean;
+  alwaysWriteHeaders?: boolean;
+  quoteColumns?: boolean | string[] | { [key: string]: boolean };
+  quoteHeaders?: boolean | string[] | { [key: string]: boolean };
+}
+
+export interface ParsedCSVResult<T> {
+  data: T[];
+  errors: CSVError[];
+  metadata: {
+    rowCount: number;
+    errorCount: number;
+    headers: string[];
+    processingTime: number;
+  };
+}
+
+export interface CSVError {
+  row: number;
+  message: string;
+  data?: any;
+}
+
+// utils/csvProcessor.ts
+import fs from 'fs';
+import csv from 'fast-csv';
+import { z } from 'zod';
+
+export class FastCSVProcessor<T extends Record<string, any> = Record<string, any>> {
+  private parseOptions: CSVParseOptions;
+  private writeOptions: CSVWriteOptions;
+  private schema?: z.ZodSchema<T>;
+
+  constructor(
+    parseOptions: CSVParseOptions = {},
+    writeOptions: CSVWriteOptions = {},
+    schema?: z.ZodSchema<T>
+  ) {
+    this.parseOptions = {
+      headers: true,
+      delimiter: ',',
+      quote: '"',
+      escape: '"',
+      skipEmptyLines: true,
+      skipLinesWithError: false,
+      trim: true,
+      ...parseOptions,
+    };
+
+    this.writeOptions = {
+      headers: true,
+      delimiter: ',',
+      quote: '"',
+      includeEndRowDelimiter: true,
+      writeBOM: false,
+      ...writeOptions,
+    };
+
+    this.schema = schema;
+  }
+
+  async readCSVFile(filePath: string): Promise<ParsedCSVResult<T>> {
+    const startTime = Date.now();
+    const data: T[] = [];
+    const errors: CSVError[] = [];
+    let headers: string[] = [];
+    let rowCount = 0;
+
+    return new Promise((resolve, reject) => {
+      const stream = fs.createReadStream(filePath);
+
+      csv
+        .parseStream(stream, this.parseOptions)
+        .on('headers', (headerList: string[]) => {
+          headers = headerList;
+        })
+        .on('data', (row: any) => {
+          rowCount++;
+
+          try {
+            // Validate against schema if provided
+            if (this.schema) {
+              const validatedRow = this.schema.parse(row);
+              data.push(validatedRow);
+            } else {
+              data.push(row as T);
+            }
+          } catch (error) {
+            errors.push({
+              row: rowCount,
+              message: error instanceof Error ? error.message : 'Validation failed',
+              data: row,
+            });
+
+            if (!this.parseOptions.skipLinesWithError) {
+              reject(new Error(`Validation failed at row ${rowCount}: ${error.message}`));
+              return;
+            }
+          }
+        })
+        .on('error', (error: Error) => {
+          errors.push({
+            row: rowCount,
+            message: error.message,
+          });
+
+          if (!this.parseOptions.skipLinesWithError) {
+            reject(error);
+            return;
+          }
+        })
+        .on('end', () => {
+          const processingTime = Date.now() - startTime;
+
+          resolve({
+            data,
+            errors,
+            metadata: {
+              rowCount,
+              errorCount: errors.length,
+              headers,
+              processingTime,
+            },
+          });
+        });
+    });
+  }
+
+  async writeCSVFile(data: T[], filePath: string): Promise<void> {
+    return new Promise((resolve, reject) => {
+      const writeStream = fs.createWriteStream(filePath);
+
+      csv
+        .writeToStream(writeStream, data, this.writeOptions)
+        .on('error', (error: Error) => {
+          reject(new Error(`Failed to write CSV: ${error.message}`));
+        })
+        .on('end', () => {
+          resolve();
+        });
+    });
+  }
+
+  async transformCSV<U extends Record<string, any> = Record<string, any>>(
+    inputPath: string,
+    outputPath: string,
+    transformFn: (row: T, index: number) => U | Promise<U>,
+    outputSchema?: z.ZodSchema<U>
+  ): Promise<{ inputCount: number; outputCount: number; errors: CSVError[] }> {
+    const errors: CSVError[] = [];
+    let inputCount = 0;
+    let outputCount = 0;
+
+    return new Promise((resolve, reject) => {
+      const readStream = fs.createReadStream(inputPath);
+      const writeStream = fs.createWriteStream(outputPath);
+
+      const transformedData: U[] = [];
+
+      csv
+        .parseStream(readStream, this.parseOptions)
+        .on('data', async (row: any) => {
+          inputCount++;
+
+          try {
+            // Validate input if schema provided
+            if (this.schema) {
+              this.schema.parse(row);
+            }
+
+            // Transform the row
+            const transformedRow = await transformFn(row as T, inputCount - 1);
+
+            // Validate output if schema provided
+            if (outputSchema) {
+              outputSchema.parse(transformedRow);
+            }
+
+            transformedData.push(transformedRow);
+            outputCount++;
+          } catch (error) {
+            errors.push({
+              row: inputCount,
+              message: error instanceof Error ? error.message : 'Transformation failed',
+              data: row,
+            });
+
+            if (!this.parseOptions.skipLinesWithError) {
+              reject(error);
+              return;
+            }
+          }
+        })
+        .on('error', (error: Error) => {
+          reject(error);
+        })
+        .on('end', () => {
+          // Write transformed data
+          csv
+            .writeToStream(writeStream, transformedData, this.writeOptions)
+            .on('error', (error: Error) => {
+              reject(error);
+            })
+            .on('end', () => {
+              resolve({
+                inputCount,
+                outputCount,
+                errors,
+              });
+            });
+        });
+    });
+  }
+
+  // Stream processing for large files
+  createReadStream(filePath: string) {
+    const readStream = fs.createReadStream(filePath);
+    return csv.parseStream(readStream, this.parseOptions);
+  }
+
+  createWriteStream(filePath: string) {
+    const writeStream = fs.createWriteStream(filePath);
+    return csv.format(this.writeOptions).pipe(writeStream);
+  }
+}
+
+// Example schemas and usage
+const userSchema = z.object({
+  id: z.string().transform(Number),
+  name: z.string().min(1),
+  email: z.string().email(),
+  age: z.string().transform(Number).refine(val => val >= 0 && val <= 150),
+  active: z.string().transform(val => val.toLowerCase() === 'true'),
+});
+
+type User = z.infer<typeof userSchema>;
+
+const salesRecordSchema = z.object({
+  date: z.string().transform(str => new Date(str)),
+  product: z.string().min(1),
+  quantity: z.string().transform(Number),
+  price: z.string().transform(Number),
+  total: z.string().transform(Number),
+});
+
+type SalesRecord = z.infer<typeof salesRecordSchema>;
+
+// Usage examples
+export const processUserCSV = async (inputPath: string, outputPath: string) => {
+  const processor = new FastCSVProcessor<User>(
+    {
+      headers: true,
+      skipLinesWithError: true,
+      trim: true,
+    },
+    {
+      headers: true,
+      quoteColumns: true,
+    },
+    userSchema
+  );
+
+  try {
+    const result = await processor.readCSVFile(inputPath);
+    
+    console.log(`Processed ${result.data.length} users`);
+    if (result.errors.length > 0) {
+      console.warn(`${result.errors.length} rows had errors`);
+    }
+
+    // Filter and transform data
+    const activeUsers = result.data.filter(user => user.active);
+    
+    await processor.writeCSVFile(activeUsers, outputPath);
+    
+    return result;
+  } catch (error) {
+    console.error('CSV processing failed:', error);
+    throw error;
+  }
+};
+
+export const transformSalesData = async (inputPath: string, outputPath: string) => {
+  const processor = new FastCSVProcessor<SalesRecord>(
+    { headers: true, skipLinesWithError: true },
+    { headers: true },
+    salesRecordSchema
+  );
+
+  try {
+    const result = await processor.transformCSV(
+      inputPath,
+      outputPath,
+      (record, index) => ({
+        ...record,
+        discountedPrice: record.price * 0.9, // 10% discount
+        recordNumber: index + 1,
+        processedAt: new Date().toISOString(),
+      })
+    );
+
+    console.log(`Transformed ${result.outputCount} of ${result.inputCount} records`);
+    return result;
+  } catch (error) {
+    console.error('Sales data transformation failed:', error);
+    throw error;
+  }
+};]]></correct-example>
+          <incorrect-example title="Basic fast-csv usage without validation" conditions="Reading and writing CSV files with validation" expected-result="Type-safe CSV processing with error handling" incorrectness-criteria="No TypeScript types, missing error handling, no validation, synchronous operations"><![CDATA[// Bad: No TypeScript, no error handling
+const csv = require('fast-csv');
+const fs = require('fs');
+
+function readCSV(filePath) {
+  const data = [];
+  
+  fs.createReadStream(filePath)
+    .pipe(csv.parse({ headers: true }))
+    .on('data', row => data.push(row)) // No validation
+    .on('end', () => console.log(data)); // No error handling
+}
+
+function writeCSV(data, filePath) {
+  csv.writeToPath(filePath, data); // No error handling
+}
+
+// No TypeScript interfaces
+// No validation
+// No error handling
+// No streaming considerations]]></incorrect-example>
+        </example>
+      </examples>
+    </non-negotiable>
+    <requirement priority="high">
+      <description>Implement streaming CSV processing for large files using fast-csv's built-in streaming capabilities. Use proper backpressure handling and memory management.</description>
+      <examples>
+        <example title="Streaming CSV Processing">
+          <correct-example title="Memory-efficient streaming operations" conditions="Processing large CSV files efficiently" expected-result="Optimal memory usage with proper stream handling" correctness-criteria="Uses streaming, backpressure handling, progress tracking, memory management"><![CDATA[// utils/streamingCSVProcessor.ts
+import { Transform, pipeline } from 'stream';
+import { promisify } from 'util';
+import csv from 'fast-csv';
+import fs from 'fs';
+
+const pipelineAsync = promisify(pipeline);
+
+export interface StreamingOptions {
+  batchSize?: number;
+  maxConcurrency?: number;
+  progressCallback?: (progress: {
+    processed: number;
+    errors: number;
+    memoryUsage: NodeJS.MemoryUsage;
+  }) => void;
+  memoryThreshold?: number; // MB
+}
+
+export class StreamingCSVProcessor<T extends Record<string, any> = Record<string, any>> {
+  private options: Required<StreamingOptions>;
+
+  constructor(
+    private parseOptions: CSVParseOptions = {},
+    private writeOptions: CSVWriteOptions = {},
+    options: StreamingOptions = {}
+  ) {
+    this.options = {
+      batchSize: 1000,
+      maxConcurrency: 4,
+      progressCallback: () => {},
+      memoryThreshold: 100, // 100MB
+      ...options,
+    };
+  }
+
+  async processLargeCSV<U extends Record<string, any> = Record<string, any>>(
+    inputPath: string,
+    outputPath: string,
+    processor: (batch: T[]) => Promise<U[]>
+  ): Promise<{ processed: number; errors: number }> {
+    let processedCount = 0;
+    let errorCount = 0;
+    let batch: T[] = [];
+
+    const inputStream = fs.createReadStream(inputPath);
+    const outputStream = fs.createWriteStream(outputPath);
+    
+    // Initialize CSV writer
+    const csvWriteStream = csv.format(this.writeOptions);
+    csvWriteStream.pipe(outputStream);
+
+    const processBatch = async (currentBatch: T[]): Promise<U[]> => {
+      try {
+        return await processor(currentBatch);
+      } catch (error) {
+        console.error(`Batch processing error:`, error);
+        throw error;
+      }
+    };
+
+    const writeResults = (results: U[]) => {
+      return new Promise<void>((resolve, reject) => {
+        let written = 0;
+        const writeNext = () => {
+          if (written >= results.length) {
+            resolve();
+            return;
+          }
+
+          const canContinue = csvWriteStream.write(results[written++]);
+          if (canContinue) {
+            writeNext();
+          } else {
+            csvWriteStream.once('drain', writeNext);
+          }
+        };
+        writeNext();
+      });
+    };
+
+    const transformStream = new Transform({
+      objectMode: true,
+      highWaterMark: this.options.batchSize,
+      transform: async (chunk: T, encoding, callback) => {
+        try {
+          batch.push(chunk);
+          processedCount++;
+
+          // Check memory usage
+          const memUsage = process.memoryUsage();
+          if (memUsage.heapUsed / 1024 / 1024 > this.options.memoryThreshold) {
+            // Force garbage collection if available
+            if (global.gc) {
+              global.gc();
+            }
+          }
+
+          // Process batch when full
+          if (batch.length >= this.options.batchSize) {
+            try {
+              const results = await processBatch([...batch]);
+              await writeResults(results);
+              batch = []; // Clear batch
+
+              // Report progress
+              this.options.progressCallback({
+                processed: processedCount,
+                errors: errorCount,
+                memoryUsage: process.memoryUsage(),
+              });
+            } catch (error) {
+              errorCount += batch.length;
+              batch = [];
+            }
+          }
+
+          callback();
+        } catch (error) {
+          errorCount++;
+          callback(error);
+        }
+      },
+      flush: async (callback) => {
+        // Process remaining items
+        if (batch.length > 0) {
+          try {
+            const results = await processBatch(batch);
+            await writeResults(results);
+          } catch (error) {
+            errorCount += batch.length;
+          }
+        }
+        csvWriteStream.end();
+        callback();
+      }
+    });
+
+    try {
+      await pipelineAsync(
+        inputStream,
+        csv.parseStream(inputStream, this.parseOptions),
+        transformStream
+      );
+
+      return { processed: processedCount, errors: errorCount };
+    } catch (error) {
+      throw new Error(`Streaming processing failed: ${error.message}`);
+    }
+  }
+
+  async aggregateCSVData<U = any>(
+    inputPath: string,
+    aggregator: {
+      initialize: () => U;
+      accumulate: (accumulator: U, row: T) => U;
+      finalize?: (accumulator: U) => U;
+    }
+  ): Promise<U> {
+    let accumulator = aggregator.initialize();
+    let processedCount = 0;
+
+    const inputStream = fs.createReadStream(inputPath);
+
+    return new Promise((resolve, reject) => {
+      csv
+        .parseStream(inputStream, this.parseOptions)
+        .on('data', (row: T) => {
+          try {
+            accumulator = aggregator.accumulate(accumulator, row);
+            processedCount++;
+
+            // Report progress periodically
+            if (processedCount % 10000 === 0) {
+              this.options.progressCallback({
+                processed: processedCount,
+                errors: 0,
+                memoryUsage: process.memoryUsage(),
+              });
+            }
+          } catch (error) {
+            reject(new Error(`Aggregation failed at row ${processedCount}: ${error.message}`));
+          }
+        })
+        .on('error', reject)
+        .on('end', () => {
+          try {
+            const result = aggregator.finalize ? aggregator.finalize(accumulator) : accumulator;
+            resolve(result);
+          } catch (error) {
+            reject(error);
+          }
+        });
+    });
+  }
+}
+
+// Usage example with sales data aggregation
+export const aggregateSalesData = async (inputPath: string) => {
+  const processor = new StreamingCSVProcessor<SalesRecord>(
+    { headers: true },
+    {},
+    {
+      progressCallback: (progress) => {
+        console.log(`Processed ${progress.processed} records, Memory: ${Math.round(progress.memoryUsage.heapUsed / 1024 / 1024)}MB`);
+      }
+    }
+  );
+
+  interface SalesAggregation {
+    totalSales: number;
+    totalQuantity: number;
+    productCounts: Record<string, number>;
+    monthlyTotals: Record<string, number>;
+    averageOrderValue: number;
+  }
+
+  try {
+    const aggregation = await processor.aggregateCSVData<SalesAggregation>(inputPath, {
+      initialize: () => ({
+        totalSales: 0,
+        totalQuantity: 0,
+        productCounts: {},
+        monthlyTotals: {},
+        averageOrderValue: 0,
+      }),
+      accumulate: (acc, row) => {
+        const month = row.date.toISOString().substring(0, 7); // YYYY-MM
+        
+        acc.totalSales += row.total;
+        acc.totalQuantity += row.quantity;
+        acc.productCounts[row.product] = (acc.productCounts[row.product] || 0) + 1;
+        acc.monthlyTotals[month] = (acc.monthlyTotals[month] || 0) + row.total;
+        
+        return acc;
+      },
+      finalize: (acc) => {
+        acc.averageOrderValue = acc.totalSales / Object.values(acc.productCounts).reduce((a, b) => a + b, 0);
+        return acc;
+      },
+    });
+
+    console.log('Sales aggregation complete:', aggregation);
+    return aggregation;
+  } catch (error) {
+    console.error('Aggregation failed:', error);
+    throw error;
+  }
+};]]></correct-example>
+          <incorrect-example title="Loading entire CSV into memory" conditions="Processing large CSV files efficiently" expected-result="Optimal memory usage with proper stream handling" incorrectness-criteria="Loads all data into memory, no streaming, poor memory management"><![CDATA[// Bad: Loading entire file into memory
+const csv = require('fast-csv');
+const fs = require('fs');
+
+async function processLargeCSV(inputPath, outputPath, processor) {
+  const allData = []; // Will consume massive memory
+  
+  return new Promise((resolve) => {
+    fs.createReadStream(inputPath)
+      .pipe(csv.parse({ headers: true }))
+      .on('data', row => {
+        allData.push(row); // Keeps everything in memory
+      })
+      .on('end', async () => {
+        // Process all data at once - memory explosion
+        const results = await processor(allData);
+        
+        // Write all at once
+        csv.writeToPath(outputPath, results);
+        resolve();
+      });
+  });
+}
+
+// No backpressure handling
+// No memory management
+// No streaming benefits
+// Will crash on large files]]></incorrect-example>
+        </example>
+      </examples>
+    </requirement>
+  </requirements>
+  <context description="Fast-CSV library development considerations">
+    Fast-CSV is a comprehensive CSV parsing and writing library for Node.js that provides both streaming and non-streaming interfaces. It offers excellent performance for large datasets and supports advanced features like custom headers, data transformation, and flexible parsing options.
+
+    Key advantages of fast-csv:
+    - Streaming support for memory-efficient processing
+    - Comprehensive parsing and writing options
+    - TypeScript support with proper type definitions
+    - Custom data transformation capabilities
+    - Excellent error handling and validation hooks
+    - High performance for large datasets
+
+    Best practices include using streaming for large files, implementing proper error handling and validation, leveraging TypeScript for type safety, and optimizing memory usage through proper backpressure handling and batch processing.
+
+    The library integrates well with data validation libraries like Zod and provides flexible configuration options for different CSV formats and requirements.
+  </context>
+  <references>
+    <reference as="dependency" href=".cursor/rules/000-core/002-cursor-rules-creation.mdc" reason="Follows standard rule format">Base rule format definition</reference>
+    <reference as="context" href="https://www.npmjs.com/package/fast-csv" reason="Official documentation">Fast-CSV library documentation</reference>
+    <reference as="context" href="https://c2fo.github.io/fast-csv/" reason="Library documentation">Fast-CSV official documentation site</reference>
+  </references>
+</rule>
+ 

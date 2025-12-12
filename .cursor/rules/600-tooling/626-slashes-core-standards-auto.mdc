@@ -1,0 +1,82 @@
+---
+description: Slashes string utility best practices for path manipulation with TypeScript and cross-platform support
+globs: "*.{ts,tsx,js,jsx}"
+alwaysApply: false
+---
+<rule>
+  <meta>
+    <title>Slashes Core Standards Auto</title>
+    <description>Slashes string utility best practices for path manipulation with TypeScript and cross-platform support</description>
+    <created-at utc-timestamp="1752701607">July 16, 2025, 05:33 PM</created-at>
+    <last-updated-at utc-timestamp="1752701607">July 16, 2025, 05:33 PM</last-updated-at>
+    <applies-to>
+      <file-matcher glob="*.{ts,tsx,js,jsx}">TypeScript and JavaScript files using slashes</file-matcher>
+      <action-matcher action="slashes-development">Triggered when developing with slashes</action-matcher>
+    </applies-to>
+  </meta>
+  <requirements>
+    <non-negotiable priority="critical">
+      <description>Use TypeScript for type safety and proper integration patterns with slashes. Follow modern best practices for performance and maintainability.</description>
+      <examples>
+        <example title="Basic Slashes Usage">
+          <correct-example title="Proper slashes implementation" conditions="Using slashes in TypeScript project" expected-result="Type-safe and performant implementation" correctness-criteria="Uses TypeScript interfaces, proper error handling, follows best practices"><![CDATA[// Example usage with TypeScript
+import { /* relevant imports */ } from 'slashes';
+
+// Type-safe implementation
+interface ExampleConfig {
+  // Configuration interface
+}
+
+export const useExample = (config: ExampleConfig) => {
+  // Implementation with proper typing and error handling
+  return {
+    // Return type-safe results
+  };
+};]]></correct-example>
+          <incorrect-example title="Poor slashes implementation" conditions="Using slashes without proper setup" expected-result="Type-safe and performant implementation" incorrectness-criteria="Missing TypeScript types, no error handling, poor performance"><![CDATA[// Bad: No TypeScript, poor error handling
+const example = require('slashes'); // CommonJS import
+// Missing type definitions
+// No error handling
+// Performance issues]]></incorrect-example>
+        </example>
+      </examples>
+    </non-negotiable>
+    <requirement priority="high">
+      <description>Implement proper error handling and performance optimization when using slashes. Follow library-specific best practices and recommendations.</description>
+      <examples>
+        <example title="Error Handling and Performance">
+          <correct-example title="Robust implementation with error handling" conditions="Production usage of slashes" expected-result="Reliable and performant code" correctness-criteria="Proper error boundaries, performance optimization, monitoring"><![CDATA[// Production-ready implementation
+try {
+  // Safe usage with error handling
+  const result = await performOperation();
+  return result;
+} catch (error) {
+  // Proper error handling
+  console.error('Slashes error:', error);
+  throw new Error('Operation failed');
+}]]></correct-example>
+          <incorrect-example title="Poor error handling" conditions="Production usage of slashes" expected-result="Reliable and performant code" incorrectness-criteria="No error handling, performance issues, missing monitoring"><![CDATA[// Bad: No error handling
+const result = performOperation(); // May throw
+// No error recovery
+// No performance monitoring]]></incorrect-example>
+        </example>
+      </examples>
+    </requirement>
+  </requirements>
+  <context description="Slashes development considerations">
+    Slashes is a string utilities path manipulation library that provides slashes string utility best practices for path manipulation with typescript and cross-platform support.
+
+    Key considerations:
+    - TypeScript integration for type safety
+    - Performance optimization and best practices
+    - Error handling and edge cases
+    - Modern development patterns
+    - Testing and maintainability
+
+    Follow the official documentation and community best practices for optimal results.
+  </context>
+  <references>
+    <reference as="dependency" href=".cursor/rules/000-core/002-cursor-rules-creation.mdc" reason="Follows standard rule format">Base rule format definition</reference>
+    <reference as="context" href="https://www.npmjs.com/package/slashes" reason="Package documentation">Official slashes package documentation</reference>
+  </references>
+</rule>

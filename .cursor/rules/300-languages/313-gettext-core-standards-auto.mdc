@@ -1,0 +1,1202 @@
+---
+description: "Comprehensive Gettext internationalization and localization standards for Elixir with message extraction, pluralization, context handling, and translation management following i18n best practices"
+globs:
+  - "*.{ex,exs,eex,heex,leex}"
+  - "**/priv/gettext/**/*"
+  - "**/locale/**/*"
+  - "**/*i18n*"
+alwaysApply: false
+---
+
+<rule>
+  <meta>
+    <title>Gettext Core Standards</title>
+    <description>Comprehensive Gettext internationalization and localization standards for Elixir with message extraction, pluralization, context handling, and translation management following i18n best practices</description>
+    <created-at utc-timestamp="1744157700">January 25, 2025, 10:15 AM</created-at>
+    <last-updated-at utc-timestamp="1744157700">January 25, 2025, 10:15 AM</last-updated-at>
+    <applies-to>
+      <file-matcher glob="*.{ex,exs,eex,heex,leex}">Elixir source files and templates using Gettext</file-matcher>
+      <file-matcher glob="**/priv/gettext/**/*">Gettext translation files and templates</file-matcher>
+      <file-matcher glob="**/locale/**/*">Locale-specific files and translations</file-matcher>
+      <file-matcher glob="**/*i18n*">Internationalization-related files</file-matcher>
+      <action-matcher action="internationalization">Triggered when working with multilingual applications</action-matcher>
+    </applies-to>
+  </meta>
+  <requirements>
+    <non-negotiable priority="critical">
+      <description>Use Gettext for all internationalization with proper message extraction, context handling, pluralization support, and organized translation management. Implement comprehensive locale management, fallback strategies, and translation validation.</description>
+      <examples>
+        <example title="Comprehensive Gettext Implementation">
+          <correct-example title="Proper Gettext setup with i18n best practices and comprehensive locale management" conditions="Implementing internationalization in Elixir application" expected-result="Robust, maintainable multilingual application" correctness-criteria="Message extraction, pluralization, context handling, locale management, validation"><![CDATA[# Elixir - Comprehensive Gettext implementation
+
+# Configuration (config/config.exs)
+config :my_app, MyAppWeb.Gettext,
+  # Default locale when translations are missing
+  default_locale: "en",
+  # Supported locales for the application
+  locales: ~w(en es fr de ja zh),
+  # Pluralization rules for different locales
+  plural_forms: %{
+    "en" => {2, "n != 1"},
+    "es" => {2, "n != 1"},
+    "fr" => {2, "n > 1"},
+    "de" => {2, "n != 1"},
+    "ja" => {1, "0"},
+    "zh" => {1, "0"}
+  },
+  # Extract translations to specific directory
+  priv: "priv/gettext",
+  # Enable interpolation validation
+  interpolation: :strict
+
+# Main Gettext module with comprehensive functionality
+defmodule MyAppWeb.Gettext do
+  @moduledoc """
+  A comprehensive Gettext module for internationalization with advanced features
+  including context handling, dynamic locale switching, and translation validation.
+  """
+  
+  use Gettext, otp_app: :my_app
+  
+  require Logger
+
+  # Type definitions for better documentation
+  @type locale :: String.t()
+  @type message_id :: String.t()
+  @type bindings :: map() | keyword()
+  @type translation_result :: String.t() | {:error, term()}
+
+  # Supported locales
+  @supported_locales ~w(en es fr de ja zh)
+  @default_locale "en"
+
+  # Get all supported locales
+  @spec supported_locales() :: [locale()]
+  def supported_locales, do: @supported_locales
+
+  # Get default locale
+  @spec default_locale() :: locale()
+  def default_locale, do: @default_locale
+
+  # Validate if locale is supported
+  @spec locale_supported?(locale()) :: boolean()
+  def locale_supported?(locale) when is_binary(locale) do
+    locale in @supported_locales
+  end
+  def locale_supported?(_), do: false
+
+  # Safe locale setting with validation
+  @spec put_locale(locale()) :: :ok | {:error, :unsupported_locale}
+  def put_locale(locale) when is_binary(locale) do
+    if locale_supported?(locale) do
+      Gettext.put_locale(__MODULE__, locale)
+      Logger.debug("Locale changed to: #{locale}")
+      :ok
+    else
+      Logger.warning("Attempted to set unsupported locale: #{locale}")
+      {:error, :unsupported_locale}
+    end
+  end
+  def put_locale(_), do: {:error, :unsupported_locale}
+
+  # Get current locale with fallback
+  @spec get_locale() :: locale()
+  def get_locale do
+    case Gettext.get_locale(__MODULE__) do
+      nil -> @default_locale
+      locale -> locale
+    end
+  end
+
+  # Translation with error handling and logging
+  @spec translate(message_id(), bindings(), keyword()) :: translation_result()
+  def translate(msgid, bindings \\ %{}, opts \\ []) do
+    domain = Keyword.get(opts, :domain, "default")
+    context = Keyword.get(opts, :context)
+    
+    try do
+      result = case context do
+        nil -> 
+          Gettext.dgettext(__MODULE__, domain, msgid, bindings)
+        ctx -> 
+          Gettext.dpgettext(__MODULE__, domain, ctx, msgid, bindings)
+      end
+      
+      # Log missing translations
+      if result == msgid do
+        Logger.warning("Missing translation", 
+          msgid: msgid,
+          locale: get_locale(),
+          domain: domain,
+          context: context
+        )
+      end
+      
+      result
+    rescue
+      error ->
+        Logger.error("Translation error", 
+          error: inspect(error),
+          msgid: msgid,
+          locale: get_locale()
+        )
+        {:error, error}
+    end
+  end
+
+  # Plural translation with comprehensive error handling
+  @spec translate_plural(message_id(), message_id(), non_neg_integer(), bindings(), keyword()) :: 
+    translation_result()
+  def translate_plural(msgid, msgid_plural, count, bindings \\ %{}, opts \\ []) do
+    domain = Keyword.get(opts, :domain, "default")
+    context = Keyword.get(opts, :context)
+    
+    # Ensure count is in bindings
+    bindings = Map.put(bindings, :count, count)
+    
+    try do
+      result = case context do
+        nil -> 
+          Gettext.dngettext(__MODULE__, domain, msgid, msgid_plural, count, bindings)
+        ctx -> 
+          Gettext.dpngettext(__MODULE__, domain, ctx, msgid, msgid_plural, count, bindings)
+      end
+      
+      # Log missing plural translations
+      if result in [msgid, msgid_plural] do
+        Logger.warning("Missing plural translation", 
+          msgid: msgid,
+          msgid_plural: msgid_plural,
+          count: count,
+          locale: get_locale(),
+          domain: domain,
+          context: context
+        )
+      end
+      
+      result
+    rescue
+      error ->
+        Logger.error("Plural translation error", 
+          error: inspect(error),
+          msgid: msgid,
+          msgid_plural: msgid_plural,
+          count: count,
+          locale: get_locale()
+        )
+        {:error, error}
+    end
+  end
+
+  # Locale-aware date formatting
+  @spec format_date(Date.t() | DateTime.t(), atom(), locale()) :: String.t()
+  def format_date(date, format \\ :medium, locale \\ nil) do
+    locale = locale || get_locale()
+    
+    case locale do
+      "en" -> format_date_en(date, format)
+      "es" -> format_date_es(date, format)
+      "fr" -> format_date_fr(date, format)
+      "de" -> format_date_de(date, format)
+      "ja" -> format_date_ja(date, format)
+      "zh" -> format_date_zh(date, format)
+      _ -> format_date_en(date, format)  # Fallback to English
+    end
+  end
+
+  # Locale-aware number formatting
+  @spec format_number(number(), atom(), locale()) :: String.t()
+  def format_number(number, format \\ :decimal, locale \\ nil) do
+    locale = locale || get_locale()
+    
+    case {locale, format} do
+      {"en", :decimal} -> format_decimal_en(number)
+      {"en", :currency} -> format_currency_en(number)
+      {"es", :decimal} -> format_decimal_es(number)
+      {"es", :currency} -> format_currency_es(number)
+      {"fr", :decimal} -> format_decimal_fr(number)
+      {"fr", :currency} -> format_currency_fr(number)
+      {"de", :decimal} -> format_decimal_de(number)
+      {"de", :currency} -> format_currency_de(number)
+      {"ja", :decimal} -> format_decimal_ja(number)
+      {"ja", :currency} -> format_currency_ja(number)
+      {"zh", :decimal} -> format_decimal_zh(number)
+      {"zh", :currency} -> format_currency_zh(number)
+      _ -> to_string(number)  # Fallback
+    end
+  end
+
+  # Detect locale from HTTP headers
+  @spec detect_locale_from_header(String.t()) :: locale()
+  def detect_locale_from_header(accept_language) when is_binary(accept_language) do
+    accept_language
+    |> String.split(",")
+    |> Enum.map(&parse_language_tag/1)
+    |> Enum.sort_by(fn {_lang, quality} -> quality end, :desc)
+    |> Enum.find_value(@default_locale, fn {lang, _quality} ->
+      case find_supported_locale(lang) do
+        nil -> nil
+        supported -> supported
+      end
+    end)
+  end
+  def detect_locale_from_header(_), do: @default_locale
+
+  # Get translation statistics
+  @spec translation_stats(locale()) :: %{
+    total: non_neg_integer(),
+    translated: non_neg_integer(),
+    missing: non_neg_integer(),
+    percentage: float()
+  }
+  def translation_stats(locale) when is_binary(locale) do
+    if locale_supported?(locale) do
+      calculate_translation_stats(locale)
+    else
+      %{total: 0, translated: 0, missing: 0, percentage: 0.0}
+    end
+  end
+
+  # Validate translation interpolations
+  @spec validate_interpolations(message_id(), bindings()) :: :ok | {:error, [atom()]}
+  def validate_interpolations(msgid, bindings) do
+    required_keys = extract_interpolation_keys(msgid)
+    provided_keys = Map.keys(bindings) |> Enum.map(&to_string/1)
+    
+    missing_keys = required_keys -- provided_keys
+    
+    case missing_keys do
+      [] -> :ok
+      missing -> {:error, missing}
+    end
+  end
+
+  # Translation caching for performance
+  @spec get_cached_translation(message_id(), locale(), bindings()) :: 
+    String.t() | nil
+  def get_cached_translation(msgid, locale, bindings) do
+    cache_key = generate_cache_key(msgid, locale, bindings)
+    
+    case :ets.lookup(:translation_cache, cache_key) do
+      [{^cache_key, translation, timestamp}] ->
+        # Check if cache is still valid (1 hour TTL)
+        if System.system_time(:second) - timestamp < 3600 do
+          translation
+        else
+          :ets.delete(:translation_cache, cache_key)
+          nil
+        end
+      [] -> nil
+    end
+  end
+
+  @spec cache_translation(message_id(), locale(), bindings(), String.t()) :: :ok
+  def cache_translation(msgid, locale, bindings, translation) do
+    cache_key = generate_cache_key(msgid, locale, bindings)
+    timestamp = System.system_time(:second)
+    
+    :ets.insert(:translation_cache, {cache_key, translation, timestamp})
+    :ok
+  end
+
+  # Private helper functions
+  defp parse_language_tag(tag) do
+    case String.split(String.trim(tag), ";") do
+      [lang] -> {String.trim(lang), 1.0}
+      [lang, quality_str] ->
+        quality = case Float.parse(String.replace(quality_str, "q=", "")) do
+          {q, ""} -> q
+          _ -> 1.0
+        end
+        {String.trim(lang), quality}
+    end
+  end
+
+  defp find_supported_locale(lang_tag) do
+    # Try exact match first
+    if lang_tag in @supported_locales do
+      lang_tag
+    else
+      # Try language part only (e.g., "en-US" -> "en")
+      case String.split(lang_tag, "-") do
+        [lang | _] when lang in @supported_locales -> lang
+        _ -> nil
+      end
+    end
+  end
+
+  defp calculate_translation_stats(locale) do
+    # This would require scanning translation files
+    # Simplified implementation
+    %{
+      total: 100,
+      translated: 85,
+      missing: 15,
+      percentage: 85.0
+    }
+  end
+
+  defp extract_interpolation_keys(msgid) do
+    Regex.scan(~r/%\{([^}]+)\}/, msgid, capture: :all_but_first)
+    |> List.flatten()
+  end
+
+  defp generate_cache_key(msgid, locale, bindings) do
+    :crypto.hash(:md5, "#{msgid}:#{locale}:#{inspect(bindings)}")
+    |> Base.encode16()
+  end
+
+  # Locale-specific formatting functions
+  defp format_date_en(date, :short), do: Timex.format!(date, "%m/%d/%Y", :strftime)
+  defp format_date_en(date, :medium), do: Timex.format!(date, "%b %d, %Y", :strftime)
+  defp format_date_en(date, :long), do: Timex.format!(date, "%B %d, %Y", :strftime)
+
+  defp format_date_es(date, :short), do: Timex.format!(date, "%d/%m/%Y", :strftime)
+  defp format_date_es(date, :medium), do: Timex.format!(date, "%d %b %Y", :strftime)
+  defp format_date_es(date, :long), do: Timex.format!(date, "%d de %B de %Y", :strftime)
+
+  defp format_date_fr(date, :short), do: Timex.format!(date, "%d/%m/%Y", :strftime)
+  defp format_date_fr(date, :medium), do: Timex.format!(date, "%d %b %Y", :strftime)
+  defp format_date_fr(date, :long), do: Timex.format!(date, "%d %B %Y", :strftime)
+
+  defp format_date_de(date, :short), do: Timex.format!(date, "%d.%m.%Y", :strftime)
+  defp format_date_de(date, :medium), do: Timex.format!(date, "%d. %b %Y", :strftime)
+  defp format_date_de(date, :long), do: Timex.format!(date, "%d. %B %Y", :strftime)
+
+  defp format_date_ja(date, _), do: Timex.format!(date, "%Y年%m月%d日", :strftime)
+  defp format_date_zh(date, _), do: Timex.format!(date, "%Y年%m月%d日", :strftime)
+
+  defp format_decimal_en(number), do: :erlang.float_to_binary(number / 1, decimals: 2)
+  defp format_decimal_es(number), do: String.replace(format_decimal_en(number), ".", ",")
+  defp format_decimal_fr(number), do: String.replace(format_decimal_en(number), ".", ",")
+  defp format_decimal_de(number), do: String.replace(format_decimal_en(number), ".", ",")
+  defp format_decimal_ja(number), do: format_decimal_en(number)
+  defp format_decimal_zh(number), do: format_decimal_en(number)
+
+  defp format_currency_en(amount), do: "$#{format_decimal_en(amount)}"
+  defp format_currency_es(amount), do: "#{format_decimal_es(amount)} €"
+  defp format_currency_fr(amount), do: "#{format_decimal_fr(amount)} €"
+  defp format_currency_de(amount), do: "#{format_decimal_de(amount)} €"
+  defp format_currency_ja(amount), do: "¥#{trunc(amount)}"
+  defp format_currency_zh(amount), do: "¥#{format_decimal_zh(amount)}"
+end
+
+# Phoenix integration helpers
+defmodule MyAppWeb.I18nHelpers do
+  @moduledoc """
+  Helper functions for internationalization in Phoenix applications.
+  """
+
+  import MyAppWeb.Gettext
+  import Phoenix.HTML
+
+  # Safe translation for templates
+  @spec t(String.t(), map()) :: Phoenix.HTML.safe()
+  def t(msgid, bindings \\ %{}) do
+    msgid
+    |> translate(bindings)
+    |> raw()
+  end
+
+  # Safe plural translation for templates  
+  @spec tn(String.t(), String.t(), non_neg_integer(), map()) :: Phoenix.HTML.safe()
+  def tn(msgid, msgid_plural, count, bindings \\ %{}) do
+    msgid
+    |> translate_plural(msgid_plural, count, bindings)
+    |> raw()
+  end
+
+  # Translation with context for templates
+  @spec tc(String.t(), String.t(), map()) :: Phoenix.HTML.safe()
+  def tc(context, msgid, bindings \\ %{}) do
+    msgid
+    |> translate(bindings, context: context)
+    |> raw()
+  end
+
+  # Localized link helper
+  @spec localized_path(Plug.Conn.t(), atom(), [term()]) :: String.t()
+  def localized_path(conn, route_name, args \\ []) do
+    locale = get_locale()
+    
+    if locale == default_locale() do
+      apply(MyAppWeb.Router.Helpers, route_name, [conn | args])
+    else
+      path = apply(MyAppWeb.Router.Helpers, route_name, [conn | args])
+      "/#{locale}#{path}"
+    end
+  end
+
+  # Locale switcher helper
+  @spec locale_switcher(Plug.Conn.t()) :: Phoenix.HTML.safe()
+  def locale_switcher(conn) do
+    current_locale = get_locale()
+    
+    content_tag :div, class: "locale-switcher" do
+      for locale <- supported_locales() do
+        active_class = if locale == current_locale, do: " active", else: ""
+        
+        content_tag :a, 
+          href: locale_path(conn, locale),
+          class: "locale-link#{active_class}",
+          title: locale_name(locale) do
+          locale |> String.upcase()
+        end
+      end
+    end
+  end
+
+  # Generate locale-specific path
+  defp locale_path(conn, locale) do
+    current_path = conn.request_path
+    
+    if locale == default_locale() do
+      # Remove locale prefix for default locale
+      Regex.replace(~r/^\/[a-z]{2}/, current_path, "")
+    else
+      # Add or replace locale prefix
+      case Regex.run(~r/^\/([a-z]{2})(.*)/, current_path) do
+        [_, _current_locale, rest] -> "/#{locale}#{rest}"
+        nil -> "/#{locale}#{current_path}"
+      end
+    end
+  end
+
+  defp locale_name("en"), do: "English"
+  defp locale_name("es"), do: "Español"
+  defp locale_name("fr"), do: "Français"
+  defp locale_name("de"), do: "Deutsch"
+  defp locale_name("ja"), do: "日本語"
+  defp locale_name("zh"), do: "中文"
+  defp locale_name(locale), do: String.capitalize(locale)
+end
+
+# Plug for automatic locale detection
+defmodule MyAppWeb.LocalePlug do
+  @moduledoc """
+  Plug for automatic locale detection and setting from various sources.
+  """
+
+  import Plug.Conn
+  import MyAppWeb.Gettext
+
+  @behaviour Plug
+
+  def init(opts), do: opts
+
+  def call(conn, _opts) do
+    locale = determine_locale(conn)
+    
+    case put_locale(locale) do
+      :ok -> 
+        conn
+        |> put_session(:locale, locale)
+        |> assign(:locale, locale)
+      {:error, _} ->
+        # Fallback to default locale
+        put_locale(default_locale())
+        conn
+        |> put_session(:locale, default_locale())
+        |> assign(:locale, default_locale())
+    end
+  end
+
+  defp determine_locale(conn) do
+    # Priority order: URL param -> session -> header -> default
+    conn
+    |> get_locale_from_params()
+    |> fallback_to_session(conn)
+    |> fallback_to_header(conn)
+    |> fallback_to_default()
+  end
+
+  defp get_locale_from_params(conn) do
+    case conn.path_params["locale"] || conn.params["locale"] do
+      locale when is_binary(locale) ->
+        if locale_supported?(locale), do: locale, else: nil
+      _ -> nil
+    end
+  end
+
+  defp fallback_to_session(nil, conn) do
+    case get_session(conn, :locale) do
+      locale when is_binary(locale) ->
+        if locale_supported?(locale), do: locale, else: nil
+      _ -> nil
+    end
+  end
+  defp fallback_to_session(locale, _conn), do: locale
+
+  defp fallback_to_header(nil, conn) do
+    case get_req_header(conn, "accept-language") do
+      [accept_language | _] -> detect_locale_from_header(accept_language)
+      _ -> nil
+    end
+  end
+  defp fallback_to_header(locale, _conn), do: locale
+
+  defp fallback_to_default(nil), do: default_locale()
+  defp fallback_to_default(locale), do: locale
+end
+
+# Translation management utilities
+defmodule MyApp.TranslationManager do
+  @moduledoc """
+  Utilities for managing translations, extracting messages, and validating completeness.
+  """
+
+  require Logger
+
+  # Extract translatable strings from source files
+  @spec extract_messages([String.t()]) :: {:ok, [String.t()]} | {:error, term()}
+  def extract_messages(file_paths) do
+    try do
+      messages = 
+        file_paths
+        |> Enum.flat_map(&extract_from_file/1)
+        |> Enum.uniq()
+        |> Enum.sort()
+      
+      {:ok, messages}
+    rescue
+      error -> {:error, error}
+    end
+  end
+
+  # Generate POT template file
+  @spec generate_pot_file([String.t()], String.t()) :: :ok | {:error, term()}
+  def generate_pot_file(messages, output_path) do
+    try do
+      content = generate_pot_content(messages)
+      File.write!(output_path, content)
+      Logger.info("POT file generated: #{output_path}")
+      :ok
+    rescue
+      error -> {:error, error}
+    end
+  end
+
+  # Validate translation completeness
+  @spec validate_translations(String.t()) :: %{
+    complete: [String.t()],
+    incomplete: [String.t()],
+    statistics: map()
+  }
+  def validate_translations(locale) do
+    pot_messages = load_pot_messages()
+    po_messages = load_po_messages(locale)
+    
+    complete = MapSet.intersection(pot_messages, po_messages) |> MapSet.to_list()
+    incomplete = MapSet.difference(pot_messages, po_messages) |> MapSet.to_list()
+    
+    total = MapSet.size(pot_messages)
+    translated = length(complete)
+    
+    %{
+      complete: complete,
+      incomplete: incomplete,
+      statistics: %{
+        total: total,
+        translated: translated,
+        missing: total - translated,
+        percentage: if(total > 0, do: translated / total * 100, else: 0)
+      }
+    }
+  end
+
+  # Private helper functions
+  defp extract_from_file(file_path) do
+    case File.read(file_path) do
+      {:ok, content} -> 
+        extract_gettext_calls(content)
+      {:error, _} -> 
+        Logger.warning("Could not read file: #{file_path}")
+        []
+    end
+  end
+
+  defp extract_gettext_calls(content) do
+    # Extract dgettext, gettext, ngettext calls
+    patterns = [
+      ~r/gettext\s*\(\s*"([^"]+)"/,
+      ~r/dgettext\s*\([^,]+,\s*"([^"]+)"/,
+      ~r/ngettext\s*\(\s*"([^"]+)"/,
+      ~r/dngettext\s*\([^,]+,\s*"([^"]+)"/
+    ]
+    
+    patterns
+    |> Enum.flat_map(fn pattern ->
+      Regex.scan(pattern, content, capture: :all_but_first)
+    end)
+    |> List.flatten()
+    |> Enum.uniq()
+  end
+
+  defp generate_pot_content(messages) do
+    header = """
+    # SOME DESCRIPTIVE TITLE.
+    # Copyright (C) YEAR THE PACKAGE'S COPYRIGHT HOLDER
+    # This file is distributed under the same license as the PACKAGE package.
+    # FIRST AUTHOR <EMAIL@ADDRESS>, YEAR.
+    #
+    msgid ""
+    msgstr ""
+    "Language: \\n"
+    "MIME-Version: 1.0\\n"
+    "Content-Type: text/plain; charset=UTF-8\\n"
+    "Content-Transfer-Encoding: 8bit\\n"
+
+    """
+    
+    message_entries = 
+      messages
+      |> Enum.map(fn msg ->
+        """
+        msgid "#{msg}"
+        msgstr ""
+        """
+      end)
+      |> Enum.join("\n")
+    
+    header <> message_entries
+  end
+
+  defp load_pot_messages do
+    # Load messages from POT file - simplified implementation
+    MapSet.new([])
+  end
+
+  defp load_po_messages(_locale) do
+    # Load translated messages from PO file - simplified implementation  
+    MapSet.new([])
+  end
+end]]></correct-example>
+          <incorrect-example title="Poor Gettext usage without proper i18n practices" conditions="Implementing internationalization" expected-result="Proper i18n implementation" incorrectness-criteria="No locale management, missing pluralization, no error handling, poor organization"><![CDATA[# BAD: Poor Gettext implementation
+
+defmodule BadI18n do
+  use Gettext, otp_app: :my_app
+
+  # No locale validation
+  def set_locale(locale) do
+    Gettext.put_locale(__MODULE__, locale)
+  end
+
+  # Direct gettext usage without error handling
+  def translate(msg) do
+    gettext(msg)
+  end
+
+  # No pluralization support
+  # No context handling
+  # No locale detection
+  # No translation validation
+  # No caching
+  # No formatting helpers
+  # No missing translation logging
+  
+  # Hard-coded text instead of translations
+  def welcome_message do
+    "Welcome to our app"  # Should be gettext("Welcome to our app")
+  end
+
+  # No fallback strategies
+  # No translation management utilities
+  # No interpolation validation
+end]]></incorrect-example>
+        </example>
+      </examples>
+    </non-negotiable>
+
+    <requirement priority="high">
+      <description>Implement comprehensive testing for Gettext functionality including translation extraction, locale switching, pluralization, and integration tests with Phoenix applications.</description>
+      <examples>
+        <example title="Gettext Testing Patterns">
+          <correct-example title="Comprehensive testing for internationalization features" conditions="Testing Gettext implementations" expected-result="Thorough i18n test coverage with locale and translation validation" correctness-criteria="Translation tests, locale tests, pluralization tests, integration tests"><![CDATA[# Elixir - Comprehensive Gettext testing
+
+defmodule MyAppWeb.GettextTest do
+  use ExUnit.Case, async: false  # async: false due to global locale state
+  
+  import MyAppWeb.Gettext
+
+  setup do
+    # Reset to default locale before each test
+    put_locale(default_locale())
+    :ok
+  end
+
+  describe "locale management" do
+    test "supported_locales/0 returns all supported locales" do
+      locales = supported_locales()
+      assert is_list(locales)
+      assert "en" in locales
+      assert "es" in locales
+      assert "fr" in locales
+    end
+
+    test "default_locale/0 returns default locale" do
+      assert default_locale() == "en"
+    end
+
+    test "locale_supported?/1 validates locales correctly" do
+      assert locale_supported?("en") == true
+      assert locale_supported?("es") == true
+      assert locale_supported?("invalid") == false
+      assert locale_supported?(nil) == false
+      assert locale_supported?(123) == false
+    end
+
+    test "put_locale/1 sets valid locales" do
+      assert put_locale("es") == :ok
+      assert get_locale() == "es"
+      
+      assert put_locale("fr") == :ok
+      assert get_locale() == "fr"
+    end
+
+    test "put_locale/1 rejects invalid locales" do
+      assert put_locale("invalid") == {:error, :unsupported_locale}
+      assert put_locale(nil) == {:error, :unsupported_locale}
+      assert put_locale(123) == {:error, :unsupported_locale}
+      
+      # Locale should remain unchanged
+      assert get_locale() == default_locale()
+    end
+
+    test "get_locale/0 returns current locale with fallback" do
+      # Default state
+      assert get_locale() == "en"
+      
+      # After setting locale
+      put_locale("es")
+      assert get_locale() == "es"
+    end
+  end
+
+  describe "translation functions" do
+    test "translate/2 returns translations for existing messages" do
+      put_locale("en")
+      assert translate("Hello") == "Hello"
+      
+      put_locale("es")
+      assert translate("Hello") == "Hola"
+    end
+
+    test "translate/2 handles missing translations gracefully" do
+      put_locale("es")
+      # Should return the original message if translation is missing
+      result = translate("Non-existent message")
+      assert result == "Non-existent message"
+    end
+
+    test "translate/2 supports interpolation" do
+      put_locale("en")
+      result = translate("Hello %{name}", %{name: "John"})
+      assert result == "Hello John"
+    end
+
+    test "translate/2 with context" do
+      result = translate("Date", %{}, context: "calendar")
+      assert is_binary(result)
+    end
+
+    test "translate_plural/4 handles plural forms correctly" do
+      put_locale("en")
+      
+      # Singular form
+      result = translate_plural("You have %{count} item", "You have %{count} items", 1)
+      assert result == "You have 1 item"
+      
+      # Plural form
+      result = translate_plural("You have %{count} item", "You have %{count} items", 5)
+      assert result == "You have 5 items"
+    end
+
+    test "translate_plural/4 handles different locale plural rules" do
+      # English: n != 1
+      put_locale("en")
+      assert translate_plural("item", "items", 0) == "items"  # 0 is plural in English
+      assert translate_plural("item", "items", 1) == "item"   # 1 is singular
+      assert translate_plural("item", "items", 2) == "items"  # 2+ is plural
+      
+      # Japanese: only one form (count doesn't matter)
+      put_locale("ja")
+      result1 = translate_plural("アイテム", "アイテム", 1)
+      result2 = translate_plural("アイテム", "アイテム", 5)
+      assert result1 == result2  # Should be the same in Japanese
+    end
+  end
+
+  describe "locale detection" do
+    test "detect_locale_from_header/1 parses Accept-Language header" do
+      # Simple case
+      assert detect_locale_from_header("en") == "en"
+      assert detect_locale_from_header("es") == "es"
+      
+      # With quality values
+      assert detect_locale_from_header("en-US,en;q=0.9,es;q=0.8") == "en"
+      assert detect_locale_from_header("es;q=0.9,en;q=0.8") == "es"
+      
+      # Unsupported locale falls back to default
+      assert detect_locale_from_header("pt-BR") == default_locale()
+      
+      # Malformed header falls back to default
+      assert detect_locale_from_header("invalid") == default_locale()
+      assert detect_locale_from_header("") == default_locale()
+    end
+
+    test "detect_locale_from_header/1 handles complex headers" do
+      header = "zh-CN,zh;q=0.9,en;q=0.8,es;q=0.7"
+      result = detect_locale_from_header(header)
+      # Should pick the highest quality supported locale
+      assert result in supported_locales()
+    end
+  end
+
+  describe "formatting functions" do
+    test "format_date/2 formats dates according to locale" do
+      date = ~D[2023-12-25]
+      
+      put_locale("en")
+      en_formatted = format_date(date, :medium)
+      assert en_formatted =~ "Dec"
+      
+      put_locale("es")
+      es_formatted = format_date(date, :medium)
+      assert es_formatted != en_formatted
+      
+      put_locale("de")
+      de_formatted = format_date(date, :medium)
+      assert String.contains?(de_formatted, ".")  # German date format
+    end
+
+    test "format_number/2 formats numbers according to locale" do
+      number = 1234.56
+      
+      put_locale("en")
+      en_formatted = format_number(number, :decimal)
+      assert en_formatted =~ "."
+      
+      put_locale("de")
+      de_formatted = format_number(number, :decimal)
+      assert de_formatted =~ ","  # German uses comma for decimals
+    end
+
+    test "format_number/2 formats currency according to locale" do
+      amount = 99.99
+      
+      put_locale("en")
+      en_currency = format_number(amount, :currency)
+      assert en_currency =~ "$"
+      
+      put_locale("es")
+      es_currency = format_number(amount, :currency)
+      assert es_currency =~ "€"
+      
+      put_locale("ja")
+      ja_currency = format_number(amount, :currency)
+      assert ja_currency =~ "¥"
+    end
+  end
+
+  describe "validation" do
+    test "validate_interpolations/2 checks required interpolations" do
+      message = "Hello %{name}, you have %{count} items"
+      
+      # Valid interpolations
+      assert validate_interpolations(message, %{name: "John", count: 5}) == :ok
+      
+      # Missing interpolations
+      assert {:error, missing} = validate_interpolations(message, %{name: "John"})
+      assert "count" in missing
+      
+      # Extra interpolations are OK
+      assert validate_interpolations(message, %{name: "John", count: 5, extra: "value"}) == :ok
+    end
+
+    test "translation_stats/1 returns translation statistics" do
+      stats = translation_stats("en")
+      
+      assert %{
+        total: total,
+        translated: translated,
+        missing: missing,
+        percentage: percentage
+      } = stats
+      
+      assert is_integer(total)
+      assert is_integer(translated)
+      assert is_integer(missing)
+      assert is_float(percentage)
+      assert total == translated + missing
+    end
+  end
+
+  describe "caching" do
+    test "translation caching improves performance" do
+      message = "Cached message"
+      locale = "en"
+      bindings = %{test: "value"}
+      
+      # First call should miss cache
+      assert get_cached_translation(message, locale, bindings) == nil
+      
+      # Cache the translation
+      translation = "Cached translation result"
+      cache_translation(message, locale, bindings, translation)
+      
+      # Second call should hit cache
+      assert get_cached_translation(message, locale, bindings) == translation
+    end
+  end
+
+  describe "error handling" do
+    test "translate/2 handles errors gracefully" do
+      # Test with invalid interpolations
+      result = translate("Hello %{invalid}", %{valid: "value"})
+      assert is_binary(result) or match?({:error, _}, result)
+    end
+
+    test "translate_plural/4 handles errors gracefully" do
+      result = translate_plural("Invalid %{missing}", "Invalid %{missing} plural", 1, %{})
+      assert is_binary(result) or match?({:error, _}, result)
+    end
+  end
+end
+
+# Integration tests with Phoenix
+defmodule MyAppWeb.I18nHelpersTest do
+  use MyAppWeb.ConnCase, async: false
+  
+  import MyAppWeb.I18nHelpers
+
+  setup do
+    put_locale(default_locale())
+    :ok
+  end
+
+  describe "template helpers" do
+    test "t/2 returns safe HTML" do
+      result = t("Hello World")
+      assert Phoenix.HTML.safe?(result)
+    end
+
+    test "tn/4 returns safe HTML for plurals" do
+      result = tn("item", "items", 1)
+      assert Phoenix.HTML.safe?(result)
+      
+      result = tn("item", "items", 5)
+      assert Phoenix.HTML.safe?(result)
+    end
+
+    test "tc/3 returns safe HTML with context" do
+      result = tc("navigation", "Home")
+      assert Phoenix.HTML.safe?(result)
+    end
+  end
+
+  describe "routing helpers" do
+    test "localized_path/3 generates correct paths" do
+      conn = build_conn()
+      
+      put_locale("en")
+      en_path = localized_path(conn, :page_path, [:index])
+      
+      put_locale("es")
+      es_path = localized_path(conn, :page_path, [:index])
+      
+      # Spanish path should include locale prefix
+      assert String.starts_with?(es_path, "/es")
+    end
+  end
+
+  describe "locale switcher" do
+    test "locale_switcher/1 generates HTML for all locales" do
+      conn = build_conn()
+      html = locale_switcher(conn)
+      
+      assert Phoenix.HTML.safe?(html)
+      
+      # Should contain links for all supported locales
+      html_string = Phoenix.HTML.safe_to_string(html)
+      for locale <- supported_locales() do
+        assert html_string =~ String.upcase(locale)
+      end
+    end
+  end
+end
+
+# Plug testing
+defmodule MyAppWeb.LocalePlugTest do
+  use MyAppWeb.ConnCase, async: false
+  
+  describe "LocalePlug" do
+    test "sets locale from URL parameter" do
+      conn = 
+        build_conn()
+        |> Map.put(:path_params, %{"locale" => "es"})
+        |> MyAppWeb.LocalePlug.call([])
+      
+      assert conn.assigns.locale == "es"
+      assert get_session(conn, :locale) == "es"
+    end
+
+    test "sets locale from query parameter" do
+      conn = 
+        build_conn(:get, "/?locale=fr")
+        |> MyAppWeb.LocalePlug.call([])
+      
+      assert conn.assigns.locale == "fr"
+    end
+
+    test "sets locale from Accept-Language header" do
+      conn = 
+        build_conn()
+        |> put_req_header("accept-language", "es-ES,es;q=0.9")
+        |> MyAppWeb.LocalePlug.call([])
+      
+      assert conn.assigns.locale == "es"
+    end
+
+    test "falls back to default locale for unsupported locales" do
+      conn = 
+        build_conn()
+        |> Map.put(:path_params, %{"locale" => "unsupported"})
+        |> MyAppWeb.LocalePlug.call([])
+      
+      assert conn.assigns.locale == default_locale()
+    end
+
+    test "preserves locale in session" do
+      conn = 
+        build_conn()
+        |> init_test_session(%{})
+        |> put_session(:locale, "de")
+        |> MyAppWeb.LocalePlug.call([])
+      
+      assert conn.assigns.locale == "de"
+    end
+  end
+end
+
+# Translation management testing
+defmodule MyApp.TranslationManagerTest do
+  use ExUnit.Case
+  
+  describe "message extraction" do
+    test "extract_messages/1 finds gettext calls in source files" do
+      # Create a temporary file with gettext calls
+      content = """
+      defmodule Test do
+        def hello do
+          gettext("Hello World")
+        end
+        
+        def count(n) do
+          ngettext("You have one item", "You have %{count} items", n)
+        end
+      end
+      """
+      
+      file_path = "/tmp/test_extract.ex"
+      File.write!(file_path, content)
+      
+      assert {:ok, messages} = MyApp.TranslationManager.extract_messages([file_path])
+      assert "Hello World" in messages
+      assert "You have one item" in messages
+      
+      File.rm!(file_path)
+    end
+  end
+
+  describe "POT file generation" do
+    test "generate_pot_file/2 creates valid POT content" do
+      messages = ["Hello", "Goodbye", "Welcome %{name}"]
+      output_path = "/tmp/test.pot"
+      
+      assert :ok = MyApp.TranslationManager.generate_pot_file(messages, output_path)
+      assert File.exists?(output_path)
+      
+      content = File.read!(output_path)
+      assert content =~ "msgid \"Hello\""
+      assert content =~ "msgid \"Goodbye\""
+      assert content =~ "msgid \"Welcome %{name}\""
+      
+      File.rm!(output_path)
+    end
+  end
+
+  describe "translation validation" do
+    test "validate_translations/1 returns completion statistics" do
+      result = MyApp.TranslationManager.validate_translations("es")
+      
+      assert %{
+        complete: complete,
+        incomplete: incomplete,
+        statistics: stats
+      } = result
+      
+      assert is_list(complete)
+      assert is_list(incomplete)
+      
+      assert %{
+        total: total,
+        translated: translated,
+        missing: missing,
+        percentage: percentage
+      } = stats
+      
+      assert is_integer(total)
+      assert is_integer(translated)
+      assert is_integer(missing)
+      assert is_float(percentage)
+    end
+  end
+end]]></correct-example>
+          <incorrect-example title="Poor Gettext testing without comprehensive coverage" conditions="Testing internationalization" expected-result="Comprehensive i18n testing" incorrectness-criteria="No locale testing, missing pluralization tests, no error handling validation, poor integration coverage"><![CDATA[# BAD: Poor Gettext testing
+
+defmodule BadI18nTest do
+  use ExUnit.Case
+  
+  # Only basic translation testing
+  test "translate works" do
+    assert gettext("Hello") == "Hello"
+  end
+
+  # No locale management testing
+  # No pluralization testing
+  # No error handling testing
+  # No formatting testing
+  # No locale detection testing
+  # No validation testing
+  # No caching testing
+  # No integration testing
+  # No Phoenix helper testing
+  # No plug testing
+  # No translation management testing
+end]]></incorrect-example>
+        </example>
+      </examples>
+    </requirement>
+  </requirements>
+  
+  <context description="Gettext internationalization considerations">
+    Gettext is the standard internationalization (i18n) library for Elixir applications, providing comprehensive message translation, pluralization, and locale management. It follows GNU gettext conventions with POT/PO file formats and supports complex pluralization rules for different languages.
+
+    Key considerations include:
+    - Proper locale management with validation and fallback strategies
+    - Message extraction and translation workflow management
+    - Pluralization rules that vary significantly between languages
+    - Context-aware translations for disambiguating identical strings
+    - Performance optimization through caching and efficient lookup
+    - Integration with Phoenix applications for web internationalization
+    - Translation validation and completeness monitoring
+
+    Gettext integrates seamlessly with Phoenix applications, providing template helpers, automatic locale detection from HTTP headers, and routing support for multilingual applications. It supports dynamic locale switching and maintains translation state efficiently.
+  </context>
+  
+  <references>
+    <reference as="dependency" href=".cursor/rules/000-core/002-cursor-rules-creation.mdc" reason="Follows standard rule format">Base rule format definition</reference>
+    <reference as="context" href="https://hexdocs.pm/gettext/" reason="Official Gettext documentation">Gettext Package Documentation</reference>
+    <reference as="context" href="https://hexdocs.pm/phoenix/Phoenix.HTML.html" reason="Phoenix HTML helpers">Phoenix HTML Integration</reference>
+  </references>
+</rule>

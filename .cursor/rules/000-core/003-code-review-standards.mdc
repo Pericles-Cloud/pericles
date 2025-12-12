@@ -1,0 +1,34 @@
+---
+description: Code review standards for the team.
+globs: ["**/*"]
+alwaysApply: true
+---
+
+<rule>
+  <meta>
+    <title>Code Review Standards</title>
+    <description>Consistent code review practices across all technology stacks</description>
+  </meta>
+  <requirements>
+    <requirement priority="critical">
+      <description>All PRs require minimum one approval from designated code owner</description>
+      <examples>
+        <example title="PR Review Process">
+          <correct-example>PR includes:
+- Clear description of changes
+- Testing strategy explanation
+- Impact assessment for other stacks
+- Screenshots for UI changes
+- Performance impact consideration</correct-example>
+          <incorrect-example>PR with only:
+- "Updated functionality"
+- No testing information
+- No impact assessment</incorrect-example>
+        </example>
+      </examples>
+    </requirement>
+  </requirements>
+  <references>
+    <reference as="dependency" href=".cursor/rules/000-core/002-cursor-rules-creation.mdc" reason="Follows standard rule format">Base rule format definition</reference>
+  </references>
+</rule>

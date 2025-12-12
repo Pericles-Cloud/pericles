@@ -1,0 +1,149 @@
+---
+description: Defines an implementation-agnostic rule for a Summarization Agent that synthesizes multi-source information about an event, periodically updates summaries as new data arrives, and signals event conclusion to downstream agents.
+globs: ".cursor/rules/summarization-agent.mdc"
+alwaysApply: false
+---
+
+<rule>
+  <meta>
+    <title>Summarization Agent</title>
+    <description>Agent responsible for summarizing events based on information from multiple sources, periodically refreshing summaries as new data arrives or ground conditions change, and notifying Impact Assessment, Controller, and Monitoring agents when an event ends.</description>
+    <created-at utc-timestamp="1761004800">October 21, 2025, 00:00 UTC</created-at>
+    <last-updated-at utc-timestamp="1761004800">October 21, 2025, 00:00 UTC</last-updated-at>
+    <applies-to>
+      <file-matcher glob="**/*">Conceptual guidance; applicable to any implementation of a Summarization Agent across services and runtimes.</file-matcher>
+      <action-matcher action="create-summarization-agent">Triggered when designing or refactoring summarization capabilities.</action-matcher>
+    </applies-to>
+  </meta>
+
+  <!--
+    Assumptions (technology-agnostic):
+    - Upstream sources include Monitoring (candidate events), Validation (confirmed events & impact), Impact Assessment (quantified impact), third-party feeds, and internal systems.
+    - Summarization must be tenant-scoped and produce concise, accurate, and periodically updated narratives suitable for UI display and notifications.
+    - All timestamps MUST be timezone-aware and normalized (ISO 8601 recommended).
+  -->
+
+  <requirements>
+    <non-negotiable priority="critical">
+      <description>Tenant isolation: enforce tenant scope for reads/writes; never surface or store summaries across tenants.</description>
+      <examples>
+        <example title="Tenant-scoped summaries">
+          <correct-example title="Scoped write" conditions="Persist summary" expected-result="Allowed" correctness-criteria="summary.tenant_id == agent.tenant_id"><![CDATA[
+if summary.tenant_id == agent.tenant_id: store(summary) else: skip
+]]></correct-example>
+          <incorrect-example title="Cross-tenant write" conditions="Persist summary" expected-result="Denied" incorrectness-criteria="No tenant check"><![CDATA[
+store(summary) // regardless of tenant_id
+]]></incorrect-example>
+        </example>
+      </examples>
+    </non-negotiable>
+
+    <non-negotiable priority="critical">
+      <description>Periodic updates: implement a polling/scheduling mechanism with bounded exponential backoff on errors to refresh summaries as new information becomes available.</description>
+      <examples>
+        <example title="Refresh cadence">
+          <correct-example title="Backoff on failure" conditions="Source 5xx" expected-result="Retry later" correctness-criteria="Sleep with backoff then resume"><![CDATA[
+try refresh(); on error: wait(backoff_ms) -> refresh()
+]]></correct-example>
+          <incorrect-example title="Busy loop" conditions="Source down" expected-result="No resource burn" incorrectness-criteria="Immediate infinite retry"><![CDATA[
+while(true) refresh(); // WRONG
+]]></incorrect-example>
+        </example>
+      </examples>
+    </non-negotiable>
+
+    <non-negotiable priority="critical">
+      <description>Source attribution and versioning: track contributing sources, their timestamps, and a summary version; expose version in UI and audit logs.</description>
+      <examples>
+        <example title="Versioned summary">
+          <correct-example title="Bump on change" conditions="New info" expected-result="Version incremented" correctness-criteria="Version increases with content delta"><![CDATA[
+v1 -> v2 when new facts alter summary content
+]]></correct-example>
+          <incorrect-example title="Silent overwrite" conditions="New info" expected-result="Versioned" incorrectness-criteria="Overwrite without versioning"><![CDATA[
+summary = latest // no version bump recorded
+]]></incorrect-example>
+        </example>
+      </examples>
+    </non-negotiable>
+
+    <requirement priority="high">
+      <description>Content quality: summaries must be concise, accurate, free of speculation, and clearly indicate confidence and last-updated time.</description>
+    </requirement>
+
+    <requirement priority="high">
+      <description>Change detection: perform diffing of key facts (location, severity, status, impact) to decide whether to update UI and notify downstream systems.</description>
+    </requirement>
+
+    <requirement priority="high">
+      <description>Event lifecycle: detect event conclusion (no new corroborating updates over a configured window or explicit end signal) and publish end-of-event signal to Impact Assessment, Controller, and Monitoring agents.</description>
+    </requirement>
+
+    <requirement priority="medium">
+      <description>Observability: structured logs with counts (refresh attempts, updates produced, no-op refreshes), error rates per source, and summary version history; avoid logging sensitive payloads.</description>
+    </requirement>
+
+    <requirement priority="medium">
+      <description>Security & config hygiene: no hardcoded secrets; use environment/config management; apply least-privilege to external reads.</description>
+    </requirement>
+  </requirements>
+
+  <grammar>
+    <schema title="Event Summary Schema (conceptual)" description="Normalized summary suitable for UI and notifications."><![CDATA[
+EventSummary {
+  id: string // unique summary identifier
+  tenant_id: string
+  event_id: string
+  version: number
+  title: string
+  summary_text: string // concise narrative
+  key_facts: {
+    status: 'OPEN' | 'IN_PROGRESS' | 'RESOLVED' | 'ENDED'
+    severity?: 'LOW' | 'MEDIUM' | 'HIGH' | 'CRITICAL'
+    location?: { lat?: number; lng?: number; countryCode?: string; region?: string }
+    impact_notes?: string
+  }
+  confidence: number // [0.0 .. 1.0]
+  sources: Array<{ name: string; type: 'GOV' | 'NEWS' | 'VENDOR' | 'INTERNAL' | 'OTHER'; observed_at: string }>
+  last_updated: string // ISO 8601
+}
+]]></schema>
+
+    <grammar-entry title="Periodic Update Loop">
+      <pattern description="Refresh pipeline">initialize -> fetch latest sources -> reconcile facts -> if changes -> version++ & publish -> sleep(interval/backoff) -> repeat</pattern>
+      <example description="No change path">when facts unchanged -> do not bump version; update last_checked timestamp only</example>
+    </grammar-entry>
+
+    <grammar-entry title="Event End Detection">
+      <pattern description="Heuristic or signal">no_updates_window_exceeded OR received_end_signal -> set status=ENDED -> publish end-of-event signal</pattern>
+      <example description="Downstream notifications">notify Impact Assessment, Controller, and Monitoring with end-of-event payload</example>
+    </grammar-entry>
+  </grammar>
+
+  <context description="Role, Responsibilities, Requirements">
+    <![CDATA[
+Name: Summarization Agent
+Description: Produces concise, tenant-scoped summaries of events; periodically refreshes content as new information arrives; signals event conclusion to dependent agents.
+Role:
+  - Aggregate and reconcile multi-source facts into a single narrative suitable for UI and notifications.
+  - Periodically fetch updates and increment versions on material changes.
+  - Signal event end to Impact Assessment, Controller, and Monitoring agents.
+Responsibilities:
+  - Enforce tenant isolation and maintain source attribution.
+  - Avoid speculative content; indicate confidence and last-updated time.
+  - Provide auditable version history and structured metrics.
+Requirements:
+  - Implement refresh cadence with bounded backoff on failures.
+  - Perform change detection to limit noisy updates.
+  - Publish end-of-event signals to dependent agents.
+    ]]>
+  </context>
+
+  <references>
+    <reference as="dependency" href=".cursor/rules/000-core/002-cursor-rules-creation.mdc" reason="Follows standard rule format">Cursor Rule File Format (.mdc)</reference>
+    <reference as="context" href=".cursor/rules/001-application/001-agents/001-pericles-monitoring-agent-core-standards-auto.mdc" reason="Upstream event identification">Monitoring Agent Standards</reference>
+    <reference as="context" href=".cursor/rules/001-application/001-agents/004-validation-agent-core-standards-auto.mdc" reason="Event confirmation and impact">Validation Agent Standards</reference>
+    <reference as="context" href=".cursor/rules/001-application/001-agents/002-pericles-impact-assessment-agent-core-standards-auto.mdc" reason="Downstream impact assessment">Impact Assessment Agent Standards</reference>
+    <reference as="context" href=".cursor/rules/001-application/001-agents/005-controller-agent-core-standards-auto.mdc" reason="Notifications and orchestration">Controller Agent Standards</reference>
+  </references>
+</rule>
+

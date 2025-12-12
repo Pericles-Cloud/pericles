@@ -1,0 +1,1551 @@
+---
+description: "Comprehensive Ory identity and access management standards with OAuth2/OIDC, zero-trust architecture, policy enforcement, and compliance following modern identity management best practices"
+globs: ["**/ory/**/*", "**/kratos/**/*", "**/hydra/**/*", "**/oathkeeper/**/*", "**/keto/**/*"]
+alwaysApply: false
+---
+
+<rule>
+  <meta>
+    <title>Ory Core Standards</title>
+    <description>Comprehensive Ory identity and access management standards covering OAuth2/OIDC protocols, zero-trust security architecture, policy-based access control, identity verification, session management, and production deployment following modern identity management and security best practices</description>
+    <created-at utc-timestamp="1744157700">January 25, 2025, 10:15 AM</created-at>
+    <last-updated-at utc-timestamp="1744157700">January 25, 2025, 10:15 AM</last-updated-at>
+    <applies-to>
+      <file-matcher glob="**/ory/**/*">Ory-related configuration and implementation files</file-matcher>
+      <file-matcher glob="**/identity/**/*">Identity management implementation files</file-matcher>
+      <file-matcher glob="**/oauth/**/*">OAuth2 implementation files</file-matcher>
+      <file-matcher glob="**/oidc/**/*">OpenID Connect implementation files</file-matcher>
+      <file-matcher glob="**/auth/**/*">Authentication and authorization files</file-matcher>
+      <file-matcher glob="**/kratos/**/*">Ory Kratos identity management files</file-matcher>
+      <file-matcher glob="**/hydra/**/*">Ory Hydra OAuth2/OIDC files</file-matcher>
+      <file-matcher glob="**/oathkeeper/**/*">Ory Oathkeeper reverse proxy files</file-matcher>
+      <file-matcher glob="**/keto/**/*">Ory Keto access control files</file-matcher>
+      <action-matcher action="identity-management">Triggered when working with Ory identity and access management</action-matcher>
+    </applies-to>
+  </meta>
+  <requirements>
+    <non-negotiable priority="critical">
+      <description>Use Ory stack with proper security configuration, OAuth2/OIDC compliance, zero-trust architecture, comprehensive policy enforcement, and production-ready deployment patterns. Implement multi-factor authentication, encrypted communications, audit logging, and comprehensive monitoring with proper disaster recovery and compliance measures.</description>
+      <examples>
+        <example title="Production Ory Stack Deployment">
+          <correct-example title="Complete Ory ecosystem with security and compliance" conditions="Deploying production Ory identity infrastructure" expected-result="Secure, compliant identity management system" correctness-criteria="Security configuration, OAuth2/OIDC compliance, policy enforcement, monitoring, audit logging, disaster recovery"><![CDATA[#!/bin/bash
+# ory-stack-setup.sh - Production Ory ecosystem deployment
+
+set -euo pipefail
+
+echo "🚀 Setting up production Ory identity stack"
+
+# Docker Compose for complete Ory stack
+cat > docker-compose.ory.yml <<EOF
+version: '3.8'
+
+services:
+  # PostgreSQL database for Ory services
+  postgres:
+    image: postgres:15-alpine
+    container_name: ory-postgres
+    environment:
+      POSTGRES_DB: ory
+      POSTGRES_USER: ory
+      POSTGRES_PASSWORD: \${POSTGRES_PASSWORD}
+      POSTGRES_MULTIPLE_DATABASES: kratos,hydra,keto
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+      - ./scripts/init-databases.sh:/docker-entrypoint-initdb.d/init-databases.sh
+    ports:
+      - "5432:5432"
+    networks:
+      - ory-network
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ory"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  # Ory Kratos - Identity Management
+  kratos:
+    image: oryd/kratos:v1.0.0
+    container_name: ory-kratos
+    depends_on:
+      postgres:
+        condition: service_healthy
+    environment:
+      DSN: postgres://ory:\${POSTGRES_PASSWORD}@postgres:5432/kratos?sslmode=disable&max_conns=20&max_idle_conns=4
+    volumes:
+      - ./kratos:/etc/config/kratos
+    ports:
+      - "4433:4433" # public
+      - "4434:4434" # admin
+    networks:
+      - ory-network
+    command: serve -c /etc/config/kratos/kratos.yml --dev --watch-courier
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "wget", "--no-verbose", "--tries=1", "--spider", "http://localhost:4434/health/ready"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+
+  # Ory Hydra - OAuth2/OIDC Provider
+  hydra:
+    image: oryd/hydra:v2.2.0
+    container_name: ory-hydra
+    depends_on:
+      postgres:
+        condition: service_healthy
+    environment:
+      DSN: postgres://ory:\${POSTGRES_PASSWORD}@postgres:5432/hydra?sslmode=disable&max_conns=20&max_idle_conns=4
+      URLS_SELF_ISSUER: https://auth.example.com
+      URLS_CONSENT: https://app.example.com/consent
+      URLS_LOGIN: https://app.example.com/login
+      URLS_LOGOUT: https://app.example.com/logout
+      URLS_ERROR: https://app.example.com/error
+      SECRETS_SYSTEM: \${HYDRA_SYSTEM_SECRET}
+      OIDC_SUBJECT_IDENTIFIERS_SUPPORTED_TYPES: pairwise,public
+      OIDC_SUBJECT_IDENTIFIERS_PAIRWISE_SALT: \${OIDC_PAIRWISE_SALT}
+      TTL_ACCESS_TOKEN: 1h
+      TTL_REFRESH_TOKEN: 720h
+      TTL_ID_TOKEN: 1h
+      TTL_AUTH_CODE: 10m
+      LOG_LEVEL: info
+      LOG_FORMAT: json
+    volumes:
+      - ./hydra:/etc/config/hydra
+    ports:
+      - "4444:4444" # public
+      - "4445:4445" # admin
+    networks:
+      - ory-network
+    command: serve all --config /etc/config/hydra/hydra.yml
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "wget", "--no-verbose", "--tries=1", "--spider", "http://localhost:4444/health/ready"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+
+  # Ory Oathkeeper - Identity & Access Proxy
+  oathkeeper:
+    image: oryd/oathkeeper:v0.40.6
+    container_name: ory-oathkeeper
+    depends_on:
+      - kratos
+      - hydra
+    environment:
+      LOG_LEVEL: info
+      LOG_FORMAT: json
+    volumes:
+      - ./oathkeeper:/etc/config/oathkeeper
+    ports:
+      - "4455:4455" # proxy
+      - "4456:4456" # api
+    networks:
+      - ory-network
+    command: serve --config /etc/config/oathkeeper/oathkeeper.yml
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "wget", "--no-verbose", "--tries=1", "--spider", "http://localhost:4456/health/ready"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+
+  # Ory Keto - Access Control
+  keto:
+    image: oryd/keto:v0.11.1
+    container_name: ory-keto
+    depends_on:
+      postgres:
+        condition: service_healthy
+    environment:
+      DSN: postgres://ory:\${POSTGRES_PASSWORD}@postgres:5432/keto?sslmode=disable&max_conns=20&max_idle_conns=4
+      LOG_LEVEL: info
+      LOG_FORMAT: json
+    volumes:
+      - ./keto:/etc/config/keto
+    ports:
+      - "4466:4466" # read
+      - "4467:4467" # write
+    networks:
+      - ory-network
+    command: serve --config /etc/config/keto/keto.yml
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "wget", "--no-verbose", "--tries=1", "--spider", "http://localhost:4467/health/ready"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+
+  # Redis for session storage and caching
+  redis:
+    image: redis:7-alpine
+    container_name: ory-redis
+    command: redis-server --requirepass \${REDIS_PASSWORD}
+    volumes:
+      - redis_data:/data
+    ports:
+      - "6379:6379"
+    networks:
+      - ory-network
+    healthcheck:
+      test: ["CMD", "redis-cli", "--no-auth-warning", "-a", "\${REDIS_PASSWORD}", "ping"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+
+  # Mailhog for email testing
+  mailhog:
+    image: mailhog/mailhog:latest
+    container_name: ory-mailhog
+    ports:
+      - "1025:1025" # SMTP
+      - "8025:8025" # Web UI
+    networks:
+      - ory-network
+
+  # Jaeger for distributed tracing
+  jaeger:
+    image: jaegertracing/all-in-one:latest
+    container_name: ory-jaeger
+    ports:
+      - "16686:16686"
+      - "14268:14268"
+    environment:
+      COLLECTOR_OTLP_ENABLED: "true"
+    networks:
+      - ory-network
+
+  # Prometheus for metrics collection
+  prometheus:
+    image: prom/prometheus:latest
+    container_name: ory-prometheus
+    volumes:
+      - ./prometheus:/etc/prometheus
+      - prometheus_data:/prometheus
+    ports:
+      - "9090:9090"
+    networks:
+      - ory-network
+    command:
+      - '--config.file=/etc/prometheus/prometheus.yml'
+      - '--storage.tsdb.path=/prometheus'
+      - '--storage.tsdb.retention.time=30d'
+      - '--web.enable-lifecycle'
+
+  # Grafana for monitoring dashboards
+  grafana:
+    image: grafana/grafana:latest
+    container_name: ory-grafana
+    environment:
+      GF_SECURITY_ADMIN_PASSWORD: \${GRAFANA_PASSWORD}
+      GF_INSTALL_PLUGINS: grafana-piechart-panel
+    volumes:
+      - grafana_data:/var/lib/grafana
+      - ./grafana:/etc/grafana/provisioning
+    ports:
+      - "3000:3000"
+    networks:
+      - ory-network
+
+volumes:
+  postgres_data:
+  redis_data:
+  prometheus_data:
+  grafana_data:
+
+networks:
+  ory-network:
+    driver: bridge
+
+EOF
+
+# Kratos configuration - kratos/kratos.yml
+mkdir -p kratos
+cat > kratos/kratos.yml <<EOF
+version: v1.0.0
+
+dsn: postgres://ory:\${POSTGRES_PASSWORD}@postgres:5432/kratos?sslmode=disable&max_conns=20&max_idle_conns=4
+
+serve:
+  public:
+    base_url: https://auth.example.com
+    cors:
+      enabled: true
+      allowed_origins:
+        - https://app.example.com
+        - https://admin.example.com
+      allowed_methods:
+        - POST
+        - GET
+        - PUT
+        - PATCH
+        - DELETE
+      allowed_headers:
+        - Authorization
+        - Content-Type
+        - X-Session-Token
+      exposed_headers:
+        - Content-Type
+        - Set-Cookie
+  admin:
+    base_url: http://kratos:4434
+
+selfservice:
+  default_browser_return_url: https://app.example.com/dashboard
+  allowed_return_urls:
+    - https://app.example.com
+    - https://admin.example.com
+
+  flows:
+    error:
+      ui_url: https://app.example.com/error
+
+    settings:
+      ui_url: https://app.example.com/settings
+      privileged_session_max_age: 15m
+      required_aal: highest_available
+
+    recovery:
+      enabled: true
+      ui_url: https://app.example.com/recovery
+      use: code
+
+    verification:
+      enabled: true
+      ui_url: https://app.example.com/verification
+      use: code
+      after:
+        default_browser_return_url: https://app.example.com/dashboard
+
+    logout:
+      after:
+        default_browser_return_url: https://app.example.com
+
+    login:
+      ui_url: https://app.example.com/login
+      lifespan: 10m
+      after:
+        default_browser_return_url: https://app.example.com/dashboard
+        password:
+          hooks:
+            - hook: require_verified_address
+
+    registration:
+      lifespan: 10m
+      ui_url: https://app.example.com/registration
+      after:
+        default_browser_return_url: https://app.example.com/verification
+        password:
+          hooks:
+            - hook: session
+            - hook: show_verification_ui
+
+log:
+  level: info
+  format: json
+
+secrets:
+  cookie:
+    - \${KRATOS_COOKIE_SECRET}
+  cipher:
+    - \${KRATOS_CIPHER_SECRET}
+
+ciphers:
+  algorithm: xchacha20-poly1305
+
+hashers:
+  algorithm: bcrypt
+  bcrypt:
+    cost: 12
+
+identity:
+  default_schema_id: default
+  schemas:
+    - id: default
+      url: file:///etc/config/kratos/identity.schema.json
+
+courier:
+  smtp:
+    connection_uri: smtps://test:test@mailhog:1025/?skip_ssl_verify=true
+
+session:
+  lifespan: 24h
+  cookie:
+    domain: example.com
+    path: /
+    same_site: Lax
+    persistent: false
+
+feature_flags:
+  use_continue_with_transitions: true
+
+EOF
+
+# Identity schema - kratos/identity.schema.json
+cat > kratos/identity.schema.json <<EOF
+{
+  "\$id": "https://schemas.ory.sh/presets/kratos/identity.email.schema.json",
+  "\$schema": "http://json-schema.org/draft-07/schema#",
+  "title": "Person",
+  "type": "object",
+  "properties": {
+    "traits": {
+      "type": "object",
+      "properties": {
+        "email": {
+          "type": "string",
+          "format": "email",
+          "title": "E-Mail",
+          "ory.sh/kratos": {
+            "credentials": {
+              "password": {
+                "identifier": true
+              },
+              "totp": {
+                "account_name": true
+              },
+              "webauthn": {
+                "identifier": true
+              },
+              "code": {
+                "identifier": true
+              }
+            },
+            "verification": {
+              "via": "email"
+            },
+            "recovery": {
+              "via": "email"
+            }
+          }
+        },
+        "name": {
+          "type": "object",
+          "properties": {
+            "first": {
+              "title": "First Name",
+              "type": "string"
+            },
+            "last": {
+              "title": "Last Name",
+              "type": "string"
+            }
+          },
+          "required": [
+            "first",
+            "last"
+          ],
+          "additionalProperties": false
+        },
+        "phone": {
+          "type": "string",
+          "format": "tel",
+          "title": "Phone Number"
+        },
+        "organization": {
+          "type": "string",
+          "title": "Organization"
+        },
+        "role": {
+          "type": "string",
+          "enum": ["user", "admin", "moderator"],
+          "title": "Role"
+        }
+      },
+      "required": [
+        "email",
+        "name"
+      ],
+      "additionalProperties": false
+    }
+  }
+}
+EOF
+
+# Hydra configuration - hydra/hydra.yml
+mkdir -p hydra
+cat > hydra/hydra.yml <<EOF
+version: v2.2.0
+
+dsn: postgres://ory:\${POSTGRES_PASSWORD}@postgres:5432/hydra?sslmode=disable&max_conns=20&max_idle_conns=4
+
+serve:
+  public:
+    cors:
+      enabled: true
+      allowed_origins:
+        - https://app.example.com
+        - https://admin.example.com
+      allowed_methods:
+        - POST
+        - GET
+        - PUT
+        - PATCH
+        - DELETE
+        - OPTIONS
+      allowed_headers:
+        - Authorization
+        - Content-Type
+      exposed_headers:
+        - Content-Type
+      allow_credentials: true
+      debug: false
+
+urls:
+  self:
+    issuer: https://auth.example.com
+  consent: https://app.example.com/consent
+  login: https://app.example.com/login
+  logout: https://app.example.com/logout
+  error: https://app.example.com/error
+  post_logout_redirect: https://app.example.com
+
+ttl:
+  login_request: 1h
+  consent_request: 1h
+  access_token: 1h
+  refresh_token: 720h # 30 days
+  id_token: 1h
+  auth_code: 10m
+
+oauth2:
+  expose_internal_errors: false
+  hashers:
+    bcrypt:
+      cost: 12
+
+secrets:
+  system:
+    - \${HYDRA_SYSTEM_SECRET}
+
+oidc:
+  subject_identifiers:
+    supported_types:
+      - pairwise
+      - public
+    pairwise:
+      salt: \${OIDC_PAIRWISE_SALT}
+
+  dynamic_client_registration:
+    enabled: false
+
+log:
+  level: info
+  format: json
+
+tracing:
+  provider: jaeger
+  providers:
+    jaeger:
+      local_agent_address: jaeger:6831
+      sampling:
+        type: const
+        value: 1
+
+webfinger:
+  jwks:
+    broadcast_keys:
+      - RS256
+      - ES256
+      - PS256
+  oidc_discovery:
+    client_registration_url: https://auth.example.com/oauth2/register
+    supported_claims:
+      - sub
+      - name
+      - family_name
+      - given_name
+      - middle_name
+      - nickname
+      - preferred_username
+      - profile
+      - picture
+      - website
+      - email
+      - email_verified
+      - gender
+      - birthdate
+      - zoneinfo
+      - locale
+      - phone_number
+      - phone_number_verified
+      - address
+      - updated_at
+
+EOF
+
+# Oathkeeper configuration - oathkeeper/oathkeeper.yml
+mkdir -p oathkeeper
+cat > oathkeeper/oathkeeper.yml <<EOF
+version: v0.40.6
+
+serve:
+  proxy:
+    cors:
+      enabled: true
+      allowed_origins:
+        - https://app.example.com
+        - https://admin.example.com
+      allowed_methods:
+        - POST
+        - GET
+        - PUT
+        - PATCH
+        - DELETE
+        - OPTIONS
+      allowed_headers:
+        - Authorization
+        - Content-Type
+      exposed_headers:
+        - Content-Type
+      allow_credentials: true
+
+log:
+  level: info
+  format: json
+
+errors:
+  fallback:
+    - json
+  handlers:
+    redirect:
+      enabled: true
+      config:
+        to: https://app.example.com/login
+        when:
+          - error:
+              - unauthorized
+              - forbidden
+    json:
+      enabled: true
+      config:
+        verbose: false
+
+access_rules:
+  matching_strategy: glob
+  repositories:
+    - file:///etc/config/oathkeeper/access-rules.yml
+
+authenticators:
+  anonymous:
+    enabled: true
+    config:
+      subject: anonymous
+
+  cookie_session:
+    enabled: true
+    config:
+      check_session_url: http://kratos:4433/sessions/whoami
+      preserve_path: true
+      extra_from: "@this"
+      subject_from: "identity.id"
+      only:
+        - ory_kratos_session
+
+  bearer_token:
+    enabled: true
+    config:
+      check_session_url: http://kratos:4433/sessions/whoami
+      preserve_path: true
+      extra_from: "@this"
+      subject_from: "identity.id"
+      token_from:
+        header: Authorization
+        query_parameter: access_token
+
+  oauth2_introspection:
+    enabled: true
+    config:
+      introspection_url: http://hydra:4445/oauth2/introspect
+      scope_strategy: hierarchic
+      required_scope: []
+      target_audience: []
+      trusted_issuers: ["https://auth.example.com"]
+      pre_authorization:
+        enabled: true
+        client_id: \${OAUTH2_CLIENT_ID}
+        client_secret: \${OAUTH2_CLIENT_SECRET}
+
+authorizers:
+  allow:
+    enabled: true
+
+  deny:
+    enabled: true
+
+  keto_engine_acp_ory:
+    enabled: true
+    config:
+      base_url: http://keto:4466
+      required_action: "read"
+      required_resource: "resources:protected"
+
+mutators:
+  noop:
+    enabled: true
+
+  id_token:
+    enabled: true
+    config:
+      issuer_url: https://auth.example.com
+      jwks_url: http://hydra:4444/.well-known/jwks.json
+      claims: |
+        {
+          "session": {{ .Extra | toJson }}
+        }
+
+  header:
+    enabled: true
+    config:
+      headers:
+        X-User: "{{ print .Subject }}"
+        X-User-Email: "{{ print .Extra.identity.traits.email }}"
+        X-User-Name: "{{ print .Extra.identity.traits.name.first }} {{ print .Extra.identity.traits.name.last }}"
+
+EOF
+
+# Access rules - oathkeeper/access-rules.yml
+cat > oathkeeper/access-rules.yml <<EOF
+- id: "public-routes"
+  upstream:
+    url: "http://backend:8080"
+  match:
+    url: "https://api.example.com/<{public,health,metrics}/**>"
+    methods:
+      - GET
+      - POST
+      - PUT
+      - DELETE
+      - PATCH
+      - OPTIONS
+  authenticators:
+    - handler: anonymous
+  authorizer:
+    handler: allow
+  mutators:
+    - handler: noop
+
+- id: "protected-api"
+  upstream:
+    url: "http://backend:8080"
+  match:
+    url: "https://api.example.com/api/**"
+    methods:
+      - GET
+      - POST
+      - PUT
+      - DELETE
+      - PATCH
+  authenticators:
+    - handler: oauth2_introspection
+  authorizer:
+    handler: keto_engine_acp_ory
+  mutators:
+    - handler: id_token
+
+- id: "admin-api"
+  upstream:
+    url: "http://backend:8080"
+  match:
+    url: "https://api.example.com/admin/**"
+    methods:
+      - GET
+      - POST
+      - PUT
+      - DELETE
+      - PATCH
+  authenticators:
+    - handler: cookie_session
+  authorizer:
+    handler: keto_engine_acp_ory
+  mutators:
+    - handler: header
+  errors:
+    - handler: redirect
+
+- id: "websocket-connection"
+  upstream:
+    url: "http://backend:8080"
+  match:
+    url: "https://api.example.com/ws/**"
+    methods:
+      - GET
+  authenticators:
+    - handler: bearer_token
+  authorizer:
+    handler: allow
+  mutators:
+    - handler: header
+
+EOF
+
+# Keto configuration - keto/keto.yml
+mkdir -p keto
+cat > keto/keto.yml <<EOF
+version: v0.11.1
+
+dsn: postgres://ory:\${POSTGRES_PASSWORD}@postgres:5432/keto?sslmode=disable&max_conns=20&max_idle_conns=4
+
+serve:
+  read:
+    host: 0.0.0.0
+    port: 4466
+  write:
+    host: 0.0.0.0
+    port: 4467
+
+log:
+  level: info
+  format: json
+
+namespaces:
+  - name: resources
+    id: 1
+  - name: users
+    id: 2
+  - name: groups
+    id: 3
+
+tracing:
+  provider: jaeger
+  providers:
+    jaeger:
+      local_agent_address: jaeger:6831
+      sampling:
+        type: const
+        value: 1
+
+EOF
+
+echo "✅ Ory stack configuration completed"
+echo "🔐 Configure environment variables and start: docker-compose -f docker-compose.ory.yml up -d"]]></correct-example>
+          <incorrect-example title="Basic auth setup without Ory security features" conditions="Setting up authentication" expected-result="Secure, compliant identity management" incorrectness-criteria="No OAuth2/OIDC, basic auth only, no policy enforcement, no monitoring"><![CDATA[version: '3.8'
+
+services:
+  auth:
+    image: basic-auth:latest
+    ports:
+      - "3000:3000"
+    environment:
+      JWT_SECRET: secret123
+
+# Bad: No OAuth2/OIDC compliance
+# Bad: No identity verification
+# Bad: No policy enforcement
+# Bad: No audit logging
+# Bad: No zero-trust architecture
+# Bad: No multi-factor authentication
+# Bad: No session management]]></incorrect-example>
+        </example>
+      </examples>
+    </non-negotiable>
+
+    <requirement priority="critical">
+      <description>Implement OAuth2/OIDC compliant authentication flows with proper security measures, token management, and comprehensive audit logging for regulatory compliance and security monitoring.</description>
+      <examples>
+        <example title="OAuth2/OIDC Implementation with Security">
+          <correct-example title="Production-ready OAuth2/OIDC with comprehensive security" conditions="Implementing OAuth2/OIDC authentication flows" expected-result="Secure, compliant authentication system" correctness-criteria="OAuth2/OIDC compliance, security measures, token management, audit logging, monitoring"><![CDATA[// TypeScript - Comprehensive OAuth2/OIDC client implementation
+import { generators, Issuer, BaseClient, TokenSet, UserinfoResponse } from 'openid-client';
+import { Request, Response, NextFunction } from 'express';
+import { createLogger } from 'winston';
+import { Counter, Histogram, Gauge, register } from 'prom-client';
+import { createHash, randomBytes } from 'crypto';
+import jwt from 'jsonwebtoken';
+
+interface OAuthConfig {
+  issuer: string;
+  clientId: string;
+  clientSecret: string;
+  redirectUri: string;
+  scope: string[];
+  responseType: 'code' | 'id_token' | 'token';
+  responseMode?: 'query' | 'fragment' | 'form_post';
+  grantType: 'authorization_code' | 'client_credentials' | 'refresh_token';
+  pkce: boolean;
+  state: boolean;
+  nonce: boolean;
+  maxAge?: number;
+  clockTolerance: number;
+  timeout: number;
+}
+
+interface SecurityConfig {
+  tokenValidation: {
+    audience: string[];
+    issuer: string;
+    algorithms: string[];
+    clockTolerance: number;
+  };
+  session: {
+    secret: string;
+    maxAge: number;
+    secure: boolean;
+    httpOnly: boolean;
+    sameSite: 'strict' | 'lax' | 'none';
+    rolling: boolean;
+  };
+  csrf: {
+    enabled: boolean;
+    secret: string;
+  };
+  rateLimit: {
+    windowMs: number;
+    maxRequests: number;
+  };
+}
+
+interface AuditEvent {
+  eventType: string;
+  userId?: string;
+  sessionId?: string;
+  ipAddress: string;
+  userAgent: string;
+  timestamp: number;
+  success: boolean;
+  details: Record<string, any>;
+  riskScore?: number;
+}
+
+interface OAuthMetrics {
+  authRequests: Counter<string>;
+  authLatency: Histogram<string>;
+  tokenOperations: Counter<string>;
+  activeSessions: Gauge<string>;
+  securityEvents: Counter<string>;
+}
+
+class OAuthSecurityManager {
+  private client: BaseClient;
+  private issuer: Issuer<BaseClient>;
+  private logger = createLogger({ level: 'info' });
+  private metrics: OAuthMetrics;
+  private activeSessions = new Map<string, any>();
+  private securityEvents: AuditEvent[] = [];
+
+  constructor(
+    private oauthConfig: OAuthConfig,
+    private securityConfig: SecurityConfig
+  ) {
+    this.initializeMetrics();
+    this.initializeClient();
+  }
+
+  private initializeMetrics(): void {
+    this.metrics = {
+      authRequests: new Counter({
+        name: 'oauth_auth_requests_total',
+        help: 'Total number of OAuth authentication requests',
+        labelNames: ['type', 'status', 'client_id'],
+      }),
+      authLatency: new Histogram({
+        name: 'oauth_auth_duration_seconds',
+        help: 'OAuth authentication duration in seconds',
+        labelNames: ['type', 'status'],
+        buckets: [0.1, 0.5, 1, 2, 5, 10, 30],
+      }),
+      tokenOperations: new Counter({
+        name: 'oauth_token_operations_total',
+        help: 'Total number of token operations',
+        labelNames: ['operation', 'status'],
+      }),
+      activeSessions: new Gauge({
+        name: 'oauth_active_sessions',
+        help: 'Number of active OAuth sessions',
+      }),
+      securityEvents: new Counter({
+        name: 'oauth_security_events_total',
+        help: 'Total number of security events',
+        labelNames: ['event_type', 'severity'],
+      }),
+    };
+
+    Object.values(this.metrics).forEach(metric => register.registerMetric(metric));
+  }
+
+  private async initializeClient(): Promise<void> {
+    try {
+      this.issuer = await Issuer.discover(this.oauthConfig.issuer);
+      
+      this.client = new this.issuer.Client({
+        client_id: this.oauthConfig.clientId,
+        client_secret: this.oauthConfig.clientSecret,
+        redirect_uris: [this.oauthConfig.redirectUri],
+        response_types: [this.oauthConfig.responseType],
+        grant_types: [this.oauthConfig.grantType],
+      });
+
+      // Configure client security settings
+      this.client[custom.clock_tolerance] = this.oauthConfig.clockTolerance;
+      this.client[custom.http_options] = {
+        timeout: this.oauthConfig.timeout,
+        retry: 3,
+        headers: {
+          'User-Agent': 'MyApp/1.0.0 (Security-Enhanced OAuth Client)',
+        },
+      };
+
+      this.logger.info('OAuth client initialized', {
+        issuer: this.oauthConfig.issuer,
+        clientId: this.oauthConfig.clientId,
+      });
+
+    } catch (error) {
+      this.logger.error('Failed to initialize OAuth client', error);
+      throw error;
+    }
+  }
+
+  // Authorization Code Flow with PKCE
+  generateAuthUrl(req: Request): { url: string; state: string; nonce?: string; codeVerifier?: string } {
+    const startTime = Date.now();
+    
+    try {
+      const state = this.oauthConfig.state ? generators.state() : undefined;
+      const nonce = this.oauthConfig.nonce ? generators.nonce() : undefined;
+      let codeVerifier: string | undefined;
+      let codeChallenge: string | undefined;
+
+      if (this.oauthConfig.pkce) {
+        codeVerifier = generators.codeVerifier();
+        codeChallenge = generators.codeChallenge(codeVerifier);
+      }
+
+      const authParams: any = {
+        scope: this.oauthConfig.scope.join(' '),
+        response_type: this.oauthConfig.responseType,
+        redirect_uri: this.oauthConfig.redirectUri,
+      };
+
+      if (state) authParams.state = state;
+      if (nonce) authParams.nonce = nonce;
+      if (codeChallenge) {
+        authParams.code_challenge = codeChallenge;
+        authParams.code_challenge_method = 'S256';
+      }
+      if (this.oauthConfig.maxAge) authParams.max_age = this.oauthConfig.maxAge;
+
+      const url = this.client.authorizationUrl(authParams);
+
+      // Store PKCE and security parameters in session
+      if (req.session) {
+        req.session.oauth = {
+          state,
+          nonce,
+          codeVerifier,
+          timestamp: Date.now(),
+        };
+      }
+
+      const latency = (Date.now() - startTime) / 1000;
+      this.metrics.authRequests.inc({ type: 'authorization', status: 'success', client_id: this.oauthConfig.clientId });
+      this.metrics.authLatency.observe({ type: 'authorization', status: 'success' }, latency);
+
+      this.auditEvent({
+        eventType: 'auth_url_generated',
+        ipAddress: req.ip,
+        userAgent: req.get('User-Agent') || '',
+        timestamp: Date.now(),
+        success: true,
+        details: { scope: this.oauthConfig.scope },
+      });
+
+      return { url, state: state!, nonce, codeVerifier };
+
+    } catch (error) {
+      const latency = (Date.now() - startTime) / 1000;
+      this.metrics.authRequests.inc({ type: 'authorization', status: 'error', client_id: this.oauthConfig.clientId });
+      this.metrics.authLatency.observe({ type: 'authorization', status: 'error' }, latency);
+
+      this.auditEvent({
+        eventType: 'auth_url_generation_failed',
+        ipAddress: req.ip,
+        userAgent: req.get('User-Agent') || '',
+        timestamp: Date.now(),
+        success: false,
+        details: { error: error.message },
+        riskScore: 3,
+      });
+
+      throw error;
+    }
+  }
+
+  // Handle OAuth callback with comprehensive validation
+  async handleCallback(req: Request): Promise<{ tokens: TokenSet; userInfo: UserinfoResponse }> {
+    const startTime = Date.now();
+    
+    try {
+      // Validate session state
+      if (!req.session?.oauth) {
+        throw new Error('Missing OAuth session state');
+      }
+
+      const { state, nonce, codeVerifier } = req.session.oauth;
+      
+      // Validate state parameter
+      if (this.oauthConfig.state && req.query.state !== state) {
+        throw new Error('Invalid state parameter - possible CSRF attack');
+      }
+
+      // Check for authorization errors
+      if (req.query.error) {
+        throw new Error(`Authorization error: ${req.query.error} - ${req.query.error_description}`);
+      }
+
+      // Exchange authorization code for tokens
+      const tokenParams: any = {
+        code: req.query.code,
+        redirect_uri: this.oauthConfig.redirectUri,
+      };
+
+      if (codeVerifier) {
+        tokenParams.code_verifier = codeVerifier;
+      }
+
+      const tokenSet = await this.client.callback(this.oauthConfig.redirectUri, req.query, { state, nonce });
+
+      // Validate tokens
+      await this.validateTokenSet(tokenSet);
+
+      // Get user information
+      const userInfo = await this.client.userinfo(tokenSet.access_token!);
+
+      // Create secure session
+      const sessionId = this.createSession(req, tokenSet, userInfo);
+
+      const latency = (Date.now() - startTime) / 1000;
+      this.metrics.authRequests.inc({ type: 'callback', status: 'success', client_id: this.oauthConfig.clientId });
+      this.metrics.authLatency.observe({ type: 'callback', status: 'success' }, latency);
+      this.metrics.tokenOperations.inc({ operation: 'exchange', status: 'success' });
+      this.metrics.activeSessions.set(this.activeSessions.size);
+
+      this.auditEvent({
+        eventType: 'auth_callback_success',
+        userId: userInfo.sub,
+        sessionId,
+        ipAddress: req.ip,
+        userAgent: req.get('User-Agent') || '',
+        timestamp: Date.now(),
+        success: true,
+        details: { 
+          scope: tokenSet.scope,
+          token_type: tokenSet.token_type,
+          expires_in: tokenSet.expires_in,
+        },
+      });
+
+      // Clear OAuth session state
+      delete req.session.oauth;
+
+      return { tokens: tokenSet, userInfo };
+
+    } catch (error) {
+      const latency = (Date.now() - startTime) / 1000;
+      this.metrics.authRequests.inc({ type: 'callback', status: 'error', client_id: this.oauthConfig.clientId });
+      this.metrics.authLatency.observe({ type: 'callback', status: 'error' }, latency);
+      this.metrics.securityEvents.inc({ event_type: 'auth_failure', severity: 'high' });
+
+      this.auditEvent({
+        eventType: 'auth_callback_failed',
+        ipAddress: req.ip,
+        userAgent: req.get('User-Agent') || '',
+        timestamp: Date.now(),
+        success: false,
+        details: { error: error.message },
+        riskScore: 7,
+      });
+
+      this.logger.error('OAuth callback failed', { error: error.message });
+      throw error;
+    }
+  }
+
+  // Token refresh with security validation
+  async refreshTokens(refreshToken: string): Promise<TokenSet> {
+    const startTime = Date.now();
+    
+    try {
+      const tokenSet = await this.client.refresh(refreshToken);
+      await this.validateTokenSet(tokenSet);
+
+      const latency = (Date.now() - startTime) / 1000;
+      this.metrics.tokenOperations.inc({ operation: 'refresh', status: 'success' });
+      this.metrics.authLatency.observe({ type: 'refresh', status: 'success' }, latency);
+
+      this.auditEvent({
+        eventType: 'token_refresh_success',
+        timestamp: Date.now(),
+        success: true,
+        details: { 
+          expires_in: tokenSet.expires_in,
+          scope: tokenSet.scope,
+        },
+      });
+
+      return tokenSet;
+
+    } catch (error) {
+      const latency = (Date.now() - startTime) / 1000;
+      this.metrics.tokenOperations.inc({ operation: 'refresh', status: 'error' });
+      this.metrics.authLatency.observe({ type: 'refresh', status: 'error' }, latency);
+
+      this.auditEvent({
+        eventType: 'token_refresh_failed',
+        timestamp: Date.now(),
+        success: false,
+        details: { error: error.message },
+        riskScore: 5,
+      });
+
+      throw error;
+    }
+  }
+
+  // Comprehensive token validation
+  private async validateTokenSet(tokenSet: TokenSet): Promise<void> {
+    // Validate access token
+    if (tokenSet.access_token) {
+      await this.validateToken(tokenSet.access_token, 'access_token');
+    }
+
+    // Validate ID token
+    if (tokenSet.id_token) {
+      await this.validateToken(tokenSet.id_token, 'id_token');
+    }
+
+    // Check token expiration
+    if (tokenSet.expires_at && tokenSet.expires_at <= Math.floor(Date.now() / 1000)) {
+      throw new Error('Token has expired');
+    }
+
+    // Validate token type
+    if (tokenSet.token_type && tokenSet.token_type.toLowerCase() !== 'bearer') {
+      throw new Error(`Unsupported token type: ${tokenSet.token_type}`);
+    }
+  }
+
+  private async validateToken(token: string, tokenType: 'access_token' | 'id_token'): Promise<any> {
+    try {
+      // Basic JWT validation
+      const decoded = jwt.decode(token, { complete: true });
+      if (!decoded) {
+        throw new Error('Invalid token format');
+      }
+
+      // Validate with issuer's JWKS
+      const claims = await this.client.validateJWT(token, {
+        audience: this.securityConfig.tokenValidation.audience,
+        issuer: this.securityConfig.tokenValidation.issuer,
+        algorithms: this.securityConfig.tokenValidation.algorithms,
+        clockTolerance: this.securityConfig.tokenValidation.clockTolerance,
+      });
+
+      // Additional security validations
+      if (tokenType === 'id_token') {
+        if (!claims.sub) {
+          throw new Error('Missing subject claim in ID token');
+        }
+        if (!claims.aud || !this.securityConfig.tokenValidation.audience.includes(claims.aud as string)) {
+          throw new Error('Invalid audience in ID token');
+        }
+      }
+
+      return claims;
+
+    } catch (error) {
+      this.metrics.securityEvents.inc({ event_type: 'token_validation_failed', severity: 'high' });
+      throw new Error(`Token validation failed: ${error.message}`);
+    }
+  }
+
+  // Session management
+  private createSession(req: Request, tokenSet: TokenSet, userInfo: UserinfoResponse): string {
+    const sessionId = randomBytes(32).toString('hex');
+    
+    const sessionData = {
+      id: sessionId,
+      userId: userInfo.sub,
+      email: userInfo.email,
+      name: userInfo.name,
+      tokens: {
+        access_token: tokenSet.access_token,
+        refresh_token: tokenSet.refresh_token,
+        id_token: tokenSet.id_token,
+        expires_at: tokenSet.expires_at,
+      },
+      createdAt: Date.now(),
+      lastAccessed: Date.now(),
+      ipAddress: req.ip,
+      userAgent: req.get('User-Agent'),
+    };
+
+    this.activeSessions.set(sessionId, sessionData);
+    
+    // Set secure session cookie
+    if (req.session) {
+      req.session.sessionId = sessionId;
+      req.session.userId = userInfo.sub;
+      req.session.cookie.maxAge = this.securityConfig.session.maxAge;
+      req.session.cookie.secure = this.securityConfig.session.secure;
+      req.session.cookie.httpOnly = this.securityConfig.session.httpOnly;
+      req.session.cookie.sameSite = this.securityConfig.session.sameSite;
+    }
+
+    return sessionId;
+  }
+
+  // Logout with comprehensive cleanup
+  async logout(req: Request, sessionId?: string): Promise<void> {
+    const startTime = Date.now();
+    
+    try {
+      const session = sessionId ? this.activeSessions.get(sessionId) : 
+                      req.session?.sessionId ? this.activeSessions.get(req.session.sessionId) : null;
+
+      if (session) {
+        // Revoke tokens
+        if (session.tokens.access_token) {
+          try {
+            await this.client.revoke(session.tokens.access_token, 'access_token');
+          } catch (error) {
+            this.logger.warn('Failed to revoke access token', { error: error.message });
+          }
+        }
+
+        if (session.tokens.refresh_token) {
+          try {
+            await this.client.revoke(session.tokens.refresh_token, 'refresh_token');
+          } catch (error) {
+            this.logger.warn('Failed to revoke refresh token', { error: error.message });
+          }
+        }
+
+        // Remove session
+        this.activeSessions.delete(session.id);
+        this.metrics.activeSessions.set(this.activeSessions.size);
+
+        this.auditEvent({
+          eventType: 'logout_success',
+          userId: session.userId,
+          sessionId: session.id,
+          ipAddress: req.ip,
+          userAgent: req.get('User-Agent') || '',
+          timestamp: Date.now(),
+          success: true,
+          details: { session_duration: Date.now() - session.createdAt },
+        });
+      }
+
+      // Clear session cookie
+      if (req.session) {
+        req.session.destroy((error) => {
+          if (error) {
+            this.logger.error('Failed to destroy session', error);
+          }
+        });
+      }
+
+      const latency = (Date.now() - startTime) / 1000;
+      this.metrics.authRequests.inc({ type: 'logout', status: 'success', client_id: this.oauthConfig.clientId });
+      this.metrics.authLatency.observe({ type: 'logout', status: 'success' }, latency);
+
+    } catch (error) {
+      const latency = (Date.now() - startTime) / 1000;
+      this.metrics.authRequests.inc({ type: 'logout', status: 'error', client_id: this.oauthConfig.clientId });
+      this.metrics.authLatency.observe({ type: 'logout', status: 'error' }, latency);
+
+      this.auditEvent({
+        eventType: 'logout_failed',
+        ipAddress: req.ip,
+        userAgent: req.get('User-Agent') || '',
+        timestamp: Date.now(),
+        success: false,
+        details: { error: error.message },
+        riskScore: 4,
+      });
+
+      throw error;
+    }
+  }
+
+  // Security middleware
+  authenticateRequest(req: Request, res: Response, next: NextFunction): void {
+    const sessionId = req.session?.sessionId;
+    
+    if (!sessionId) {
+      this.metrics.securityEvents.inc({ event_type: 'unauthorized_access', severity: 'medium' });
+      return res.status(401).json({ error: 'Unauthorized' });
+    }
+
+    const session = this.activeSessions.get(sessionId);
+    if (!session) {
+      this.metrics.securityEvents.inc({ event_type: 'invalid_session', severity: 'medium' });
+      return res.status(401).json({ error: 'Invalid session' });
+    }
+
+    // Check token expiration
+    if (session.tokens.expires_at && session.tokens.expires_at <= Math.floor(Date.now() / 1000)) {
+      this.metrics.securityEvents.inc({ event_type: 'expired_token', severity: 'low' });
+      return res.status(401).json({ error: 'Token expired' });
+    }
+
+    // Update last accessed
+    session.lastAccessed = Date.now();
+    req.user = {
+      id: session.userId,
+      email: session.email,
+      name: session.name,
+    };
+
+    next();
+  }
+
+  // Audit logging
+  private auditEvent(event: AuditEvent): void {
+    this.securityEvents.push(event);
+    
+    this.logger.info('Security audit event', event);
+    
+    // Send to external audit system if configured
+    this.sendToAuditSystem(event);
+
+    // Cleanup old events (keep last 10000)
+    if (this.securityEvents.length > 10000) {
+      this.securityEvents = this.securityEvents.slice(-10000);
+    }
+  }
+
+  private async sendToAuditSystem(event: AuditEvent): Promise<void> {
+    // Implementation for external audit system integration
+    // This could be SIEM, logging service, or compliance system
+  }
+
+  // Health check and statistics
+  getSecurityStats(): any {
+    const recentEvents = this.securityEvents.filter(e => e.timestamp > Date.now() - 3600000); // Last hour
+    
+    return {
+      activeSessions: this.activeSessions.size,
+      recentSecurityEvents: recentEvents.length,
+      highRiskEvents: recentEvents.filter(e => e.riskScore && e.riskScore >= 7).length,
+      failedAuthAttempts: recentEvents.filter(e => e.eventType.includes('failed')).length,
+      tokenOperations: {
+        // Metrics from prometheus client
+      },
+    };
+  }
+}
+
+// Usage example
+const oauthConfig: OAuthConfig = {
+  issuer: 'https://auth.example.com',
+  clientId: process.env.OAUTH_CLIENT_ID!,
+  clientSecret: process.env.OAUTH_CLIENT_SECRET!,
+  redirectUri: 'https://app.example.com/auth/callback',
+  scope: ['openid', 'profile', 'email'],
+  responseType: 'code',
+  grantType: 'authorization_code',
+  pkce: true,
+  state: true,
+  nonce: true,
+  maxAge: 3600,
+  clockTolerance: 10,
+  timeout: 5000,
+};
+
+const securityConfig: SecurityConfig = {
+  tokenValidation: {
+    audience: ['https://api.example.com'],
+    issuer: 'https://auth.example.com',
+    algorithms: ['RS256'],
+    clockTolerance: 10,
+  },
+  session: {
+    secret: process.env.SESSION_SECRET!,
+    maxAge: 24 * 60 * 60 * 1000, // 24 hours
+    secure: true,
+    httpOnly: true,
+    sameSite: 'strict',
+    rolling: true,
+  },
+  csrf: {
+    enabled: true,
+    secret: process.env.CSRF_SECRET!,
+  },
+  rateLimit: {
+    windowMs: 15 * 60 * 1000, // 15 minutes
+    maxRequests: 100,
+  },
+};
+
+export { OAuthSecurityManager, OAuthConfig, SecurityConfig };]]></correct-example>
+          <incorrect-example title="Basic OAuth implementation without security measures" conditions="Implementing OAuth authentication" expected-result="Secure OAuth2/OIDC implementation" incorrectness-criteria="No PKCE, no token validation, no audit logging, basic implementation only"><![CDATA[// Basic OAuth without security measures
+import { AuthorizationCode } from 'simple-oauth2';
+
+const oauth = new AuthorizationCode({
+  client: {
+    id: 'client-id',
+    secret: 'client-secret',
+  },
+  auth: {
+    tokenHost: 'https://auth.example.com',
+  },
+});
+
+// Bad: No PKCE
+// Bad: No state validation
+// Bad: No token validation
+// Bad: No audit logging
+// Bad: No session security
+// Bad: No error handling
+
+async function login() {
+  const authUrl = oauth.authorizeURL({
+    redirect_uri: 'http://localhost:3000/callback',
+    scope: 'read',
+  });
+  
+  return authUrl;
+}
+
+async function callback(code: string) {
+  const result = await oauth.getToken({
+    code,
+    redirect_uri: 'http://localhost:3000/callback',
+  });
+  
+  return result.token;
+}
+
+// Bad: No security validations
+// Bad: No monitoring
+// Bad: No compliance features]]></incorrect-example>
+        </example>
+      </examples>
+    </requirement>
+  </requirements>
+  <context description="Ory identity and access management best practices">
+    Ory is a modern identity and access management ecosystem that provides OAuth2/OIDC, zero-trust security, and policy-based access control. The Ory stack includes Kratos (identity management), Hydra (OAuth2/OIDC), Oathkeeper (identity-aware proxy), and Keto (access control) for comprehensive identity solutions.
+
+    Key principles for Ory implementation include:
+    - Security-first architecture with zero-trust principles and defense in depth
+    - OAuth2/OIDC compliance with proper security measures and token management
+    - Policy-based access control with fine-grained permissions and authorization
+    - Identity verification with multi-factor authentication and progressive profiling
+    - Comprehensive audit logging for compliance and security monitoring
+    - Production-ready deployment with high availability and disaster recovery
+
+    Ory security emphasizes proper token management with PKCE, state validation, nonce verification, and comprehensive token validation. All communications should use TLS encryption, and sensitive operations require additional authentication factors.
+
+    The Ory ecosystem provides complete identity lifecycle management including registration, authentication, profile management, password recovery, email verification, and session management with proper security controls and monitoring.
+
+    Production deployments require proper database configuration, load balancing, monitoring integration, backup strategies, and compliance with regulations like GDPR, CCPA, and industry standards like SOC 2 and ISO 27001.
+
+    Modern identity architecture with Ory enables microservices security, API protection, single sign-on (SSO), federated identity, and zero-trust network access for cloud-native applications and distributed systems.
+  </context>
+  <references>
+    <reference as="dependency" href=".cursor/rules/000-core/002-cursor-rules-creation.mdc" reason="Follows standard rule format">Base rule format definition</reference>
+    <reference as="context" href="https://www.ory.sh/docs/" reason="Official Ory documentation">Ory Documentation</reference>
+    <reference as="context" href="https://www.ory.sh/docs/kratos/" reason="Identity management guide">Ory Kratos Documentation</reference>
+    <reference as="context" href="https://www.ory.sh/docs/hydra/" reason="OAuth2/OIDC guide">Ory Hydra Documentation</reference>
+  </references>
+</rule>

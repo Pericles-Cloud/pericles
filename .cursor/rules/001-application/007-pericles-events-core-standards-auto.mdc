@@ -1,0 +1,94 @@
+---
+description: "Pericles Events core standards for ingesting, training, managing, and acting on organizational incidents with deep Atlas/Insights/Plans integration"
+globs: ["*.mdc"]
+alwaysApply: false
+---
+
+<rule>
+  <meta>
+    <title>Pericles Events Core Standards</title>
+    <description>Standards for Events: viewing, managing, and acting on ongoing and historical incidents; integrates with Atlas (map context), Insights (analytics), and Plans (response workflows) with tenant isolation, RBAC, and full auditability.</description>
+    <created-at utc-timestamp="1756320000">August 27, 2025, 00:00 UTC</created-at>
+    <last-updated-at utc-timestamp="1756320000">August 27, 2025, 00:00 UTC</last-updated-at>
+    <applies-to>
+      <file-matcher glob="*">All files related to Pericles Events feature (UI, API, data types, tests)</file-matcher>
+      <action-matcher action="events-development">All development activities for the Events feature</action-matcher>
+      <action-matcher action="events-ui">All UI/UX work for Events views, filters, and actions</action-matcher>
+    </applies-to>
+  </meta>
+
+  <requirements>
+    <requirement priority="critical">
+      <description>Rule 1 — Event Ingestion and Normalization: Ingest events from SIEM, EDR, threat intelligence, monitoring tools, and manual reports; normalize, deduplicate, classify severity, and enforce tenant scoping. Mapped from: Monitoring & Detection Integrations; Business Goals.</description>
+    </requirement>
+
+    <requirement priority="critical">
+      <description>Rule 2 — Event Lifecycle Management: Support event lifecycle states (OPEN, IN_PROGRESS, RESOLVED); capture timestamps, owners, tags, locations, affected assets; compute MTTR and trend metrics. Mapped from: Audit, Reporting & Compliance; Post‑Incident Review.</description>
+    </requirement>
+
+    <requirement priority="critical">
+      <description>Rule 3 — Link Events to Plans and Activate Playbooks: Allow associating one or more Plans with an event; enable activation of playbooks with conditional branching based on event attributes/triggers. Mapped from: Automated Response Workflows; Plan Creation & Customization.</description>
+    </requirement>
+
+    <requirement priority="high">
+      <description>Rule 4 — Roles, Assignments, and Escalation: Assign roles (CISO, IT, Comms, HR, Legal, Operations); define thresholds and automatic escalations with notifications; integrate with HR/IT directory for up‑to‑date contacts. Mapped from: Roles, Responsibilities & Escalation Paths.</description>
+    </requirement>
+
+    <requirement priority="high">
+      <description>Rule 5 — Communications and Notifications: Centralize stakeholder communications, provide multi‑channel alerts (email, SMS, push, voice), integrate Slack/Teams, and expose pre‑approved PR/customer messaging templates. Mapped from: Communication & Collaboration.</description>
+    </requirement>
+
+    <requirement priority="high">
+      <description>Rule 6 — Simulation and Drills: Enable simulated events (tabletop exercises), scenario tracking, outcomes analysis, and automatic improvement recommendations feeding back into Plans. Mapped from: Simulation & Testing.</description>
+    </requirement>
+
+    <requirement priority="high">
+      <description>Rule 7 — Auditability and Compliance: Log detailed action history, communications, permission checks; generate compliance reports (ISO 27001, NIST, HIPAA, GDPR) and dashboards (readiness, mitigation tasks, MTTR). Mapped from: Audit, Reporting & Compliance.</description>
+    </requirement>
+
+    <requirement priority="high">
+      <description>Rule 8 — Post‑Incident Review and Lessons: Provide RCA tools, link events to risk registers/mitigation plans, and update playbooks with lessons learned. Mapped from: Post‑Incident Review & Continuous Improvement.</description>
+    </requirement>
+
+    <requirement priority="high">
+      <description>Rule 9 — Cross‑Product Navigation and Context: Preserve deep‑link context between Atlas (map focus), Insights (analytics), and Plans (playbooks); maintain breadcrumbs and restore originating filters. Mapped from: Business Requirements (Navigation & Context).</description>
+    </requirement>
+
+    <requirement priority="high">
+      <description>Rule 10 — Performance and Accessibility: Events list/detail interactions maintain 60 FPS; P95 page load &lt; 2s warm; virtualization for large tables; WCAG 2.1 AA with keyboard operability and ARIA labels. Mapped from: Technical Requirements; Accessibility.</description>
+    </requirement>
+
+    <requirement priority="critical">
+      <description>Rule 11 — Security, Tenancy, and RBAC: Enforce JWT auth, role‑based permissions, and strict tenant isolation on all queries and actions; audit authz decisions. Mapped from: Admin Portal Standards; Technical Requirements.</description>
+    </requirement>
+
+    <requirement priority="medium">
+      <description>Rule 12 — Integrations and Extensibility: Provide adapters for ITSM (Jira, ServiceNow), security tooling (SIEM, SOAR), communications (Slack/Teams, email/SMS/voice), and allow webhook/API extensions. Mapped from: Automated Response Workflows; Communication & Collaboration; Monitoring Integrations.</description>
+    </requirement>
+  </requirements>
+
+  <context description="Extracted product requirements and user stories relevant to Events and Plans">
+<![CDATA[
+User Stories (selected):
+- As an Incident Commander, I can view and filter events by severity, location, and affected assets to prioritize response.
+- As a SOC Analyst, I receive auto‑generated events from SIEM/EDR and link them to appropriate Plans for activation.
+- As a Communications Lead, I send pre‑approved multi‑channel updates and coordinate via Slack/Teams.
+- As a Compliance Officer, I export audit/compliance reports and view MTTR/readiness dashboards.
+- As an Operations Manager, I conduct tabletop exercises and feed improvements back into Plans.
+
+Mapped Requirements (from Plans):
+- Plan Creation & Customization; Roles & Escalation; Automated Workflows; Communication & Collaboration; Monitoring & Detection Integrations; Simulation & Testing; Audit/Reporting/Compliance; Post‑Incident Review & Continuous Improvement.
+
+Technical and UX:
+- TypeScript strict; React 19; Tailwind; Vite; Prisma + Neon; JWT auth; RBAC; audit logging; virtualization; debounced queries; WCAG 2.1 AA; deep links with restored state.
+]]>
+  </context>
+
+  <references>
+    <reference as="dependency" href=".cursor/rules/000-core/002-cursor-rules-creation.mdc" reason="YAML frontmatter placement and structure">Cursor rule creation standards</reference>
+    <reference as="dependency" href=".cursor/rules/000-core/003-pericles-admin-portal-core-standards-auto.mdc" reason="RBAC, security, and audit patterns">Admin Portal standards</reference>
+    <reference as="dependency" href=".cursor/rules/000-core/004-pericles-atlas-core-standards-auto.mdc" reason="Map context and navigation patterns">Atlas core standards</reference>
+    <reference as="dependency" href=".cursor/rules/000-core/005-pericles-insights-core-standards-auto.mdc" reason="Analytics navigation and context">Insights core standards</reference>
+    <reference as="dependency" href=".cursor/rules/000-core/006-pericles-plans-core-standards-auto.mdc" reason="Plans workflows and playbooks linkage">Plans core standards</reference>
+  </references>
+</rule>

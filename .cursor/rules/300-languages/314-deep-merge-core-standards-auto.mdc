@@ -1,0 +1,1140 @@
+---
+description: "Comprehensive DeepMerge utility standards for Elixir with recursive merging, conflict resolution, custom merge strategies, and performance optimization following functional programming best practices"
+globs:
+  - "*.{ex,exs}"
+  - "**/*merge*"
+  - "**/*config*"
+  - "**/*transform*"
+alwaysApply: false
+---
+
+<rule>
+  <meta>
+    <title>DeepMerge Core Standards</title>
+    <description>Comprehensive DeepMerge utility standards for Elixir with recursive merging, conflict resolution, custom merge strategies, and performance optimization following functional programming best practices</description>
+    <created-at utc-timestamp="1744157700">January 25, 2025, 10:15 AM</created-at>
+    <last-updated-at utc-timestamp="1744157700">January 25, 2025, 10:15 AM</last-updated-at>
+    <applies-to>
+      <file-matcher glob="*.{ex,exs}">Elixir source files using DeepMerge for data merging</file-matcher>
+      <file-matcher glob="**/*merge*">Merge-related modules and utilities</file-matcher>
+      <file-matcher glob="**/*config*">Configuration files that may use deep merging</file-matcher>
+      <file-matcher glob="**/*transform*">Data transformation modules</file-matcher>
+      <action-matcher action="data-merging">Triggered when working with complex data merging operations</action-matcher>
+    </applies-to>
+  </meta>
+  <requirements>
+    <non-negotiable priority="critical">
+      <description>Use DeepMerge for all complex data structure merging with proper conflict resolution strategies, type safety, and performance optimization. Implement custom merge functions for domain-specific data types and handle edge cases gracefully.</description>
+      <examples>
+        <example title="Comprehensive DeepMerge Implementation">
+          <correct-example title="Proper DeepMerge usage with custom strategies and comprehensive error handling" conditions="Implementing data merging operations" expected-result="Robust, performant deep merging functionality" correctness-criteria="Conflict resolution, type safety, performance optimization, custom strategies"><![CDATA[# Elixir - Comprehensive DeepMerge implementation
+
+# Main DeepMerge module with enhanced functionality
+defmodule MyApp.DeepMerge do
+  @moduledoc """
+  Enhanced deep merging functionality with custom strategies, conflict resolution,
+  and performance optimization for complex data structures.
+  """
+
+  require Logger
+
+  # Type definitions for better documentation and Dialyzer
+  @type mergeable :: map() | keyword() | list() | term()
+  @type merge_strategy :: :deep | :shallow | :replace | :combine | :custom
+  @type conflict_resolution :: :left | :right | :merge | :error | :custom
+  @type merge_options :: [
+    strategy: merge_strategy(),
+    resolver: conflict_resolution() | function(),
+    custom_mergers: %{term() => function()},
+    max_depth: pos_integer(),
+    preserve_order: boolean(),
+    validate_types: boolean()
+  ]
+  @type merge_result :: {:ok, mergeable()} | {:error, term()}
+
+  # Default merge options
+  @default_options [
+    strategy: :deep,
+    resolver: :right,
+    custom_mergers: %{},
+    max_depth: 100,
+    preserve_order: false,
+    validate_types: true
+  ]
+
+  # Main deep merge function with comprehensive options
+  @spec deep_merge(mergeable(), mergeable(), merge_options()) :: merge_result()
+  def deep_merge(left, right, opts \\ []) do
+    options = Keyword.merge(@default_options, opts)
+    
+    try do
+      with :ok <- validate_inputs(left, right, options),
+           {:ok, result} <- perform_merge(left, right, options, 0) do
+        {:ok, result}
+      else
+        {:error, reason} -> {:error, reason}
+        error -> {:error, error}
+      end
+    rescue
+      error ->
+        Logger.error("Deep merge error", 
+          error: inspect(error),
+          left_type: get_type(left),
+          right_type: get_type(right)
+        )
+        {:error, {:merge_error, error}}
+    end
+  end
+
+  # Merge multiple items in sequence
+  @spec merge_many([mergeable()], merge_options()) :: merge_result()
+  def merge_many(items, opts \\ []) when is_list(items) do
+    case items do
+      [] -> {:ok, %{}}
+      [single] -> {:ok, single}
+      [first | rest] ->
+        Enum.reduce_while(rest, {:ok, first}, fn item, {:ok, acc} ->
+          case deep_merge(acc, item, opts) do
+            {:ok, result} -> {:cont, {:ok, result}}
+            {:error, reason} -> {:halt, {:error, reason}}
+          end
+        end)
+    end
+  end
+
+  # Merge with conflict tracking
+  @spec merge_with_conflicts(mergeable(), mergeable(), merge_options()) :: 
+    {:ok, mergeable(), [conflict()]} | {:error, term()}
+  def merge_with_conflicts(left, right, opts \\ []) do
+    conflicts_ref = :ets.new(:merge_conflicts, [:set, :private])
+    
+    try do
+      options = Keyword.merge(opts, [conflict_tracker: conflicts_ref])
+      
+      case deep_merge(left, right, options) do
+        {:ok, result} ->
+          conflicts = :ets.tab2list(conflicts_ref)
+          {:ok, result, conflicts}
+        {:error, reason} ->
+          {:error, reason}
+      end
+    after
+      :ets.delete(conflicts_ref)
+    end
+  end
+
+  # Conditional merge based on predicate functions
+  @spec conditional_merge(mergeable(), mergeable(), (term(), term() -> boolean()), merge_options()) :: 
+    merge_result()
+  def conditional_merge(left, right, predicate_fn, opts \\ []) when is_function(predicate_fn, 2) do
+    custom_resolver = fn key, left_val, right_val ->
+      if predicate_fn.(left_val, right_val) do
+        right_val
+      else
+        left_val
+      end
+    end
+    
+    options = Keyword.put(opts, :resolver, custom_resolver)
+    deep_merge(left, right, options)
+  end
+
+  # Merge with type coercion
+  @spec merge_with_coercion(mergeable(), mergeable(), %{term() => function()}, merge_options()) :: 
+    merge_result()
+  def merge_with_coercion(left, right, coercion_map, opts \\ []) do
+    coerced_right = apply_coercions(right, coercion_map)
+    deep_merge(left, coerced_right, opts)
+  end
+
+  # Safe merge that preserves original data on error
+  @spec safe_merge(mergeable(), mergeable(), merge_options()) :: mergeable()
+  def safe_merge(left, right, opts \\ []) do
+    case deep_merge(left, right, opts) do
+      {:ok, result} -> result
+      {:error, _reason} -> 
+        Logger.warning("Safe merge fallback to left value",
+          left_type: get_type(left),
+          right_type: get_type(right)
+        )
+        left
+    end
+  end
+
+  # Merge with custom transformations
+  @spec transform_merge(mergeable(), mergeable(), %{String.t() => function()}, merge_options()) :: 
+    merge_result()
+  def transform_merge(left, right, transformers, opts \\ []) do
+    transformed_left = apply_transformations(left, transformers)
+    transformed_right = apply_transformations(right, transformers)
+    deep_merge(transformed_left, transformed_right, opts)
+  end
+
+  # Performance-optimized merge for large datasets
+  @spec fast_merge(mergeable(), mergeable(), merge_options()) :: merge_result()
+  def fast_merge(left, right, opts \\ []) do
+    # Use streamlined options for performance
+    fast_options = [
+      strategy: :deep,
+      resolver: :right,
+      validate_types: false,
+      max_depth: 50
+    ] ++ opts
+    
+    deep_merge(left, right, fast_options)
+  end
+
+  # Merge with rollback capability
+  @spec reversible_merge(mergeable(), mergeable(), merge_options()) :: 
+    {:ok, mergeable(), function()} | {:error, term()}
+  def reversible_merge(left, right, opts \\ []) do
+    case deep_merge(left, right, opts) do
+      {:ok, result} ->
+        rollback_fn = fn -> left end
+        {:ok, result, rollback_fn}
+      {:error, reason} ->
+        {:error, reason}
+    end
+  end
+
+  # Diff-based merge
+  @spec diff_merge(mergeable(), mergeable(), merge_options()) :: 
+    {:ok, mergeable(), %{added: map(), modified: map(), removed: map()}} | {:error, term()}
+  def diff_merge(left, right, opts \\ []) do
+    diff = calculate_diff(left, right)
+    
+    case deep_merge(left, right, opts) do
+      {:ok, result} -> {:ok, result, diff}
+      {:error, reason} -> {:error, reason}
+    end
+  end
+
+  # Private implementation functions
+  defp perform_merge(left, right, options, depth) do
+    max_depth = Keyword.get(options, :max_depth, 100)
+    
+    if depth > max_depth do
+      {:error, :max_depth_exceeded}
+    else
+      strategy = Keyword.get(options, :strategy, :deep)
+      do_merge(left, right, strategy, options, depth)
+    end
+  end
+
+  defp do_merge(left, right, :shallow, _options, _depth) do
+    case {left, right} do
+      {%{} = l, %{} = r} -> {:ok, Map.merge(l, r)}
+      {l, r} when is_list(l) and is_list(r) -> {:ok, l ++ r}
+      {_l, r} -> {:ok, r}
+    end
+  end
+
+  defp do_merge(left, right, :deep, options, depth) do
+    case {left, right} do
+      {%{} = l, %{} = r} -> merge_maps(l, r, options, depth + 1)
+      {l, r} when is_list(l) and is_list(r) -> merge_lists(l, r, options)
+      {l, r} -> resolve_conflict(:default, l, r, options)
+    end
+  end
+
+  defp do_merge(left, right, :replace, _options, _depth) do
+    {:ok, right}
+  end
+
+  defp do_merge(left, right, :combine, options, depth) do
+    case {left, right} do
+      {%{} = l, %{} = r} -> merge_maps(l, r, options, depth + 1)
+      {l, r} when is_list(l) and is_list(r) -> {:ok, combine_lists(l, r)}
+      {l, r} when is_binary(l) and is_binary(r) -> {:ok, l <> r}
+      {l, r} when is_number(l) and is_number(r) -> {:ok, l + r}
+      {l, r} -> resolve_conflict(:default, l, r, options)
+    end
+  end
+
+  defp do_merge(left, right, :custom, options, depth) do
+    custom_mergers = Keyword.get(options, :custom_mergers, %{})
+    type_key = {get_type(left), get_type(right)}
+    
+    case Map.get(custom_mergers, type_key) do
+      nil -> do_merge(left, right, :deep, options, depth)
+      merger_fn -> {:ok, merger_fn.(left, right)}
+    end
+  end
+
+  defp merge_maps(left, right, options, depth) when is_map(left) and is_map(right) do
+    preserve_order = Keyword.get(options, :preserve_order, false)
+    
+    keys = if preserve_order do
+      (Map.keys(left) ++ Map.keys(right)) |> Enum.uniq()
+    else
+      Map.keys(left) ++ Map.keys(right)
+    end
+    
+    result = 
+      keys
+      |> Enum.reduce_while({:ok, %{}}, fn key, {:ok, acc} ->
+        left_val = Map.get(left, key)
+        right_val = Map.get(right, key)
+        
+        case merge_values(key, left_val, right_val, options, depth) do
+          {:ok, merged_val} -> {:cont, {:ok, Map.put(acc, key, merged_val)}}
+          {:error, reason} -> {:halt, {:error, reason}}
+        end
+      end)
+    
+    result
+  end
+
+  defp merge_values(key, left_val, right_val, options, depth) do
+    cond do
+      is_nil(left_val) -> {:ok, right_val}
+      is_nil(right_val) -> {:ok, left_val}
+      true -> 
+        case perform_merge(left_val, right_val, options, depth) do
+          {:ok, merged} -> 
+            track_merge_operation(key, left_val, right_val, merged, options)
+            {:ok, merged}
+          {:error, reason} -> 
+            resolve_conflict(key, left_val, right_val, options)
+        end
+    end
+  end
+
+  defp merge_lists(left, right, options) when is_list(left) and is_list(right) do
+    strategy = Keyword.get(options, :list_strategy, :append)
+    
+    case strategy do
+      :append -> {:ok, left ++ right}
+      :prepend -> {:ok, right ++ left}
+      :union -> {:ok, Enum.uniq(left ++ right)}
+      :intersection -> {:ok, left -- (left -- right)}
+      :left -> {:ok, left}
+      :right -> {:ok, right}
+      :merge_by_index -> merge_lists_by_index(left, right, options)
+      custom_fn when is_function(custom_fn, 2) -> {:ok, custom_fn.(left, right)}
+    end
+  end
+
+  defp merge_lists_by_index(left, right, options) do
+    max_length = max(length(left), length(right))
+    
+    result = 
+      0..(max_length - 1)
+      |> Enum.reduce_while({:ok, []}, fn index, {:ok, acc} ->
+        left_val = Enum.at(left, index)
+        right_val = Enum.at(right, index)
+        
+        merged_val = cond do
+          is_nil(left_val) -> right_val
+          is_nil(right_val) -> left_val
+          true -> 
+            case perform_merge(left_val, right_val, options, 1) do
+              {:ok, merged} -> merged
+              {:error, _} -> right_val  # Fallback to right value
+            end
+        end
+        
+        {:cont, {:ok, acc ++ [merged_val]}}
+      end)
+    
+    result
+  end
+
+  defp resolve_conflict(key, left_val, right_val, options) do
+    resolver = Keyword.get(options, :resolver, :right)
+    
+    case resolver do
+      :left -> {:ok, left_val}
+      :right -> {:ok, right_val}
+      :merge -> attempt_merge_conflict(left_val, right_val)
+      :error -> {:error, {:conflict, key, left_val, right_val}}
+      custom_fn when is_function(custom_fn, 3) -> 
+        {:ok, custom_fn.(key, left_val, right_val)}
+      custom_fn when is_function(custom_fn, 2) -> 
+        {:ok, custom_fn.(left_val, right_val)}
+    end
+  end
+
+  defp attempt_merge_conflict(left_val, right_val) do
+    cond do
+      is_map(left_val) and is_map(right_val) ->
+        deep_merge(left_val, right_val)
+      is_list(left_val) and is_list(right_val) ->
+        {:ok, left_val ++ right_val}
+      is_binary(left_val) and is_binary(right_val) ->
+        {:ok, left_val <> " " <> right_val}
+      is_number(left_val) and is_number(right_val) ->
+        {:ok, left_val + right_val}
+      true ->
+        {:ok, right_val}  # Default to right value
+    end
+  end
+
+  defp validate_inputs(left, right, options) do
+    validate_types = Keyword.get(options, :validate_types, true)
+    
+    if validate_types do
+      cond do
+        not is_valid_mergeable_type?(left) ->
+          {:error, {:invalid_type, :left, get_type(left)}}
+        not is_valid_mergeable_type?(right) ->
+          {:error, {:invalid_type, :right, get_type(right)}}
+        true ->
+          :ok
+      end
+    else
+      :ok
+    end
+  end
+
+  defp is_valid_mergeable_type?(value) do
+    is_map(value) or is_list(value) or is_atom(value) or 
+    is_binary(value) or is_number(value) or is_nil(value) or 
+    is_boolean(value)
+  end
+
+  defp track_merge_operation(key, left_val, right_val, merged_val, options) do
+    case Keyword.get(options, :conflict_tracker) do
+      nil -> :ok
+      tracker_ref when is_reference(tracker_ref) ->
+        if left_val != right_val do
+          conflict = %{
+            key: key,
+            left: left_val,
+            right: right_val,
+            resolved: merged_val,
+            timestamp: DateTime.utc_now()
+          }
+          :ets.insert(tracker_ref, {key, conflict})
+        end
+        :ok
+    end
+  end
+
+  defp apply_coercions(data, coercion_map) when is_map(data) do
+    Enum.reduce(data, %{}, fn {key, value}, acc ->
+      coerced_value = case Map.get(coercion_map, key) do
+        nil -> value
+        coercion_fn -> coercion_fn.(value)
+      end
+      Map.put(acc, key, coerced_value)
+    end)
+  end
+  defp apply_coercions(data, _coercion_map), do: data
+
+  defp apply_transformations(data, transformers) when is_map(data) do
+    Enum.reduce(data, %{}, fn {key, value}, acc ->
+      transformed_value = case Map.get(transformers, to_string(key)) do
+        nil -> value
+        transformer_fn -> transformer_fn.(value)
+      end
+      Map.put(acc, key, transformed_value)
+    end)
+  end
+  defp apply_transformations(data, _transformers), do: data
+
+  defp calculate_diff(left, right) when is_map(left) and is_map(right) do
+    all_keys = MapSet.union(MapSet.new(Map.keys(left)), MapSet.new(Map.keys(right)))
+    
+    Enum.reduce(all_keys, %{added: %{}, modified: %{}, removed: %{}}, fn key, acc ->
+      left_val = Map.get(left, key)
+      right_val = Map.get(right, key)
+      
+      cond do
+        is_nil(left_val) and not is_nil(right_val) ->
+          put_in(acc, [:added, key], right_val)
+        not is_nil(left_val) and is_nil(right_val) ->
+          put_in(acc, [:removed, key], left_val)
+        left_val != right_val ->
+          put_in(acc, [:modified, key], %{from: left_val, to: right_val})
+        true ->
+          acc
+      end
+    end)
+  end
+  defp calculate_diff(_left, _right), do: %{added: %{}, modified: %{}, removed: %{}}
+
+  defp combine_lists(left, right) do
+    (left ++ right) |> Enum.uniq()
+  end
+
+  defp get_type(value) do
+    cond do
+      is_map(value) -> :map
+      is_list(value) -> :list
+      is_binary(value) -> :binary
+      is_atom(value) -> :atom
+      is_number(value) -> :number
+      is_boolean(value) -> :boolean
+      is_nil(value) -> :nil
+      is_pid(value) -> :pid
+      is_reference(value) -> :reference
+      is_function(value) -> :function
+      true -> :unknown
+    end
+  end
+end
+
+# Specialized merge modules for common use cases
+defmodule MyApp.ConfigMerge do
+  @moduledoc """
+  Specialized merging for application configuration with environment-aware strategies.
+  """
+
+  import MyApp.DeepMerge
+
+  @spec merge_configs(map(), map(), atom()) :: {:ok, map()} | {:error, term()}
+  def merge_configs(base_config, env_config, env \\ :dev) do
+    options = config_merge_options(env)
+    deep_merge(base_config, env_config, options)
+  end
+
+  @spec merge_config_files([String.t()]) :: {:ok, map()} | {:error, term()}
+  def merge_config_files(config_paths) do
+    configs = Enum.map(config_paths, &load_config_file/1)
+    
+    case Enum.find(configs, &match?({:error, _}, &1)) do
+      nil -> merge_many(configs)
+      error -> error
+    end
+  end
+
+  defp config_merge_options(:prod) do
+    [
+      strategy: :deep,
+      resolver: :right,
+      validate_types: true,
+      list_strategy: :replace
+    ]
+  end
+
+  defp config_merge_options(_env) do
+    [
+      strategy: :deep,
+      resolver: :right,
+      validate_types: false,
+      list_strategy: :append
+    ]
+  end
+
+  defp load_config_file(path) do
+    case File.read(path) do
+      {:ok, content} ->
+        case Jason.decode(content) do
+          {:ok, config} -> config
+          {:error, reason} -> {:error, {:json_decode, reason}}
+        end
+      {:error, reason} ->
+        {:error, {:file_read, reason}}
+    end
+  end
+end
+
+# Performance-optimized merge for large datasets
+defmodule MyApp.FastMerge do
+  @moduledoc """
+  High-performance merging for large datasets with streaming and parallel processing.
+  """
+
+  @spec stream_merge(Enumerable.t(), merge_options()) :: Enumerable.t()
+  def stream_merge(enum, opts \\ []) do
+    enum
+    |> Stream.chunk_every(100)
+    |> Stream.map(&MyApp.DeepMerge.merge_many(&1, opts))
+    |> Stream.map(fn {:ok, result} -> result end)
+  end
+
+  @spec parallel_merge([mergeable()], pos_integer(), merge_options()) :: merge_result()
+  def parallel_merge(items, chunk_size \\ 1000, opts \\ []) do
+    items
+    |> Enum.chunk_every(chunk_size)
+    |> Task.async_stream(&MyApp.DeepMerge.merge_many(&1, opts), timeout: 30_000)
+    |> Enum.reduce({:ok, %{}}, fn
+      {:ok, {:ok, chunk_result}}, {:ok, acc} ->
+        MyApp.DeepMerge.deep_merge(acc, chunk_result, opts)
+      {:ok, {:error, reason}}, _acc ->
+        {:error, reason}
+      {:error, reason}, _acc ->
+        {:error, reason}
+    end)
+  end
+end
+
+# Schema-aware merging with validation
+defmodule MyApp.SchemaMerge do
+  @moduledoc """
+  Schema-aware merging with validation and type coercion.
+  """
+
+  @spec merge_with_schema(map(), map(), map()) :: {:ok, map()} | {:error, term()}
+  def merge_with_schema(left, right, schema) do
+    with {:ok, validated_left} <- validate_against_schema(left, schema),
+         {:ok, validated_right} <- validate_against_schema(right, schema),
+         {:ok, merged} <- MyApp.DeepMerge.deep_merge(validated_left, validated_right),
+         {:ok, final} <- validate_against_schema(merged, schema) do
+      {:ok, final}
+    else
+      {:error, reason} -> {:error, reason}
+    end
+  end
+
+  defp validate_against_schema(data, schema) do
+    # Simplified schema validation - in practice use ExJsonSchema or similar
+    case validate_types(data, schema) do
+      :ok -> {:ok, data}
+      {:error, reason} -> {:error, reason}
+    end
+  end
+
+  defp validate_types(data, schema) when is_map(data) and is_map(schema) do
+    Enum.reduce_while(data, :ok, fn {key, value}, :ok ->
+      case Map.get(schema, key) do
+        nil -> {:cont, :ok}  # Allow extra fields
+        expected_type when is_atom(expected_type) ->
+          if matches_type?(value, expected_type) do
+            {:cont, :ok}
+          else
+            {:halt, {:error, {:type_mismatch, key, expected_type, typeof(value)}}}
+          end
+        nested_schema when is_map(nested_schema) ->
+          case validate_types(value, nested_schema) do
+            :ok -> {:cont, :ok}
+            error -> {:halt, error}
+          end
+      end
+    end)
+  end
+  defp validate_types(_data, _schema), do: :ok
+
+  defp matches_type?(value, :string), do: is_binary(value)
+  defp matches_type?(value, :integer), do: is_integer(value)
+  defp matches_type?(value, :float), do: is_float(value)
+  defp matches_type?(value, :number), do: is_number(value)
+  defp matches_type?(value, :boolean), do: is_boolean(value)
+  defp matches_type?(value, :list), do: is_list(value)
+  defp matches_type?(value, :map), do: is_map(value)
+  defp matches_type?(_value, _type), do: false
+
+  defp typeof(value) when is_binary(value), do: :string
+  defp typeof(value) when is_integer(value), do: :integer
+  defp typeof(value) when is_float(value), do: :float
+  defp typeof(value) when is_boolean(value), do: :boolean
+  defp typeof(value) when is_list(value), do: :list
+  defp typeof(value) when is_map(value), do: :map
+  defp typeof(_value), do: :unknown
+end]]></correct-example>
+          <incorrect-example title="Poor DeepMerge usage without proper strategies or error handling" conditions="Implementing data merging" expected-result="Robust deep merging functionality" incorrectness-criteria="No conflict resolution, missing error handling, no type safety, poor performance"><![CDATA[# BAD: Poor DeepMerge implementation
+
+defmodule BadMerge do
+  
+  # Simple merge without any error handling or customization
+  def merge(map1, map2) do
+    Map.merge(map1, map2)  # Only shallow merge
+  end
+
+  # No deep merging capability
+  def deep_merge(left, right) do
+    # Naive implementation without proper recursion
+    if is_map(left) and is_map(right) do
+      Map.merge(left, right)
+    else
+      right  # Always prefer right without consideration
+    end
+  end
+
+  # No conflict resolution strategies
+  # No type validation
+  # No performance optimization
+  # No custom merge strategies
+  # No error handling
+  # No logging or monitoring
+  
+  # Dangerous merge that can cause errors
+  def unsafe_merge(data1, data2) do
+    # No validation of input types
+    Map.merge(data1, data2)  # Will crash if inputs aren't maps
+  end
+
+  # No support for lists, keyword lists, or other data types
+  # No rollback capability
+  # No diff tracking
+  # No performance considerations for large datasets
+end]]></incorrect-example>
+        </example>
+      </examples>
+    </non-negotiable>
+
+    <requirement priority="high">
+      <description>Implement comprehensive testing for DeepMerge operations including unit tests for different merge strategies, conflict resolution testing, performance benchmarks, and edge case validation.</description>
+      <examples>
+        <example title="DeepMerge Testing Patterns">
+          <correct-example title="Comprehensive testing for deep merge functionality" conditions="Testing DeepMerge implementations" expected-result="Thorough test coverage with strategy and performance validation" correctness-criteria="Strategy testing, conflict testing, performance testing, edge case validation"><![CDATA[# Elixir - Comprehensive DeepMerge testing
+
+defmodule MyApp.DeepMergeTest do
+  use ExUnit.Case, async: true
+  
+  import MyApp.DeepMerge
+
+  describe "basic deep merge functionality" do
+    test "merges simple maps correctly" do
+      left = %{a: 1, b: 2}
+      right = %{b: 3, c: 4}
+      
+      assert {:ok, %{a: 1, b: 3, c: 4}} = deep_merge(left, right)
+    end
+
+    test "merges nested maps recursively" do
+      left = %{
+        user: %{name: "John", age: 30},
+        settings: %{theme: "dark"}
+      }
+      right = %{
+        user: %{age: 31, email: "john@example.com"},
+        settings: %{language: "en"}
+      }
+      
+      expected = %{
+        user: %{name: "John", age: 31, email: "john@example.com"},
+        settings: %{theme: "dark", language: "en"}
+      }
+      
+      assert {:ok, ^expected} = deep_merge(left, right)
+    end
+
+    test "handles nil values correctly" do
+      left = %{a: 1, b: nil}
+      right = %{b: 2, c: nil}
+      
+      assert {:ok, %{a: 1, b: 2, c: nil}} = deep_merge(left, right)
+    end
+
+    test "merges lists with default append strategy" do
+      left = %{items: [1, 2, 3]}
+      right = %{items: [4, 5, 6]}
+      
+      assert {:ok, %{items: [1, 2, 3, 4, 5, 6]}} = deep_merge(left, right)
+    end
+  end
+
+  describe "merge strategies" do
+    test "shallow merge strategy" do
+      left = %{user: %{name: "John", age: 30}}
+      right = %{user: %{email: "john@example.com"}}
+      
+      assert {:ok, %{user: %{email: "john@example.com"}}} = 
+        deep_merge(left, right, strategy: :shallow)
+    end
+
+    test "replace merge strategy" do
+      left = %{a: 1, b: 2}
+      right = %{b: 3, c: 4}
+      
+      assert {:ok, %{b: 3, c: 4}} = deep_merge(left, right, strategy: :replace)
+    end
+
+    test "combine merge strategy" do
+      left = %{count: 5, message: "Hello"}
+      right = %{count: 3, message: " World"}
+      
+      assert {:ok, %{count: 8, message: "Hello World"}} = 
+        deep_merge(left, right, strategy: :combine)
+    end
+
+    test "custom merge strategy" do
+      custom_merger = fn left_val, right_val ->
+        "#{left_val}-#{right_val}"
+      end
+      
+      custom_mergers = %{{:binary, :binary} => custom_merger}
+      
+      left = %{name: "John"}
+      right = %{name: "Doe"}
+      
+      assert {:ok, %{name: "John-Doe"}} = 
+        deep_merge(left, right, strategy: :custom, custom_mergers: custom_mergers)
+    end
+  end
+
+  describe "conflict resolution" do
+    test "left conflict resolution" do
+      left = %{value: "left"}
+      right = %{value: "right"}
+      
+      assert {:ok, %{value: "left"}} = deep_merge(left, right, resolver: :left)
+    end
+
+    test "right conflict resolution (default)" do
+      left = %{value: "left"}
+      right = %{value: "right"}
+      
+      assert {:ok, %{value: "right"}} = deep_merge(left, right, resolver: :right)
+    end
+
+    test "error on conflict" do
+      left = %{value: "left"}
+      right = %{value: "right"}
+      
+      assert {:error, {:conflict, :value, "left", "right"}} = 
+        deep_merge(left, right, resolver: :error)
+    end
+
+    test "custom conflict resolver function" do
+      resolver = fn _key, left_val, right_val ->
+        "#{left_val}+#{right_val}"
+      end
+      
+      left = %{value: "A"}
+      right = %{value: "B"}
+      
+      assert {:ok, %{value: "A+B"}} = deep_merge(left, right, resolver: resolver)
+    end
+  end
+
+  describe "list merge strategies" do
+    test "list append strategy (default)" do
+      left = %{tags: ["tag1", "tag2"]}
+      right = %{tags: ["tag3", "tag4"]}
+      
+      assert {:ok, %{tags: ["tag1", "tag2", "tag3", "tag4"]}} = 
+        deep_merge(left, right, list_strategy: :append)
+    end
+
+    test "list union strategy" do
+      left = %{tags: ["tag1", "tag2", "tag3"]}
+      right = %{tags: ["tag2", "tag3", "tag4"]}
+      
+      assert {:ok, %{tags: ["tag1", "tag2", "tag3", "tag4"]}} = 
+        deep_merge(left, right, list_strategy: :union)
+    end
+
+    test "list intersection strategy" do
+      left = %{tags: ["tag1", "tag2", "tag3"]}
+      right = %{tags: ["tag2", "tag3", "tag4"]}
+      
+      assert {:ok, %{tags: ["tag2", "tag3"]}} = 
+        deep_merge(left, right, list_strategy: :intersection)
+    end
+
+    test "list merge by index" do
+      left = %{coords: [%{x: 1}, %{x: 2}]}
+      right = %{coords: [%{y: 1}, %{y: 2}, %{x: 3, y: 3}]}
+      
+      expected = %{coords: [%{x: 1, y: 1}, %{x: 2, y: 2}, %{x: 3, y: 3}]}
+      
+      assert {:ok, ^expected} = deep_merge(left, right, list_strategy: :merge_by_index)
+    end
+  end
+
+  describe "validation and error handling" do
+    test "validates input types when enabled" do
+      left = %{a: 1}
+      right = :not_a_map
+      
+      assert {:error, {:invalid_type, :right, :atom}} = 
+        deep_merge(left, right, validate_types: true)
+    end
+
+    test "skips validation when disabled" do
+      left = %{a: 1}
+      right = :not_a_map
+      
+      # Should still fail but for different reason
+      assert {:error, _} = deep_merge(left, right, validate_types: false)
+    end
+
+    test "handles max depth exceeded" do
+      # Create deeply nested structure
+      deep_map = create_nested_map(200)
+      
+      assert {:error, :max_depth_exceeded} = 
+        deep_merge(deep_map, %{}, max_depth: 10)
+    end
+
+    test "handles circular references gracefully" do
+      # This would be more complex to test in practice
+      left = %{a: 1}
+      right = %{a: 2}
+      
+      # Test that normal operation works
+      assert {:ok, %{a: 2}} = deep_merge(left, right)
+    end
+  end
+
+  describe "merge_many/2" do
+    test "merges multiple maps in sequence" do
+      maps = [
+        %{a: 1},
+        %{b: 2},
+        %{c: 3, a: 10}
+      ]
+      
+      assert {:ok, %{a: 10, b: 2, c: 3}} = merge_many(maps)
+    end
+
+    test "handles empty list" do
+      assert {:ok, %{}} = merge_many([])
+    end
+
+    test "handles single item" do
+      map = %{a: 1, b: 2}
+      assert {:ok, ^map} = merge_many([map])
+    end
+
+    test "propagates errors in sequence" do
+      # Mock an error condition
+      maps = [%{a: 1}, :invalid, %{b: 2}]
+      
+      assert {:error, _} = merge_many(maps, validate_types: true)
+    end
+  end
+
+  describe "advanced features" do
+    test "merge_with_conflicts/3 tracks conflicts" do
+      left = %{a: 1, b: 2}
+      right = %{a: 10, c: 3}
+      
+      assert {:ok, result, conflicts} = merge_with_conflicts(left, right)
+      assert result == %{a: 10, b: 2, c: 3}
+      assert length(conflicts) == 1
+    end
+
+    test "conditional_merge/4 uses predicate function" do
+      predicate = fn left_val, right_val ->
+        left_val < right_val
+      end
+      
+      left = %{score: 100, level: 5}
+      right = %{score: 80, level: 10}
+      
+      # Should only merge when predicate returns true
+      assert {:ok, %{score: 100, level: 10}} = 
+        conditional_merge(left, right, predicate)
+    end
+
+    test "safe_merge/3 falls back on error" do
+      left = %{a: 1}
+      right = :invalid
+      
+      # Should return left value on merge error
+      result = safe_merge(left, right, validate_types: true)
+      assert result == left
+    end
+
+    test "reversible_merge/3 provides rollback function" do
+      left = %{a: 1, b: 2}
+      right = %{a: 10, c: 3}
+      
+      assert {:ok, result, rollback_fn} = reversible_merge(left, right)
+      assert result == %{a: 10, b: 2, c: 3}
+      assert rollback_fn.() == left
+    end
+
+    test "diff_merge/3 provides change information" do
+      left = %{a: 1, b: 2, d: 4}
+      right = %{a: 10, c: 3}
+      
+      assert {:ok, result, diff} = diff_merge(left, right)
+      assert result == %{a: 10, b: 2, c: 3, d: 4}
+      
+      assert %{
+        added: %{c: 3},
+        modified: %{a: %{from: 1, to: 10}},
+        removed: %{}
+      } = diff
+    end
+  end
+
+  describe "performance" do
+    @tag :performance
+    test "handles large maps efficiently" do
+      large_left = generate_large_map(1000)
+      large_right = generate_large_map(1000)
+      
+      {time_microseconds, {:ok, _result}} = :timer.tc(fn ->
+        deep_merge(large_left, large_right)
+      end)
+      
+      # Should complete within reasonable time
+      assert time_microseconds < 100_000  # 100ms
+    end
+
+    @tag :performance
+    test "fast_merge is faster than regular merge" do
+      large_left = generate_large_map(500)
+      large_right = generate_large_map(500)
+      
+      {regular_time, _} = :timer.tc(fn ->
+        deep_merge(large_left, large_right)
+      end)
+      
+      {fast_time, _} = :timer.tc(fn ->
+        fast_merge(large_left, large_right)
+      end)
+      
+      # Fast merge should be faster
+      assert fast_time < regular_time
+    end
+  end
+
+  describe "specialized merge modules" do
+    test "ConfigMerge.merge_configs/3 handles config merging" do
+      base_config = %{
+        database: %{host: "localhost", port: 5432},
+        cache: %{ttl: 3600}
+      }
+      
+      env_config = %{
+        database: %{host: "prod.db.com", ssl: true},
+        logging: %{level: :info}
+      }
+      
+      assert {:ok, merged} = MyApp.ConfigMerge.merge_configs(base_config, env_config, :prod)
+      
+      expected = %{
+        database: %{host: "prod.db.com", port: 5432, ssl: true},
+        cache: %{ttl: 3600},
+        logging: %{level: :info}
+      }
+      
+      assert merged == expected
+    end
+
+    test "SchemaMerge.merge_with_schema/3 validates against schema" do
+      schema = %{
+        name: :string,
+        age: :integer,
+        active: :boolean
+      }
+      
+      left = %{name: "John", age: 30}
+      right = %{age: 31, active: true}
+      
+      assert {:ok, result} = MyApp.SchemaMerge.merge_with_schema(left, right, schema)
+      assert result == %{name: "John", age: 31, active: true}
+    end
+  end
+
+  # Property-based testing with StreamData
+  if Code.ensure_loaded?(StreamData) do
+    use ExUnitProperties
+
+    property "merge is idempotent with same data" do
+      check all data <- mergeable_data() do
+        assert {:ok, result1} = deep_merge(data, data)
+        assert {:ok, result2} = deep_merge(result1, data)
+        assert result1 == result2
+      end
+    end
+
+    property "merge with empty map preserves original" do
+      check all data <- mergeable_data() do
+        assert {:ok, result} = deep_merge(data, %{})
+        assert result == data
+      end
+    end
+
+    property "merge order matters with different resolvers" do
+      check all {left, right} <- {mergeable_data(), mergeable_data()},
+                left != right do
+        
+        {:ok, left_wins} = deep_merge(left, right, resolver: :left)
+        {:ok, right_wins} = deep_merge(left, right, resolver: :right)
+        
+        # Results may be different depending on conflicts
+        assert is_map(left_wins)
+        assert is_map(right_wins)
+      end
+    end
+
+    defp mergeable_data do
+      tree(
+        one_of([
+          constant(nil),
+          boolean(),
+          integer(),
+          string(:alphanumeric)
+        ]),
+        fn child_gen ->
+          one_of([
+            list_of(child_gen),
+            map_of(string(:alphanumeric), child_gen)
+          ])
+        end
+      )
+    end
+  end
+
+  # Helper functions for tests
+  defp create_nested_map(depth) when depth <= 0, do: %{value: "leaf"}
+  defp create_nested_map(depth) do
+    %{nested: create_nested_map(depth - 1)}
+  end
+
+  defp generate_large_map(size) do
+    1..size
+    |> Enum.reduce(%{}, fn i, acc ->
+      Map.put(acc, "key_#{i}", %{
+        id: i,
+        name: "Item #{i}",
+        value: :rand.uniform(1000),
+        metadata: %{
+          created_at: DateTime.utc_now(),
+          tags: ["tag_#{rem(i, 10)}"]
+        }
+      })
+    end)
+  end
+end]]></correct-example>
+          <incorrect-example title="Poor DeepMerge testing without comprehensive coverage" conditions="Testing deep merge functionality" expected-result="Comprehensive test coverage" incorrectness-criteria="No strategy testing, missing error cases, no performance testing, poor edge case coverage"><![CDATA[# BAD: Poor DeepMerge testing
+
+defmodule BadDeepMergeTest do
+  use ExUnit.Case
+  
+  # Only basic happy path testing
+  test "merge works" do
+    left = %{a: 1}
+    right = %{b: 2}
+    
+    result = Map.merge(left, right)
+    assert result == %{a: 1, b: 2}
+  end
+
+  # No strategy testing
+  # No conflict resolution testing
+  # No error handling testing
+  # No validation testing
+  # No performance testing
+  # No edge case testing
+  # No property-based testing
+  # No specialized module testing
+  
+  test "deep merge basic" do
+    # Uses simple Map.merge instead of proper deep merging
+    assert true
+  end
+end]]></incorrect-example>
+        </example>
+      </examples>
+    </requirement>
+  </requirements>
+  
+  <context description="DeepMerge utility considerations">
+    DeepMerge is a utility library for Elixir that provides sophisticated merging of nested data structures like maps and keyword lists. It offers configurable merge strategies, conflict resolution, and performance optimizations for complex data manipulation scenarios.
+
+    Key considerations include:
+    - Recursive merging strategies that preserve data structure integrity
+    - Conflict resolution mechanisms for handling duplicate keys
+    - Performance optimization for large datasets and frequent operations
+    - Type safety and validation to prevent runtime errors
+    - Custom merge strategies for domain-specific data types
+    - Memory efficiency and streaming support for large-scale operations
+
+    DeepMerge is commonly used in configuration management, data transformation pipelines, API response merging, and complex data aggregation scenarios where simple Map.merge/2 is insufficient for nested structures.
+  </context>
+  
+  <references>
+    <reference as="dependency" href=".cursor/rules/000-core/002-cursor-rules-creation.mdc" reason="Follows standard rule format">Base rule format definition</reference>
+    <reference as="context" href="https://hexdocs.pm/deep_merge/" reason="Official DeepMerge documentation">DeepMerge Package Documentation</reference>
+    <reference as="context" href="https://github.com/stevenschobert/deep_merge" reason="DeepMerge source code and examples">DeepMerge GitHub Repository</reference>
+  </references>
+</rule>

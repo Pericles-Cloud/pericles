@@ -1,0 +1,1430 @@
+---
+description: "Comprehensive Lit web components standards with reactive properties, lifecycle management, templating best practices, and TypeScript integration following Lit community standards"
+globs:
+  - "**/*.{ts,js}"
+  - "**/components/**/*"
+  - "**/*component*"
+  - "**/*element*"
+alwaysApply: false
+---
+
+<rule>
+  <meta>
+    <title>Lit Core Standards</title>
+    <description>Comprehensive Lit web components standards with reactive properties, lifecycle management, templating best practices, and TypeScript integration following Lit community standards</description>
+    <created-at utc-timestamp="1744157700">January 25, 2025, 10:15 AM</created-at>
+    <last-updated-at utc-timestamp="1744157700">January 25, 2025, 10:15 AM</last-updated-at>
+    <applies-to>
+      <file-matcher glob="**/*.{ts,js}">TypeScript and JavaScript files using Lit</file-matcher>
+      <file-matcher glob="**/components/**/*">Web component implementation files</file-matcher>
+      <file-matcher glob="**/*component*">Component-related files</file-matcher>
+      <file-matcher glob="**/*element*">Custom element files</file-matcher>
+      <action-matcher action="web-components">Triggered when working with Lit web components</action-matcher>
+    </applies-to>
+  </meta>
+  <requirements>
+    <non-negotiable priority="critical">
+      <description>Use proper Lit element definitions with TypeScript decorators, reactive properties, and lifecycle methods. Implement proper shadow DOM usage, accessibility features, and performance optimization through efficient rendering patterns.</description>
+      <examples>
+        <example title="Proper Lit Element Implementation">
+          <correct-example title="Complete Lit element with TypeScript and best practices" conditions="Creating Lit web components" expected-result="Type-safe, accessible, performant web components" correctness-criteria="TypeScript decorators, reactive properties, shadow DOM, accessibility, lifecycle management"><![CDATA[// TypeScript - Comprehensive Lit element implementation
+import { 
+  LitElement, 
+  html, 
+  css, 
+  PropertyValueMap,
+  TemplateResult,
+  CSSResult
+} from 'lit';
+import { 
+  customElement, 
+  property, 
+  state, 
+  query, 
+  queryAll,
+  eventOptions
+} from 'lit/decorators.js';
+import { classMap } from 'lit/directives/class-map.js';
+import { ifDefined } from 'lit/directives/if-defined.js';
+import { repeat } from 'lit/directives/repeat.js';
+
+// Interface for type safety
+interface User {
+  id: string;
+  name: string;
+  email: string;
+  avatar?: string;
+  active: boolean;
+}
+
+@customElement('user-card')
+export class UserCard extends LitElement {
+  // Static styles for performance
+  static styles: CSSResult = css`
+    :host {
+      display: block;
+      border: 1px solid var(--border-color, #ddd);
+      border-radius: 8px;
+      padding: 16px;
+      background: var(--card-background, white);
+      box-shadow: 0 2px 4px rgba(0, 0, 0, 0.1);
+      transition: box-shadow 0.2s ease;
+    }
+
+    :host(:hover) {
+      box-shadow: 0 4px 8px rgba(0, 0, 0, 0.15);
+    }
+
+    :host([disabled]) {
+      opacity: 0.6;
+      pointer-events: none;
+    }
+
+    .header {
+      display: flex;
+      align-items: center;
+      gap: 12px;
+      margin-bottom: 12px;
+    }
+
+    .avatar {
+      width: 48px;
+      height: 48px;
+      border-radius: 50%;
+      background: var(--avatar-background, #f0f0f0);
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      font-weight: bold;
+      color: var(--avatar-color, #666);
+    }
+
+    .info {
+      flex: 1;
+    }
+
+    .name {
+      font-size: 16px;
+      font-weight: 600;
+      margin: 0 0 4px 0;
+      color: var(--text-primary, #333);
+    }
+
+    .email {
+      font-size: 14px;
+      color: var(--text-secondary, #666);
+      margin: 0;
+    }
+
+    .status {
+      padding: 4px 8px;
+      border-radius: 12px;
+      font-size: 12px;
+      font-weight: 500;
+      text-transform: uppercase;
+    }
+
+    .status.active {
+      background: var(--success-background, #e7f5e7);
+      color: var(--success-color, #2d5a2d);
+    }
+
+    .status.inactive {
+      background: var(--error-background, #fde7e7);
+      color: var(--error-color, #7d2d2d);
+    }
+
+    .actions {
+      display: flex;
+      gap: 8px;
+      margin-top: 12px;
+    }
+
+    button {
+      padding: 8px 16px;
+      border: 1px solid var(--button-border, #ddd);
+      border-radius: 4px;
+      background: var(--button-background, white);
+      color: var(--button-color, #333);
+      cursor: pointer;
+      font-size: 14px;
+      transition: all 0.2s ease;
+    }
+
+    button:hover {
+      background: var(--button-hover-background, #f5f5f5);
+    }
+
+    button:focus {
+      outline: 2px solid var(--focus-color, #007acc);
+      outline-offset: 2px;
+    }
+
+    button.primary {
+      background: var(--primary-color, #007acc);
+      color: white;
+      border-color: var(--primary-color, #007acc);
+    }
+
+    button.primary:hover {
+      background: var(--primary-hover-color, #005a99);
+    }
+
+    button:disabled {
+      opacity: 0.6;
+      cursor: not-allowed;
+    }
+
+    /* Responsive design */
+    @media (max-width: 480px) {
+      .header {
+        flex-direction: column;
+        text-align: center;
+      }
+      
+      .actions {
+        flex-direction: column;
+      }
+    }
+  `;
+
+  // Reactive properties
+  @property({ type: Object })
+  user: User | null = null;
+
+  @property({ type: Boolean, reflect: true })
+  disabled = false;
+
+  @property({ type: Boolean, attribute: 'show-actions' })
+  showActions = true;
+
+  @property({ type: String })
+  size: 'small' | 'medium' | 'large' = 'medium';
+
+  // Internal state
+  @state()
+  private loading = false;
+
+  @state()
+  private error: string | null = null;
+
+  // Query selectors for DOM access
+  @query('.avatar')
+  private avatarElement!: HTMLElement;
+
+  @queryAll('button')
+  private buttons!: NodeListOf<HTMLButtonElement>;
+
+  // Lifecycle methods
+  connectedCallback(): void {
+    super.connectedCallback();
+    
+    // Set up keyboard navigation
+    this.addEventListener('keydown', this.handleKeyDown);
+    
+    // Initialize ARIA attributes
+    this.setAttribute('role', 'article');
+    this.setAttribute('tabindex', '0');
+  }
+
+  disconnectedCallback(): void {
+    super.disconnectedCallback();
+    this.removeEventListener('keydown', this.handleKeyDown);
+  }
+
+  protected updated(changedProperties: PropertyValueMap<this>): void {
+    super.updated(changedProperties);
+
+    if (changedProperties.has('user')) {
+      this.updateAriaLabel();
+    }
+
+    if (changedProperties.has('disabled')) {
+      this.updateAccessibility();
+    }
+  }
+
+  protected firstUpdated(): void {
+    // Set initial focus management
+    this.updateAccessibility();
+  }
+
+  // Event handlers
+  @eventOptions({ passive: true })
+  private handleKeyDown(event: KeyboardEvent): void {
+    if (event.key === 'Enter' || event.key === ' ') {
+      event.preventDefault();
+      this.handleCardClick();
+    }
+  }
+
+  private handleCardClick(): void {
+    if (this.disabled || !this.user) return;
+
+    this.dispatchEvent(new CustomEvent('user-select', {
+      detail: { user: this.user },
+      bubbles: true,
+      composed: true
+    }));
+  }
+
+  private async handleEditClick(event: Event): Promise<void> {
+    event.stopPropagation();
+    
+    if (!this.user) return;
+
+    this.loading = true;
+    this.error = null;
+
+    try {
+      this.dispatchEvent(new CustomEvent('user-edit', {
+        detail: { user: this.user },
+        bubbles: true,
+        composed: true
+      }));
+    } catch (error) {
+      this.error = 'Failed to edit user';
+      console.error('Edit error:', error);
+    } finally {
+      this.loading = false;
+    }
+  }
+
+  private handleDeleteClick(event: Event): void {
+    event.stopPropagation();
+    
+    if (!this.user) return;
+
+    const confirmed = confirm(`Are you sure you want to delete ${this.user.name}?`);
+    
+    if (confirmed) {
+      this.dispatchEvent(new CustomEvent('user-delete', {
+        detail: { user: this.user },
+        bubbles: true,
+        composed: true
+      }));
+    }
+  }
+
+  // Helper methods
+  private updateAriaLabel(): void {
+    if (this.user) {
+      this.setAttribute('aria-label', 
+        `User card for ${this.user.name}, ${this.user.email}, ${this.user.active ? 'active' : 'inactive'}`
+      );
+    }
+  }
+
+  private updateAccessibility(): void {
+    this.setAttribute('aria-disabled', this.disabled.toString());
+    
+    if (this.disabled) {
+      this.setAttribute('tabindex', '-1');
+    } else {
+      this.setAttribute('tabindex', '0');
+    }
+  }
+
+  private getInitials(name: string): string {
+    return name
+      .split(' ')
+      .map(part => part[0])
+      .join('')
+      .toUpperCase()
+      .slice(0, 2);
+  }
+
+  // Render method
+  protected render(): TemplateResult {
+    if (!this.user) {
+      return html`<div class="placeholder">No user data</div>`;
+    }
+
+    const cardClasses = {
+      card: true,
+      loading: this.loading,
+      [this.size]: true
+    };
+
+    const statusClasses = {
+      status: true,
+      active: this.user.active,
+      inactive: !this.user.active
+    };
+
+    return html`
+      <article 
+        class=${classMap(cardClasses)}
+        @click=${this.handleCardClick}
+      >
+        <header class="header">
+          <div class="avatar">
+            ${this.user.avatar 
+              ? html`<img src=${this.user.avatar} alt="Avatar for ${this.user.name}" />`
+              : html`<span>${this.getInitials(this.user.name)}</span>`
+            }
+          </div>
+          
+          <div class="info">
+            <h3 class="name">${this.user.name}</h3>
+            <p class="email">${this.user.email}</p>
+          </div>
+          
+          <div class=${classMap(statusClasses)}>
+            ${this.user.active ? 'Active' : 'Inactive'}
+          </div>
+        </header>
+
+        ${this.error 
+          ? html`<div class="error" role="alert">${this.error}</div>`
+          : ''
+        }
+
+        ${this.showActions && !this.disabled 
+          ? html`
+            <footer class="actions">
+              <button 
+                type="button"
+                @click=${this.handleEditClick}
+                ?disabled=${this.loading}
+                aria-label="Edit ${this.user.name}"
+              >
+                Edit
+              </button>
+              
+              <button 
+                type="button"
+                class="primary"
+                @click=${this.handleDeleteClick}
+                ?disabled=${this.loading}
+                aria-label="Delete ${this.user.name}"
+              >
+                Delete
+              </button>
+            </footer>
+          `
+          : ''
+        }
+      </article>
+    `;
+  }
+}
+
+// Usage example with proper TypeScript typing
+declare global {
+  interface HTMLElementTagNameMap {
+    'user-card': UserCard;
+  }
+}]]></correct-example>
+          <incorrect-example title="Poor Lit implementation without proper structure" conditions="Creating web components" expected-result="Proper Lit element implementation" incorrectness-criteria="No TypeScript, poor lifecycle management, no accessibility, performance issues"><![CDATA[// BAD: Poor Lit implementation
+import { LitElement, html } from 'lit';
+
+class BadUserCard extends LitElement {
+  
+  // No TypeScript decorators
+  static get properties() {
+    return {
+      user: { type: Object }
+    };
+  }
+
+  // Styles in render method - performance issue
+  render() {
+    return html`
+      <style>
+        /* Styles here cause re-parsing on every render */
+        .card { padding: 16px; }
+      </style>
+      
+      <div class="card">
+        <!-- No proper data binding -->
+        <h3>${this.user.name}</h3>
+        
+        <!-- No event handling -->
+        <button>Edit</button>
+        
+        <!-- No accessibility attributes -->
+        <!-- No error handling -->
+        <!-- No loading states -->
+      </div>
+    `;
+  }
+  
+  // No lifecycle methods
+  // No proper event handling
+  // No accessibility implementation
+  // No type safety
+}
+
+// No proper element registration
+customElements.define('bad-user-card', BadUserCard);]]></incorrect-example>
+        </example>
+      </examples>
+    </non-negotiable>
+
+    <requirement priority="critical">
+      <description>Implement proper event handling with custom events, DOM manipulation through query decorators, and efficient update patterns using Lit's reactive property system.</description>
+      <examples>
+        <example title="Advanced Lit Event Handling and DOM Management">
+          <correct-example title="Comprehensive event system with custom events and efficient DOM updates" conditions="Implementing complex Lit component interactions" expected-result="Efficient event handling with proper DOM management" correctness-criteria="Custom events, query decorators, reactive updates, proper event delegation"><![CDATA[// TypeScript - Advanced Lit event handling and DOM management
+import { 
+  LitElement, 
+  html, 
+  css, 
+  PropertyValueMap 
+} from 'lit';
+import { 
+  customElement, 
+  property, 
+  state, 
+  query, 
+  queryAll 
+} from 'lit/decorators.js';
+
+interface TodoItem {
+  id: string;
+  text: string;
+  completed: boolean;
+  priority: 'low' | 'medium' | 'high';
+  dueDate?: Date;
+}
+
+interface FilterOptions {
+  status: 'all' | 'active' | 'completed';
+  priority: 'all' | 'low' | 'medium' | 'high';
+  search: string;
+}
+
+@customElement('todo-list')
+export class TodoList extends LitElement {
+  static styles = css`
+    :host {
+      display: block;
+      max-width: 600px;
+      margin: 0 auto;
+      padding: 20px;
+    }
+
+    .header {
+      margin-bottom: 20px;
+    }
+
+    .add-form {
+      display: flex;
+      gap: 10px;
+      margin-bottom: 20px;
+    }
+
+    .add-input {
+      flex: 1;
+      padding: 12px;
+      border: 1px solid #ddd;
+      border-radius: 4px;
+      font-size: 16px;
+    }
+
+    .add-button {
+      padding: 12px 24px;
+      background: #007acc;
+      color: white;
+      border: none;
+      border-radius: 4px;
+      cursor: pointer;
+      font-size: 16px;
+    }
+
+    .filters {
+      display: flex;
+      gap: 10px;
+      margin-bottom: 20px;
+      padding: 10px;
+      background: #f5f5f5;
+      border-radius: 4px;
+    }
+
+    .filter-group {
+      display: flex;
+      flex-direction: column;
+      gap: 4px;
+    }
+
+    .todo-item {
+      display: flex;
+      align-items: center;
+      gap: 12px;
+      padding: 12px;
+      border: 1px solid #ddd;
+      border-radius: 4px;
+      margin-bottom: 8px;
+      background: white;
+      transition: all 0.2s ease;
+    }
+
+    .todo-item:hover {
+      border-color: #007acc;
+    }
+
+    .todo-item.completed {
+      opacity: 0.7;
+      text-decoration: line-through;
+    }
+
+    .todo-text {
+      flex: 1;
+      font-size: 16px;
+    }
+
+    .priority-badge {
+      padding: 4px 8px;
+      border-radius: 12px;
+      font-size: 12px;
+      font-weight: bold;
+      text-transform: uppercase;
+    }
+
+    .priority-high { background: #ffebee; color: #c62828; }
+    .priority-medium { background: #fff3e0; color: #ef6c00; }
+    .priority-low { background: #e8f5e8; color: #2e7d32; }
+
+    .empty-state {
+      text-align: center;
+      padding: 40px;
+      color: #666;
+    }
+  `;
+
+  @property({ type: Array })
+  todos: TodoItem[] = [];
+
+  @property({ type: Object })
+  filters: FilterOptions = {
+    status: 'all',
+    priority: 'all',
+    search: ''
+  };
+
+  @state()
+  private newTodoText = '';
+
+  @state()
+  private isLoading = false;
+
+  @state()
+  private error: string | null = null;
+
+  // DOM queries for efficient access
+  @query('.add-input')
+  private addInput!: HTMLInputElement;
+
+  @query('.search-input')
+  private searchInput!: HTMLInputElement;
+
+  @queryAll('.todo-item')
+  private todoItems!: NodeListOf<HTMLElement>;
+
+  @queryAll('input[type="checkbox"]')
+  private checkboxes!: NodeListOf<HTMLInputElement>;
+
+  // Computed properties
+  get filteredTodos(): TodoItem[] {
+    return this.todos.filter(todo => {
+      // Status filter
+      if (this.filters.status === 'active' && todo.completed) return false;
+      if (this.filters.status === 'completed' && !todo.completed) return false;
+      
+      // Priority filter
+      if (this.filters.priority !== 'all' && todo.priority !== this.filters.priority) return false;
+      
+      // Search filter
+      if (this.filters.search && !todo.text.toLowerCase().includes(this.filters.search.toLowerCase())) {
+        return false;
+      }
+      
+      return true;
+    });
+  }
+
+  get stats() {
+    const total = this.todos.length;
+    const completed = this.todos.filter(t => t.completed).length;
+    const active = total - completed;
+    
+    return { total, completed, active };
+  }
+
+  // Lifecycle methods
+  protected firstUpdated(): void {
+    // Set initial focus
+    this.addInput?.focus();
+    
+    // Load todos from storage
+    this.loadTodos();
+  }
+
+  protected updated(changedProperties: PropertyValueMap<this>): void {
+    if (changedProperties.has('todos')) {
+      // Save to storage when todos change
+      this.saveTodos();
+      
+      // Dispatch update event
+      this.dispatchEvent(new CustomEvent('todos-updated', {
+        detail: { 
+          todos: this.todos,
+          stats: this.stats
+        },
+        bubbles: true,
+        composed: true
+      }));
+    }
+
+    if (changedProperties.has('filters')) {
+      // Announce filter changes for screen readers
+      this.announceFilterChange();
+    }
+  }
+
+  // Event handlers
+  private handleAddTodo(event: Event): void {
+    event.preventDefault();
+    
+    if (!this.newTodoText.trim()) {
+      this.showError('Please enter a todo item');
+      return;
+    }
+
+    const newTodo: TodoItem = {
+      id: this.generateId(),
+      text: this.newTodoText.trim(),
+      completed: false,
+      priority: 'medium'
+    };
+
+    this.todos = [...this.todos, newTodo];
+    this.newTodoText = '';
+    
+    // Clear input and refocus
+    this.addInput.value = '';
+    this.addInput.focus();
+
+    // Dispatch custom event
+    this.dispatchEvent(new CustomEvent('todo-added', {
+      detail: { todo: newTodo },
+      bubbles: true,
+      composed: true
+    }));
+  }
+
+  private handleToggleTodo(todoId: string): void {
+    const todoIndex = this.todos.findIndex(t => t.id === todoId);
+    if (todoIndex === -1) return;
+
+    const updatedTodos = [...this.todos];
+    updatedTodos[todoIndex] = {
+      ...updatedTodos[todoIndex],
+      completed: !updatedTodos[todoIndex].completed
+    };
+
+    this.todos = updatedTodos;
+
+    // Dispatch toggle event
+    this.dispatchEvent(new CustomEvent('todo-toggled', {
+      detail: { 
+        todo: updatedTodos[todoIndex],
+        previousState: !updatedTodos[todoIndex].completed
+      },
+      bubbles: true,
+      composed: true
+    }));
+  }
+
+  private handleDeleteTodo(todoId: string): void {
+    const todo = this.todos.find(t => t.id === todoId);
+    if (!todo) return;
+
+    this.todos = this.todos.filter(t => t.id !== todoId);
+
+    // Dispatch delete event
+    this.dispatchEvent(new CustomEvent('todo-deleted', {
+      detail: { todo },
+      bubbles: true,
+      composed: true
+    }));
+  }
+
+  private handleFilterChange(type: keyof FilterOptions, value: string): void {
+    this.filters = {
+      ...this.filters,
+      [type]: value
+    };
+
+    // Dispatch filter change event
+    this.dispatchEvent(new CustomEvent('filter-changed', {
+      detail: { filters: this.filters },
+      bubbles: true,
+      composed: true
+    }));
+  }
+
+  private handleKeyDown(event: KeyboardEvent): void {
+    // Handle keyboard shortcuts
+    if (event.ctrlKey || event.metaKey) {
+      switch (event.key) {
+        case 'a':
+          event.preventDefault();
+          this.selectAllTodos();
+          break;
+        case 'd':
+          event.preventDefault();
+          this.deleteSelectedTodos();
+          break;
+      }
+    }
+  }
+
+  // Utility methods
+  private generateId(): string {
+    return `todo-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`;
+  }
+
+  private showError(message: string): void {
+    this.error = message;
+    setTimeout(() => {
+      this.error = null;
+    }, 3000);
+  }
+
+  private async loadTodos(): Promise<void> {
+    this.isLoading = true;
+    
+    try {
+      const saved = localStorage.getItem('todos');
+      if (saved) {
+        this.todos = JSON.parse(saved);
+      }
+    } catch (error) {
+      console.error('Failed to load todos:', error);
+      this.showError('Failed to load todos');
+    } finally {
+      this.isLoading = false;
+    }
+  }
+
+  private saveTodos(): void {
+    try {
+      localStorage.setItem('todos', JSON.stringify(this.todos));
+    } catch (error) {
+      console.error('Failed to save todos:', error);
+      this.showError('Failed to save todos');
+    }
+  }
+
+  private announceFilterChange(): void {
+    const message = `Showing ${this.filteredTodos.length} of ${this.todos.length} todos`;
+    
+    // Create temporary announcement element for screen readers
+    const announcement = document.createElement('div');
+    announcement.setAttribute('aria-live', 'polite');
+    announcement.setAttribute('aria-atomic', 'true');
+    announcement.style.position = 'absolute';
+    announcement.style.left = '-10000px';
+    announcement.textContent = message;
+    
+    this.shadowRoot?.appendChild(announcement);
+    
+    setTimeout(() => {
+      this.shadowRoot?.removeChild(announcement);
+    }, 1000);
+  }
+
+  private selectAllTodos(): void {
+    // Implementation for selecting all todos
+  }
+
+  private deleteSelectedTodos(): void {
+    // Implementation for deleting selected todos
+  }
+
+  // Render method
+  protected render() {
+    if (this.isLoading) {
+      return html`<div class="loading">Loading todos...</div>`;
+    }
+
+    return html`
+      <div class="todo-app" @keydown=${this.handleKeyDown}>
+        <header class="header">
+          <h1>Todo List (${this.stats.active} active, ${this.stats.completed} completed)</h1>
+          
+          ${this.error 
+            ? html`<div class="error" role="alert">${this.error}</div>`
+            : ''
+          }
+        </header>
+
+        <form class="add-form" @submit=${this.handleAddTodo}>
+          <input
+            class="add-input"
+            type="text"
+            placeholder="What needs to be done?"
+            .value=${this.newTodoText}
+            @input=${(e: Event) => {
+              this.newTodoText = (e.target as HTMLInputElement).value;
+            }}
+            aria-label="New todo item"
+          />
+          <button class="add-button" type="submit">Add</button>
+        </form>
+
+        <div class="filters">
+          <div class="filter-group">
+            <label>Status:</label>
+            <select 
+              .value=${this.filters.status}
+              @change=${(e: Event) => 
+                this.handleFilterChange('status', (e.target as HTMLSelectElement).value)
+              }
+            >
+              <option value="all">All</option>
+              <option value="active">Active</option>
+              <option value="completed">Completed</option>
+            </select>
+          </div>
+
+          <div class="filter-group">
+            <label>Priority:</label>
+            <select 
+              .value=${this.filters.priority}
+              @change=${(e: Event) => 
+                this.handleFilterChange('priority', (e.target as HTMLSelectElement).value)
+              }
+            >
+              <option value="all">All</option>
+              <option value="high">High</option>
+              <option value="medium">Medium</option>
+              <option value="low">Low</option>
+            </select>
+          </div>
+
+          <div class="filter-group">
+            <label>Search:</label>
+            <input
+              class="search-input"
+              type="text"
+              placeholder="Search todos..."
+              .value=${this.filters.search}
+              @input=${(e: Event) => 
+                this.handleFilterChange('search', (e.target as HTMLInputElement).value)
+              }
+            />
+          </div>
+        </div>
+
+        <div class="todo-list">
+          ${this.filteredTodos.length === 0 
+            ? html`
+              <div class="empty-state">
+                ${this.todos.length === 0 
+                  ? 'No todos yet. Add one above!'
+                  : 'No todos match your filters.'
+                }
+              </div>
+            `
+            : this.filteredTodos.map(todo => html`
+              <div class="todo-item ${todo.completed ? 'completed' : ''}">
+                <input
+                  type="checkbox"
+                  .checked=${todo.completed}
+                  @change=${() => this.handleToggleTodo(todo.id)}
+                  aria-label="Mark ${todo.text} as ${todo.completed ? 'incomplete' : 'complete'}"
+                />
+                
+                <span class="todo-text">${todo.text}</span>
+                
+                <span class="priority-badge priority-${todo.priority}">
+                  ${todo.priority}
+                </span>
+                
+                <button
+                  type="button"
+                  @click=${() => this.handleDeleteTodo(todo.id)}
+                  aria-label="Delete ${todo.text}"
+                >
+                  Delete
+                </button>
+              </div>
+            `)
+          }
+        </div>
+      </div>
+    `;
+  }
+}
+
+declare global {
+  interface HTMLElementTagNameMap {
+    'todo-list': TodoList;
+  }
+}]]></correct-example>
+          <incorrect-example title="Poor event handling without proper patterns" conditions="Implementing Lit component interactions" expected-result="Proper event handling system" incorrectness-criteria="No custom events, poor DOM access, inefficient updates, no keyboard support"><![CDATA[// BAD: Poor event handling patterns
+class BadTodoList extends LitElement {
+  
+  todos = [];
+
+  // No proper event handling
+  render() {
+    return html`
+      <div>
+        <input id="todoInput" />
+        <button onclick="this.addTodo()">Add</button>
+        
+        ${this.todos.map(todo => html`
+          <div>
+            <!-- Direct DOM manipulation in render -->
+            <input 
+              type="checkbox" 
+              onchange="document.getElementById('item-${todo.id}').classList.toggle('completed')"
+            />
+            <span id="item-${todo.id}">${todo.text}</span>
+            <!-- Inline event handlers -->
+            <button onclick="this.deleteTodo('${todo.id}')">Delete</button>
+          </div>
+        `)}
+      </div>
+    `;
+  }
+
+  // No proper event binding
+  addTodo() {
+    // Direct DOM access instead of using queries
+    const input = document.getElementById('todoInput');
+    const text = input.value;
+    
+    // Direct array mutation
+    this.todos.push({ id: Date.now(), text });
+    
+    // Manual re-render trigger
+    this.requestUpdate();
+  }
+
+  // No custom events
+  // No keyboard support
+  // No accessibility
+  // No error handling
+}]]></incorrect-example>
+        </example>
+      </examples>
+    </requirement>
+
+    <requirement priority="high">
+      <description>Implement comprehensive testing strategies for Lit components including unit testing with proper mocking, integration testing for component interactions, and accessibility testing.</description>
+      <examples>
+        <example title="Lit Component Testing">
+          <correct-example title="Comprehensive Lit component testing with proper setup and coverage" conditions="Testing Lit web components" expected-result="Thorough test coverage with proper testing patterns" correctness-criteria="Unit tests, integration tests, accessibility tests, proper mocking, event testing"><![CDATA[// TypeScript - Comprehensive Lit component testing
+import { html, fixture, expect, elementUpdated } from '@open-wc/testing';
+import { sendKeys, sendMouse } from '@web/test-runner-commands';
+import { UserCard } from '../src/user-card.js';
+import '../src/user-card.js';
+
+describe('UserCard Component', () => {
+  let element: UserCard;
+  let container: HTMLElement;
+
+  const mockUser = {
+    id: '1',
+    name: 'John Doe',
+    email: 'john@example.com',
+    active: true,
+    avatar: 'https://example.com/avatar.jpg'
+  };
+
+  beforeEach(async () => {
+    element = await fixture(html`<user-card></user-card>`);
+    container = element.shadowRoot!;
+  });
+
+  afterEach(() => {
+    element.remove();
+  });
+
+  // Property and state testing
+  describe('Properties and State', () => {
+    it('should initialize with default properties', () => {
+      expect(element.user).to.be.null;
+      expect(element.disabled).to.be.false;
+      expect(element.showActions).to.be.true;
+      expect(element.size).to.equal('medium');
+    });
+
+    it('should update when user property changes', async () => {
+      element.user = mockUser;
+      await elementUpdated(element);
+
+      const nameElement = container.querySelector('.name');
+      const emailElement = container.querySelector('.email');
+      
+      expect(nameElement?.textContent).to.equal('John Doe');
+      expect(emailElement?.textContent).to.equal('john@example.com');
+    });
+
+    it('should reflect disabled property as attribute', async () => {
+      element.disabled = true;
+      await elementUpdated(element);
+
+      expect(element.hasAttribute('disabled')).to.be.true;
+      expect(element.getAttribute('aria-disabled')).to.equal('true');
+    });
+
+    it('should handle null user gracefully', async () => {
+      element.user = null;
+      await elementUpdated(element);
+
+      const placeholder = container.querySelector('.placeholder');
+      expect(placeholder?.textContent).to.equal('No user data');
+    });
+  });
+
+  // Rendering tests
+  describe('Rendering', () => {
+    beforeEach(async () => {
+      element.user = mockUser;
+      await elementUpdated(element);
+    });
+
+    it('should render user information correctly', () => {
+      const nameElement = container.querySelector('.name');
+      const emailElement = container.querySelector('.email');
+      const statusElement = container.querySelector('.status');
+
+      expect(nameElement?.textContent).to.equal('John Doe');
+      expect(emailElement?.textContent).to.equal('john@example.com');
+      expect(statusElement?.classList.contains('active')).to.be.true;
+    });
+
+    it('should render avatar when provided', () => {
+      const avatarImg = container.querySelector('.avatar img');
+      expect(avatarImg).to.exist;
+      expect(avatarImg?.getAttribute('src')).to.equal('https://example.com/avatar.jpg');
+    });
+
+    it('should render initials when no avatar', async () => {
+      element.user = { ...mockUser, avatar: undefined };
+      await elementUpdated(element);
+
+      const avatarSpan = container.querySelector('.avatar span');
+      expect(avatarSpan?.textContent).to.equal('JD');
+    });
+
+    it('should hide actions when showActions is false', async () => {
+      element.showActions = false;
+      await elementUpdated(element);
+
+      const actions = container.querySelector('.actions');
+      expect(actions).to.not.exist;
+    });
+
+    it('should apply size class correctly', async () => {
+      element.size = 'large';
+      await elementUpdated(element);
+
+      const card = container.querySelector('.card');
+      expect(card?.classList.contains('large')).to.be.true;
+    });
+  });
+
+  // Event testing
+  describe('Events', () => {
+    beforeEach(async () => {
+      element.user = mockUser;
+      await elementUpdated(element);
+    });
+
+    it('should dispatch user-select event on card click', async () => {
+      let eventDetail: any = null;
+      
+      element.addEventListener('user-select', (event: any) => {
+        eventDetail = event.detail;
+      });
+
+      const card = container.querySelector('article');
+      card?.click();
+
+      expect(eventDetail).to.deep.equal({ user: mockUser });
+    });
+
+    it('should dispatch user-edit event on edit button click', async () => {
+      let eventDetail: any = null;
+      
+      element.addEventListener('user-edit', (event: any) => {
+        eventDetail = event.detail;
+      });
+
+      const editButton = container.querySelector('button');
+      editButton?.click();
+
+      expect(eventDetail).to.deep.equal({ user: mockUser });
+    });
+
+    it('should prevent card click when disabled', async () => {
+      element.disabled = true;
+      await elementUpdated(element);
+
+      let eventFired = false;
+      element.addEventListener('user-select', () => {
+        eventFired = true;
+      });
+
+      const card = container.querySelector('article');
+      card?.click();
+
+      expect(eventFired).to.be.false;
+    });
+
+    it('should stop propagation on action button clicks', async () => {
+      let cardClicked = false;
+      let editClicked = false;
+
+      element.addEventListener('user-select', () => {
+        cardClicked = true;
+      });
+
+      element.addEventListener('user-edit', () => {
+        editClicked = true;
+      });
+
+      const editButton = container.querySelector('button');
+      editButton?.click();
+
+      expect(editClicked).to.be.true;
+      expect(cardClicked).to.be.false;
+    });
+  });
+
+  // Keyboard interaction testing
+  describe('Keyboard Interactions', () => {
+    beforeEach(async () => {
+      element.user = mockUser;
+      await elementUpdated(element);
+      element.focus();
+    });
+
+    it('should handle Enter key to select user', async () => {
+      let eventFired = false;
+      
+      element.addEventListener('user-select', () => {
+        eventFired = true;
+      });
+
+      await sendKeys({ press: 'Enter' });
+      expect(eventFired).to.be.true;
+    });
+
+    it('should handle Space key to select user', async () => {
+      let eventFired = false;
+      
+      element.addEventListener('user-select', () => {
+        eventFired = true;
+      });
+
+      await sendKeys({ press: ' ' });
+      expect(eventFired).to.be.true;
+    });
+
+    it('should not respond to keyboard when disabled', async () => {
+      element.disabled = true;
+      await elementUpdated(element);
+
+      let eventFired = false;
+      element.addEventListener('user-select', () => {
+        eventFired = true;
+      });
+
+      await sendKeys({ press: 'Enter' });
+      expect(eventFired).to.be.false;
+    });
+  });
+
+  // Accessibility testing
+  describe('Accessibility', () => {
+    beforeEach(async () => {
+      element.user = mockUser;
+      await elementUpdated(element);
+    });
+
+    it('should have proper ARIA attributes', () => {
+      expect(element.getAttribute('role')).to.equal('article');
+      expect(element.getAttribute('tabindex')).to.equal('0');
+      expect(element.getAttribute('aria-label')).to.include('John Doe');
+    });
+
+    it('should update aria-label when user changes', async () => {
+      element.user = { ...mockUser, name: 'Jane Smith' };
+      await elementUpdated(element);
+
+      expect(element.getAttribute('aria-label')).to.include('Jane Smith');
+    });
+
+    it('should have proper focus management', async () => {
+      element.disabled = true;
+      await elementUpdated(element);
+
+      expect(element.getAttribute('tabindex')).to.equal('-1');
+      expect(element.getAttribute('aria-disabled')).to.equal('true');
+    });
+
+    it('should have accessible button labels', () => {
+      const editButton = container.querySelector('button[aria-label*="Edit"]');
+      const deleteButton = container.querySelector('button[aria-label*="Delete"]');
+
+      expect(editButton?.getAttribute('aria-label')).to.include('John Doe');
+      expect(deleteButton?.getAttribute('aria-label')).to.include('John Doe');
+    });
+
+    it('should pass automated accessibility tests', async () => {
+      await expect(element).to.be.accessible();
+    });
+  });
+
+  // Style and CSS testing
+  describe('Styling', () => {
+    it('should apply hover styles', async () => {
+      element.user = mockUser;
+      await elementUpdated(element);
+
+      const card = container.querySelector('article');
+      const computedStyle = getComputedStyle(card!);
+      
+      // Simulate hover (this may require additional test utilities)
+      expect(computedStyle.transition).to.include('box-shadow');
+    });
+
+    it('should apply disabled styles when disabled', async () => {
+      element.disabled = true;
+      element.user = mockUser;
+      await elementUpdated(element);
+
+      const hostStyles = getComputedStyle(element);
+      expect(hostStyles.opacity).to.equal('0.6');
+    });
+  });
+
+  // Integration testing
+  describe('Integration Tests', () => {
+    it('should work within a larger component tree', async () => {
+      const container = await fixture(html`
+        <div>
+          <user-card .user=${mockUser}></user-card>
+          <user-card .user=${mockUser} disabled></user-card>
+        </div>
+      `);
+
+      const cards = container.querySelectorAll('user-card');
+      expect(cards).to.have.length(2);
+      expect(cards[1].hasAttribute('disabled')).to.be.true;
+    });
+
+    it('should handle dynamic user updates', async () => {
+      const users = [mockUser];
+      let currentUserIndex = 0;
+
+      const container = await fixture(html`
+        <user-card .user=${users[currentUserIndex]}></user-card>
+      `);
+
+      const card = container.querySelector('user-card')!;
+      
+      // Update user
+      const newUser = { ...mockUser, name: 'Jane Smith' };
+      card.user = newUser;
+      await elementUpdated(card);
+
+      const nameElement = card.shadowRoot!.querySelector('.name');
+      expect(nameElement?.textContent).to.equal('Jane Smith');
+    });
+  });
+
+  // Performance testing
+  describe('Performance', () => {
+    it('should not cause memory leaks with event listeners', async () => {
+      const initialListenerCount = element.getEventListeners?.('keydown')?.length || 0;
+      
+      // Simulate multiple connect/disconnect cycles
+      for (let i = 0; i < 10; i++) {
+        element.disconnectedCallback();
+        element.connectedCallback();
+      }
+
+      const finalListenerCount = element.getEventListeners?.('keydown')?.length || 0;
+      expect(finalListenerCount).to.equal(initialListenerCount);
+    });
+
+    it('should efficiently update on property changes', async () => {
+      const startTime = performance.now();
+      
+      // Perform multiple updates
+      for (let i = 0; i < 100; i++) {
+        element.user = { ...mockUser, name: `User ${i}` };
+        await elementUpdated(element);
+      }
+
+      const endTime = performance.now();
+      const duration = endTime - startTime;
+      
+      // Should complete in reasonable time (adjust threshold as needed)
+      expect(duration).to.be.lessThan(1000);
+    });
+  });
+});]]></correct-example>
+          <incorrect-example title="Poor testing without proper coverage" conditions="Testing Lit components" expected-result="Comprehensive component testing" incorrectness-criteria="No proper setup, missing test categories, no accessibility testing, poor assertions"><![CDATA[// BAD: Poor Lit component testing
+describe('Bad UserCard Tests', () => {
+  
+  // No proper setup
+  it('should exist', () => {
+    const element = document.createElement('user-card');
+    expect(element).toBeDefined();
+    // No meaningful assertions
+  });
+
+  // No property testing
+  // No event testing
+  // No accessibility testing
+  // No keyboard interaction testing
+  // No integration testing
+  
+  it('should render something', () => {
+    const element = document.createElement('user-card');
+    document.body.appendChild(element);
+    
+    // No proper fixture setup
+    // No waiting for updates
+    // No shadow DOM access
+    
+    expect(element.innerHTML).toBeTruthy();
+    // Very weak assertion
+  });
+});]]></incorrect-example>
+        </example>
+      </examples>
+    </requirement>
+  </requirements>
+  
+  <context description="Lit web components development considerations">
+    Lit is a simple library for building fast, lightweight web components that provides reactive properties, scoped styling, and a declarative template system. Modern Lit development emphasizes TypeScript integration, accessibility, and performance optimization.
+
+    Key considerations include:
+    - Proper use of decorators for reactive properties and efficient updates
+    - Shadow DOM usage for style encapsulation and component isolation
+    - Comprehensive event handling with custom events and proper delegation
+    - Accessibility implementation following web standards and ARIA guidelines
+    - Performance optimization through efficient rendering and proper lifecycle management
+    - Testing strategies covering unit tests, integration tests, and accessibility validation
+
+    Lit components integrate well with any framework or vanilla JavaScript applications and provide excellent TypeScript support for type safety and developer experience.
+  </context>
+  
+  <references>
+    <reference as="dependency" href=".cursor/rules/000-core/002-cursor-rules-creation.mdc" reason="Follows standard rule format">Base rule format definition</reference>
+    <reference as="context" href="https://lit.dev/" reason="Official Lit documentation">Lit Framework Documentation</reference>
+    <reference as="context" href="https://open-wc.org/docs/testing/testing-package/" reason="Testing utilities">Open Web Components Testing</reference>
+  </references>
+</rule>
+ 

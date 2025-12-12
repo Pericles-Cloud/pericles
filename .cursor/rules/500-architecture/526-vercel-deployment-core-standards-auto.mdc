@@ -1,0 +1,1307 @@
+---
+description: "Comprehensive Vercel deployment standards with Git integration, serverless functions, environment configuration, security best practices, and production optimization following expert deployment standards"
+globs: "**/*.{ts,js,tsx,jsx,json,yml,yaml}"
+alwaysApply: false
+---
+
+<rule>
+  <meta>
+    <title>Vercel Deployment Core Standards</title>
+    <description>Comprehensive Vercel deployment best practices covering Git integration, serverless function optimization, environment configuration, security measures, performance optimization, and production deployment workflows following expert Vercel deployment standards</description>
+    <created-at utc-timestamp="1737923400">January 26, 2025, 3:30 PM UTC</created-at>
+    <last-updated-at utc-timestamp="1737923400">January 26, 2025, 3:30 PM UTC</last-updated-at>
+    <applies-to>
+      <file-matcher glob="**/vercel.json">Vercel configuration files</file-matcher>
+      <file-matcher glob="**/.vercelignore">Vercel deployment ignore files</file-matcher>
+      <file-matcher glob="**/api/**/*.{ts,js}">Vercel serverless API functions</file-matcher>
+      <file-matcher glob="**/.github/workflows/*.{yml,yaml}">CI/CD workflows for Vercel deployment</file-matcher>
+      <file-matcher glob="**/package.json">Project configuration for Vercel builds</file-matcher>
+      <action-matcher action="vercel-deployment">Triggered when deploying to Vercel platform</action-matcher>
+    </applies-to>
+  </meta>
+  <requirements>
+    <!-- Git Integration and Automatic Deployments -->
+    <non-negotiable priority="critical">
+      <description>Use Git integration as the primary deployment method with automatic deployments enabled for production and preview environments. Configure proper branch protection rules and deployment environments with comprehensive commit-based deployment workflows.</description>
+      <examples>
+        <example title="Git Integration Configuration">
+          <correct-example title="Proper Git integration with automatic deployments" conditions="Setting up Vercel Git integration" expected-result="Automatic deployments on commits with proper environment separation" correctness-criteria="Uses GitHub/GitLab integration, proper branch configuration, environment separation, deployment protection"><![CDATA[// GitHub integration configuration
+// 1. Connect repository via Vercel dashboard
+// 2. Configure deployment settings in Project Settings
+
+// Production Branch Configuration
+Production Branch: main
+Preview Branches: All branches except main
+Install Command: npm ci
+Build Command: npm run build
+Output Directory: dist
+Root Directory: ./
+
+// Environment Configuration
+Production Environment Variables:
+- DATABASE_URL (from Neon)
+- JWT_SECRET
+- GOOGLE_CLIENT_ID
+- API_KEYS (sensitive)
+
+Preview Environment Variables:
+- DATABASE_URL (preview branch from Neon)
+- JWT_SECRET (development)
+- GOOGLE_CLIENT_ID (development)
+
+// Deployment Protection Settings
+Password Protection: Enabled for previews
+Vercel Authentication: Required for sensitive previews
+Trusted IPs: Configure for production access
+
+// .github/workflows/vercel-preview.yml
+name: Vercel Preview Deployment
+env:
+  VERCEL_ORG_ID: ${{ secrets.VERCEL_ORG_ID }}
+  VERCEL_PROJECT_ID: ${{ secrets.VERCEL_PROJECT_ID }}
+on:
+  pull_request:
+    branches: [main]
+jobs:
+  Deploy-Preview:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install Vercel CLI
+        run: npm install --global vercel@latest
+      - name: Pull Vercel Environment Information
+        run: vercel pull --yes --environment=preview --token=${{ secrets.VERCEL_TOKEN }}
+      - name: Build Project Artifacts
+        run: vercel build --token=${{ secrets.VERCEL_TOKEN }}
+      - name: Deploy Project Artifacts to Vercel
+        run: vercel deploy --prebuilt --token=${{ secrets.VERCEL_TOKEN }}]]></correct-example>
+          <incorrect-example title="Manual deployment without Git integration" conditions="Setting up Vercel deployment" expected-result="Automated Git-based deployments" incorrectness-criteria="Uses manual CLI deployments only, no Git integration, missing environment separation, no deployment protection"><![CDATA[// WRONG - Manual CLI deployment without Git integration
+vercel --prod
+
+// No Git integration
+// No automatic deployments
+// No environment separation
+// No branch protection
+// No deployment protection
+// Manual process prone to errors]]></incorrect-example>
+        </example>
+      </examples>
+    </non-negotiable>
+
+    <!-- Vercel Configuration Optimization -->
+    <non-negotiable priority="critical">
+      <description>Configure vercel.json with optimal settings for serverless functions, static assets, routing, headers, and security. Implement proper build configuration, function optimization, and production-ready settings for TypeScript/React applications.</description>
+      <examples>
+        <example title="Vercel Configuration">
+          <correct-example title="Comprehensive vercel.json configuration" conditions="Configuring Vercel project settings" expected-result="Optimized serverless deployment with proper routing and security" correctness-criteria="Includes function configuration, routing, headers, security settings, build optimization"><![CDATA[{
+  "version": 2,
+  "buildCommand": "npm run build",
+  "outputDirectory": "dist",
+  "installCommand": "npm ci",
+  "nodeVersion": "20.x",
+  "functions": {
+    "api/**/*.ts": {
+      "runtime": "@vercel/node@3.1.7",
+      "maxDuration": 10,
+      "memory": 1024,
+      "regions": ["iad1", "sfo1"]
+    }
+  },
+  "routes": [
+    {
+      "src": "/api/(.*)",
+      "dest": "/api/$1"
+    },
+    {
+      "handle": "filesystem"
+    },
+    {
+      "src": "/(.*)",
+      "dest": "/index.html"
+    }
+  ],
+  "headers": [
+    {
+      "source": "/api/(.*)",
+      "headers": [
+        {
+          "key": "Access-Control-Allow-Origin",
+          "value": "*"
+        },
+        {
+          "key": "Access-Control-Allow-Methods",
+          "value": "GET,OPTIONS,PATCH,DELETE,POST,PUT"
+        },
+        {
+          "key": "Access-Control-Allow-Headers",
+          "value": "X-CSRF-Token, X-Requested-With, Accept, Accept-Version, Content-Length, Content-MD5, Content-Type, Date, X-Api-Version, Authorization"
+        }
+      ]
+    },
+    {
+      "source": "/(.*)",
+      "headers": [
+        {
+          "key": "X-Content-Type-Options",
+          "value": "nosniff"
+        },
+        {
+          "key": "X-Frame-Options",
+          "value": "DENY"
+        },
+        {
+          "key": "X-XSS-Protection",
+          "value": "1; mode=block"
+        },
+        {
+          "key": "Referrer-Policy",
+          "value": "strict-origin-when-cross-origin"
+        },
+        {
+          "key": "Content-Security-Policy",
+          "value": "default-src 'self'; script-src 'self' 'unsafe-inline' 'unsafe-eval'; style-src 'self' 'unsafe-inline'; img-src 'self' data: https:; font-src 'self'; connect-src 'self' https:; media-src 'self'; object-src 'none'; child-src 'none'; worker-src 'self'; frame-ancestors 'none'; form-action 'self'; base-uri 'self'; manifest-src 'self';"
+        }
+      ]
+    },
+    {
+      "source": "/static/(.*)",
+      "headers": [
+        {
+          "key": "Cache-Control",
+          "value": "public, max-age=31536000, immutable"
+        }
+      ]
+    }
+  ],
+  "redirects": [
+    {
+      "source": "/home",
+      "destination": "/",
+      "permanent": true
+    }
+  ],
+  "rewrites": [
+    {
+      "source": "/api/proxy/(.*)",
+      "destination": "https://api.external.com/$1"
+    }
+  ],
+  "trailingSlash": false,
+  "cleanUrls": true,
+  "github": {
+    "silent": true
+  }
+}]]></correct-example>
+          <incorrect-example title="Basic vercel.json without optimization" conditions="Configuring Vercel project" expected-result="Optimized Vercel configuration" incorrectness-criteria="Missing function configuration, no security headers, poor routing, no build optimization"><![CDATA[{
+  "version": 2
+}
+
+// WRONG - Missing:
+// - Function configuration and optimization
+// - Security headers (CSP, CSRF protection)
+// - Proper routing configuration
+// - Cache control headers
+// - Build optimization settings
+// - Region configuration
+// - Memory and duration limits]]></incorrect-example>
+        </example>
+      </examples>
+    </non-negotiable>
+
+    <!-- Environment Variables and Secrets Management -->
+    <requirement priority="critical">
+      <description>Implement comprehensive environment variable management with proper secret handling, environment separation, and secure configuration practices. Use Vercel's environment variable system with appropriate visibility and encryption settings.</description>
+      <examples>
+        <example title="Environment Variable Management">
+          <correct-example title="Secure environment variable configuration" conditions="Managing secrets and configuration" expected-result="Secure environment management across all deployment environments" correctness-criteria="Uses Vercel environment variables, proper secret handling, environment separation, secure practices"><![CDATA[// Vercel CLI environment variable setup
+# Production Environment
+vercel env add DATABASE_URL production
+vercel env add DIRECT_DATABASE_URL production
+vercel env add JWT_SECRET production
+vercel env add JWT_REFRESH_SECRET production
+vercel env add GOOGLE_CLIENT_SECRET production
+vercel env add STRIPE_SECRET_KEY production
+
+# Preview Environment  
+vercel env add DATABASE_URL preview
+vercel env add JWT_SECRET preview
+vercel env add GOOGLE_CLIENT_SECRET preview
+
+# Development Environment
+vercel env add DATABASE_URL development
+vercel env add JWT_SECRET development
+
+// Environment variable configuration via dashboard
+Production Variables:
+- DATABASE_URL: postgresql://user:pass@ep-xxx.pooler.us-east-1.neon.tech/prod?sslmode=require (Encrypted)
+- JWT_SECRET: [32-character secure key] (Encrypted)
+- JWT_REFRESH_SECRET: [32-character secure key] (Encrypted)
+- GOOGLE_CLIENT_SECRET: [OAuth secret] (Encrypted)
+- STRIPE_SECRET_KEY: sk_live_xxx (Encrypted)
+
+Preview Variables:
+- DATABASE_URL: postgresql://user:pass@ep-xxx.pooler.us-east-1.neon.tech/preview?sslmode=require (Encrypted)
+- JWT_SECRET: [development key] (Encrypted)
+- GOOGLE_CLIENT_SECRET: [development OAuth] (Encrypted)
+
+// Client-side variables (NEXT_PUBLIC_ prefix)
+NEXT_PUBLIC_APP_URL: https://myapp.vercel.app (Plain Text)
+NEXT_PUBLIC_STRIPE_PUBLISHABLE_KEY: pk_live_xxx (Plain Text)
+NEXT_PUBLIC_GOOGLE_MAPS_API_KEY: [maps key] (Plain Text)
+
+// package.json build integration
+{
+  "scripts": {
+    "build": "npm run env:validate && npm run prisma:generate && npm run prisma:migrate:deploy && next build",
+    "env:validate": "node scripts/validate-env.js",
+    "vercel-build": "npm run build"
+  }
+}
+
+// scripts/validate-env.js - Environment validation
+const requiredEnvVars = {
+  production: [
+    'DATABASE_URL',
+    'DIRECT_DATABASE_URL',
+    'JWT_SECRET',
+    'JWT_REFRESH_SECRET',
+    'GOOGLE_CLIENT_SECRET'
+  ],
+  preview: [
+    'DATABASE_URL',
+    'JWT_SECRET',
+    'GOOGLE_CLIENT_SECRET'
+  ]
+};
+
+const env = process.env.VERCEL_ENV || 'development';
+const required = requiredEnvVars[env] || [];
+
+const missing = required.filter(key => !process.env[key]);
+if (missing.length > 0) {
+  console.error(`Missing required environment variables for ${env}:`, missing);
+  process.exit(1);
+}]]></correct-example>
+          <incorrect-example title="Insecure environment variable handling" conditions="Managing application secrets" expected-result="Secure environment management" incorrectness-criteria="Hardcoded secrets, no environment separation, insecure practices, missing validation"><![CDATA[// WRONG - Insecure environment practices
+// Hardcoded secrets in code
+const JWT_SECRET = 'my-secret-key'; // WRONG!
+const DATABASE_URL = 'postgresql://user:pass@localhost:5432/db'; // WRONG!
+
+// No environment separation
+// Same secrets for production and development
+DATABASE_URL=postgresql://prod-server/prod-db // WRONG!
+
+// Committing .env files
+// .env
+JWT_SECRET=secret123
+DATABASE_URL=postgresql://localhost/db
+
+// No validation or error handling
+// Missing required environment variables
+// No encryption for sensitive data]]></incorrect-example>
+        </example>
+      </examples>
+    </requirement>
+
+    <!-- Serverless Function Optimization -->
+    <requirement priority="high">
+      <description>Optimize Vercel serverless functions for performance, cold start reduction, memory efficiency, and proper error handling. Implement function-specific configuration, regional deployment, and comprehensive monitoring.</description>
+      <examples>
+        <example title="Serverless Function Optimization">
+          <correct-example title="Optimized serverless function configuration" conditions="Building high-performance API functions" expected-result="Fast, efficient serverless functions with proper error handling" correctness-criteria="Optimized runtime settings, proper error handling, regional configuration, monitoring integration"><![CDATA[// api/users/[id].ts - Optimized serverless function
+import type { VercelRequest, VercelResponse } from '@vercel/node';
+import { PrismaClient } from '@prisma/client';
+
+// Function configuration
+export const config = {
+  runtime: 'nodejs20.x',
+  maxDuration: 10,
+  memory: 1024,
+  regions: ['iad1', 'sfo1', 'lhr1']
+};
+
+// Connection pooling for serverless
+const prisma = new PrismaClient({
+  datasources: {
+    db: {
+      url: process.env.DATABASE_URL
+    }
+  }
+});
+
+// Keep connection warm
+const connectionPromise = prisma.$connect();
+
+export default async function handler(req: VercelRequest, res: VercelResponse) {
+  // Early return for CORS preflight
+  if (req.method === 'OPTIONS') {
+    res.setHeader('Access-Control-Allow-Origin', '*');
+    res.setHeader('Access-Control-Allow-Methods', 'GET, POST, PUT, DELETE, OPTIONS');
+    res.setHeader('Access-Control-Allow-Headers', 'Content-Type, Authorization');
+    return res.status(200).end();
+  }
+
+  // Performance monitoring
+  const startTime = Date.now();
+
+  try {
+    // Ensure connection is ready
+    await connectionPromise;
+
+    // Input validation
+    const { id } = req.query;
+    if (!id || typeof id !== 'string') {
+      return res.status(400).json({
+        error: 'INVALID_INPUT',
+        message: 'User ID is required and must be a string'
+      });
+    }
+
+    // Optimized database query
+    const user = await prisma.user.findUnique({
+      where: { id },
+      select: {
+        id: true,
+        email: true,
+        first_name: true,
+        last_name: true,
+        role: true,
+        created_at: true
+      }
+    });
+
+    if (!user) {
+      return res.status(404).json({
+        error: 'USER_NOT_FOUND',
+        message: 'User not found'
+      });
+    }
+
+    // Performance logging
+    const duration = Date.now() - startTime;
+    console.log(`User fetch completed in ${duration}ms`);
+
+    // Structured response
+    return res.status(200).json({
+      success: true,
+      data: user,
+      meta: {
+        requestId: req.headers['x-vercel-id'],
+        duration: `${duration}ms`
+      }
+    });
+
+  } catch (error) {
+    const duration = Date.now() - startTime;
+    
+    // Error logging with context
+    console.error('User fetch error:', {
+      error: error.message,
+      requestId: req.headers['x-vercel-id'],
+      userId: req.query.id,
+      duration: `${duration}ms`,
+      stack: error.stack
+    });
+
+    // Structured error response
+    return res.status(500).json({
+      error: 'INTERNAL_SERVER_ERROR',
+      message: 'An unexpected error occurred',
+      meta: {
+        requestId: req.headers['x-vercel-id'],
+        duration: `${duration}ms`
+      }
+    });
+  }
+}
+
+// Graceful shutdown
+process.on('SIGTERM', async () => {
+  await prisma.$disconnect();
+});]]></correct-example>
+          <incorrect-example title="Unoptimized serverless function" conditions="Building API functions" expected-result="Optimized serverless functions" incorrectness-criteria="No configuration, poor error handling, no performance optimization, inefficient database connections"><![CDATA[// WRONG - Unoptimized serverless function
+export default async function handler(req, res) {
+  // No function configuration
+  // No runtime optimization
+  // No regional deployment
+  
+  // New connection for each request
+  const client = new Client(process.env.DATABASE_URL);
+  await client.connect();
+  
+  // No input validation
+  const { id } = req.query;
+  
+  // No error handling
+  const result = await client.query('SELECT * FROM users WHERE id = $1', [id]);
+  
+  // No structured response
+  res.json(result.rows[0]);
+  
+  // No connection cleanup
+  // No performance monitoring
+  // No proper error responses
+}]]></incorrect-example>
+        </example>
+      </examples>
+    </requirement>
+
+    <!-- Performance and Optimization -->
+    <requirement priority="high">
+      <description>Implement comprehensive performance optimization including asset optimization, caching strategies, image optimization, and CDN configuration. Use Vercel's built-in optimization features and implement custom performance monitoring.</description>
+      <examples>
+        <example title="Performance Optimization">
+          <correct-example title="Comprehensive performance optimization strategy" conditions="Optimizing application performance" expected-result="Fast loading times with efficient caching and asset optimization" correctness-criteria="Uses Vercel optimizations, proper caching, image optimization, performance monitoring"><![CDATA[// next.config.js - Performance optimization
+/** @type {import('next').NextConfig} */
+const nextConfig = {
+  // Image optimization
+  images: {
+    domains: ['cdn.example.com', 'images.unsplash.com'],
+    formats: ['image/webp', 'image/avif'],
+    minimumCacheTTL: 31536000,
+    dangerouslyAllowSVG: false,
+    contentSecurityPolicy: "default-src 'self'; script-src 'none'; sandbox;",
+  },
+  
+  // Compression
+  compress: true,
+  
+  // Asset optimization
+  swcMinify: true,
+  
+  // Bundle analyzer
+  webpack: (config, { buildId, dev, isServer, defaultLoaders, webpack }) => {
+    // Bundle optimization
+    if (!dev && !isServer) {
+      config.optimization.splitChunks.chunks = 'all';
+    }
+    
+    return config;
+  },
+  
+  // Headers for caching
+  async headers() {
+    return [
+      {
+        source: '/static/(.*)',
+        headers: [
+          {
+            key: 'Cache-Control',
+            value: 'public, max-age=31536000, immutable',
+          },
+        ],
+      },
+      {
+        source: '/(.*)',
+        headers: [
+          {
+            key: 'X-DNS-Prefetch-Control',
+            value: 'on'
+          }
+        ],
+      },
+    ];
+  },
+  
+  // Experimental features
+  experimental: {
+    optimizeCss: true,
+    optimizePackageImports: [
+      '@heroicons/react',
+      '@headlessui/react',
+      'lodash',
+      'date-fns'
+    ],
+  },
+};
+
+module.exports = nextConfig;
+
+// _app.tsx - Performance monitoring
+import { SpeedInsights } from '@vercel/speed-insights/next';
+import { Analytics } from '@vercel/analytics/react';
+import { useEffect } from 'react';
+
+export default function App({ Component, pageProps }) {
+  useEffect(() => {
+    // Performance monitoring
+    if (typeof window !== 'undefined' && 'performance' in window) {
+      const observer = new PerformanceObserver((list) => {
+        for (const entry of list.getEntries()) {
+          if (entry.entryType === 'navigation') {
+            console.log('Navigation timing:', {
+              domContentLoaded: entry.domContentLoadedEventEnd - entry.domContentLoadedEventStart,
+              loadComplete: entry.loadEventEnd - entry.loadEventStart,
+              firstPaint: entry.firstPaint,
+              firstContentfulPaint: entry.firstContentfulPaint
+            });
+          }
+        }
+      });
+      
+      observer.observe({ entryTypes: ['navigation', 'paint'] });
+    }
+  }, []);
+
+  return (
+    <>
+      <Component {...pageProps} />
+      <SpeedInsights />
+      <Analytics />
+    </>
+  );
+}
+
+// Image optimization component
+import Image from 'next/image';
+import { useState } from 'react';
+
+interface OptimizedImageProps {
+  src: string;
+  alt: string;
+  width: number;
+  height: number;
+  priority?: boolean;
+  className?: string;
+}
+
+export function OptimizedImage({
+  src,
+  alt,
+  width,
+  height,
+  priority = false,
+  className
+}: OptimizedImageProps) {
+  const [isLoading, setIsLoading] = useState(true);
+
+  return (
+    <div className={`relative ${className}`}>
+      <Image
+        src={src}
+        alt={alt}
+        width={width}
+        height={height}
+        priority={priority}
+        quality={85}
+        placeholder="blur"
+        blurDataURL="data:image/jpeg;base64,/9j/4AAQSkZJRgABAQAAAQABAAD/2wBDAAYEBQYFBAYGBQYHBwYIChAKCgkJChQODwwQFxQYGBcUFhYaHSUfGhsjHBYWICwgIyYnKSopGR8tMC0oMCUoKSj/2wBDAQcHBwoIChMKChMoGhYaKCgoKCgoKCgoKCgoKCgoKCgoKCgoKCgoKCgoKCgoKCgoKCgoKCgoKCgoKCgoKCgoKCj/wAARCAABAAEDASIAAhEBAxEB/8QAFQABAQAAAAAAAAAAAAAAAAAAAAv/xAAUEAEAAAAAAAAAAAAAAAAAAAAA/8QAFQEBAQAAAAAAAAAAAAAAAAAAAAX/xAAUEQEAAAAAAAAAAAAAAAAAAAAA/9oADAMBAAIRAxEAPwCdABmX/9k="
+        onLoad={() => setIsLoading(false)}
+        className={`transition-opacity duration-300 ${
+          isLoading ? 'opacity-0' : 'opacity-100'
+        }`}
+      />
+    </div>
+  );
+}
+
+// Asset preloading
+export function AssetPreloader() {
+  useEffect(() => {
+    // Preload critical assets
+    const preloadAssets = [
+      '/fonts/inter-var.woff2',
+      '/images/hero-background.webp',
+      '/icons/logo.svg'
+    ];
+
+    preloadAssets.forEach(asset => {
+      const link = document.createElement('link');
+      link.rel = 'preload';
+      link.href = asset;
+      
+      if (asset.endsWith('.woff2')) {
+        link.as = 'font';
+        link.type = 'font/woff2';
+        link.crossOrigin = 'anonymous';
+      } else if (asset.endsWith('.webp') || asset.endsWith('.jpg')) {
+        link.as = 'image';
+      }
+      
+      document.head.appendChild(link);
+    });
+  }, []);
+
+  return null;
+}]]></correct-example>
+          <incorrect-example title="No performance optimization" conditions="Deploying application" expected-result="Optimized performance" incorrectness-criteria="No image optimization, poor caching, no performance monitoring, inefficient bundle sizes"><![CDATA[// WRONG - No performance optimization
+// No next.config.js optimization
+// No image optimization
+// No caching headers
+// No performance monitoring
+
+// Basic component without optimization
+function MyImage({ src, alt }) {
+  return <img src={src} alt={alt} />; // No optimization
+}
+
+// No asset preloading
+// No bundle optimization
+// No compression
+// No performance tracking]]></incorrect-example>
+        </example>
+      </examples>
+    </requirement>
+
+    <!-- Security and Compliance -->
+    <requirement priority="critical">
+      <description>Implement comprehensive security measures including Content Security Policy (CSP), HTTPS enforcement, security headers, access controls, and deployment protection. Follow Vercel security best practices and compliance requirements.</description>
+      <examples>
+        <example title="Security Implementation">
+          <correct-example title="Comprehensive security configuration" conditions="Implementing production security" expected-result="Secure deployment with comprehensive protection" correctness-criteria="CSP implementation, security headers, access controls, deployment protection, HTTPS enforcement"><![CDATA[// Security headers configuration in vercel.json
+{
+  "headers": [
+    {
+      "source": "/(.*)",
+      "headers": [
+        {
+          "key": "Content-Security-Policy",
+          "value": "default-src 'self'; script-src 'self' 'unsafe-inline' 'unsafe-eval' https://vercel.live https://cdn.vercel-analytics.com; style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; img-src 'self' data: https: blob:; font-src 'self' https://fonts.gstatic.com; connect-src 'self' https://api.vercel.com https://vercel.live wss://ws-us3.pusher.com; media-src 'self'; object-src 'none'; child-src 'none'; worker-src 'self' blob:; frame-ancestors 'none'; form-action 'self'; base-uri 'self'; manifest-src 'self';"
+        },
+        {
+          "key": "X-Content-Type-Options",
+          "value": "nosniff"
+        },
+        {
+          "key": "X-Frame-Options",
+          "value": "DENY"
+        },
+        {
+          "key": "X-XSS-Protection",
+          "value": "1; mode=block"
+        },
+        {
+          "key": "Referrer-Policy",
+          "value": "strict-origin-when-cross-origin"
+        },
+        {
+          "key": "Permissions-Policy",
+          "value": "camera=(), microphone=(), geolocation=(), payment=(), usb=(), magnetometer=(), gyroscope=(), accelerometer=()"
+        },
+        {
+          "key": "Strict-Transport-Security",
+          "value": "max-age=63072000; includeSubDomains; preload"
+        }
+      ]
+    }
+  ]
+}
+
+// API security implementation
+// api/secure-endpoint.ts
+import type { VercelRequest, VercelResponse } from '@vercel/node';
+import rateLimit from '@vercel/node-rate-limiter';
+import jwt from 'jsonwebtoken';
+import { z } from 'zod';
+
+// Rate limiting
+const limiter = rateLimit({
+  interval: 60 * 1000, // 1 minute
+  uniqueTokenPerInterval: 500, // Max 500 users per minute
+});
+
+// Input validation schema
+const RequestSchema = z.object({
+  userId: z.string().uuid(),
+  action: z.enum(['read', 'write', 'delete']),
+  data: z.record(z.any()).optional()
+});
+
+export default async function handler(req: VercelRequest, res: VercelResponse) {
+  try {
+    // Rate limiting
+    await limiter.check(res, 10, 'CACHE_TOKEN'); // 10 requests per minute
+    
+    // CORS headers
+    res.setHeader('Access-Control-Allow-Origin', process.env.ALLOWED_ORIGINS || 'https://myapp.vercel.app');
+    res.setHeader('Access-Control-Allow-Credentials', 'true');
+    res.setHeader('Access-Control-Allow-Methods', 'GET, POST, PUT, DELETE, OPTIONS');
+    res.setHeader('Access-Control-Allow-Headers', 'Content-Type, Authorization, X-Requested-With');
+
+    if (req.method === 'OPTIONS') {
+      return res.status(200).end();
+    }
+
+    // Authentication
+    const authHeader = req.headers.authorization;
+    if (!authHeader || !authHeader.startsWith('Bearer ')) {
+      return res.status(401).json({
+        error: 'UNAUTHORIZED',
+        message: 'Valid authorization token required'
+      });
+    }
+
+    const token = authHeader.substring(7);
+    let decoded;
+    
+    try {
+      decoded = jwt.verify(token, process.env.JWT_SECRET!);
+    } catch (error) {
+      return res.status(401).json({
+        error: 'INVALID_TOKEN',
+        message: 'Token is invalid or expired'
+      });
+    }
+
+    // Input validation
+    const validationResult = RequestSchema.safeParse(req.body);
+    if (!validationResult.success) {
+      return res.status(400).json({
+        error: 'VALIDATION_ERROR',
+        message: 'Invalid request data',
+        details: validationResult.error.errors
+      });
+    }
+
+    // Security logging
+    console.log('Secure endpoint accessed:', {
+      userId: decoded.userId,
+      action: validationResult.data.action,
+      ip: req.headers['x-forwarded-for'] || req.connection.remoteAddress,
+      userAgent: req.headers['user-agent'],
+      timestamp: new Date().toISOString()
+    });
+
+    // Implementation here...
+    
+    return res.status(200).json({
+      success: true,
+      message: 'Request processed securely'
+    });
+
+  } catch (error) {
+    if (error.code === 'RATE_LIMITED') {
+      return res.status(429).json({
+        error: 'RATE_LIMITED',
+        message: 'Too many requests. Please try again later.'
+      });
+    }
+
+    console.error('Security endpoint error:', error);
+    return res.status(500).json({
+      error: 'INTERNAL_SERVER_ERROR',
+      message: 'An unexpected error occurred'
+    });
+  }
+}
+
+// Deployment protection configuration
+// Via Vercel Dashboard:
+// 1. Enable Password Protection for previews
+// 2. Configure Trusted IP addresses for production
+// 3. Enable Vercel Authentication for team access
+// 4. Set up deployment notifications
+
+// Environment-specific security
+const securityConfig = {
+  production: {
+    httpsOnly: true,
+    hsts: true,
+    csp: 'strict',
+    rateLimiting: 'aggressive'
+  },
+  preview: {
+    passwordProtection: true,
+    httpsOnly: true,
+    csp: 'moderate'
+  },
+  development: {
+    httpsOnly: false,
+    csp: 'permissive'
+  }
+};]]></correct-example>
+          <incorrect-example title="Insecure deployment" conditions="Deploying to production" expected-result="Secure deployment" incorrectness-criteria="No security headers, missing CSP, no rate limiting, weak authentication, no input validation"><![CDATA[// WRONG - Insecure deployment
+// No security headers
+// No CSP implementation
+// No rate limiting
+// No input validation
+
+// Insecure API endpoint
+export default async function handler(req, res) {
+  // No authentication
+  // No rate limiting
+  // No input validation
+  
+  const data = req.body; // Unsafe
+  
+  // Direct database query without validation
+  const result = await db.query(`SELECT * FROM users WHERE id = ${data.id}`); // SQL injection risk!
+  
+  res.json(result); // No error handling
+}
+
+// No HTTPS enforcement
+// No security headers
+// No deployment protection]]></incorrect-example>
+        </example>
+      </examples>
+    </requirement>
+
+    <!-- Monitoring and Analytics -->
+    <requirement priority="high">
+      <description>Implement comprehensive monitoring with Vercel Analytics, Speed Insights, Web Analytics, logging, and error tracking. Set up performance monitoring, deployment tracking, and operational observability.</description>
+      <examples>
+        <example title="Monitoring and Analytics">
+          <correct-example title="Comprehensive monitoring setup" conditions="Implementing production monitoring" expected-result="Complete observability and performance tracking" correctness-criteria="Analytics integration, performance monitoring, error tracking, logging, alerting"><![CDATA[// _app.tsx - Analytics integration
+import { Analytics } from '@vercel/analytics/react';
+import { SpeedInsights } from '@vercel/speed-insights/next';
+import { useEffect } from 'react';
+import { ErrorBoundary } from 'react-error-boundary';
+
+// Error tracking
+function ErrorFallback({ error, resetErrorBoundary }) {
+  useEffect(() => {
+    // Log error to monitoring service
+    console.error('Application error:', {
+      message: error.message,
+      stack: error.stack,
+      timestamp: new Date().toISOString(),
+      url: window.location.href,
+      userAgent: navigator.userAgent
+    });
+    
+    // Send to external monitoring (e.g., Sentry, LogRocket)
+    if (process.env.NODE_ENV === 'production') {
+      // Integration with error tracking service
+    }
+  }, [error]);
+
+  return (
+    <div className="min-h-screen flex items-center justify-center">
+      <div className="text-center">
+        <h2 className="text-2xl font-bold text-gray-900 mb-4">Something went wrong</h2>
+        <button
+          onClick={resetErrorBoundary}
+          className="px-4 py-2 bg-blue-500 text-white rounded hover:bg-blue-600"
+        >
+          Try again
+        </button>
+      </div>
+    </div>
+  );
+}
+
+export default function App({ Component, pageProps }) {
+  useEffect(() => {
+    // Performance monitoring
+    const observer = new PerformanceObserver((list) => {
+      for (const entry of list.getEntries()) {
+        if (entry.entryType === 'largest-contentful-paint') {
+          console.log('LCP:', entry.startTime);
+        }
+        if (entry.entryType === 'first-input') {
+          console.log('FID:', entry.processingStart - entry.startTime);
+        }
+        if (entry.entryType === 'layout-shift') {
+          if (!entry.hadRecentInput) {
+            console.log('CLS:', entry.value);
+          }
+        }
+      }
+    });
+
+    observer.observe({
+      entryTypes: ['largest-contentful-paint', 'first-input', 'layout-shift']
+    });
+
+    // Custom analytics tracking
+    const trackPageView = () => {
+      if (typeof window !== 'undefined' && window.gtag) {
+        window.gtag('config', process.env.NEXT_PUBLIC_GA_ID, {
+          page_title: document.title,
+          page_location: window.location.href
+        });
+      }
+    };
+
+    trackPageView();
+  }, []);
+
+  return (
+    <ErrorBoundary FallbackComponent={ErrorFallback}>
+      <Component {...pageProps} />
+      <Analytics />
+      <SpeedInsights />
+    </ErrorBoundary>
+  );
+}
+
+// API monitoring
+// api/users.ts
+import type { VercelRequest, VercelResponse } from '@vercel/node';
+
+export default async function handler(req: VercelRequest, res: VercelResponse) {
+  const startTime = Date.now();
+  const requestId = req.headers['x-vercel-id'] || 'unknown';
+
+  try {
+    // Implementation...
+    
+    const duration = Date.now() - startTime;
+    
+    // Success logging
+    console.log('API Request Success:', {
+      requestId,
+      method: req.method,
+      path: req.url,
+      duration: `${duration}ms`,
+      statusCode: 200,
+      timestamp: new Date().toISOString()
+    });
+
+    return res.status(200).json({ success: true });
+
+  } catch (error) {
+    const duration = Date.now() - startTime;
+    
+    // Error logging
+    console.error('API Request Error:', {
+      requestId,
+      method: req.method,
+      path: req.url,
+      duration: `${duration}ms`,
+      error: error.message,
+      stack: error.stack,
+      timestamp: new Date().toISOString()
+    });
+
+    return res.status(500).json({
+      error: 'INTERNAL_SERVER_ERROR',
+      requestId
+    });
+  }
+}
+
+// Custom analytics hook
+import { useEffect } from 'react';
+import { useRouter } from 'next/router';
+
+export function useAnalytics() {
+  const router = useRouter();
+
+  useEffect(() => {
+    const handleRouteChange = (url: string) => {
+      // Track page views
+      if (typeof window !== 'undefined' && window.gtag) {
+        window.gtag('config', process.env.NEXT_PUBLIC_GA_ID, {
+          page_path: url,
+        });
+      }
+    };
+
+    router.events.on('routeChangeComplete', handleRouteChange);
+    return () => {
+      router.events.off('routeChangeComplete', handleRouteChange);
+    };
+  }, [router.events]);
+
+  const trackEvent = (eventName: string, parameters?: any) => {
+    if (typeof window !== 'undefined' && window.gtag) {
+      window.gtag('event', eventName, parameters);
+    }
+  };
+
+  const trackConversion = (conversionId: string, value?: number) => {
+    if (typeof window !== 'undefined' && window.gtag) {
+      window.gtag('event', 'conversion', {
+        send_to: conversionId,
+        value: value,
+        currency: 'USD'
+      });
+    }
+  };
+
+  return { trackEvent, trackConversion };
+}
+
+// Log drain configuration (via Vercel CLI or Dashboard)
+// vercel.json
+{
+  "functions": {
+    "api/**/*.ts": {
+      "runtime": "@vercel/node@3.1.7"
+    }
+  },
+  "logDrains": [
+    {
+      "source": "lambda",
+      "destination": "https://logs.mydomain.com/vercel"
+    },
+    {
+      "source": "edge",
+      "destination": "https://logs.mydomain.com/vercel-edge"
+    }
+  ]
+}]]></correct-example>
+          <incorrect-example title="No monitoring implementation" conditions="Deploying to production" expected-result="Comprehensive monitoring" incorrectness-criteria="No analytics, no error tracking, no performance monitoring, no logging"><![CDATA[// WRONG - No monitoring
+export default function App({ Component, pageProps }) {
+  return <Component {...pageProps} />;
+  
+  // No analytics
+  // No error tracking
+  // No performance monitoring
+  // No logging
+}
+
+// No API monitoring
+export default async function handler(req, res) {
+  // No logging
+  // No error tracking
+  // No performance monitoring
+  
+  const result = await someOperation();
+  res.json(result);
+}]]></incorrect-example>
+        </example>
+      </examples>
+    </requirement>
+
+    <!-- Deployment Workflow and CI/CD -->
+    <requirement priority="high">
+      <description>Implement robust deployment workflows with preview deployments, production promotion, automated testing, rollback strategies, and comprehensive CI/CD integration with proper branch management and deployment protection.</description>
+      <examples>
+        <example title="Deployment Workflow">
+          <correct-example title="Comprehensive deployment workflow with CI/CD" conditions="Setting up production deployment pipeline" expected-result="Automated, safe deployment process with proper testing and rollback capabilities" correctness-criteria="Preview deployments, automated testing, production promotion, rollback strategy, proper branch management"><![CDATA[// .github/workflows/deploy.yml
+name: Deploy to Vercel
+
+on:
+  push:
+    branches: [main, develop]
+  pull_request:
+    branches: [main]
+
+env:
+  VERCEL_ORG_ID: ${{ secrets.VERCEL_ORG_ID }}
+  VERCEL_PROJECT_ID: ${{ secrets.VERCEL_PROJECT_ID }}
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+          cache: 'npm'
+          
+      - name: Install dependencies
+        run: npm ci
+        
+      - name: Run tests
+        run: npm run test:ci
+        
+      - name: Run E2E tests
+        run: npm run test:e2e:ci
+        
+      - name: Security audit
+        run: npm audit --audit-level high
+
+  deploy-preview:
+    needs: test
+    runs-on: ubuntu-latest
+    if: github.event_name == 'pull_request'
+    steps:
+      - uses: actions/checkout@v4
+      
+      - name: Install Vercel CLI
+        run: npm install --global vercel@latest
+        
+      - name: Pull Vercel Environment Information
+        run: vercel pull --yes --environment=preview --token=${{ secrets.VERCEL_TOKEN }}
+        
+      - name: Build Project Artifacts
+        run: vercel build --token=${{ secrets.VERCEL_TOKEN }}
+        
+      - name: Deploy Project Artifacts to Vercel
+        id: deploy
+        run: |
+          DEPLOYMENT_URL=$(vercel deploy --prebuilt --token=${{ secrets.VERCEL_TOKEN }})
+          echo "url=$DEPLOYMENT_URL" >> $GITHUB_OUTPUT
+          
+      - name: Run Lighthouse CI
+        uses: treosh/lighthouse-ci-action@v10
+        with:
+          urls: ${{ steps.deploy.outputs.url }}
+          configPath: './lighthouserc.json'
+          
+      - name: Comment PR
+        uses: actions/github-script@v7
+        with:
+          script: |
+            github.rest.issues.createComment({
+              issue_number: context.issue.number,
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              body: `✅ Preview deployment ready: ${{ steps.deploy.outputs.url }}`
+            })
+
+  deploy-production:
+    needs: test
+    runs-on: ubuntu-latest
+    if: github.ref == 'refs/heads/main' && github.event_name == 'push'
+    steps:
+      - uses: actions/checkout@v4
+      
+      - name: Install Vercel CLI
+        run: npm install --global vercel@latest
+        
+      - name: Pull Vercel Environment Information
+        run: vercel pull --yes --environment=production --token=${{ secrets.VERCEL_TOKEN }}
+        
+      - name: Build Project Artifacts
+        run: vercel build --prod --token=${{ secrets.VERCEL_TOKEN }}
+        
+      - name: Deploy Project Artifacts to Vercel
+        id: deploy
+        run: |
+          DEPLOYMENT_URL=$(vercel deploy --prebuilt --prod --token=${{ secrets.VERCEL_TOKEN }})
+          echo "url=$DEPLOYMENT_URL" >> $GITHUB_OUTPUT
+          
+      - name: Post-deployment verification
+        run: |
+          # Health check
+          curl -f ${{ steps.deploy.outputs.url }}/api/health
+          
+          # Smoke tests
+          npm run test:smoke -- --url=${{ steps.deploy.outputs.url }}
+
+// package.json deployment scripts
+{
+  "scripts": {
+    "test:ci": "jest --ci --coverage --watchAll=false",
+    "test:e2e:ci": "playwright test --reporter=github",
+    "test:smoke": "newman run tests/smoke/api-tests.json",
+    "build": "npm run lint && npm run type-check && next build",
+    "deploy:preview": "vercel",
+    "deploy:production": "vercel --prod",
+    "rollback": "vercel rollback --token=$VERCEL_TOKEN"
+  }
+}
+
+// Deployment configuration
+// vercel.json
+{
+  "version": 2,
+  "buildCommand": "npm run build",
+  "github": {
+    "enabled": true,
+    "autoAlias": false,
+    "silent": false,
+    "autoJobCancelation": true
+  },
+  "git": {
+    "deploymentEnabled": {
+      "main": true,
+      "develop": false
+    }
+  }
+}
+
+// lighthouserc.json - Performance testing
+{
+  "ci": {
+    "collect": {
+      "numberOfRuns": 3,
+      "settings": {
+        "preset": "desktop"
+      }
+    },
+    "assert": {
+      "assertions": {
+        "categories:performance": ["error", {"minScore": 0.8}],
+        "categories:accessibility": ["error", {"minScore": 0.9}],
+        "categories:best-practices": ["error", {"minScore": 0.8}],
+        "categories:seo": ["error", {"minScore": 0.8}]
+      }
+    }
+  }
+}
+
+// Rollback strategy
+// scripts/rollback.js
+const { execSync } = require('child_process');
+
+async function rollback(deploymentId) {
+  try {
+    console.log(`Rolling back to deployment: ${deploymentId}`);
+    
+    // Promote previous deployment
+    execSync(`vercel promote ${deploymentId} --token=${process.env.VERCEL_TOKEN}`);
+    
+    // Verify rollback
+    const response = await fetch('https://myapp.vercel.app/api/health');
+    if (!response.ok) {
+      throw new Error('Health check failed after rollback');
+    }
+    
+    console.log('✅ Rollback successful');
+    
+    // Notify team
+    await notifyTeam(`Rollback to ${deploymentId} completed successfully`);
+    
+  } catch (error) {
+    console.error('❌ Rollback failed:', error);
+    await notifyTeam(`Rollback failed: ${error.message}`);
+    process.exit(1);
+  }
+}
+
+// Deployment monitoring
+// api/health.ts
+export default function handler(req, res) {
+  const health = {
+    status: 'healthy',
+    timestamp: new Date().toISOString(),
+    version: process.env.VERCEL_GIT_COMMIT_SHA?.substring(0, 7) || 'unknown',
+    deployment: process.env.VERCEL_URL,
+    region: process.env.VERCEL_REGION,
+    environment: process.env.VERCEL_ENV
+  };
+  
+  res.status(200).json(health);
+}]]></correct-example>
+          <incorrect-example title="Manual deployment without CI/CD" conditions="Deploying to production" expected-result="Automated deployment workflow" incorrectness-criteria="Manual processes, no testing gates, no rollback strategy, no preview deployments"><![CDATA[// WRONG - Manual deployment
+# Manual deployment process
+vercel --prod
+
+# No automated testing
+# No preview deployments
+# No rollback strategy
+# No CI/CD integration
+# No deployment verification
+# No performance testing
+# No security checks]]></incorrect-example>
+        </example>
+      </examples>
+    </requirement>
+  </requirements>
+  <context description="Vercel deployment comprehensive best practices">
+    Vercel is a cloud platform optimized for frontend frameworks and serverless functions, providing automatic deployments, global CDN, and comprehensive developer tools. Modern Vercel deployment emphasizes Git integration, performance optimization, security best practices, and comprehensive monitoring.
+
+    Key principles for Vercel deployment include:
+    - Git-first deployment workflow with automatic deployments and preview environments
+    - Serverless function optimization for performance and cost efficiency
+    - Comprehensive security implementation with CSP, security headers, and access controls
+    - Performance optimization through asset optimization, caching, and CDN utilization
+    - Environment-specific configuration with proper secret management
+    - Monitoring and analytics integration for operational visibility
+    - Automated testing and deployment workflows with rollback capabilities
+
+    Vercel deployment best practices focus on leveraging the platform's native features including automatic HTTPS, global CDN, instant cache invalidation, and seamless integration with modern frameworks like Next.js, React, and Vue.js.
+
+    Performance optimization includes image optimization, asset compression, intelligent caching, and serverless function configuration for optimal cold start times and execution efficiency.
+
+    Security implementation covers Content Security Policy, security headers, rate limiting, input validation, and proper authentication/authorization patterns suitable for serverless environments.
+
+    Monitoring encompasses Vercel Analytics, Speed Insights, Web Analytics, comprehensive logging, error tracking, and integration with external monitoring services for complete operational observability.
+  </context>
+  <references>
+    <reference as="dependency" href=".cursor/rules/000-core/002-cursor-rules-creation.mdc" reason="Follows standard rule format">Base rule format definition</reference>
+    <reference as="context" href="https://vercel.com/docs/deployments" reason="Official Vercel deployment documentation">Comprehensive Vercel deployment guide and best practices</reference>
+    <reference as="context" href="https://vercel.com/docs/security" reason="Vercel security documentation">Security best practices and compliance measures</reference>
+    <reference as="context" href="https://vercel.com/docs/functions" reason="Vercel serverless functions">Serverless function optimization and configuration</reference>
+    <reference as="context" href="https://vercel.com/docs/observability" reason="Vercel monitoring and analytics">Monitoring, analytics, and observability implementation</reference>
+  </references>
+</rule>

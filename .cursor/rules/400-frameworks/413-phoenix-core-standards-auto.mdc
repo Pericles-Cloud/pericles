@@ -1,0 +1,1612 @@
+<rule>
+  <meta>
+    <title>Phoenix Core Standards</title>
+    <description>Comprehensive Phoenix web framework standards with LiveView, channels, contexts, security best practices, and performance optimization following Phoenix community standards</description>
+    <created-at utc-timestamp="1744157700">January 25, 2025, 10:15 AM</created-at>
+    <last-updated-at utc-timestamp="1744157700">January 25, 2025, 10:15 AM</last-updated-at>
+    <applies-to>
+      <file-matcher glob="**/*.{ex,exs,eex,heex,leex}">Elixir and Phoenix template files</file-matcher>
+      <file-matcher glob="**/lib/**/*">Phoenix application library files</file-matcher>
+      <file-matcher glob="**/web/**/*">Phoenix web layer files</file-matcher>
+      <file-matcher glob="**/priv/**/*">Phoenix private assets and migrations</file-matcher>
+      <action-matcher action="phoenix-development">Triggered when working with Phoenix web applications</action-matcher>
+    </applies-to>
+  </meta>
+  <requirements>
+    <non-negotiable priority="critical">
+      <description>Use proper Phoenix application structure with contexts for business logic, controllers for HTTP handling, and LiveView for real-time interactions. Implement comprehensive security measures including CSRF protection, input validation, and authorization patterns.</description>
+      <examples>
+        <example title="Phoenix Application Architecture">
+          <correct-example title="Proper Phoenix structure with contexts and security" conditions="Building Phoenix web application" expected-result="Secure, well-structured Phoenix application" correctness-criteria="Context boundaries, controller patterns, security measures, input validation"><![CDATA[# Elixir - Comprehensive Phoenix application structure
+
+# Context for business logic (lib/my_app/accounts.ex)
+defmodule MyApp.Accounts do
+  @moduledoc """
+  The Accounts context handles user management and authentication.
+  """
+  
+  import Ecto.Query, warn: false
+  alias MyApp.Repo
+  alias MyApp.Accounts.{User, UserToken}
+  
+  @doc """
+  Gets a user by email and password.
+  
+  ## Examples
+  
+      iex> get_user_by_email_and_password("user@example.com", "valid_password")
+      %User{}
+      
+      iex> get_user_by_email_and_password("user@example.com", "invalid_password")
+      nil
+  """
+  @spec get_user_by_email_and_password(String.t(), String.t()) :: User.t() | nil
+  def get_user_by_email_and_password(email, password)
+      when is_binary(email) and is_binary(password) do
+    user = Repo.get_by(User, email: email)
+    if User.valid_password?(user, password), do: user
+  end
+  
+  @doc """
+  Creates a user with proper validation.
+  """
+  @spec create_user(map()) :: {:ok, User.t()} | {:error, Ecto.Changeset.t()}
+  def create_user(attrs \\ %{}) do
+    %User{}
+    |> User.registration_changeset(attrs)
+    |> Repo.insert()
+  end
+  
+  @doc """
+  Updates a user with proper authorization.
+  """
+  @spec update_user(User.t(), map(), User.t()) :: {:ok, User.t()} | {:error, Ecto.Changeset.t()}
+  def update_user(%User{} = user, attrs, %User{} = current_user) do
+    with :ok <- authorize_user_update(user, current_user) do
+      user
+      |> User.update_changeset(attrs)
+      |> Repo.update()
+    end
+  end
+  
+  @doc """
+  Deletes a user with proper authorization and cleanup.
+  """
+  @spec delete_user(User.t(), User.t()) :: {:ok, User.t()} | {:error, Ecto.Changeset.t()}
+  def delete_user(%User{} = user, %User{} = current_user) do
+    with :ok <- authorize_user_deletion(user, current_user) do
+      Repo.transaction(fn ->
+        # Clean up related data
+        delete_user_tokens(user)
+        delete_user_sessions(user)
+        
+        # Delete user
+        Repo.delete(user)
+      end)
+    end
+  end
+  
+  # Private functions for authorization
+  defp authorize_user_update(%User{id: id}, %User{id: id}), do: :ok
+  defp authorize_user_update(_user, %User{role: :admin}), do: :ok
+  defp authorize_user_update(_user, _current_user), do: {:error, :unauthorized}
+  
+  defp authorize_user_deletion(%User{id: id}, %User{id: id}), do: :ok
+  defp authorize_user_deletion(_user, %User{role: :admin}), do: :ok
+  defp authorize_user_deletion(_user, _current_user), do: {:error, :unauthorized}
+  
+  defp delete_user_tokens(%User{} = user) do
+    from(t in UserToken, where: t.user_id == ^user.id)
+    |> Repo.delete_all()
+  end
+  
+  defp delete_user_sessions(%User{} = user) do
+    # Implementation for cleaning up user sessions
+    :ok
+  end
+end
+
+# Schema with proper validation (lib/my_app/accounts/user.ex)
+defmodule MyApp.Accounts.User do
+  use Ecto.Schema
+  import Ecto.Changeset
+  
+  @type t :: %__MODULE__{
+    id: integer(),
+    email: String.t(),
+    username: String.t(),
+    hashed_password: String.t(),
+    confirmed_at: DateTime.t() | nil,
+    role: atom(),
+    inserted_at: DateTime.t(),
+    updated_at: DateTime.t()
+  }
+  
+  schema "users" do
+    field :email, :string
+    field :username, :string
+    field :password, :string, virtual: true, redact: true
+    field :hashed_password, :string, redact: true
+    field :confirmed_at, :utc_datetime
+    field :role, Ecto.Enum, values: [:user, :admin, :moderator], default: :user
+    
+    timestamps()
+  end
+  
+  @doc """
+  A user changeset for registration.
+  """
+  def registration_changeset(user, attrs, opts \\ []) do
+    user
+    |> cast(attrs, [:email, :username, :password])
+    |> validate_email(opts)
+    |> validate_username()
+    |> validate_password(opts)
+  end
+  
+  @doc """
+  A user changeset for updating profile information.
+  """
+  def update_changeset(user, attrs) do
+    user
+    |> cast(attrs, [:email, :username])
+    |> validate_email()
+    |> validate_username()
+  end
+  
+  defp validate_email(changeset, opts \\ []) do
+    changeset
+    |> validate_required([:email])
+    |> validate_format(:email, ~r/^[^\s]+@[^\s]+$/, message: "must have the @ sign and no spaces")
+    |> validate_length(:email, max: 160)
+    |> maybe_validate_unique_email(opts)
+  end
+  
+  defp validate_username(changeset) do
+    changeset
+    |> validate_required([:username])
+    |> validate_length(:username, min: 3, max: 30)
+    |> validate_format(:username, ~r/^[a-zA-Z0-9_]+$/, 
+         message: "can only contain letters, numbers, and underscores")
+    |> unique_constraint(:username)
+  end
+  
+  defp validate_password(changeset, opts) do
+    changeset
+    |> validate_required([:password])
+    |> validate_length(:password, min: 8, max: 72)
+    |> validate_format(:password, ~r/[a-z]/, message: "at least one lower case character")
+    |> validate_format(:password, ~r/[A-Z]/, message: "at least one upper case character")
+    |> validate_format(:password, ~r/[!?@#$%^&*_0-9]/, message: "at least one digit or punctuation character")
+    |> maybe_hash_password(opts)
+  end
+  
+  defp maybe_validate_unique_email(changeset, opts) do
+    if Keyword.get(opts, :validate_email, true) do
+      changeset
+      |> unsafe_validate_unique(:email, MyApp.Repo)
+      |> unique_constraint(:email)
+    else
+      changeset
+    end
+  end
+  
+  defp maybe_hash_password(changeset, opts) do
+    hash_password? = Keyword.get(opts, :hash_password, true)
+    password = get_change(changeset, :password)
+    
+    if hash_password? && password && changeset.valid? do
+      changeset
+      |> validate_length(:password, max: 72, count: :bytes)
+      |> put_change(:hashed_password, Argon2.hash_pwd_salt(password))
+      |> delete_change(:password)
+    else
+      changeset
+    end
+  end
+  
+  @doc """
+  Verifies the password.
+  """
+  def valid_password?(%__MODULE__{hashed_password: hashed_password}, password)
+      when is_binary(hashed_password) and byte_size(password) > 0 do
+    Argon2.verify_pass(password, hashed_password)
+  end
+  
+  def valid_password?(_, _) do
+    Argon2.no_user_verify()
+    false
+  end
+end
+
+# Controller with proper security (lib/my_app_web/controllers/user_controller.ex)
+defmodule MyAppWeb.UserController do
+  use MyAppWeb, :controller
+  
+  alias MyApp.Accounts
+  alias MyApp.Accounts.User
+  
+  # Add security plugs
+  plug :ensure_authenticated when action in [:show, :edit, :update, :delete]
+  plug :ensure_authorized when action in [:edit, :update, :delete]
+  
+  def index(conn, params) do
+    # Implement pagination and filtering
+    page = Map.get(params, "page", "1") |> String.to_integer()
+    per_page = Map.get(params, "per_page", "20") |> String.to_integer()
+    
+    # Validate pagination parameters
+    page = max(1, page)
+    per_page = min(100, max(1, per_page))
+    
+    users = Accounts.list_users_paginated(page: page, per_page: per_page)
+    
+    conn
+    |> assign(:users, users)
+    |> assign(:page_title, "Users")
+    |> render(:index)
+  end
+  
+  def show(conn, %{"id" => id}) do
+    case Accounts.get_user(id) do
+      %User{} = user ->
+        conn
+        |> assign(:user, user)
+        |> assign(:page_title, user.username)
+        |> render(:show)
+      
+      nil ->
+        conn
+        |> put_flash(:error, "User not found")
+        |> redirect(to: ~p"/users")
+    end
+  end
+  
+  def new(conn, _params) do
+    changeset = Accounts.change_user(%User{})
+    
+    conn
+    |> assign(:changeset, changeset)
+    |> assign(:page_title, "New User")
+    |> render(:new)
+  end
+  
+  def create(conn, %{"user" => user_params}) do
+    case Accounts.create_user(user_params) do
+      {:ok, user} ->
+        conn
+        |> put_flash(:info, "User created successfully")
+        |> redirect(to: ~p"/users/#{user.id}")
+      
+      {:error, %Ecto.Changeset{} = changeset} ->
+        conn
+        |> assign(:changeset, changeset)
+        |> assign(:page_title, "New User")
+        |> put_status(:unprocessable_entity)
+        |> render(:new)
+    end
+  end
+  
+  def edit(conn, %{"id" => id}) do
+    user = Accounts.get_user!(id)
+    changeset = Accounts.change_user(user)
+    
+    conn
+    |> assign(:user, user)
+    |> assign(:changeset, changeset)
+    |> assign(:page_title, "Edit #{user.username}")
+    |> render(:edit)
+  end
+  
+  def update(conn, %{"id" => id, "user" => user_params}) do
+    user = Accounts.get_user!(id)
+    current_user = conn.assigns.current_user
+    
+    case Accounts.update_user(user, user_params, current_user) do
+      {:ok, user} ->
+        conn
+        |> put_flash(:info, "User updated successfully")
+        |> redirect(to: ~p"/users/#{user.id}")
+      
+      {:error, %Ecto.Changeset{} = changeset} ->
+        conn
+        |> assign(:user, user)
+        |> assign(:changeset, changeset)
+        |> assign(:page_title, "Edit #{user.username}")
+        |> put_status(:unprocessable_entity)
+        |> render(:edit)
+      
+      {:error, :unauthorized} ->
+        conn
+        |> put_flash(:error, "You are not authorized to update this user")
+        |> redirect(to: ~p"/users/#{user.id}")
+    end
+  end
+  
+  def delete(conn, %{"id" => id}) do
+    user = Accounts.get_user!(id)
+    current_user = conn.assigns.current_user
+    
+    case Accounts.delete_user(user, current_user) do
+      {:ok, _user} ->
+        conn
+        |> put_flash(:info, "User deleted successfully")
+        |> redirect(to: ~p"/users")
+      
+      {:error, :unauthorized} ->
+        conn
+        |> put_flash(:error, "You are not authorized to delete this user")
+        |> redirect(to: ~p"/users/#{user.id}")
+    end
+  end
+  
+  # Private plugs for security
+  defp ensure_authenticated(conn, _opts) do
+    case conn.assigns[:current_user] do
+      %User{} -> conn
+      _ ->
+        conn
+        |> put_flash(:error, "You must be logged in to access this page")
+        |> redirect(to: ~p"/auth/login")
+        |> halt()
+    end
+  end
+  
+  defp ensure_authorized(conn, _opts) do
+    user_id = conn.path_params["id"]
+    current_user = conn.assigns.current_user
+    
+    cond do
+      current_user.role == :admin -> conn
+      to_string(current_user.id) == user_id -> conn
+      true ->
+        conn
+        |> put_flash(:error, "You are not authorized to access this page")
+        |> redirect(to: ~p"/users")
+        |> halt()
+    end
+  end
+end
+
+# Router with proper security (lib/my_app_web/router.ex)
+defmodule MyAppWeb.Router do
+  use MyAppWeb, :router
+  
+  import MyAppWeb.UserAuth
+  
+  pipeline :browser do
+    plug :accepts, ["html"]
+    plug :fetch_session
+    plug :fetch_live_flash
+    plug :put_root_layout, html: {MyAppWeb.Layouts, :root}
+    plug :protect_from_forgery
+    plug :put_secure_browser_headers
+    plug :fetch_current_user
+  end
+  
+  pipeline :api do
+    plug :accepts, ["json"]
+    plug :fetch_api_user
+    plug :put_secure_api_headers
+  end
+  
+  # Public routes
+  scope "/", MyAppWeb do
+    pipe_through :browser
+    
+    get "/", PageController, :home
+    get "/about", PageController, :about
+  end
+  
+  # Authentication routes
+  scope "/auth", MyAppWeb do
+    pipe_through [:browser, :redirect_if_user_is_authenticated]
+    
+    live_session :redirect_if_user_is_authenticated,
+      on_mount: [{MyAppWeb.UserAuth, :redirect_if_user_is_authenticated}] do
+      live "/register", UserRegistrationLive, :new
+      live "/login", UserLoginLive, :new
+      live "/reset_password", UserForgotPasswordLive, :new
+      live "/reset_password/:token", UserResetPasswordLive, :edit
+    end
+    
+    post "/login", UserSessionController, :create
+  end
+  
+  # Authenticated routes
+  scope "/", MyAppWeb do
+    pipe_through [:browser, :require_authenticated_user]
+    
+    live_session :require_authenticated_user,
+      on_mount: [{MyAppWeb.UserAuth, :ensure_authenticated}] do
+      live "/users/settings", UserSettingsLive, :edit
+      live "/users/settings/confirm_email/:token", UserSettingsLive, :confirm_email
+    end
+  end
+  
+  # Admin routes
+  scope "/admin", MyAppWeb.Admin do
+    pipe_through [:browser, :require_authenticated_user, :require_admin_user]
+    
+    live_session :require_admin_user,
+      on_mount: [{MyAppWeb.UserAuth, :ensure_admin}] do
+      live "/", DashboardLive, :index
+      live "/users", UserLive.Index, :index
+      live "/users/new", UserLive.Index, :new
+      live "/users/:id/edit", UserLive.Index, :edit
+      live "/users/:id", UserLive.Show, :show
+      live "/users/:id/show/edit", UserLive.Show, :edit
+    end
+  end
+  
+  # API routes
+  scope "/api", MyAppWeb.Api, as: :api do
+    pipe_through :api
+    
+    scope "/v1", V1, as: :v1 do
+      resources "/users", UserController, except: [:new, :edit]
+      post "/auth/login", AuthController, :login
+      post "/auth/refresh", AuthController, :refresh
+      delete "/auth/logout", AuthController, :logout
+    end
+  end
+end]]></correct-example>
+          <incorrect-example title="Poor Phoenix structure without security measures" conditions="Building Phoenix application" expected-result="Secure Phoenix application" incorrectness-criteria="No contexts, poor security, no input validation, mixed concerns"><![CDATA[# BAD: Poor Phoenix structure without proper patterns
+
+# Controller doing business logic (lib/my_app_web/controllers/user_controller.ex)
+defmodule MyAppWeb.UserController do
+  use MyAppWeb, :controller
+  
+  alias MyApp.Repo
+  alias MyApp.User
+  
+  # No security measures
+  def index(conn, _params) do
+    # Direct database access in controller
+    users = Repo.all(User)
+    render(conn, :index, users: users)
+  end
+  
+  def create(conn, %{"user" => user_params}) do
+    # No input validation
+    # No authorization checks
+    changeset = User.changeset(%User{}, user_params)
+    
+    case Repo.insert(changeset) do
+      {:ok, user} ->
+        redirect(conn, to: "/users/#{user.id}")
+      {:error, changeset} ->
+        render(conn, :new, changeset: changeset)
+    end
+  end
+  
+  def delete(conn, %{"id" => id}) do
+    # Anyone can delete any user
+    user = Repo.get!(User, id)
+    Repo.delete!(user)
+    redirect(conn, to: "/users")
+  end
+end
+
+# Schema without proper validation (lib/my_app/user.ex)
+defmodule MyApp.User do
+  use Ecto.Schema
+  import Ecto.Changeset
+  
+  schema "users" do
+    field :email, :string
+    field :password, :string
+    # No password hashing
+    # No proper validation
+    
+    timestamps()
+  end
+  
+  def changeset(user, attrs) do
+    user
+    |> cast(attrs, [:email, :password])
+    # No validation
+  end
+end
+
+# Router without security (lib/my_app_web/router.ex)
+defmodule MyAppWeb.Router do
+  use MyAppWeb, :router
+  
+  pipeline :browser do
+    plug :accepts, ["html"]
+    # No CSRF protection
+    # No security headers
+  end
+  
+  scope "/", MyAppWeb do
+    pipe_through :browser
+    
+    # No authentication required
+    resources "/users", UserController
+  end
+end]]></incorrect-example>
+        </example>
+      </examples>
+    </non-negotiable>
+
+    <requirement priority="critical">
+      <description>Implement Phoenix LiveView with proper state management, event handling, form validation, and real-time features. Use LiveView for interactive user interfaces with server-side rendering and minimal JavaScript.</description>
+      <examples>
+        <example title="Phoenix LiveView Implementation">
+          <correct-example title="Comprehensive LiveView with state management and real-time features" conditions="Building interactive Phoenix LiveView" expected-result="Efficient real-time user interface with proper state management" correctness-criteria="LiveView patterns, state management, event handling, real-time updates, form validation"><![CDATA[# Elixir - Comprehensive Phoenix LiveView implementation
+
+# LiveView module (lib/my_app_web/live/dashboard_live.ex)
+defmodule MyAppWeb.DashboardLive do
+  use MyAppWeb, :live_view
+  
+  alias MyApp.{Accounts, Analytics, Notifications}
+  alias MyAppWeb.Presence
+  
+  @impl true
+  def mount(_params, session, socket) do
+    user = get_user_from_session(session)
+    
+    if connected?(socket) do
+      # Subscribe to real-time updates
+      Analytics.subscribe_to_updates(user.id)
+      Notifications.subscribe_to_user(user.id)
+      
+      # Track presence
+      Presence.track(self(), "dashboard:#{user.id}", user.id, %{
+        username: user.username,
+        joined_at: DateTime.utc_now()
+      })
+      
+      # Schedule periodic updates
+      :timer.send_interval(30_000, self(), :update_metrics)
+    end
+    
+    socket =
+      socket
+      |> assign(:current_user, user)
+      |> assign(:page_title, "Dashboard")
+      |> assign(:loading, true)
+      |> assign(:selected_period, "7d")
+      |> assign(:metrics, %{})
+      |> assign(:notifications, [])
+      |> assign(:online_users, [])
+      |> assign(:form, to_form(%{}))
+      |> load_initial_data()
+    
+    {:ok, socket}
+  end
+  
+  @impl true
+  def handle_params(params, _url, socket) do
+    period = Map.get(params, "period", "7d")
+    
+    socket =
+      socket
+      |> assign(:selected_period, period)
+      |> load_metrics_for_period(period)
+    
+    {:noreply, socket}
+  end
+  
+  @impl true
+  def handle_event("change_period", %{"period" => period}, socket) do
+    socket =
+      socket
+      |> assign(:loading, true)
+      |> push_patch(to: ~p"/dashboard?period=#{period}")
+    
+    {:noreply, socket}
+  end
+  
+  @impl true
+  def handle_event("refresh_data", _params, socket) do
+    socket =
+      socket
+      |> assign(:loading, true)
+      |> load_metrics_for_period(socket.assigns.selected_period)
+      |> put_flash(:info, "Data refreshed successfully")
+    
+    {:noreply, socket}
+  end
+  
+  @impl true
+  def handle_event("dismiss_notification", %{"id" => id}, socket) do
+    case Notifications.dismiss_notification(id, socket.assigns.current_user) do
+      {:ok, _notification} ->
+        notifications = Enum.reject(socket.assigns.notifications, &(&1.id == id))
+        
+        socket =
+          socket
+          |> assign(:notifications, notifications)
+          |> put_flash(:info, "Notification dismissed")
+        
+        {:noreply, socket}
+      
+      {:error, :not_found} ->
+        {:noreply, put_flash(socket, :error, "Notification not found")}
+      
+      {:error, :unauthorized} ->
+        {:noreply, put_flash(socket, :error, "Not authorized to dismiss this notification")}
+    end
+  end
+  
+  @impl true
+  def handle_event("validate_settings", %{"settings" => settings_params}, socket) do
+    changeset =
+      socket.assigns.current_user
+      |> Accounts.change_user_settings(settings_params)
+      |> Map.put(:action, :validate)
+    
+    socket = assign(socket, :form, to_form(changeset))
+    
+    {:noreply, socket}
+  end
+  
+  @impl true
+  def handle_event("save_settings", %{"settings" => settings_params}, socket) do
+    case Accounts.update_user_settings(socket.assigns.current_user, settings_params) do
+      {:ok, user} ->
+        socket =
+          socket
+          |> assign(:current_user, user)
+          |> put_flash(:info, "Settings updated successfully")
+        
+        {:noreply, socket}
+      
+      {:error, %Ecto.Changeset{} = changeset} ->
+        socket = assign(socket, :form, to_form(changeset))
+        {:noreply, socket}
+    end
+  end
+  
+  @impl true
+  def handle_info(:update_metrics, socket) do
+    socket = load_metrics_for_period(socket, socket.assigns.selected_period)
+    {:noreply, socket}
+  end
+  
+  @impl true
+  def handle_info({:metric_updated, metric}, socket) do
+    metrics = Map.put(socket.assigns.metrics, metric.type, metric.value)
+    socket = assign(socket, :metrics, metrics)
+    {:noreply, socket}
+  end
+  
+  @impl true
+  def handle_info({:new_notification, notification}, socket) do
+    notifications = [notification | socket.assigns.notifications]
+    
+    socket =
+      socket
+      |> assign(:notifications, notifications)
+      |> put_flash(:info, "New notification received")
+    
+    {:noreply, socket}
+  end
+  
+  @impl true
+  def handle_info(%{event: "presence_diff", payload: diff}, socket) do
+    online_users = 
+      Presence.list("dashboard:#{socket.assigns.current_user.id}")
+      |> Enum.map(fn {_user_id, data} ->
+        data[:metas]
+        |> List.first()
+      end)
+    
+    socket = assign(socket, :online_users, online_users)
+    {:noreply, socket}
+  end
+  
+  # Private helper functions
+  defp get_user_from_session(session) do
+    # Implementation to get user from session
+    %{id: 1, username: "test_user"}
+  end
+  
+  defp load_initial_data(socket) do
+    user = socket.assigns.current_user
+    
+    # Load data asynchronously
+    Task.start_link(fn ->
+      metrics = Analytics.get_user_metrics(user.id, "7d")
+      send(self(), {:metrics_loaded, metrics})
+    end)
+    
+    Task.start_link(fn ->
+      notifications = Notifications.get_user_notifications(user.id, limit: 5)
+      send(self(), {:notifications_loaded, notifications})
+    end)
+    
+    socket
+  end
+  
+  defp load_metrics_for_period(socket, period) do
+    user = socket.assigns.current_user
+    
+    # Simulate async loading
+    Process.send_after(self(), {:metrics_loaded, %{
+      views: 1234,
+      clicks: 567,
+      conversions: 89
+    }}, 500)
+    
+    assign(socket, :loading, true)
+  end
+  
+  @impl true
+  def handle_info({:metrics_loaded, metrics}, socket) do
+    socket =
+      socket
+      |> assign(:metrics, metrics)
+      |> assign(:loading, false)
+    
+    {:noreply, socket}
+  end
+  
+  @impl true
+  def handle_info({:notifications_loaded, notifications}, socket) do
+    socket = assign(socket, :notifications, notifications)
+    {:noreply, socket}
+  end
+  
+  @impl true
+  def render(assigns) do
+    ~H"""
+    <div class="dashboard">
+      <.header>
+        Dashboard
+        <:subtitle>Welcome back, <%= @current_user.username %>!</:subtitle>
+        <:actions>
+          <.button phx-click="refresh_data" disabled={@loading}>
+            <.icon name="hero-arrow-path" class="w-4 h-4" />
+            Refresh
+          </.button>
+        </:actions>
+      </.header>
+      
+      <!-- Period selector -->
+      <div class="mb-6">
+        <label class="block text-sm font-medium text-gray-700 mb-2">
+          Time Period
+        </label>
+        <select 
+          name="period" 
+          value={@selected_period}
+          phx-change="change_period"
+          class="select"
+        >
+          <option value="1d">Last 24 hours</option>
+          <option value="7d">Last 7 days</option>
+          <option value="30d">Last 30 days</option>
+          <option value="90d">Last 90 days</option>
+        </select>
+      </div>
+      
+      <!-- Metrics cards -->
+      <div class="grid grid-cols-1 md:grid-cols-3 gap-6 mb-8">
+        <.metric_card 
+          title="Page Views" 
+          value={@metrics[:views] || 0}
+          loading={@loading}
+          trend="+12.5%"
+          trend_positive={true}
+        />
+        <.metric_card 
+          title="Clicks" 
+          value={@metrics[:clicks] || 0}
+          loading={@loading}
+          trend="+8.2%"
+          trend_positive={true}
+        />
+        <.metric_card 
+          title="Conversions" 
+          value={@metrics[:conversions] || 0}
+          loading={@loading}
+          trend="-2.1%"
+          trend_positive={false}
+        />
+      </div>
+      
+      <!-- Notifications -->
+      <div class="mb-8">
+        <h2 class="text-lg font-semibold mb-4">Recent Notifications</h2>
+        <div class="space-y-3">
+          <%= for notification <- @notifications do %>
+            <.notification_item 
+              notification={notification}
+              on_dismiss={JS.push("dismiss_notification", value: %{id: notification.id})}
+            />
+          <% end %>
+          
+          <%= if Enum.empty?(@notifications) do %>
+            <p class="text-gray-500 text-center py-8">
+              No recent notifications
+            </p>
+          <% end %>
+        </div>
+      </div>
+      
+      <!-- Live users -->
+      <div class="mb-8">
+        <h2 class="text-lg font-semibold mb-4">
+          Online Users (<%= length(@online_users) %>)
+        </h2>
+        <div class="flex flex-wrap gap-2">
+          <%= for user <- @online_users do %>
+            <.user_badge user={user} />
+          <% end %>
+        </div>
+      </div>
+      
+      <!-- Settings form -->
+      <div class="bg-white rounded-lg shadow p-6">
+        <h2 class="text-lg font-semibold mb-4">Quick Settings</h2>
+        
+        <.simple_form
+          for={@form}
+          phx-change="validate_settings"
+          phx-submit="save_settings"
+        >
+          <.input
+            field={@form[:email_notifications]}
+            type="checkbox"
+            label="Email notifications"
+          />
+          <.input
+            field={@form[:theme]}
+            type="select"
+            label="Theme"
+            options={[{"Light", "light"}, {"Dark", "dark"}, {"Auto", "auto"}]}
+          />
+          <:actions>
+            <.button type="submit">Save Settings</.button>
+          </:actions>
+        </.simple_form>
+      </div>
+    </div>
+    """
+  end
+end
+
+# Component functions (lib/my_app_web/live/dashboard_live.ex or separate module)
+defmodule MyAppWeb.DashboardComponents do
+  use Phoenix.Component
+  import MyAppWeb.CoreComponents
+  
+  attr :title, :string, required: true
+  attr :value, :integer, required: true
+  attr :loading, :boolean, default: false
+  attr :trend, :string, default: nil
+  attr :trend_positive, :boolean, default: true
+  
+  def metric_card(assigns) do
+    ~H"""
+    <div class="bg-white rounded-lg shadow p-6">
+      <h3 class="text-sm font-medium text-gray-500 mb-2"><%= @title %></h3>
+      
+      <%= if @loading do %>
+        <div class="animate-pulse">
+          <div class="h-8 bg-gray-200 rounded w-24 mb-2"></div>
+          <div class="h-4 bg-gray-200 rounded w-16"></div>
+        </div>
+      <% else %>
+        <p class="text-2xl font-bold text-gray-900 mb-2">
+          <%= Number.Delimit.number_to_delimited(@value) %>
+        </p>
+        
+        <%= if @trend do %>
+          <p class={[
+            "text-sm font-medium",
+            if(@trend_positive, do: "text-green-600", else: "text-red-600")
+          ]}>
+            <%= @trend %>
+          </p>
+        <% end %>
+      <% end %>
+    </div>
+    """
+  end
+  
+  attr :notification, :map, required: true
+  attr :on_dismiss, JS, default: %JS{}
+  
+  def notification_item(assigns) do
+    ~H"""
+    <div class="flex items-start justify-between p-4 bg-blue-50 rounded-lg">
+      <div class="flex-1">
+        <p class="text-sm font-medium text-blue-900">
+          <%= @notification.title %>
+        </p>
+        <p class="text-sm text-blue-700 mt-1">
+          <%= @notification.message %>
+        </p>
+        <p class="text-xs text-blue-600 mt-2">
+          <%= Calendar.strftime(@notification.inserted_at, "%B %d, %Y at %I:%M %p") %>
+        </p>
+      </div>
+      
+      <button
+        type="button"
+        phx-click={@on_dismiss}
+        class="text-blue-400 hover:text-blue-500"
+      >
+        <.icon name="hero-x-mark" class="w-5 h-5" />
+      </button>
+    </div>
+    """
+  end
+  
+  attr :user, :map, required: true
+  
+  def user_badge(assigns) do
+    ~H"""
+    <span class="inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium bg-green-100 text-green-800">
+      <span class="w-2 h-2 bg-green-400 rounded-full mr-1.5"></span>
+      <%= @user.username %>
+    </span>
+    """
+  end
+end]]></correct-example>
+          <incorrect-example title="Poor LiveView without proper patterns" conditions="Building LiveView interface" expected-result="Proper LiveView implementation" incorrectness-criteria="No state management, poor event handling, no real-time features, security issues"><![CDATA[# BAD: Poor LiveView implementation
+
+defmodule MyAppWeb.BadDashboardLive do
+  use MyAppWeb, :live_view
+  
+  # No proper mount function
+  def mount(_params, _session, socket) do
+    # No user authentication
+    # No real-time subscriptions
+    {:ok, assign(socket, :data, "some data")}
+  end
+  
+  # No proper event handling
+  def handle_event("update", _params, socket) do
+    # Direct database calls in LiveView
+    data = MyApp.Repo.all(MyApp.SomeModel)
+    {:noreply, assign(socket, :data, data)}
+  end
+  
+  # No proper render function
+  def render(assigns) do
+    ~H"""
+    <div>
+      <!-- No proper HTML structure -->
+      <!-- No accessibility -->
+      <!-- No loading states -->
+      <%= @data %>
+    </div>
+    """
+  end
+  
+  # No real-time handling
+  # No presence tracking
+  # No form validation
+  # No error handling
+end]]></incorrect-example>
+        </example>
+      </examples>
+    </requirement>
+
+    <requirement priority="high">
+      <description>Implement comprehensive testing for Phoenix applications including unit tests for contexts, controller tests with proper setup, LiveView tests with interaction simulation, and integration tests for end-to-end workflows.</description>
+      <examples>
+        <example title="Phoenix Testing Strategies">
+          <correct-example title="Comprehensive Phoenix testing with proper patterns and coverage" conditions="Testing Phoenix applications" expected-result="Thorough test coverage with proper setup and patterns" correctness-criteria="Context tests, controller tests, LiveView tests, integration tests, proper mocking"><![CDATA[# Elixir - Comprehensive Phoenix testing patterns
+
+# Context testing (test/my_app/accounts_test.exs)
+defmodule MyApp.AccountsTest do
+  use MyApp.DataCase, async: true
+  
+  alias MyApp.Accounts
+  alias MyApp.Accounts.User
+  
+  describe "get_user_by_email_and_password/2" do
+    test "returns user with valid email and password" do
+      user = user_fixture()
+      
+      assert %User{} = returned_user = 
+        Accounts.get_user_by_email_and_password(user.email, valid_user_password())
+      
+      assert returned_user.id == user.id
+    end
+    
+    test "returns nil with invalid password" do
+      user = user_fixture()
+      
+      assert nil == 
+        Accounts.get_user_by_email_and_password(user.email, "invalid_password")
+    end
+    
+    test "returns nil with invalid email" do
+      assert nil == 
+        Accounts.get_user_by_email_and_password("invalid@example.com", valid_user_password())
+    end
+  end
+  
+  describe "create_user/1" do
+    test "creates user with valid attributes" do
+      attrs = valid_user_attributes()
+      
+      assert {:ok, %User{} = user} = Accounts.create_user(attrs)
+      assert user.email == attrs.email
+      assert user.username == attrs.username
+      assert Argon2.verify_pass(attrs.password, user.hashed_password)
+    end
+    
+    test "returns error changeset with invalid email" do
+      attrs = valid_user_attributes(%{email: "invalid"})
+      
+      assert {:error, %Ecto.Changeset{} = changeset} = Accounts.create_user(attrs)
+      assert "must have the @ sign and no spaces" in errors_on(changeset).email
+    end
+    
+    test "returns error changeset with weak password" do
+      attrs = valid_user_attributes(%{password: "123"})
+      
+      assert {:error, %Ecto.Changeset{} = changeset} = Accounts.create_user(attrs)
+      assert "should be at least 8 character(s)" in errors_on(changeset).password
+    end
+    
+    test "returns error changeset with duplicate email" do
+      user = user_fixture()
+      attrs = valid_user_attributes(%{email: user.email})
+      
+      assert {:error, %Ecto.Changeset{} = changeset} = Accounts.create_user(attrs)
+      assert "has already been taken" in errors_on(changeset).email
+    end
+  end
+  
+  describe "update_user/3" do
+    test "allows user to update their own profile" do
+      user = user_fixture()
+      attrs = %{username: "new_username"}
+      
+      assert {:ok, %User{} = updated_user} = Accounts.update_user(user, attrs, user)
+      assert updated_user.username == "new_username"
+    end
+    
+    test "allows admin to update any user" do
+      admin = user_fixture(%{role: :admin})
+      user = user_fixture()
+      attrs = %{username: "admin_updated"}
+      
+      assert {:ok, %User{} = updated_user} = Accounts.update_user(user, attrs, admin)
+      assert updated_user.username == "admin_updated"
+    end
+    
+    test "prevents unauthorized user from updating another user" do
+      user1 = user_fixture()
+      user2 = user_fixture()
+      attrs = %{username: "unauthorized_update"}
+      
+      assert {:error, :unauthorized} = Accounts.update_user(user1, attrs, user2)
+    end
+  end
+  
+  # Test helper functions
+  defp valid_user_attributes(attrs \\ %{}) do
+    Enum.into(attrs, %{
+      email: unique_user_email(),
+      username: unique_user_username(),
+      password: valid_user_password()
+    })
+  end
+  
+  defp unique_user_email, do: "user#{System.unique_integer()}@example.com"
+  defp unique_user_username, do: "user#{System.unique_integer()}"
+  defp valid_user_password, do: "ValidPassword123!"
+  
+  defp user_fixture(attrs \\ %{}) do
+    {:ok, user} = 
+      attrs
+      |> valid_user_attributes()
+      |> Accounts.create_user()
+    
+    user
+  end
+end
+
+# Controller testing (test/my_app_web/controllers/user_controller_test.exs)
+defmodule MyAppWeb.UserControllerTest do
+  use MyAppWeb.ConnCase, async: true
+  
+  import MyApp.AccountsFixtures
+  
+  describe "index" do
+    test "lists all users when authenticated as admin", %{conn: conn} do
+      admin = admin_user_fixture()
+      users = [user_fixture(), user_fixture()]
+      
+      conn =
+        conn
+        |> log_in_user(admin)
+        |> get(~p"/users")
+      
+      assert html_response(conn, 200) =~ "Users"
+      
+      for user <- users do
+        assert html_response(conn, 200) =~ user.username
+      end
+    end
+    
+    test "redirects when not authenticated", %{conn: conn} do
+      conn = get(conn, ~p"/users")
+      
+      assert redirected_to(conn) == ~p"/auth/login"
+    end
+    
+    test "returns forbidden for non-admin users", %{conn: conn} do
+      user = user_fixture()
+      
+      conn =
+        conn
+        |> log_in_user(user)
+        |> get(~p"/users")
+      
+      assert redirected_to(conn) == ~p"/"
+      assert Phoenix.Flash.get(conn.assigns.flash, :error) =~ "not authorized"
+    end
+  end
+  
+  describe "show" do
+    test "displays user when user views own profile", %{conn: conn} do
+      user = user_fixture()
+      
+      conn =
+        conn
+        |> log_in_user(user)
+        |> get(~p"/users/#{user.id}")
+      
+      assert html_response(conn, 200) =~ user.username
+      assert html_response(conn, 200) =~ user.email
+    end
+    
+    test "displays user when admin views any profile", %{conn: conn} do
+      admin = admin_user_fixture()
+      user = user_fixture()
+      
+      conn =
+        conn
+        |> log_in_user(admin)
+        |> get(~p"/users/#{user.id}")
+      
+      assert html_response(conn, 200) =~ user.username
+    end
+    
+    test "returns 404 for non-existent user", %{conn: conn} do
+      admin = admin_user_fixture()
+      
+      assert_error_sent 404, fn ->
+        conn
+        |> log_in_user(admin)
+        |> get(~p"/users/999999")
+      end
+    end
+  end
+  
+  describe "create" do
+    test "creates user with valid data", %{conn: conn} do
+      admin = admin_user_fixture()
+      user_params = valid_user_attributes()
+      
+      conn =
+        conn
+        |> log_in_user(admin)
+        |> post(~p"/users", user: user_params)
+      
+      assert %{id: id} = redirected_params(conn)
+      assert redirected_to(conn) == ~p"/users/#{id}"
+      
+      # Verify user was created
+      user = MyApp.Accounts.get_user!(id)
+      assert user.email == user_params.email
+    end
+    
+    test "returns errors with invalid data", %{conn: conn} do
+      admin = admin_user_fixture()
+      invalid_params = %{email: "invalid", password: "123"}
+      
+      conn =
+        conn
+        |> log_in_user(admin)
+        |> post(~p"/users", user: invalid_params)
+      
+      assert html_response(conn, 422) =~ "New User"
+      assert html_response(conn, 422) =~ "must have the @ sign"
+    end
+  end
+  
+  describe "update" do
+    test "updates user when authorized", %{conn: conn} do
+      user = user_fixture()
+      update_params = %{username: "updated_username"}
+      
+      conn =
+        conn
+        |> log_in_user(user)
+        |> put(~p"/users/#{user.id}", user: update_params)
+      
+      assert redirected_to(conn) == ~p"/users/#{user.id}"
+      
+      # Verify update
+      updated_user = MyApp.Accounts.get_user!(user.id)
+      assert updated_user.username == "updated_username"
+    end
+    
+    test "prevents unauthorized updates", %{conn: conn} do
+      user1 = user_fixture()
+      user2 = user_fixture()
+      
+      conn =
+        conn
+        |> log_in_user(user2)
+        |> put(~p"/users/#{user1.id}", user: %{username: "hacked"})
+      
+      assert redirected_to(conn) == ~p"/users/#{user1.id}"
+      assert Phoenix.Flash.get(conn.assigns.flash, :error) =~ "not authorized"
+    end
+  end
+end
+
+# LiveView testing (test/my_app_web/live/dashboard_live_test.exs)
+defmodule MyAppWeb.DashboardLiveTest do
+  use MyAppWeb.ConnCase, async: true
+  
+  import Phoenix.LiveViewTest
+  import MyApp.AccountsFixtures
+  
+  describe "Dashboard LiveView" do
+    test "displays dashboard for authenticated user", %{conn: conn} do
+      user = user_fixture()
+      
+      {:ok, _view, html} =
+        conn
+        |> log_in_user(user)
+        |> live(~p"/dashboard")
+      
+      assert html =~ "Dashboard"
+      assert html =~ "Welcome back, #{user.username}!"
+    end
+    
+    test "redirects unauthenticated users", %{conn: conn} do
+      assert {:error, {:redirect, %{to: "/auth/login"}}} = 
+        live(conn, ~p"/dashboard")
+    end
+    
+    test "loads initial data on mount", %{conn: conn} do
+      user = user_fixture()
+      
+      {:ok, view, _html} =
+        conn
+        |> log_in_user(user)
+        |> live(~p"/dashboard")
+      
+      # Wait for async data loading
+      assert render_async(view) =~ "Page Views"
+      assert render_async(view) =~ "Clicks"
+      assert render_async(view) =~ "Conversions"
+    end
+    
+    test "changes period when period selector is updated", %{conn: conn} do
+      user = user_fixture()
+      
+      {:ok, view, _html} =
+        conn
+        |> log_in_user(user)
+        |> live(~p"/dashboard")
+      
+      # Change period
+      html = 
+        view
+        |> form("select[name='period']", %{period: "30d"})
+        |> render_change()
+      
+      assert_patch(view, ~p"/dashboard?period=30d")
+    end
+    
+    test "refreshes data when refresh button is clicked", %{conn: conn} do
+      user = user_fixture()
+      
+      {:ok, view, _html} =
+        conn
+        |> log_in_user(user)
+        |> live(~p"/dashboard")
+      
+      # Click refresh button
+      html = 
+        view
+        |> element("button", "Refresh")
+        |> render_click()
+      
+      assert html =~ "Data refreshed successfully"
+    end
+    
+    test "dismisses notification when dismiss button is clicked", %{conn: conn} do
+      user = user_fixture()
+      notification = notification_fixture(user)
+      
+      {:ok, view, _html} =
+        conn
+        |> log_in_user(user)
+        |> live(~p"/dashboard")
+      
+      # Wait for notifications to load
+      assert render_async(view) =~ notification.title
+      
+      # Dismiss notification
+      html =
+        view
+        |> element("[phx-click='dismiss_notification'][phx-value-id='#{notification.id}']")
+        |> render_click()
+      
+      assert html =~ "Notification dismissed"
+      refute html =~ notification.title
+    end
+    
+    test "validates settings form", %{conn: conn} do
+      user = user_fixture()
+      
+      {:ok, view, _html} =
+        conn
+        |> log_in_user(user)
+        |> live(~p"/dashboard")
+      
+      # Submit invalid form
+      html =
+        view
+        |> form("#settings-form", settings: %{email_notifications: "invalid"})
+        |> render_change()
+      
+      assert html =~ "is invalid"
+    end
+    
+    test "saves settings form with valid data", %{conn: conn} do
+      user = user_fixture()
+      
+      {:ok, view, _html} =
+        conn
+        |> log_in_user(user)
+        |> live(~p"/dashboard")
+      
+      # Submit valid form
+      html =
+        view
+        |> form("#settings-form", settings: %{
+          email_notifications: true,
+          theme: "dark"
+        })
+        |> render_submit()
+      
+      assert html =~ "Settings updated successfully"
+    end
+    
+    test "receives real-time metric updates", %{conn: conn} do
+      user = user_fixture()
+      
+      {:ok, view, _html} =
+        conn
+        |> log_in_user(user)
+        |> live(~p"/dashboard")
+      
+      # Simulate real-time update
+      send(view.pid, {:metric_updated, %{type: :views, value: 9999}})
+      
+      html = render(view)
+      assert html =~ "9,999"
+    end
+    
+    test "receives real-time notifications", %{conn: conn} do
+      user = user_fixture()
+      
+      {:ok, view, _html} =
+        conn
+        |> log_in_user(user)
+        |> live(~p"/dashboard")
+      
+      # Simulate new notification
+      notification = %{
+        id: "123",
+        title: "New Message",
+        message: "You have a new message",
+        inserted_at: DateTime.utc_now()
+      }
+      
+      send(view.pid, {:new_notification, notification})
+      
+      html = render(view)
+      assert html =~ "New Message"
+      assert html =~ "New notification received"
+    end
+  end
+  
+  # Test helper functions
+  defp notification_fixture(user) do
+    %{
+      id: "test-#{System.unique_integer()}",
+      user_id: user.id,
+      title: "Test Notification",
+      message: "This is a test notification",
+      inserted_at: DateTime.utc_now()
+    }
+  end
+end
+
+# Integration testing (test/my_app_web/integration/user_flow_test.exs)
+defmodule MyAppWeb.UserFlowTest do
+  use MyAppWeb.ConnCase, async: false
+  
+  import Phoenix.LiveViewTest
+  import MyApp.AccountsFixtures
+  
+  describe "User registration and login flow" do
+    test "complete user registration and dashboard access", %{conn: conn} do
+      # Step 1: Visit registration page
+      {:ok, view, html} = live(conn, ~p"/auth/register")
+      
+      assert html =~ "Create Account"
+      
+      # Step 2: Fill out registration form
+      user_attrs = %{
+        email: "newuser@example.com",
+        username: "newuser",
+        password: "ValidPassword123!",
+        password_confirmation: "ValidPassword123!"
+      }
+      
+      html =
+        view
+        |> form("#registration-form", user: user_attrs)
+        |> render_submit()
+      
+      # Step 3: Verify redirection to login
+      assert_redirect(view, ~p"/auth/login")
+      
+      # Step 4: Login with new credentials
+      {:ok, view, html} = live(conn, ~p"/auth/login")
+      
+      html =
+        view
+        |> form("#login-form", user: %{
+          email: user_attrs.email,
+          password: user_attrs.password
+        })
+        |> render_submit()
+      
+      # Step 5: Verify access to dashboard
+      assert_redirect(view, ~p"/dashboard")
+      
+      # Step 6: Access dashboard and verify content
+      {:ok, view, html} = 
+        conn
+        |> follow_redirect(view)
+        |> live(~p"/dashboard")
+      
+      assert html =~ "Welcome back, #{user_attrs.username}!"
+      assert html =~ "Dashboard"
+    end
+    
+    test "admin user management workflow", %{conn: conn} do
+      admin = admin_user_fixture()
+      
+      # Step 1: Login as admin
+      conn = log_in_user(conn, admin)
+      
+      # Step 2: Access user management
+      {:ok, view, html} = live(conn, ~p"/admin/users")
+      
+      assert html =~ "User Management"
+      
+      # Step 3: Create new user
+      html =
+        view
+        |> element("a", "New User")
+        |> render_click()
+      
+      assert html =~ "New User"
+      
+      user_attrs = %{
+        email: "managed@example.com",
+        username: "manageduser",
+        password: "ManagedPassword123!"
+      }
+      
+      html =
+        view
+        |> form("#user-form", user: user_attrs)
+        |> render_submit()
+      
+      # Step 4: Verify user creation
+      assert html =~ "User created successfully"
+      assert html =~ user_attrs.username
+      
+      # Step 5: Edit user
+      html =
+        view
+        |> element("a[phx-click='edit'][phx-value-id]")
+        |> render_click()
+      
+      assert html =~ "Edit User"
+      
+      html =
+        view
+        |> form("#user-form", user: %{username: "updated_username"})
+        |> render_submit()
+      
+      assert html =~ "User updated successfully"
+      assert html =~ "updated_username"
+    end
+  end
+end]]></correct-example>
+          <incorrect-example title="Poor Phoenix testing without proper coverage" conditions="Testing Phoenix applications" expected-result="Comprehensive testing strategy" incorrectness-criteria="No proper setup, missing test categories, poor assertions, no mocking"><![CDATA[# BAD: Poor Phoenix testing patterns
+
+# Minimal context testing
+defmodule MyApp.BadAccountsTest do
+  use ExUnit.Case
+  
+  # No proper setup
+  # No data case
+  
+  test "creates user" do
+    # No proper fixtures
+    # No comprehensive testing
+    user = MyApp.Accounts.create_user(%{email: "test@test.com"})
+    assert user
+  end
+  
+  # No edge cases
+  # No authorization testing
+  # No validation testing
+end
+
+# Poor controller testing
+defmodule MyAppWeb.BadUserControllerTest do
+  use ExUnit.Case
+  
+  # No conn case
+  # No authentication setup
+  
+  test "shows user" do
+    # Direct HTTP calls without proper setup
+    response = MyAppWeb.UserController.show(%{}, %{"id" => "1"})
+    assert response
+  end
+  
+  # No security testing
+  # No error case testing
+  # No proper assertions
+end
+
+# No LiveView testing
+# No integration testing
+# No real-time testing]]></incorrect-example>
+        </example>
+      </examples>
+    </requirement>
+  </requirements>
+  
+  <context description="Phoenix web framework development considerations">
+    Phoenix is a productive web framework for Elixir that emphasizes developer productivity, code maintainability, and application performance. Modern Phoenix development leverages LiveView for real-time interfaces, contexts for business logic organization, and comprehensive security measures.
+
+    Key considerations include:
+    - Proper application architecture with clear separation between web and business logic
+    - Context boundaries for organizing related functionality and maintaining clean interfaces
+    - LiveView for building interactive, real-time user interfaces with minimal JavaScript
+    - Comprehensive security measures including CSRF protection, input validation, and authorization
+    - Performance optimization through efficient database queries and caching strategies
+    - Testing strategies covering all application layers from unit to integration tests
+
+    Phoenix integrates excellently with Ecto for database operations, provides real-time features through channels and LiveView, and emphasizes fault tolerance through Elixir's actor model.
+  </context>
+  
+  <references>
+    <reference as="dependency" href=".cursor/rules/000-core/002-cursor-rules-creation.mdc" reason="Follows standard rule format">Base rule format definition</reference>
+    <reference as="context" href="https://phoenixframework.org/" reason="Official Phoenix documentation">Phoenix Framework Documentation</reference>
+    <reference as="context" href="https://hexdocs.pm/phoenix_live_view/" reason="LiveView documentation">Phoenix LiveView Guide</reference>
+  </references>
+</rule>
+description:
+globs:
+alwaysApply: false
+---
+ 

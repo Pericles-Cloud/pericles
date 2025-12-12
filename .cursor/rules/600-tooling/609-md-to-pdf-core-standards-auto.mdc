@@ -1,0 +1,1689 @@
+---
+description: "Comprehensive md-to-pdf standards for converting Markdown to PDF with styling, configuration, and automation following expert best practices"
+globs: ["**/*.md", "**/*.{js,ts,mjs,cjs}", "**/scripts/**/*.{js,ts}", "**/*.json", "**/*.css"]
+alwaysApply: false
+---
+
+<rule>
+  <meta>
+    <title>MD-to-PDF Core Standards</title>
+    <description>Comprehensive md-to-pdf standards for converting Markdown to PDF with styling, configuration, and automation following expert best practices</description>
+    <created-at utc-timestamp="1744245220">January 27, 2025, 11:40 AM</created-at>
+    <last-updated-at utc-timestamp="1744245220">January 27, 2025, 11:40 AM</last-updated-at>
+    <applies-to>
+      <file-matcher glob="**/*.md">Markdown files for PDF conversion</file-matcher>
+      <file-matcher glob="**/*.{js,ts,mjs,cjs}">JavaScript and TypeScript files using md-to-pdf</file-matcher>
+      <file-matcher glob="**/scripts/**/*.{js,ts}">Build and automation scripts</file-matcher>
+      <file-matcher glob="**/*.css">CSS styling files for PDF output</file-matcher>
+      <action-matcher action="documentation-generation">Triggered when generating PDF documentation from Markdown</action-matcher>
+    </applies-to>
+  </meta>
+
+  <requirements>
+    <non-negotiable priority="critical">
+      <description>Use md-to-pdf with proper configuration, CSS styling, and automation for high-quality PDF generation from Markdown sources with consistent formatting and professional output.</description>
+      <examples>
+        <example title="Comprehensive PDF Generation Configuration">
+          <correct-example title="Professional PDF generation with styling and automation" conditions="Converting Markdown to PDF with md-to-pdf" expected-result="High-quality, consistently formatted PDF documents" correctness-criteria="Uses proper configuration, CSS styling, automation scripts, error handling">// TypeScript - Comprehensive PDF generation service
+import mdToPdf from 'md-to-pdf';
+import { promises as fs } from 'fs';
+import path from 'path';
+import { glob } from 'glob';
+import chalk from 'chalk';
+
+// Configuration interfaces
+interface PDFGenerationConfig {
+  output: {
+    directory: string;
+    filename?: string;
+    overwrite: boolean;
+  };
+  styling: {
+    css: string | string[];
+    theme: 'github' | 'default' | 'custom';
+    customCssPath?: string;
+  };
+  pdf: {
+    format: 'A4' | 'Letter' | 'Legal';
+    margin: {
+      top: string;
+      right: string;
+      bottom: string;
+      left: string;
+    };
+    displayHeaderFooter: boolean;
+    headerTemplate?: string;
+    footerTemplate?: string;
+    printBackground: boolean;
+    landscape: boolean;
+  };
+  markdown: {
+    breaks: boolean;
+    typographer: boolean;
+    linkify: boolean;
+    html: boolean;
+  };
+  automation: {
+    watchMode: boolean;
+    batchProcess: boolean;
+    generateIndex: boolean;
+  };
+}
+
+// Default configuration
+const defaultConfig: PDFGenerationConfig = {
+  output: {
+    directory: './dist/pdf',
+    overwrite: true
+  },
+  styling: {
+    css: '',
+    theme: 'github'
+  },
+  pdf: {
+    format: 'A4',
+    margin: {
+      top: '1in',
+      right: '1in',
+      bottom: '1in',
+      left: '1in'
+    },
+    displayHeaderFooter: true,
+    printBackground: true,
+    landscape: false
+  },
+  markdown: {
+    breaks: true,
+    typographer: true,
+    linkify: true,
+    html: true
+  },
+  automation: {
+    watchMode: false,
+    batchProcess: true,
+    generateIndex: true
+  }
+};
+
+// Professional PDF generation service
+class PDFGenerationService {
+  private config: PDFGenerationConfig;
+  private cssCache: Map<string, string> = new Map();
+
+  constructor(config: Partial<PDFGenerationConfig> = {}) {
+    this.config = { ...defaultConfig, ...config };
+  }
+
+  async generatePDF(markdownPath: string, outputPath?: string): Promise<string> {
+    try {
+      console.log(chalk.blue(`📄 Processing: ${markdownPath}`));
+
+      // Validate input file
+      await this.validateMarkdownFile(markdownPath);
+
+      // Read and preprocess markdown
+      const markdownContent = await this.preprocessMarkdown(markdownPath);
+
+      // Get styling
+      const css = await this.getCombinedCSS();
+
+      // Configure PDF options
+      const pdfOptions = this.buildPDFOptions(markdownPath, css);
+
+      // Generate PDF
+      const outputFilePath = outputPath || this.generateOutputPath(markdownPath);
+      await this.ensureOutputDirectory(outputFilePath);
+
+      const pdf = await mdToPdf(
+        { content: markdownContent },
+        {
+          ...pdfOptions,
+          dest: outputFilePath
+        }
+      );
+
+      console.log(chalk.green(`✅ Generated: ${outputFilePath}`));
+      return outputFilePath;
+
+    } catch (error) {
+      console.error(chalk.red(`❌ Failed to generate PDF for ${markdownPath}:`), error);
+      throw error;
+    }
+  }
+
+  async batchGeneratePDFs(pattern: string = '**/*.md'): Promise<string[]> {
+    const markdownFiles = await glob(pattern, {
+      ignore: ['node_modules/**', '.git/**', 'dist/**']
+    });
+
+    console.log(chalk.blue(`📚 Processing ${markdownFiles.length} markdown files...`));
+
+    const results: string[] = [];
+    const errors: Array<{ file: string; error: Error }> = [];
+
+    for (const file of markdownFiles) {
+      try {
+        const outputPath = await this.generatePDF(file);
+        results.push(outputPath);
+      } catch (error) {
+        errors.push({ file, error: error as Error });
+      }
+    }
+
+    // Generate index if enabled
+    if (this.config.automation.generateIndex && results.length > 0) {
+      await this.generateIndex(results);
+    }
+
+    // Report results
+    console.log(chalk.green(`\n✅ Successfully generated ${results.length} PDFs`));
+    if (errors.length > 0) {
+      console.log(chalk.red(`❌ Failed to generate ${errors.length} PDFs:`));
+      errors.forEach(({ file, error }) => {
+        console.log(chalk.red(`  - ${file}: ${error.message}`));
+      });
+    }
+
+    return results;
+  }
+
+  private async validateMarkdownFile(filePath: string): Promise<void> {
+    try {
+      const stats = await fs.stat(filePath);
+      if (!stats.isFile()) {
+        throw new Error(`Not a file: ${filePath}`);
+      }
+      
+      if (!filePath.endsWith('.md') && !filePath.endsWith('.markdown')) {
+        throw new Error(`Not a markdown file: ${filePath}`);
+      }
+    } catch (error) {
+      throw new Error(`Invalid markdown file: ${error.message}`);
+    }
+  }
+
+  private async preprocessMarkdown(filePath: string): Promise<string> {
+    let content = await fs.readFile(filePath, 'utf-8');
+    const fileDir = path.dirname(filePath);
+
+    // Process relative image paths
+    content = content.replace(
+      /!\[([^\]]*)\]\((?!https?:\/\/)([^)]+)\)/g,
+      (match, alt, src) => {
+        const absolutePath = path.resolve(fileDir, src);
+        return `![${alt}](file://${absolutePath})`;
+      }
+    );
+
+    // Process relative links to other markdown files
+    content = content.replace(
+      /\[([^\]]+)\]\((?!https?:\/\/)([^)]+\.md)\)/g,
+      (match, text, href) => {
+        const pdfHref = href.replace(/\.md$/, '.pdf');
+        return `[${text}](${pdfHref})`;
+      }
+    );
+
+    // Add metadata if missing
+    if (!content.startsWith('---\n')) {
+      const filename = path.basename(filePath, '.md');
+      const metadata = `---
+title: ${filename}
+date: ${new Date().toISOString().split('T')[0]}
+generated: ${new Date().toISOString()}
+---
+
+`;
+      content = metadata + content;
+    }
+
+    return content;
+  }
+
+  private async getCombinedCSS(): Promise<string> {
+    const cssFiles: string[] = [];
+
+    // Add theme CSS
+    if (this.config.styling.theme !== 'default') {
+      cssFiles.push(this.getThemeCSS(this.config.styling.theme));
+    }
+
+    // Add custom CSS files
+    if (Array.isArray(this.config.styling.css)) {
+      cssFiles.push(...this.config.styling.css);
+    } else if (this.config.styling.css) {
+      cssFiles.push(this.config.styling.css);
+    }
+
+    // Add custom CSS path
+    if (this.config.styling.customCssPath) {
+      cssFiles.push(this.config.styling.customCssPath);
+    }
+
+    // Combine all CSS
+    const cssContents = await Promise.all(
+      cssFiles.map(async (cssPath) => {
+        if (this.cssCache.has(cssPath)) {
+          return this.cssCache.get(cssPath)!;
+        }
+
+        try {
+          const css = await fs.readFile(cssPath, 'utf-8');
+          this.cssCache.set(cssPath, css);
+          return css;
+        } catch (error) {
+          console.warn(chalk.yellow(`⚠️  Could not load CSS file: ${cssPath}`));
+          return '';
+        }
+      })
+    );
+
+    return cssContents.join('\n\n');
+  }
+
+  private getThemeCSS(theme: string): string {
+    // Return built-in theme CSS
+    switch (theme) {
+      case 'github':
+        return this.getGitHubCSS();
+      case 'custom':
+        return '';
+      default:
+        return '';
+    }
+  }
+
+  private getGitHubCSS(): string {
+    return `
+      body {
+        font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', 'Noto Sans', Helvetica, Arial, sans-serif;
+        font-size: 14px;
+        line-height: 1.6;
+        color: #24292f;
+        background-color: #ffffff;
+        max-width: 100%;
+        margin: 0 auto;
+        padding: 2rem;
+      }
+
+      h1, h2, h3, h4, h5, h6 {
+        margin-top: 1.5em;
+        margin-bottom: 0.5em;
+        font-weight: 600;
+        line-height: 1.25;
+      }
+
+      h1 { font-size: 2em; border-bottom: 1px solid #eaecef; padding-bottom: 0.3em; }
+      h2 { font-size: 1.5em; border-bottom: 1px solid #eaecef; padding-bottom: 0.3em; }
+      h3 { font-size: 1.25em; }
+      h4 { font-size: 1em; }
+
+      p { margin-bottom: 1em; }
+
+      code {
+        padding: 0.2em 0.4em;
+        margin: 0;
+        font-size: 85%;
+        background-color: #f6f8fa;
+        border-radius: 6px;
+        font-family: 'SFMono-Regular', Consolas, 'Liberation Mono', Menlo, monospace;
+      }
+
+      pre {
+        padding: 1em;
+        margin-bottom: 1em;
+        background-color: #f6f8fa;
+        border-radius: 6px;
+        overflow-x: auto;
+        font-size: 85%;
+        line-height: 1.45;
+      }
+
+      pre code {
+        background-color: transparent;
+        padding: 0;
+        margin: 0;
+        border-radius: 0;
+      }
+
+      blockquote {
+        padding: 0 1em;
+        color: #656d76;
+        border-left: 0.25em solid #d0d7de;
+        margin: 0 0 1em 0;
+      }
+
+      table {
+        border-spacing: 0;
+        border-collapse: collapse;
+        margin-bottom: 1em;
+        width: 100%;
+      }
+
+      table th, table td {
+        padding: 6px 13px;
+        border: 1px solid #d0d7de;
+      }
+
+      table th {
+        font-weight: 600;
+        background-color: #f6f8fa;
+      }
+
+      table tr:nth-child(2n) {
+        background-color: #f6f8fa;
+      }
+
+      img {
+        max-width: 100%;
+        height: auto;
+        display: block;
+        margin: 1em auto;
+      }
+
+      ul, ol {
+        padding-left: 2em;
+        margin-bottom: 1em;
+      }
+
+      li {
+        margin-bottom: 0.25em;
+      }
+
+      a {
+        color: #0969da;
+        text-decoration: none;
+      }
+
+      a:hover {
+        text-decoration: underline;
+      }
+
+      .page-break {
+        page-break-before: always;
+      }
+
+      @media print {
+        body { font-size: 12px; }
+        h1 { font-size: 1.8em; }
+        h2 { font-size: 1.4em; }
+        h3 { font-size: 1.2em; }
+      }
+    `;
+  }
+
+  private buildPDFOptions(markdownPath: string, css: string): any {
+    const filename = path.basename(markdownPath, '.md');
+    const now = new Date();
+
+    return {
+      pdf_options: {
+        format: this.config.pdf.format,
+        margin: this.config.pdf.margin,
+        displayHeaderFooter: this.config.pdf.displayHeaderFooter,
+        headerTemplate: this.config.pdf.headerTemplate || `
+          <div style="font-size: 9px; margin: 0 auto; color: #666;">
+            ${filename}
+          </div>
+        `,
+        footerTemplate: this.config.pdf.footerTemplate || `
+          <div style="font-size: 9px; margin: 0 auto; color: #666; display: flex; justify-content: space-between; width: 100%; padding: 0 1cm;">
+            <span>Generated: ${now.toLocaleDateString()}</span>
+            <span>Page <span class="pageNumber"></span> of <span class="totalPages"></span></span>
+          </div>
+        `,
+        printBackground: this.config.pdf.printBackground,
+        landscape: this.config.pdf.landscape
+      },
+      stylesheet: css,
+      marked_options: this.config.markdown,
+      launch_options: {
+        headless: true,
+        args: ['--no-sandbox', '--disable-setuid-sandbox']
+      }
+    };
+  }
+
+  private generateOutputPath(markdownPath: string): string {
+    const filename = path.basename(markdownPath, '.md');
+    return path.join(this.config.output.directory, `${filename}.pdf`);
+  }
+
+  private async ensureOutputDirectory(outputPath: string): Promise<void> {
+    const dir = path.dirname(outputPath);
+    await fs.mkdir(dir, { recursive: true });
+  }
+
+  private async generateIndex(pdfPaths: string[]): Promise<void> {
+    const indexPath = path.join(this.config.output.directory, 'index.md');
+    
+    const indexContent = `# PDF Documentation Index
+
+Generated: ${new Date().toLocaleString()}
+
+## Available Documents
+
+${pdfPaths.map(pdfPath => {
+  const filename = path.basename(pdfPath, '.pdf');
+  const relativePath = path.relative(this.config.output.directory, pdfPath);
+  return `- [${filename}](${relativePath})`;
+}).join('\n')}
+
+## Generation Statistics
+
+- Total documents: ${pdfPaths.length}
+- Generated on: ${new Date().toISOString()}
+- Configuration: ${JSON.stringify(this.config, null, 2)}
+`;
+
+    await fs.writeFile(indexPath, indexContent);
+    
+    // Also generate index PDF
+    await this.generatePDF(indexPath, path.join(this.config.output.directory, 'index.pdf'));
+  }
+}
+
+// CLI automation script
+async function main() {
+  const config: Partial<PDFGenerationConfig> = {
+    output: {
+      directory: './dist/documentation',
+      overwrite: true
+    },
+    styling: {
+      theme: 'github',
+      customCssPath: './styles/pdf-custom.css'
+    },
+    automation: {
+      batchProcess: true,
+      generateIndex: true
+    }
+  };
+
+  const service = new PDFGenerationService(config);
+
+  try {
+    // Process all markdown files in docs directory
+    await service.batchGeneratePDFs('./docs/**/*.md');
+    
+    console.log(chalk.green('\n🎉 PDF generation completed successfully!'));
+  } catch (error) {
+    console.error(chalk.red('\n💥 PDF generation failed:'), error);
+    process.exit(1);
+  }
+}
+
+// Package.json scripts integration
+export const pdfScripts = {
+  "docs:pdf": "tsx scripts/generate-pdfs.ts",
+  "docs:pdf:watch": "nodemon --watch docs --ext md --exec 'npm run docs:pdf'",
+  "docs:pdf:single": "tsx scripts/generate-pdfs.ts --file",
+  "docs:clean": "rimraf dist/documentation"
+};
+
+// Export service for programmatic use
+export { PDFGenerationService, type PDFGenerationConfig };
+
+if (require.main === module) {
+  main().catch(console.error);
+}</correct-example>
+          <incorrect-example title="Poor PDF generation without proper configuration" conditions="Converting Markdown to PDF with md-to-pdf" expected-result="High-quality, consistently formatted PDF documents" incorrectness-criteria="No configuration, poor styling, no automation, no error handling">const mdToPdf = require('md-to-pdf');
+
+// Bad: No configuration, basic usage only
+async function badPdfGeneration() {
+  // Bad: No error handling
+  const pdf = await mdToPdf({ path: 'readme.md' });
+  
+  // Bad: No output management
+  // Bad: No styling
+  // Bad: No automation
+  // Bad: Hardcoded paths
+}
+
+// Bad: No batch processing
+// Bad: No CSS styling
+// Bad: No validation
+// Bad: No preprocessing</incorrect-example>
+        </example>
+      </examples>
+    </non-negotiable>
+
+    <non-negotiable priority="critical">
+      <description>Implement professional CSS styling and theming systems for consistent, branded PDF output with responsive design, typography, and print optimization.</description>
+      <examples>
+        <example title="Advanced PDF Styling and Theming">
+          <correct-example title="Professional PDF styling with themes and customization" conditions="Creating styled PDF documents" expected-result="Professionally styled, branded PDF documents" correctness-criteria="Uses custom CSS, themes, responsive design, print optimization">// Advanced CSS styling system for PDF generation
+// pdf-styles/base.css
+const baseStyles = `
+/* Reset and base styles */
+* {
+  box-sizing: border-box;
+}
+
+html {
+  font-size: 12pt;
+  line-height: 1.6;
+}
+
+body {
+  margin: 0;
+  padding: 0;
+  font-family: 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+  color: #1a1a1a;
+  background: white;
+}
+
+/* Typography hierarchy */
+.document-header {
+  text-align: center;
+  border-bottom: 2px solid #e1e5e9;
+  padding-bottom: 1rem;
+  margin-bottom: 2rem;
+}
+
+.document-title {
+  font-size: 2.5rem;
+  font-weight: 700;
+  color: #2d3748;
+  margin: 0 0 0.5rem 0;
+  letter-spacing: -0.025em;
+}
+
+.document-subtitle {
+  font-size: 1.2rem;
+  color: #718096;
+  margin: 0;
+  font-weight: 400;
+}
+
+.document-meta {
+  font-size: 0.9rem;
+  color: #a0aec0;
+  margin-top: 1rem;
+}
+
+/* Headings */
+h1, h2, h3, h4, h5, h6 {
+  font-weight: 600;
+  line-height: 1.3;
+  margin-top: 2rem;
+  margin-bottom: 0.75rem;
+  color: #2d3748;
+}
+
+h1 {
+  font-size: 2.25rem;
+  border-bottom: 3px solid #4299e1;
+  padding-bottom: 0.5rem;
+  page-break-after: avoid;
+}
+
+h2 {
+  font-size: 1.875rem;
+  border-bottom: 2px solid #e2e8f0;
+  padding-bottom: 0.375rem;
+  page-break-after: avoid;
+}
+
+h3 {
+  font-size: 1.5rem;
+  color: #4a5568;
+}
+
+h4 {
+  font-size: 1.25rem;
+  color: #4a5568;
+}
+
+h5, h6 {
+  font-size: 1.125rem;
+  color: #718096;
+}
+
+/* Content blocks */
+p {
+  margin: 0 0 1rem 0;
+  text-align: justify;
+  hyphens: auto;
+}
+
+.lead {
+  font-size: 1.2rem;
+  font-weight: 300;
+  color: #4a5568;
+  margin-bottom: 1.5rem;
+}
+
+/* Code styling */
+code {
+  font-family: 'Fira Code', 'SF Mono', Consolas, monospace;
+  font-size: 0.875rem;
+  background: #f7fafc;
+  color: #2d3748;
+  padding: 0.2rem 0.4rem;
+  border-radius: 0.25rem;
+  border: 1px solid #e2e8f0;
+}
+
+pre {
+  background: #2d3748;
+  color: #e2e8f0;
+  padding: 1.5rem;
+  border-radius: 0.5rem;
+  margin: 1.5rem 0;
+  overflow-x: auto;
+  border-left: 4px solid #4299e1;
+  position: relative;
+}
+
+pre code {
+  background: transparent;
+  color: inherit;
+  border: none;
+  padding: 0;
+  font-size: 0.875rem;
+  line-height: 1.5;
+}
+
+.code-block-header {
+  position: absolute;
+  top: 0;
+  right: 0;
+  background: #4a5568;
+  color: #e2e8f0;
+  font-size: 0.75rem;
+  padding: 0.25rem 0.75rem;
+  border-radius: 0 0.5rem 0 0.25rem;
+}
+
+/* Lists */
+ul, ol {
+  margin: 1rem 0;
+  padding-left: 2rem;
+}
+
+li {
+  margin-bottom: 0.5rem;
+  line-height: 1.6;
+}
+
+ul li::marker {
+  color: #4299e1;
+}
+
+ol li::marker {
+  color: #4299e1;
+  font-weight: 600;
+}
+
+/* Tables */
+table {
+  width: 100%;
+  border-collapse: collapse;
+  margin: 1.5rem 0;
+  background: white;
+  border-radius: 0.5rem;
+  overflow: hidden;
+  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.1);
+}
+
+thead th {
+  background: #4299e1;
+  color: white;
+  font-weight: 600;
+  padding: 1rem;
+  text-align: left;
+  font-size: 0.875rem;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+}
+
+tbody td {
+  padding: 0.75rem 1rem;
+  border-bottom: 1px solid #e2e8f0;
+  vertical-align: top;
+}
+
+tbody tr:nth-child(even) {
+  background: #f7fafc;
+}
+
+tbody tr:hover {
+  background: #edf2f7;
+}
+
+/* Blockquotes */
+blockquote {
+  border-left: 4px solid #4299e1;
+  background: #f7fafc;
+  margin: 1.5rem 0;
+  padding: 1rem 1.5rem;
+  border-radius: 0 0.5rem 0.5rem 0;
+  position: relative;
+}
+
+blockquote::before {
+  content: '"';
+  position: absolute;
+  top: -0.5rem;
+  left: 1rem;
+  font-size: 3rem;
+  color: #4299e1;
+  opacity: 0.3;
+}
+
+blockquote p {
+  margin: 0;
+  font-style: italic;
+  color: #4a5568;
+}
+
+blockquote cite {
+  display: block;
+  margin-top: 0.5rem;
+  font-size: 0.875rem;
+  color: #718096;
+  font-style: normal;
+}
+
+/* Images */
+img {
+  max-width: 100%;
+  height: auto;
+  display: block;
+  margin: 1.5rem auto;
+  border-radius: 0.5rem;
+  box-shadow: 0 4px 6px rgba(0, 0, 0, 0.1);
+}
+
+.image-caption {
+  text-align: center;
+  font-size: 0.875rem;
+  color: #718096;
+  margin-top: 0.5rem;
+  font-style: italic;
+}
+
+/* Links */
+a {
+  color: #4299e1;
+  text-decoration: none;
+  border-bottom: 1px solid transparent;
+  transition: border-color 0.2s;
+}
+
+a:hover {
+  border-bottom-color: #4299e1;
+}
+
+/* Page layout */
+.page-header {
+  position: fixed;
+  top: 0;
+  left: 0;
+  right: 0;
+  height: 2cm;
+  background: white;
+  border-bottom: 1px solid #e2e8f0;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 0 2cm;
+  font-size: 0.875rem;
+  color: #718096;
+}
+
+.page-footer {
+  position: fixed;
+  bottom: 0;
+  left: 0;
+  right: 0;
+  height: 1.5cm;
+  background: white;
+  border-top: 1px solid #e2e8f0;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 0 2cm;
+  font-size: 0.875rem;
+  color: #718096;
+}
+
+/* Page breaks */
+.page-break {
+  page-break-before: always;
+}
+
+.page-break-avoid {
+  page-break-inside: avoid;
+}
+
+.keep-together {
+  page-break-inside: avoid;
+}
+
+/* Print optimizations */
+@media print {
+  body {
+    font-size: 11pt;
+    line-height: 1.5;
+  }
+  
+  h1, h2, h3 {
+    page-break-after: avoid;
+  }
+  
+  img {
+    page-break-inside: avoid;
+  }
+  
+  table {
+    page-break-inside: auto;
+  }
+  
+  tr {
+    page-break-inside: avoid;
+    page-break-after: auto;
+  }
+  
+  thead {
+    display: table-header-group;
+  }
+  
+  .no-print {
+    display: none;
+  }
+}
+
+/* Utility classes */
+.text-center { text-align: center; }
+.text-right { text-align: right; }
+.text-left { text-align: left; }
+
+.font-bold { font-weight: 700; }
+.font-semibold { font-weight: 600; }
+.font-medium { font-weight: 500; }
+
+.text-sm { font-size: 0.875rem; }
+.text-lg { font-size: 1.125rem; }
+.text-xl { font-size: 1.25rem; }
+
+.mb-4 { margin-bottom: 1rem; }
+.mt-4 { margin-top: 1rem; }
+.mx-auto { margin-left: auto; margin-right: auto; }
+
+.bg-gray-100 { background-color: #f7fafc; }
+.bg-blue-50 { background-color: #ebf8ff; }
+.bg-yellow-50 { background-color: #fffff0; }
+
+.border { border: 1px solid #e2e8f0; }
+.rounded { border-radius: 0.25rem; }
+.shadow { box-shadow: 0 1px 3px rgba(0, 0, 0, 0.1); }
+
+/* Special content types */
+.callout {
+  background: #ebf8ff;
+  border: 1px solid #90cdf4;
+  border-radius: 0.5rem;
+  padding: 1rem;
+  margin: 1.5rem 0;
+}
+
+.callout-warning {
+  background: #fffbeb;
+  border-color: #fbbf24;
+}
+
+.callout-danger {
+  background: #fef2f2;
+  border-color: #f87171;
+}
+
+.callout-success {
+  background: #f0fff4;
+  border-color: #68d391;
+}
+
+.toc {
+  background: #f7fafc;
+  border: 1px solid #e2e8f0;
+  border-radius: 0.5rem;
+  padding: 1.5rem;
+  margin: 2rem 0;
+}
+
+.toc h2 {
+  margin: 0 0 1rem 0;
+  font-size: 1.25rem;
+  color: #2d3748;
+}
+
+.toc ul {
+  margin: 0;
+  list-style: none;
+  padding-left: 0;
+}
+
+.toc li {
+  margin-bottom: 0.25rem;
+}
+
+.toc a {
+  color: #4a5568;
+  text-decoration: none;
+  display: flex;
+  justify-content: space-between;
+  padding: 0.25rem 0;
+  border-bottom: 1px dotted #e2e8f0;
+}
+
+.footnote {
+  font-size: 0.875rem;
+  color: #718096;
+  border-top: 1px solid #e2e8f0;
+  margin-top: 2rem;
+  padding-top: 1rem;
+}
+`;
+
+// Theme system for different document types
+interface Theme {
+  name: string;
+  colors: {
+    primary: string;
+    secondary: string;
+    accent: string;
+    text: string;
+    background: string;
+  };
+  fonts: {
+    body: string;
+    heading: string;
+    mono: string;
+  };
+  spacing: {
+    base: string;
+    tight: string;
+    loose: string;
+  };
+}
+
+const themes: Record<string, Theme> = {
+  corporate: {
+    name: 'Corporate',
+    colors: {
+      primary: '#1e40af',
+      secondary: '#64748b',
+      accent: '#f59e0b',
+      text: '#1f2937',
+      background: '#ffffff'
+    },
+    fonts: {
+      body: 'Inter, system-ui, sans-serif',
+      heading: 'Inter, system-ui, sans-serif',
+      mono: 'Fira Code, monospace'
+    },
+    spacing: {
+      base: '1rem',
+      tight: '0.5rem',
+      loose: '2rem'
+    }
+  },
+  academic: {
+    name: 'Academic',
+    colors: {
+      primary: '#374151',
+      secondary: '#6b7280',
+      accent: '#dc2626',
+      text: '#111827',
+      background: '#ffffff'
+    },
+    fonts: {
+      body: 'Charter, Georgia, serif',
+      heading: 'Inter, system-ui, sans-serif',
+      mono: 'SF Mono, monospace'
+    },
+    spacing: {
+      base: '1.2rem',
+      tight: '0.6rem',
+      loose: '2.4rem'
+    }
+  },
+  modern: {
+    name: 'Modern',
+    colors: {
+      primary: '#7c3aed',
+      secondary: '#8b5cf6',
+      accent: '#06b6d4',
+      text: '#0f172a',
+      background: '#ffffff'
+    },
+    fonts: {
+      body: 'Inter, system-ui, sans-serif',
+      heading: 'Cal Sans, Inter, sans-serif',
+      mono: 'JetBrains Mono, monospace'
+    },
+    spacing: {
+      base: '1rem',
+      tight: '0.5rem',
+      loose: '1.5rem'
+    }
+  }
+};
+
+class ThemeGenerator {
+  static generateThemeCSS(themeName: string): string {
+    const theme = themes[themeName];
+    if (!theme) {
+      throw new Error(`Theme "${themeName}" not found`);
+    }
+
+    return `
+      :root {
+        --color-primary: ${theme.colors.primary};
+        --color-secondary: ${theme.colors.secondary};
+        --color-accent: ${theme.colors.accent};
+        --color-text: ${theme.colors.text};
+        --color-background: ${theme.colors.background};
+        
+        --font-body: ${theme.fonts.body};
+        --font-heading: ${theme.fonts.heading};
+        --font-mono: ${theme.fonts.mono};
+        
+        --spacing-base: ${theme.spacing.base};
+        --spacing-tight: ${theme.spacing.tight};
+        --spacing-loose: ${theme.spacing.loose};
+      }
+
+      body {
+        font-family: var(--font-body);
+        color: var(--color-text);
+        background: var(--color-background);
+      }
+
+      h1, h2, h3, h4, h5, h6 {
+        font-family: var(--font-heading);
+        color: var(--color-primary);
+      }
+
+      code, pre {
+        font-family: var(--font-mono);
+      }
+
+      a {
+        color: var(--color-primary);
+      }
+
+      blockquote {
+        border-left-color: var(--color-accent);
+      }
+
+      table thead th {
+        background: var(--color-primary);
+      }
+
+      .callout {
+        border-color: var(--color-accent);
+      }
+    `;
+  }
+
+  static combineStyles(baseCSS: string, themeCSS: string, customCSS: string = ''): string {
+    return [baseCSS, themeCSS, customCSS].join('\n\n');
+  }
+}
+
+export { baseStyles, themes, ThemeGenerator };</correct-example>
+          <incorrect-example title="Poor PDF styling without proper CSS" conditions="Creating styled PDF documents" expected-result="Professionally styled, branded PDF documents" incorrectness-criteria="No CSS styling, inconsistent formatting, no theming, poor typography">// Bad: No CSS styling
+const mdToPdf = require('md-to-pdf');
+
+// Bad: No styling configuration
+const pdf = await mdToPdf({ path: 'file.md' });
+
+// Bad: Inline styles only
+const badStyling = `
+  body { font-family: Arial; }
+  h1 { color: red; }
+`;
+
+// Bad: No responsive design
+// Bad: No print optimization
+// Bad: No theming system
+// Bad: Hardcoded styles</incorrect-example>
+        </example>
+      </examples>
+    </non-negotiable>
+
+    <requirement priority="high">
+      <description>Implement automated documentation workflows with watch modes, batch processing, and CI/CD integration for continuous documentation generation and deployment.</description>
+      <examples>
+        <example title="Automated Documentation Workflows">
+          <correct-example title="Comprehensive automation with CI/CD integration" conditions="Setting up automated documentation workflows" expected-result="Automated, reliable documentation generation and deployment" correctness-criteria="Uses watch modes, batch processing, CI/CD integration, error handling, notifications">// Automated documentation workflow system
+import chokidar from 'chokidar';
+import { PDFGenerationService } from './pdf-service';
+import { promises as fs } from 'fs';
+import path from 'path';
+import chalk from 'chalk';
+import nodemailer from 'nodemailer';
+import { exec } from 'child_process';
+import { promisify } from 'util';
+
+const execAsync = promisify(exec);
+
+interface WorkflowConfig {
+  source: {
+    directories: string[];
+    patterns: string[];
+    exclude: string[];
+  };
+  output: {
+    directory: string;
+    archive: boolean;
+    versioning: boolean;
+  };
+  automation: {
+    watchMode: boolean;
+    debounceMs: number;
+    batchSize: number;
+    retryAttempts: number;
+  };
+  deployment: {
+    enabled: boolean;
+    targets: DeploymentTarget[];
+  };
+  notifications: {
+    email?: EmailConfig;
+    webhook?: WebhookConfig;
+    slack?: SlackConfig;
+  };
+}
+
+interface DeploymentTarget {
+  name: string;
+  type: 's3' | 'github-pages' | 'netlify' | 'ftp';
+  config: Record<string, any>;
+}
+
+interface EmailConfig {
+  smtp: {
+    host: string;
+    port: number;
+    secure: boolean;
+    auth: { user: string; pass: string };
+  };
+  recipients: string[];
+  subject: string;
+}
+
+interface WebhookConfig {
+  url: string;
+  method: 'POST' | 'PUT';
+  headers: Record<string, string>;
+}
+
+interface SlackConfig {
+  webhookUrl: string;
+  channel: string;
+  username: string;
+}
+
+class DocumentationWorkflow {
+  private config: WorkflowConfig;
+  private pdfService: PDFGenerationService;
+  private watcher?: chokidar.FSWatcher;
+  private processingQueue: Set<string> = new Set();
+  private lastProcessTime = 0;
+
+  constructor(config: WorkflowConfig) {
+    this.config = config;
+    this.pdfService = new PDFGenerationService({
+      output: { directory: config.output.directory, overwrite: true },
+      automation: { batchProcess: true, generateIndex: true }
+    });
+  }
+
+  async start(): Promise<void> {
+    console.log(chalk.blue('🚀 Starting documentation workflow...'));
+
+    // Initial generation
+    await this.processAllDocuments();
+
+    // Setup watch mode if enabled
+    if (this.config.automation.watchMode) {
+      await this.setupWatcher();
+    }
+
+    console.log(chalk.green('✅ Documentation workflow started successfully!'));
+  }
+
+  async stop(): Promise<void> {
+    if (this.watcher) {
+      await this.watcher.close();
+      console.log(chalk.yellow('⏹️  Documentation watch mode stopped'));
+    }
+  }
+
+  private async setupWatcher(): Promise<void> {
+    const watchPaths = this.config.source.directories;
+    const watchPatterns = this.config.source.patterns;
+
+    this.watcher = chokidar.watch(watchPaths, {
+      ignored: this.config.source.exclude,
+      ignoreInitial: true,
+      persistent: true
+    });
+
+    console.log(chalk.blue(`👀 Watching for changes in: ${watchPaths.join(', ')}`));
+
+    // Debounced change handler
+    let timeout: NodeJS.Timeout;
+    const handleChange = (filePath: string, eventType: string) => {
+      clearTimeout(timeout);
+      timeout = setTimeout(async () => {
+        if (this.shouldProcessFile(filePath)) {
+          console.log(chalk.yellow(`📝 ${eventType}: ${filePath}`));
+          await this.processFileChange(filePath);
+        }
+      }, this.config.automation.debounceMs);
+    };
+
+    this.watcher
+      .on('add', (filePath) => handleChange(filePath, 'Added'))
+      .on('change', (filePath) => handleChange(filePath, 'Changed'))
+      .on('unlink', (filePath) => handleChange(filePath, 'Removed'))
+      .on('error', (error) => {
+        console.error(chalk.red('👀 Watcher error:'), error);
+        this.notifyError('Watcher Error', error);
+      });
+  }
+
+  private shouldProcessFile(filePath: string): boolean {
+    return this.config.source.patterns.some(pattern => 
+      filePath.match(new RegExp(pattern.replace('*', '.*')))
+    );
+  }
+
+  private async processFileChange(filePath: string): Promise<void> {
+    if (this.processingQueue.has(filePath)) {
+      console.log(chalk.gray(`⏸️  Already processing: ${filePath}`));
+      return;
+    }
+
+    this.processingQueue.add(filePath);
+
+    try {
+      // Check if file still exists (wasn't deleted)
+      try {
+        await fs.access(filePath);
+      } catch {
+        // File was deleted, remove corresponding PDF
+        await this.removeGeneratedPDF(filePath);
+        return;
+      }
+
+      // Generate PDF for changed file
+      await this.pdfService.generatePDF(filePath);
+
+      // Archive previous version if versioning enabled
+      if (this.config.output.versioning) {
+        await this.archiveVersion(filePath);
+      }
+
+      // Deploy if configured
+      if (this.config.deployment.enabled) {
+        await this.deployDocumentation();
+      }
+
+      // Send success notification
+      await this.notifySuccess('Document Updated', {
+        file: filePath,
+        timestamp: new Date().toISOString()
+      });
+
+    } catch (error) {
+      console.error(chalk.red(`❌ Failed to process ${filePath}:`), error);
+      await this.notifyError('Processing Failed', error, { file: filePath });
+    } finally {
+      this.processingQueue.delete(filePath);
+    }
+  }
+
+  private async processAllDocuments(): Promise<void> {
+    console.log(chalk.blue('📚 Processing all documentation...'));
+
+    const startTime = Date.now();
+    
+    try {
+      const patterns = this.config.source.patterns.map(pattern => 
+        this.config.source.directories.map(dir => path.join(dir, pattern))
+      ).flat();
+
+      const results = await Promise.allSettled(
+        patterns.map(pattern => this.pdfService.batchGeneratePDFs(pattern))
+      );
+
+      const successful = results.filter(r => r.status === 'fulfilled').length;
+      const failed = results.filter(r => r.status === 'rejected').length;
+
+      const duration = Date.now() - startTime;
+
+      console.log(chalk.green(`✅ Processed all documents in ${duration}ms`));
+      console.log(chalk.green(`   Successful: ${successful}, Failed: ${failed}`));
+
+      if (this.config.deployment.enabled) {
+        await this.deployDocumentation();
+      }
+
+      await this.notifySuccess('Batch Processing Complete', {
+        successful,
+        failed,
+        duration
+      });
+
+    } catch (error) {
+      console.error(chalk.red('❌ Batch processing failed:'), error);
+      await this.notifyError('Batch Processing Failed', error);
+      throw error;
+    }
+  }
+
+  private async removeGeneratedPDF(markdownPath: string): Promise<void> {
+    const pdfPath = markdownPath.replace(/\.md$/, '.pdf');
+    const outputPdfPath = path.join(this.config.output.directory, path.basename(pdfPath));
+
+    try {
+      await fs.unlink(outputPdfPath);
+      console.log(chalk.yellow(`🗑️  Removed: ${outputPdfPath}`));
+    } catch (error) {
+      console.warn(chalk.yellow(`⚠️  Could not remove ${outputPdfPath}:`, error.message));
+    }
+  }
+
+  private async archiveVersion(filePath: string): Promise<void> {
+    const timestamp = new Date().toISOString().replace(/[:.]/g, '-');
+    const pdfPath = filePath.replace(/\.md$/, '.pdf');
+    const outputPdfPath = path.join(this.config.output.directory, path.basename(pdfPath));
+    const archivePath = path.join(
+      this.config.output.directory,
+      'archive',
+      `${path.basename(pdfPath, '.pdf')}-${timestamp}.pdf`
+    );
+
+    try {
+      await fs.mkdir(path.dirname(archivePath), { recursive: true });
+      await fs.copyFile(outputPdfPath, archivePath);
+      console.log(chalk.gray(`📦 Archived: ${archivePath}`));
+    } catch (error) {
+      console.warn(chalk.yellow(`⚠️  Could not archive ${outputPdfPath}:`, error.message));
+    }
+  }
+
+  private async deployDocumentation(): Promise<void> {
+    for (const target of this.config.deployment.targets) {
+      try {
+        console.log(chalk.blue(`🚀 Deploying to ${target.name}...`));
+        await this.deployToTarget(target);
+        console.log(chalk.green(`✅ Deployed to ${target.name}`));
+      } catch (error) {
+        console.error(chalk.red(`❌ Deployment to ${target.name} failed:`), error);
+        await this.notifyError(`Deployment Failed: ${target.name}`, error);
+      }
+    }
+  }
+
+  private async deployToTarget(target: DeploymentTarget): Promise<void> {
+    switch (target.type) {
+      case 's3':
+        await this.deployToS3(target.config);
+        break;
+      case 'github-pages':
+        await this.deployToGitHubPages(target.config);
+        break;
+      case 'netlify':
+        await this.deployToNetlify(target.config);
+        break;
+      case 'ftp':
+        await this.deployToFTP(target.config);
+        break;
+      default:
+        throw new Error(`Unknown deployment target type: ${target.type}`);
+    }
+  }
+
+  private async deployToS3(config: any): Promise<void> {
+    const { bucket, region, accessKeyId, secretAccessKey } = config;
+    
+    // AWS S3 deployment logic
+    const command = `aws s3 sync ${this.config.output.directory} s3://${bucket} --region ${region} --delete`;
+    
+    await execAsync(command, {
+      env: {
+        ...process.env,
+        AWS_ACCESS_KEY_ID: accessKeyId,
+        AWS_SECRET_ACCESS_KEY: secretAccessKey
+      }
+    });
+  }
+
+  private async deployToGitHubPages(config: any): Promise<void> {
+    const { repo, branch = 'gh-pages', token } = config;
+    
+    // GitHub Pages deployment logic
+    await execAsync(`git add ${this.config.output.directory}`);
+    await execAsync(`git commit -m "Update documentation [skip ci]"`);
+    await execAsync(`git push origin ${branch}`, {
+      env: {
+        ...process.env,
+        GITHUB_TOKEN: token
+      }
+    });
+  }
+
+  private async deployToNetlify(config: any): Promise<void> {
+    const { siteId, authToken } = config;
+    
+    // Netlify deployment logic
+    const command = `netlify deploy --prod --dir=${this.config.output.directory} --site=${siteId}`;
+    
+    await execAsync(command, {
+      env: {
+        ...process.env,
+        NETLIFY_AUTH_TOKEN: authToken
+      }
+    });
+  }
+
+  private async deployToFTP(config: any): Promise<void> {
+    const { host, username, password, remotePath } = config;
+    
+    // FTP deployment logic (simplified)
+    const command = `lftp -c "open ftp://${username}:${password}@${host}; mirror -R ${this.config.output.directory} ${remotePath}"`;
+    
+    await execAsync(command);
+  }
+
+  private async notifySuccess(title: string, data: any): Promise<void> {
+    await Promise.allSettled([
+      this.sendEmailNotification(title, data, 'success'),
+      this.sendWebhookNotification(title, data, 'success'),
+      this.sendSlackNotification(title, data, 'success')
+    ]);
+  }
+
+  private async notifyError(title: string, error: Error, data?: any): Promise<void> {
+    await Promise.allSettled([
+      this.sendEmailNotification(title, { error: error.message, ...data }, 'error'),
+      this.sendWebhookNotification(title, { error: error.message, ...data }, 'error'),
+      this.sendSlackNotification(title, { error: error.message, ...data }, 'error')
+    ]);
+  }
+
+  private async sendEmailNotification(title: string, data: any, type: 'success' | 'error'): Promise<void> {
+    if (!this.config.notifications.email) return;
+
+    const transporter = nodemailer.createTransporter(this.config.notifications.email.smtp);
+    
+    await transporter.sendMail({
+      to: this.config.notifications.email.recipients.join(', '),
+      subject: `${this.config.notifications.email.subject} - ${title}`,
+      html: `
+        <h2>${title}</h2>
+        <p><strong>Status:</strong> ${type}</p>
+        <p><strong>Timestamp:</strong> ${new Date().toISOString()}</p>
+        <pre>${JSON.stringify(data, null, 2)}</pre>
+      `
+    });
+  }
+
+  private async sendWebhookNotification(title: string, data: any, type: 'success' | 'error'): Promise<void> {
+    if (!this.config.notifications.webhook) return;
+
+    const response = await fetch(this.config.notifications.webhook.url, {
+      method: this.config.notifications.webhook.method,
+      headers: {
+        'Content-Type': 'application/json',
+        ...this.config.notifications.webhook.headers
+      },
+      body: JSON.stringify({
+        title,
+        type,
+        data,
+        timestamp: new Date().toISOString()
+      })
+    });
+
+    if (!response.ok) {
+      throw new Error(`Webhook notification failed: ${response.statusText}`);
+    }
+  }
+
+  private async sendSlackNotification(title: string, data: any, type: 'success' | 'error'): Promise<void> {
+    if (!this.config.notifications.slack) return;
+
+    const color = type === 'success' ? 'good' : 'danger';
+    const emoji = type === 'success' ? '✅' : '❌';
+
+    await fetch(this.config.notifications.slack.webhookUrl, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        channel: this.config.notifications.slack.channel,
+        username: this.config.notifications.slack.username,
+        attachments: [{
+          color,
+          title: `${emoji} ${title}`,
+          fields: Object.entries(data).map(([key, value]) => ({
+            title: key,
+            value: typeof value === 'object' ? JSON.stringify(value) : String(value),
+            short: true
+          })),
+          timestamp: Math.floor(Date.now() / 1000)
+        }]
+      })
+    });
+  }
+}
+
+// CI/CD Integration
+// .github/workflows/documentation.yml
+const cicdWorkflow = `
+name: Documentation Generation
+
+on:
+  push:
+    branches: [main, develop]
+    paths: ['docs/**/*.md', 'README.md']
+  pull_request:
+    paths: ['docs/**/*.md', 'README.md']
+
+jobs:
+  generate-docs:
+    runs-on: ubuntu-latest
+    
+    steps:
+    - uses: actions/checkout@v3
+    
+    - name: Setup Node.js
+      uses: actions/setup-node@v3
+      with:
+        node-version: '18'
+        cache: 'npm'
+    
+    - name: Install dependencies
+      run: npm ci
+    
+    - name: Generate PDFs
+      run: npm run docs:pdf
+      env:
+        NODE_ENV: production
+    
+    - name: Archive documentation
+      uses: actions/upload-artifact@v3
+      with:
+        name: documentation-pdfs
+        path: dist/documentation/
+        retention-days: 30
+    
+    - name: Deploy to GitHub Pages
+      if: github.ref == 'refs/heads/main'
+      uses: peaceiris/actions-gh-pages@v3
+      with:
+        github_token: \${{ secrets.GITHUB_TOKEN }}
+        publish_dir: ./dist/documentation
+        destination_dir: pdf
+    
+    - name: Notify Slack
+      if: always()
+      uses: 8398a7/action-slack@v3
+      with:
+        status: \${{ job.status }}
+        channel: '#documentation'
+        webhook_url: \${{ secrets.SLACK_WEBHOOK }}
+`;
+
+export { DocumentationWorkflow, type WorkflowConfig, cicdWorkflow };</correct-example>
+          <incorrect-example title="Poor automation without proper workflows" conditions="Setting up automated documentation workflows" expected-result="Automated, reliable documentation generation and deployment" incorrectness-criteria="No automation, manual processes, no CI/CD integration, no error handling">// Bad: Manual process only
+const mdToPdf = require('md-to-pdf');
+
+// Bad: No automation
+function manualGeneration() {
+  // Bad: Hardcoded paths
+  mdToPdf({ path: 'file.md' }).then(pdf => {
+    // Bad: No error handling
+    // Bad: No deployment
+    // Bad: No notifications
+  });
+}
+
+// Bad: No watch mode
+// Bad: No batch processing
+// Bad: No CI/CD integration
+// Bad: No versioning</incorrect-example>
+        </example>
+      </examples>
+    </requirement>
+  </requirements>
+
+  <context description="Modern markdown to PDF conversion and documentation automation">
+    The md-to-pdf library provides powerful capabilities for converting Markdown documents to professionally formatted PDF files. It leverages Puppeteer and Chrome's PDF generation capabilities to ensure high-quality output with full CSS styling support.
+
+    Key advantages include:
+    - Professional PDF output with complete CSS styling control
+    - Support for complex layouts, tables, images, and typography
+    - Automated batch processing capabilities for large documentation sets
+    - Integration with modern CI/CD workflows for continuous documentation
+    - Customizable themes and branding for consistent document appearance
+
+    Modern usage patterns emphasize automation, professional styling, and integration with documentation workflows. The library excels in technical documentation, reports, manuals, and any scenario requiring high-quality PDF output from Markdown sources.
+
+    Best practices include implementing comprehensive CSS styling systems, automated workflow integration, proper error handling, and deployment automation for scalable documentation generation processes.
+  </context>
+
+  <references>
+    <reference as="dependency" href=".cursor/rules/000-core/002-cursor-rules-creation.mdc" reason="Follows standard rule format">Base rule format definition</reference>
+    <reference as="context" href="https://www.npmjs.com/package/md-to-pdf" reason="Official md-to-pdf documentation">md-to-pdf npm package documentation</reference>
+    <reference as="context" href="https://pptr.dev/" reason="Puppeteer documentation">Puppeteer documentation for PDF generation</reference>
+    <reference as="context" href="https://developer.mozilla.org/en-US/docs/Web/CSS/CSS_Paged_Media" reason="CSS Paged Media">CSS Paged Media for print styling</reference>
+    <reference as="context" href="https://www.w3.org/TR/css-page-3/" reason="CSS Page Module">W3C CSS Paged Media Module specification</reference>
+  </references>
+</rule>

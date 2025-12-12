@@ -1,0 +1,747 @@
+---
+description: "Comprehensive Chalk terminal styling standards for colorization, formatting, accessibility, and cross-platform terminal output following expert best practices"
+globs: ["**/*.{js,ts,mjs,cjs}", "**/cli/**/*.{js,ts}", "**/bin/**/*.{js,ts}", "**/*.json"]
+alwaysApply: false
+---
+
+<rule>
+  <meta>
+    <title>Chalk Terminal Styling Standards</title>
+    <description>Comprehensive Chalk terminal styling standards for colorization, formatting, accessibility, and cross-platform terminal output following expert best practices</description>
+    <created-at utc-timestamp="1744400300">January 29, 2025, 3:05 PM</created-at>
+    <last-updated-at utc-timestamp="1744400300">January 29, 2025, 3:05 PM</last-updated-at>
+    <applies-to>
+      <file-matcher glob="**/*.{js,ts,mjs,cjs}">JavaScript and TypeScript files using Chalk</file-matcher>
+      <file-matcher glob="**/cli/**/*.{js,ts}">CLI tools and command-line interfaces</file-matcher>
+      <action-matcher action="terminal-styling">Triggered when working with terminal styling and colorization</action-matcher>
+    </applies-to>
+  </meta>
+
+  <requirements>
+    <non-negotiable priority="critical">
+      <description>Use Chalk with proper color accessibility, terminal compatibility detection, and graceful fallbacks for environments without color support.</description>
+      <examples>
+        <example title="Accessible Terminal Styling">
+          <correct-example title="Chalk with accessibility and compatibility" conditions="Implementing terminal styling with Chalk" expected-result="Accessible and cross-platform terminal output" correctness-criteria="Respects NO_COLOR environment, provides fallbacks, uses semantic color choices"><![CDATA[// utils/terminal-colors.ts
+import chalk from 'chalk'
+
+interface ColorTheme {
+  success: chalk.Chalk
+  error: chalk.Chalk
+  warning: chalk.Chalk
+  info: chalk.Chalk
+  debug: chalk.Chalk
+  highlight: chalk.Chalk
+  muted: chalk.Chalk
+  primary: chalk.Chalk
+  secondary: chalk.Chalk
+}
+
+export class TerminalColorManager {
+  private static theme: ColorTheme
+  private static isColorSupported: boolean = TerminalColorManager.detectColorSupport()
+
+  private static detectColorSupport(): boolean {
+    // Respect NO_COLOR environment variable (universal standard)
+    if (process.env.NO_COLOR) {
+      return false
+    }
+
+    // Respect FORCE_COLOR environment variable
+    if (process.env.FORCE_COLOR) {
+      return true
+    }
+
+    // Check if running in CI without color support
+    if (process.env.CI && !process.env.FORCE_COLOR) {
+      const supportedCI = [
+        'GITHUB_ACTIONS',
+        'GITLAB_CI',
+        'BUILDKITE',
+        'CIRCLECI'
+      ]
+      const hasColorSupport = supportedCI.some(ci => process.env[ci])
+      if (!hasColorSupport) return false
+    }
+
+    // Check terminal capabilities
+    return chalk.supportsColor !== false
+  }
+
+  static initializeTheme(): void {
+    if (this.isColorSupported) {
+      this.theme = {
+        success: chalk.green,
+        error: chalk.red,
+        warning: chalk.yellow,
+        info: chalk.blue,
+        debug: chalk.gray,
+        highlight: chalk.cyan,
+        muted: chalk.dim,
+        primary: chalk.bold.blue,
+        secondary: chalk.magenta
+      }
+    } else {
+      // Fallback theme without colors
+      this.theme = {
+        success: chalk,
+        error: chalk,
+        warning: chalk,
+        info: chalk,
+        debug: chalk,
+        highlight: chalk.bold,
+        muted: chalk.dim,
+        primary: chalk.bold,
+        secondary: chalk
+      }
+    }
+  }
+
+  static get colors(): ColorTheme {
+    if (!this.theme) {
+      this.initializeTheme()
+    }
+    return this.theme
+  }
+
+  static formatMessage(type: keyof ColorTheme, message: string, prefix?: string): string {
+    const colorFn = this.colors[type]
+    const prefixText = prefix ? `[${prefix}] ` : ''
+    return colorFn(`${prefixText}${message}`)
+  }
+
+  static createLogger() {
+    return {
+      success: (message: string, prefix?: string) => 
+        console.log(this.formatMessage('success', message, prefix)),
+      error: (message: string, prefix?: string) => 
+        console.error(this.formatMessage('error', message, prefix)),
+      warning: (message: string, prefix?: string) => 
+        console.warn(this.formatMessage('warning', message, prefix)),
+      info: (message: string, prefix?: string) => 
+        console.info(this.formatMessage('info', message, prefix)),
+      debug: (message: string, prefix?: string) => 
+        process.env.DEBUG && console.log(this.formatMessage('debug', message, prefix))
+    }
+  }
+
+  static isColorsEnabled(): boolean {
+    return this.isColorSupported
+  }
+
+  static disable(): void {
+    chalk.level = 0
+    this.isColorSupported = false
+    this.initializeTheme()
+  }
+
+  static enable(): void {
+    chalk.level = 3
+    this.isColorSupported = true
+    this.initializeTheme()
+  }
+}
+
+// CLI utilities with semantic styling
+// utils/cli-output.ts
+import { TerminalColorManager } from './terminal-colors'
+
+export class CLIOutput {
+  private static logger = TerminalColorManager.createLogger()
+
+  static banner(title: string, subtitle?: string): void {
+    const { primary, muted } = TerminalColorManager.colors
+    
+    console.log()
+    console.log(primary('╭─ ' + title + ' ─╮'))
+    if (subtitle) {
+      console.log(muted('│ ' + subtitle.padEnd(title.length) + ' │'))
+    }
+    console.log(primary('╰─' + '─'.repeat(title.length) + '─╯'))
+    console.log()
+  }
+
+  static section(title: string): void {
+    const { highlight } = TerminalColorManager.colors
+    console.log(highlight(`\n▶ ${title}`))
+  }
+
+  static step(step: number, total: number, description: string): void {
+    const { info, muted } = TerminalColorManager.colors
+    const progress = `${step}/${total}`
+    console.log(info(`[${progress}]`) + ' ' + description)
+  }
+
+  static success(message: string): void {
+    this.logger.success(message, '✅')
+  }
+
+  static error(message: string): void {
+    this.logger.error(message, '❌')
+  }
+
+  static warning(message: string): void {
+    this.logger.warning(message, '⚠️')
+  }
+
+  static info(message: string): void {
+    this.logger.info(message, 'ℹ️')
+  }
+
+  static debug(message: string): void {
+    this.logger.debug(message, '🐛')
+  }
+
+  static table(data: Array<Record<string, string>>, headers: string[]): void {
+    if (!data.length) return
+
+    const { primary, muted } = TerminalColorManager.colors
+    
+    // Calculate column widths
+    const widths = headers.map(header => {
+      const contentWidths = data.map(row => String(row[header] || '').length)
+      return Math.max(header.length, ...contentWidths)
+    })
+
+    // Print header
+    const headerRow = headers.map((header, i) => 
+      primary(header.padEnd(widths[i]))
+    ).join(' │ ')
+    console.log('┌─' + widths.map(w => '─'.repeat(w)).join('─┬─') + '─┐')
+    console.log('│ ' + headerRow + ' │')
+    console.log('├─' + widths.map(w => '─'.repeat(w)).join('─┼─') + '─┤')
+
+    // Print rows
+    data.forEach(row => {
+      const rowData = headers.map((header, i) => 
+        String(row[header] || '').padEnd(widths[i])
+      ).join(' │ ')
+      console.log('│ ' + rowData + ' │')
+    })
+    
+    console.log('└─' + widths.map(w => '─'.repeat(w)).join('─┴─') + '─┘')
+  }
+
+  static progressBar(current: number, total: number, width: number = 40): void {
+    const { success, muted } = TerminalColorManager.colors
+    
+    const percentage = Math.round((current / total) * 100)
+    const filled = Math.round((current / total) * width)
+    const empty = width - filled
+    
+    const bar = success('█'.repeat(filled)) + muted('░'.repeat(empty))
+    const progress = `${current}/${total} (${percentage}%)`
+    
+    process.stdout.write(`\r[${bar}] ${progress}`)
+    
+    if (current === total) {
+      process.stdout.write('\n')
+    }
+  }
+
+  static list(items: string[], bullet: string = '•'): void {
+    const { highlight, muted } = TerminalColorManager.colors
+    
+    items.forEach(item => {
+      console.log(muted(bullet) + ' ' + item)
+    })
+  }
+
+  static keyValue(pairs: Record<string, string>, indent: string = ''): void {
+    const { primary, muted } = TerminalColorManager.colors
+    
+    Object.entries(pairs).forEach(([key, value]) => {
+      console.log(indent + primary(key + ':') + ' ' + value)
+    })
+  }
+}
+
+// Build script integration
+// scripts/build-with-output.ts
+import { CLIOutput, TerminalColorManager } from '../utils'
+
+async function build() {
+  CLIOutput.banner('Production Build', 'Compiling application for deployment')
+  
+  const steps = [
+    'Cleaning output directory',
+    'Compiling TypeScript',
+    'Bundling assets',
+    'Optimizing images',
+    'Generating manifest',
+    'Creating deployment package'
+  ]
+
+  try {
+    for (let i = 0; i < steps.length; i++) {
+      CLIOutput.step(i + 1, steps.length, steps[i])
+      await performBuildStep(i)
+      CLIOutput.progressBar(i + 1, steps.length)
+    }
+    
+    CLIOutput.success('Build completed successfully!')
+    
+    // Show build statistics
+    CLIOutput.section('Build Statistics')
+    CLIOutput.keyValue({
+      'Total size': '2.3 MB',
+      'Gzipped': '847 KB',
+      'Build time': '23.4s',
+      'Output': './dist/'
+    }, '  ')
+    
+  } catch (error) {
+    CLIOutput.error(`Build failed: ${error.message}`)
+    process.exit(1)
+  }
+}
+
+// Test output formatting
+// scripts/test-reporter.ts
+export class TestReporter {
+  private passed = 0
+  private failed = 0
+  private skipped = 0
+
+  onTestStart(testName: string): void {
+    const { muted } = TerminalColorManager.colors
+    process.stdout.write(muted(`  Running: ${testName}...`))
+  }
+
+  onTestPass(testName: string): void {
+    const { success } = TerminalColorManager.colors
+    console.log('\r' + success(`  ✓ ${testName}`))
+    this.passed++
+  }
+
+  onTestFail(testName: string, error: string): void {
+    const { error: errorColor } = TerminalColorManager.colors
+    console.log('\r' + errorColor(`  ✗ ${testName}`))
+    console.log(errorColor(`    ${error}`))
+    this.failed++
+  }
+
+  onTestSkip(testName: string): void {
+    const { warning } = TerminalColorManager.colors
+    console.log('\r' + warning(`  - ${testName}`))
+    this.skipped++
+  }
+
+  summary(): void {
+    const { success, error, warning, muted } = TerminalColorManager.colors
+    
+    CLIOutput.section('Test Results')
+    
+    console.log(success(`  Passed: ${this.passed}`))
+    if (this.failed > 0) {
+      console.log(error(`  Failed: ${this.failed}`))
+    }
+    if (this.skipped > 0) {
+      console.log(warning(`  Skipped: ${this.skipped}`))
+    }
+    
+    const total = this.passed + this.failed + this.skipped
+    console.log(muted(`  Total: ${total}`))
+  }
+}]]></correct-example>
+          <incorrect-example title="Poor Chalk usage without accessibility" conditions="Implementing terminal styling" expected-result="Accessible terminal output" incorrectness-criteria="Ignores NO_COLOR, no fallbacks, poor color choices, accessibility issues"><![CDATA[// Bad: No accessibility considerations
+import chalk from 'chalk'
+
+// Bad: Ignores NO_COLOR and terminal capabilities
+function showError(message) {
+  console.log(chalk.red(message)) // Will show colors even when not supported
+}
+
+// Bad: Poor semantic color choices
+function showStatus(status) {
+  console.log(chalk.magenta(status)) // Magenta is not semantic for status
+}
+
+// Bad: No fallback for non-color terminals
+function highlight(text) {
+  return chalk.rainbow(text) // Rainbow colors are not accessible
+}
+
+// Bad: Hard to read combinations
+function showWarning(message) {
+  console.log(chalk.yellow.bgYellow(message)) // Poor contrast
+}
+
+// Bad: No environment detection
+function colorize(text, color) {
+  return chalk[color](text) // Always applies color
+}]]></incorrect-example>
+        </example>
+      </examples>
+    </non-negotiable>
+
+    <requirement priority="high">
+      <description>Implement semantic color schemes and consistent styling patterns for different types of output including success, error, warning, info, and debug messages.</description>
+      <examples>
+        <example title="Semantic Color Schemes">
+          <correct-example title="Consistent semantic styling patterns" conditions="Creating styled terminal output" expected-result="Consistent and meaningful color usage" correctness-criteria="Uses semantic colors, consistent patterns, readable combinations"><![CDATA[// utils/semantic-styling.ts
+import chalk from 'chalk'
+
+export enum MessageType {
+  SUCCESS = 'success',
+  ERROR = 'error',
+  WARNING = 'warning',
+  INFO = 'info',
+  DEBUG = 'debug'
+}
+
+export enum OutputLevel {
+  MINIMAL = 'minimal',
+  NORMAL = 'normal',
+  VERBOSE = 'verbose'
+}
+
+interface StyleConfig {
+  icon: string
+  color: chalk.Chalk
+  bgColor?: chalk.Chalk
+  modifier?: chalk.Chalk
+}
+
+export class SemanticStyling {
+  private static styles: Record<MessageType, StyleConfig> = {
+    [MessageType.SUCCESS]: {
+      icon: '✓',
+      color: chalk.green,
+      modifier: chalk.bold
+    },
+    [MessageType.ERROR]: {
+      icon: '✗',
+      color: chalk.red,
+      modifier: chalk.bold
+    },
+    [MessageType.WARNING]: {
+      icon: '⚠',
+      color: chalk.yellow
+    },
+    [MessageType.INFO]: {
+      icon: 'ℹ',
+      color: chalk.blue
+    },
+    [MessageType.DEBUG]: {
+      icon: '🐛',
+      color: chalk.gray,
+      modifier: chalk.dim
+    }
+  }
+
+  private static outputLevel: OutputLevel = OutputLevel.NORMAL
+
+  static setOutputLevel(level: OutputLevel): void {
+    this.outputLevel = level
+  }
+
+  static formatMessage(
+    type: MessageType, 
+    message: string, 
+    options?: {
+      showIcon?: boolean
+      showTimestamp?: boolean
+      prefix?: string
+      indent?: number
+    }
+  ): string {
+    const { showIcon = true, showTimestamp = false, prefix, indent = 0 } = options || {}
+    const style = this.styles[type]
+    const indentation = ' '.repeat(indent)
+    
+    let formattedMessage = ''
+    
+    // Add timestamp if requested
+    if (showTimestamp) {
+      const timestamp = new Date().toISOString()
+      formattedMessage += chalk.dim(`[${timestamp}] `)
+    }
+    
+    // Add prefix if provided
+    if (prefix) {
+      formattedMessage += chalk.dim(`[${prefix}] `)
+    }
+    
+    // Add icon if requested and appropriate for output level
+    if (showIcon && this.outputLevel !== OutputLevel.MINIMAL) {
+      formattedMessage += `${style.icon} `
+    }
+    
+    // Apply color and modifiers
+    let styledMessage = style.color(message)
+    if (style.modifier) {
+      styledMessage = style.modifier(styledMessage)
+    }
+    if (style.bgColor) {
+      styledMessage = style.bgColor(styledMessage)
+    }
+    
+    return indentation + formattedMessage + styledMessage
+  }
+
+  static createTypedLogger(prefix?: string) {
+    return {
+      success: (message: string, options?: any) => 
+        console.log(this.formatMessage(MessageType.SUCCESS, message, { prefix, ...options })),
+      
+      error: (message: string, options?: any) => 
+        console.error(this.formatMessage(MessageType.ERROR, message, { prefix, ...options })),
+      
+      warning: (message: string, options?: any) => 
+        console.warn(this.formatMessage(MessageType.WARNING, message, { prefix, ...options })),
+      
+      info: (message: string, options?: any) => 
+        console.info(this.formatMessage(MessageType.INFO, message, { prefix, ...options })),
+      
+      debug: (message: string, options?: any) => {
+        if (process.env.DEBUG || this.outputLevel === OutputLevel.VERBOSE) {
+          console.log(this.formatMessage(MessageType.DEBUG, message, { prefix, ...options }))
+        }
+      }
+    }
+  }
+
+  // Specialized formatting for different contexts
+  static formatTitle(title: string, level: number = 1): string {
+    const markers = ['#', '##', '###', '####']
+    const marker = markers[Math.min(level - 1, markers.length - 1)]
+    
+    switch (level) {
+      case 1:
+        return chalk.bold.blue(`${marker} ${title}`)
+      case 2:
+        return chalk.bold.cyan(`${marker} ${title}`)
+      case 3:
+        return chalk.bold.green(`${marker} ${title}`)
+      default:
+        return chalk.bold(`${marker} ${title}`)
+    }
+  }
+
+  static formatCode(code: string, language?: string): string {
+    const lines = code.split('\n')
+    const formattedLines = lines.map((line, index) => {
+      const lineNum = String(index + 1).padStart(3, ' ')
+      return chalk.dim(lineNum) + ' │ ' + chalk.cyan(line)
+    })
+    
+    const header = language ? chalk.dim(`─── ${language} ───`) : chalk.dim('─── code ───')
+    const separator = chalk.dim('─'.repeat(50))
+    
+    return [header, ...formattedLines, separator].join('\n')
+  }
+
+  static formatDiff(oldValue: string, newValue: string): string {
+    const removed = chalk.red(`- ${oldValue}`)
+    const added = chalk.green(`+ ${newValue}`)
+    return [removed, added].join('\n')
+  }
+
+  static formatStats(stats: Record<string, number | string>): string {
+    const maxKeyLength = Math.max(...Object.keys(stats).map(k => k.length))
+    
+    return Object.entries(stats).map(([key, value]) => {
+      const paddedKey = key.padEnd(maxKeyLength)
+      const formattedValue = typeof value === 'number' ? 
+        chalk.cyan(value.toLocaleString()) : 
+        chalk.white(value)
+      
+      return chalk.dim(paddedKey) + ' : ' + formattedValue
+    }).join('\n')
+  }
+
+  static formatList(items: string[], options?: {
+    ordered?: boolean
+    bullet?: string
+    indent?: number
+  }): string {
+    const { ordered = false, bullet = '•', indent = 0 } = options || {}
+    const indentation = ' '.repeat(indent)
+    
+    return items.map((item, index) => {
+      const marker = ordered ? 
+        chalk.dim(`${index + 1}.`) : 
+        chalk.cyan(bullet)
+      
+      return indentation + marker + ' ' + item
+    }).join('\n')
+  }
+
+  static formatKeyValue(
+    pairs: Record<string, string | number>, 
+    options?: {
+      alignment?: 'left' | 'right'
+      separator?: string
+      indent?: number
+    }
+  ): string {
+    const { alignment = 'left', separator = ':', indent = 0 } = options || {}
+    const indentation = ' '.repeat(indent)
+    
+    const maxKeyLength = Math.max(...Object.keys(pairs).map(k => k.length))
+    
+    return Object.entries(pairs).map(([key, value]) => {
+      const paddedKey = alignment === 'right' ? 
+        key.padStart(maxKeyLength) : 
+        key.padEnd(maxKeyLength)
+      
+      const formattedKey = chalk.blue(paddedKey)
+      const formattedValue = typeof value === 'number' ? 
+        chalk.cyan(value.toLocaleString()) : 
+        chalk.white(value)
+      
+      return indentation + formattedKey + chalk.dim(separator) + ' ' + formattedValue
+    }).join('\n')
+  }
+}
+
+// Usage examples in different contexts
+
+// Build script with semantic styling
+// scripts/semantic-build.ts
+const buildLogger = SemanticStyling.createTypedLogger('BUILD')
+
+async function semanticBuild() {
+  console.log(SemanticStyling.formatTitle('Production Build', 1))
+  
+  buildLogger.info('Starting build process...')
+  
+  try {
+    // Step 1: Clean
+    buildLogger.info('Cleaning output directory')
+    await cleanDist()
+    buildLogger.success('Output directory cleaned')
+    
+    // Step 2: Compile
+    buildLogger.info('Compiling TypeScript')
+    const compileStats = await compileTypeScript()
+    buildLogger.success('TypeScript compilation complete')
+    
+    // Show compilation stats
+    console.log(SemanticStyling.formatStats({
+      'Files processed': compileStats.filesProcessed,
+      'Errors': compileStats.errors,
+      'Warnings': compileStats.warnings,
+      'Build time': `${compileStats.duration}ms`
+    }))
+    
+    buildLogger.success('Build completed successfully!')
+    
+  } catch (error) {
+    buildLogger.error(`Build failed: ${error.message}`)
+    
+    if (error.details) {
+      console.log(SemanticStyling.formatCode(error.details, 'error'))
+    }
+    
+    process.exit(1)
+  }
+}
+
+// CLI tool with consistent styling
+// cli/deploy-tool.ts
+const deployLogger = SemanticStyling.createTypedLogger('DEPLOY')
+
+class DeploymentTool {
+  async deploy(environment: string) {
+    console.log(SemanticStyling.formatTitle(`Deploying to ${environment}`, 1))
+    
+    const steps = [
+      'Validating environment',
+      'Building application',
+      'Running tests',
+      'Uploading assets',
+      'Updating configuration',
+      'Restarting services'
+    ]
+    
+    console.log(SemanticStyling.formatList(steps, { ordered: true }))
+    
+    for (const [index, step] of steps.entries()) {
+      deployLogger.info(`Step ${index + 1}: ${step}`)
+      
+      try {
+        await this.executeStep(step)
+        deployLogger.success(`Completed: ${step}`)
+      } catch (error) {
+        deployLogger.error(`Failed: ${step}`)
+        deployLogger.error(error.message)
+        
+        // Show what was attempted vs what happened
+        console.log(SemanticStyling.formatDiff(
+          `Expected: ${step} to complete successfully`,
+          `Actual: ${error.message}`
+        ))
+        
+        throw error
+      }
+    }
+    
+    deployLogger.success(`Deployment to ${environment} completed!`)
+  }
+}]]></correct-example>
+          <incorrect-example title="Inconsistent styling patterns" conditions="Creating styled terminal output" expected-result="Consistent color usage" incorrectness-criteria="Mixed color meanings, inconsistent patterns, poor readability"><![CDATA[// Bad: Inconsistent semantic meanings
+import chalk from 'chalk'
+
+// Bad: Success sometimes green, sometimes blue
+function showSuccess1(msg) {
+  console.log(chalk.green('Success: ' + msg))
+}
+
+function showSuccess2(msg) {
+  console.log(chalk.blue('Success: ' + msg)) // Inconsistent
+}
+
+// Bad: Error messages with different colors
+function showError1(msg) {
+  console.log(chalk.red(msg))
+}
+
+function showError2(msg) {
+  console.log(chalk.magenta(msg)) // Different color for same meaning
+}
+
+// Bad: No consistent pattern
+function showWarning(msg) {
+  console.log(chalk.yellow.bgRed(msg)) // Poor contrast
+}
+
+function showInfo(msg) {
+  console.log(chalk.rainbow(msg)) // Distracting and not semantic
+}
+
+// Bad: Mixed styling approaches
+function displayResult(type, message) {
+  if (type === 'good') {
+    console.log(chalk.green.bold.underline(message)) // Over-styled
+  } else {
+    console.log(message) // No styling
+  }
+}]]></incorrect-example>
+        </example>
+      </examples>
+    </requirement>
+  </requirements>
+
+  <context description="Chalk terminal styling considerations">
+    Chalk is a popular Node.js library for terminal string styling with support for colors, background colors, and text decorations. Modern terminal styling requires attention to accessibility, cross-platform compatibility, and semantic meaning.
+
+    Key considerations for Chalk usage:
+    - Respect NO_COLOR environment variable for accessibility
+    - Provide graceful fallbacks for terminals without color support
+    - Use semantic color schemes for consistent meaning
+    - Consider color blindness and contrast requirements
+    - Handle different terminal capabilities appropriately
+    - Integrate with CI/CD environments that may not support colors
+
+    Modern development tools benefit from consistent styling patterns that enhance readability without becoming distracting. Colors should convey meaning rather than just decoration, and the styling should adapt to different output contexts and user preferences.
+  </context>
+
+  <references>
+    <reference as="dependency" href=".cursor/rules/000-core/002-cursor-rules-creation.mdc" reason="Follows standard rule format">Base rule format definition</reference>
+    <reference as="context" href="https://www.npmjs.com/package/chalk" reason="Official Chalk documentation">Chalk NPM Package</reference>
+    <reference as="context" href="https://no-color.org/" reason="NO_COLOR standard">NO_COLOR Environment Variable Standard</reference>
+    <reference as="context" href="https://en.wikipedia.org/wiki/ANSI_escape_code" reason="Terminal color codes">ANSI Escape Codes</reference>
+  </references>
+</rule>

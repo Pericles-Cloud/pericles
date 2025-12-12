@@ -1,0 +1,163 @@
+---
+description: Standards and guidance for integrating with twitterapi.io, including authentication, rate limits, endpoint usage, and error handling
+globs: "*"
+alwaysApply: false
+---
+
+<rule>
+  <meta>
+    <title>twitterapi.io Integration Standards</title>
+    <description>Guidance for using twitterapi.io endpoints (users, tweets, lists, communities, trends, streams), auth, quotas, and reliability practices.</description>
+    <created-at utc-timestamp="1750790400">June 25, 2025, 00:00 UTC</created-at>
+    <last-updated-at utc-timestamp="1750790400">June 25, 2025, 00:00 UTC</last-updated-at>
+    <applies-to>
+      <file-matcher glob="*">All application code calling twitterapi.io</file-matcher>
+      <action-matcher action="integration">When integrating or refactoring Twitter API calls</action-matcher>
+    </applies-to>
+  </meta>
+  <requirements>
+    <non-negotiable priority="critical">
+      <description>Follow the Cursor Rule File Format dependency; this rule must adhere to 000-core/002-cursor-rules-creation.mdc for structure.</description>
+      <examples>
+        <example title="Dependency Reference">
+          <correct-example title="References the core rule format" conditions="Creating or editing this rule" expected-result="Valid reference to base format" correctness-criteria="Includes a reference to 000-core/002-cursor-rules-creation.mdc"><![CDATA[
+<references>
+  <reference as="dependency" href=".cursor/rules/000-core/002-cursor-rules-creation.mdc" reason="Rule file structure and validation">Cursor Rule file format</reference>
+</references>]]></correct-example>
+        </example>
+      </examples>
+    </non-negotiable>
+
+    <requirement priority="critical">
+      <description>Authentication must use twitterapi.io’s documented auth and secure secret storage. Never commit tokens.</description>
+      <examples>
+        <example title="Auth">
+          <correct-example title="Use environment variables" conditions="Configuring auth" expected-result="Secrets are not in code" correctness-criteria="Reads credentials from env; supports Vercel envs"><![CDATA[
+// server-side config
+const TWITTERAPI_BASE = process.env.TWITTERAPI_BASE || 'https://api.twitterapi.io';
+const TWITTERAPI_KEY = process.env.TWITTERAPI_KEY; // store securely
+
+async function twitterFetch(path, init = {}) {
+  const headers = new Headers(init.headers);
+  headers.set('Authorization', `Bearer ${TWITTERAPI_KEY}`);
+  headers.set('Content-Type', 'application/json');
+  const res = await fetch(`${TWITTERAPI_BASE}${path}`, { ...init, headers, cache: 'no-store' });
+  if (!res.ok) throw await normalizeTwitterApiError(res);
+  return res.json();
+}]]></correct-example>
+          <incorrect-example title="Hardcoded token" conditions="Configuring auth" expected-result="No plaintext secrets" incorrectness-criteria="Secrets in code or logs"><![CDATA[
+const TW_KEY = 'hardcoded-token'; // WRONG
+fetch('https://api.twitterapi.io/user', { headers: { Authorization: `Bearer ${TW_KEY}` } });]]></incorrect-example>
+        </example>
+      </examples>
+    </requirement>
+
+    <requirement priority="high">
+      <description>Respect quotas and performance: apply request throttling, retries with backoff, and caching where appropriate.</description>
+      <examples>
+        <example title="Resilience">
+          <correct-example title="Backoff and limits" conditions="High-QPS endpoints" expected-result="Stable integration" correctness-criteria="Retry 429/5xx with exponential backoff; cap QPS"><![CDATA[
+import pLimit from 'p-limit';
+const limit = pLimit(5); // cap concurrency locally
+
+async function fetchWithBackoff(fn, attempts = 4) {
+  let delay = 250;
+  for (let i = 0; i < attempts; i++) {
+    try { return await fn(); } catch (e) {
+      const status = e.status || 500;
+      if (status === 429 || status >= 500) {
+        await new Promise(r => setTimeout(r, delay));
+        delay = Math.min(delay * 2, 5000);
+        continue;
+      }
+      throw e;
+    }
+  }
+  throw new Error('twitterapi.io retries exhausted');
+}]]></correct-example>
+          <incorrect-example title="No throttling" conditions="Burst calls" expected-result="Stable request rate" incorrectness-criteria="Unbounded parallelism"><![CDATA[
+await Promise.all(items.map(x => fetch(`${TWITTERAPI_BASE}/api/...`))); // WRONG, bursts
+]]></incorrect-example>
+        </example>
+      </examples>
+    </requirement>
+
+    <requirement priority="high">
+      <description>Use the correct endpoint families per docs: Users, Tweets, Lists, Communities, Trends, Streams, and Webhook/Websocket filter rules.</description>
+      <examples>
+        <example title="Endpoint selection">
+          <correct-example title="Get user info" conditions="Fetching profile" expected-result="Proper endpoint and params" correctness-criteria="Uses documented path"><![CDATA[
+// Users
+await twitterFetch('/user/get', { method: 'GET' });
+// or batch: /user/batch
+]]></correct-example>
+          <correct-example title="Get tweets by IDs" conditions="Fetching tweet details" expected-result="Proper endpoint family" correctness-criteria="Uses Tweet endpoints"><![CDATA[
+await twitterFetch('/tweet/get-by-ids?ids=123,456');
+]]></correct-example>
+          <correct-example title="Advanced search" conditions="Query tweets" expected-result="Search endpoint" correctness-criteria="Uses Advanced Search"><![CDATA[
+await twitterFetch('/tweet/search?query=from:openai lang:en -is:retweet');
+]]></correct-example>
+          <incorrect-example title="Wrong path" conditions="Profile lookup" expected-result="Users endpoint" incorrectness-criteria="Calls unrelated path"><![CDATA[
+await twitterFetch('/trend/getUser'); // WRONG
+]]></incorrect-example>
+        </example>
+      </examples>
+    </requirement>
+
+    <requirement priority="high">
+      <description>Standardize error handling and mapping; surface actionable messages and include rate-limit context (429).</description>
+      <examples>
+        <example title="Error normalization">
+          <correct-example title="Map to internal shape" conditions="Handling errors" expected-result="Consistent error object" correctness-criteria="Includes status and code"><![CDATA[
+async function normalizeTwitterApiError(res) {
+  const status = res.status;
+  let body;
+  try { body = await res.json(); } catch { body = await res.text(); }
+  return Object.assign(new Error(`twitterapi.io ${status}`), {
+    status,
+    code: (body && body.errorCode) || 'TWITTERAPI_ERROR',
+    details: body,
+  });
+}]]></correct-example>
+          <incorrect-example title="Swallow errors" conditions="Handling errors" expected-result="Useful diagnostics" incorrectness-criteria="empty catch"><![CDATA[
+try { await twitterFetch('/tweet/search?...'); } catch (e) { /* ignore */ }
+]]></incorrect-example>
+        </example>
+      </examples>
+    </requirement>
+
+    <requirement priority="medium">
+      <description>Document quotas and costs for features that depend on twitterapi.io; add budget guards for batch operations.</description>
+    </requirement>
+
+    <requirement priority="medium">
+      <description>Security: scrub PII in logs; never log raw responses; avoid storing access tokens in client-side environments.</description>
+    </requirement>
+
+    <requirement priority="medium">
+      <description>Testing: add integration tests for critical calls with mocked responses; verify backoff logic and 429 handling.</description>
+    </requirement>
+  </requirements>
+
+  <grammar>
+    <grammar-entry title="Endpoint families">
+      <pattern description="Users">user/*</pattern>
+      <pattern description="Tweets">tweet/*</pattern>
+      <pattern description="Lists">list/*</pattern>
+      <pattern description="Communities">community/*</pattern>
+      <pattern description="Trends">trend/*</pattern>
+      <pattern description="Streams">stream/*</pattern>
+      <pattern description="Webhook/Websocket filter rules">rule/*</pattern>
+    </grammar-entry>
+  </grammar>
+
+  <context description="twitterapi.io docs reference">
+    See twitterapi.io Introduction and endpoint catalog for details. Pricing and QPS notes: stability at high QPS (up to ~200 QPS per client), average ~700ms; cost per resource unit as documented.
+  </context>
+
+  <references>
+    <reference as="dependency" href=".cursor/rules/000-core/002-cursor-rules-creation.mdc" reason="Rule file format and validation">Cursor Rule File Format</reference>
+    <reference as="context" href="https://docs.twitterapi.io/introduction" reason="Official docs for endpoints and capabilities">twitterapi.io Introduction</reference>
+  </references>
+</rule>
+

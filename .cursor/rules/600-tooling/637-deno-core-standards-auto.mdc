@@ -1,0 +1,845 @@
+---
+description: "Comprehensive Deno 2.0+ best practices for modern JavaScript and TypeScript development with built-in security, tooling, and web standards compliance following expert community standards"
+globs: ["**/*.ts", "**/*.js", "**/deno.json", "**/deno.jsonc", "**/deno.lock", "**/*deno*", "**/deps.ts", "**/*.test.ts", "**/*.bench.ts"]
+alwaysApply: false
+---
+
+<rule>
+  <meta>
+    <title>Deno Core Standards - Modern JavaScript/TypeScript Runtime</title>
+    <description>Expert-level Deno 2.0+ standards covering security-first development, built-in toolchain usage, TypeScript-first patterns, web standards compliance, performance optimization, and modern deployment practices following official Deno documentation and expert community guidelines.</description>
+    <created-at utc-timestamp="1744157700">January 25, 2025, 10:15 AM</created-at>
+    <last-updated-at utc-timestamp="1744157700">January 25, 2025, 10:15 AM</last-updated-at>
+    <applies-to>
+      <file-matcher glob="**/*.ts">TypeScript files for Deno development</file-matcher>
+      <file-matcher glob="**/*.js">JavaScript files for Deno development</file-matcher>
+      <file-matcher glob="**/deno.json">Deno configuration files</file-matcher>
+      <file-matcher glob="**/deno.jsonc">Deno configuration files with comments</file-matcher>
+      <file-matcher glob="**/deps.ts">Deno dependency management files</file-matcher>
+      <action-matcher action="deno-development">All Deno runtime development activities</action-matcher>
+    </applies-to>
+  </meta>
+
+  <requirements>
+    <!-- SECURITY-FIRST DEVELOPMENT -->
+    <non-negotiable priority="critical">
+      <description>ALWAYS use Deno's explicit permission model. Never use --allow-all or excessive permissions. Grant only the minimum permissions required for your application to function securely.</description>
+      <examples>
+        <example title="Secure Permission Management">
+          <correct-example title="Minimal required permissions" conditions="Running a web server that reads config files" expected-result="Secure execution with minimal permissions" correctness-criteria="Uses specific permissions for exact needs">
+            <![CDATA[
+// Secure permission usage - only what's needed
+deno run --allow-net=:8000 --allow-read=./config server.ts
+
+// In code - check permissions programmatically
+const netPermission = await Deno.permissions.query({ name: "net", host: "localhost:8000" });
+if (netPermission.state !== "granted") {
+  console.error("Network permission required for localhost:8000");
+  Deno.exit(1);
+}
+
+// Secure HTTP server with explicit permissions
+Deno.serve({ port: 8000 }, (req) => {
+  return new Response("Hello, secure Deno!");
+});
+            ]]>
+          </correct-example>
+          <incorrect-example title="Excessive permissions" conditions="Running a web server" expected-result="Secure execution with minimal permissions" incorrectness-criteria="Uses broad or unnecessary permissions">
+            <![CDATA[
+// SECURITY RISK - Excessive permissions
+deno run --allow-all server.ts  // Never use --allow-all
+deno run --allow-net --allow-read --allow-write server.ts  // Too broad
+
+// SECURITY RISK - No permission checking
+Deno.serve({ port: 8000 }, (req) => {
+  // Assumes permissions without checking
+  const data = Deno.readTextFileSync("sensitive.txt");  // Could fail or expose data
+  return new Response(data);
+});
+            ]]>
+          </incorrect-example>
+        </example>
+      </examples>
+    </non-negotiable>
+
+    <non-negotiable priority="critical">
+      <description>Use TypeScript-first development patterns. Leverage Deno's built-in TypeScript support without additional transpilation. Always use strict type checking and modern TypeScript features.</description>
+      <examples>
+        <example title="TypeScript-First Development">
+          <correct-example title="Modern TypeScript patterns with Deno" conditions="Creating a typed HTTP API" expected-result="Type-safe, modern code" correctness-criteria="Uses modern TypeScript features, proper typing, and Deno APIs">
+            <![CDATA[
+// Modern TypeScript with Deno 2.0+ features
+interface User {
+  readonly id: string;
+  name: string;
+  email: string;
+  createdAt: Date;
+}
+
+interface ApiResponse<T> {
+  data?: T;
+  error?: string;
+  status: number;
+}
+
+class UserService {
+  private readonly users = new Map<string, User>();
+
+  async createUser(userData: Omit<User, 'id' | 'createdAt'>): Promise<ApiResponse<User>> {
+    const user: User = {
+      id: crypto.randomUUID(),
+      ...userData,
+      createdAt: new Date(),
+    };
+    
+    this.users.set(user.id, user);
+    return { data: user, status: 201 };
+  }
+
+  getUser(id: string): ApiResponse<User> {
+    const user = this.users.get(id);
+    return user 
+      ? { data: user, status: 200 }
+      : { error: 'User not found', status: 404 };
+  }
+}
+
+// Type-safe HTTP handlers
+const userService = new UserService();
+
+export default {
+  async fetch(request: Request): Promise<Response> {
+    const url = new URL(request.url);
+    
+    if (request.method === 'POST' && url.pathname === '/users') {
+      const userData = await request.json() as Omit<User, 'id' | 'createdAt'>;
+      const result = await userService.createUser(userData);
+      return Response.json(result, { status: result.status });
+    }
+    
+    if (request.method === 'GET' && url.pathname.startsWith('/users/')) {
+      const id = url.pathname.split('/')[2];
+      const result = userService.getUser(id);
+      return Response.json(result, { status: result.status });
+    }
+    
+    return new Response('Not Found', { status: 404 });
+  },
+} satisfies Deno.ServeDefaultExport;
+            ]]>
+          </correct-example>
+          <incorrect-example title="Weak typing and old patterns" conditions="Creating an HTTP API" expected-result="Type-safe, modern code" incorrectness-criteria="Uses any types, missing type safety, old JavaScript patterns">
+            <![CDATA[
+// POOR TYPING - Weak TypeScript usage
+function createUser(userData: any): any {  // any types lose type safety
+  const user = {
+    id: Math.random().toString(),  // Weak ID generation
+    ...userData,
+    createdAt: Date.now(),  // Number instead of Date
+  };
+  return user;
+}
+
+// POOR PATTERNS - No type safety or modern features
+Deno.serve((req) => {
+  if (req.method == 'POST') {  // No URL routing
+    const data = req.json();  // Missing await, no type checking
+    const user = createUser(data);
+    return new Response(JSON.stringify(user));  // Manual JSON handling
+  }
+  return new Response('404');
+});
+            ]]>
+          </incorrect-example>
+        </example>
+      </examples>
+    </non-negotiable>
+
+    <non-negotiable priority="critical">
+      <description>Use Deno's built-in toolchain exclusively. Avoid npm-based tools like ESLint, Prettier, or Jest. Use deno fmt, deno lint, deno test, and deno compile for all development tasks.</description>
+      <examples>
+        <example title="Built-in Toolchain Usage">
+          <correct-example title="Comprehensive Deno toolchain" conditions="Setting up project development workflow" expected-result="Unified toolchain with consistent standards" correctness-criteria="Uses only Deno built-in tools, proper configuration">
+            <![CDATA[
+// deno.json - Comprehensive project configuration
+{
+  "name": "@myorg/my-app",
+  "version": "1.0.0",
+  "exports": "./src/main.ts",
+  "tasks": {
+    "dev": "deno run --allow-net --allow-read --watch src/main.ts",
+    "start": "deno run --allow-net --allow-read src/main.ts",
+    "test": "deno test --allow-net",
+    "test:watch": "deno test --allow-net --watch",
+    "bench": "deno bench --allow-net",
+    "lint": "deno lint",
+    "fmt": "deno fmt",
+    "type-check": "deno check src/**/*.ts",
+    "compile": "deno compile --allow-net --allow-read --output dist/app src/main.ts"
+  },
+  "imports": {
+    "@std/assert": "jsr:@std/assert@^1.0.0",
+    "@std/http": "jsr:@std/http@^1.0.0"
+  },
+  "lint": {
+    "rules": {
+      "tags": ["recommended"],
+      "include": ["ban-untagged-todo", "no-throw-literal"]
+    }
+  },
+  "fmt": {
+    "useTabs": false,
+    "lineWidth": 100,
+    "indentWidth": 2,
+    "semiColons": true,
+    "singleQuote": true,
+    "proseWrap": "preserve"
+  },
+  "compilerOptions": {
+    "allowJs": false,
+    "strict": true,
+    "noImplicitAny": true,
+    "noImplicitReturns": true,
+    "noFallthroughCasesInSwitch": true,
+    "noUncheckedIndexedAccess": true
+  }
+}
+
+// Comprehensive test suite using Deno test
+import { assertEquals, assertRejects } from "@std/assert";
+
+Deno.test("User service - create user", async () => {
+  const userService = new UserService();
+  const userData = { name: "John Doe", email: "john@example.com" };
+  
+  const result = await userService.createUser(userData);
+  
+  assertEquals(result.status, 201);
+  assertEquals(result.data?.name, userData.name);
+  assertEquals(result.data?.email, userData.email);
+});
+
+Deno.test("User service - get nonexistent user", () => {
+  const userService = new UserService();
+  const result = userService.getUser("nonexistent");
+  
+  assertEquals(result.status, 404);
+  assertEquals(result.error, "User not found");
+});
+            ]]>
+          </correct-example>
+          <incorrect-example title="Mixed toolchain with npm dependencies" conditions="Setting up project workflow" expected-result="Unified Deno toolchain" incorrectness-criteria="Uses external tools instead of Deno built-ins">
+            <![CDATA[
+// ANTI-PATTERN - Mixing npm tools with Deno
+{
+  "scripts": {
+    "lint": "eslint src/",  // Should use deno lint
+    "format": "prettier --write src/",  // Should use deno fmt
+    "test": "jest",  // Should use deno test
+    "build": "webpack"  // Should use deno compile or deno bundle
+  },
+  "devDependencies": {
+    "eslint": "^8.0.0",
+    "prettier": "^2.0.0",
+    "jest": "^29.0.0"
+  }
+}
+
+// ANTI-PATTERN - Not using Deno's built-in test framework
+const assert = require('assert');  // Should use @std/assert
+
+describe('User tests', () => {  // Should use Deno.test
+  test('should create user', () => {
+    // Jest patterns instead of Deno test patterns
+  });
+});
+            ]]>
+          </incorrect-example>
+        </example>
+      </examples>
+    </non-negotiable>
+
+    <!-- MODERN DEVELOPMENT PATTERNS -->
+    <requirement priority="high">
+      <description>Use Web Standard APIs wherever possible. Prefer fetch, URL, Response, Request, WebStreams, and other web standards over Node.js-specific APIs or third-party alternatives.</description>
+      <examples>
+        <example title="Web Standards First">
+          <correct-example title="Web standard APIs usage" conditions="Building HTTP client and server functionality" expected-result="Standards-compliant, portable code" correctness-criteria="Uses web standards, works across environments">
+            <![CDATA[
+// Web Standards API usage throughout
+class ApiClient {
+  constructor(private readonly baseUrl: string) {}
+
+  async get<T>(path: string, init?: RequestInit): Promise<T> {
+    const url = new URL(path, this.baseUrl);  // Web API
+    const response = await fetch(url, {  // Web API
+      ...init,
+      headers: {
+        'Content-Type': 'application/json',
+        ...init?.headers,
+      },
+    });
+
+    if (!response.ok) {
+      throw new Error(`HTTP ${response.status}: ${response.statusText}`);
+    }
+
+    return response.json();  // Web API
+  }
+
+  async post<T>(path: string, data: unknown, init?: RequestInit): Promise<T> {
+    const url = new URL(path, this.baseUrl);
+    const response = await fetch(url, {
+      ...init,
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        ...init?.headers,
+      },
+      body: JSON.stringify(data),  // Web API
+    });
+
+    if (!response.ok) {
+      throw new Error(`HTTP ${response.status}: ${response.statusText}`);
+    }
+
+    return response.json();
+  }
+}
+
+// Streaming with Web Streams API
+async function streamJsonLines(data: AsyncIterable<unknown>): Promise<ReadableStream> {
+  return new ReadableStream({  // Web API
+    async start(controller) {
+      const encoder = new TextEncoder();  // Web API
+      
+      for await (const item of data) {
+        const line = JSON.stringify(item) + '\n';
+        controller.enqueue(encoder.encode(line));
+      }
+      
+      controller.close();
+    },
+  });
+}
+
+// Server-Sent Events with Web APIs
+export default {
+  fetch(request: Request): Response {
+    const url = new URL(request.url);
+    
+    if (url.pathname === '/events') {
+      const stream = new ReadableStream({
+        start(controller) {
+          const encoder = new TextEncoder();
+          
+          const interval = setInterval(() => {
+            const data = `data: ${JSON.stringify({ timestamp: Date.now() })}\n\n`;
+            controller.enqueue(encoder.encode(data));
+          }, 1000);
+          
+          // Cleanup on client disconnect
+          return () => clearInterval(interval);
+        },
+      });
+      
+      return new Response(stream, {
+        headers: {
+          'Content-Type': 'text/event-stream',
+          'Cache-Control': 'no-cache',
+          'Connection': 'keep-alive',
+        },
+      });
+    }
+    
+    return new Response('Not Found', { status: 404 });
+  },
+} satisfies Deno.ServeDefaultExport;
+            ]]>
+          </correct-example>
+          <incorrect-example title="Node.js-specific or non-standard APIs" conditions="Building HTTP functionality" expected-result="Web standards usage" incorrectness-criteria="Uses Node.js APIs or non-standard libraries">
+            <![CDATA[
+// ANTI-PATTERN - Node.js specific APIs in Deno
+import http from 'node:http';  // Should use Deno.serve or fetch
+import fs from 'node:fs';      // Should use Deno.readFile/writeFile
+import path from 'node:path';  // Should use URL or built-in path handling
+
+// ANTI-PATTERN - Using axios instead of fetch
+import axios from 'npm:axios';
+
+class ApiClient {
+  async get(url: string) {
+    // Should use fetch (web standard)
+    return axios.get(url);
+  }
+}
+
+// ANTI-PATTERN - Node.js streams instead of Web Streams
+import { Readable } from 'node:stream';
+
+function createStream() {
+  return new Readable({  // Should use ReadableStream (web standard)
+    read() {
+      this.push('data');
+    }
+  });
+}
+            ]]>
+          </incorrect-example>
+        </example>
+      </examples>
+    </requirement>
+
+    <requirement priority="high">
+      <description>Organize dependencies using JSR (JavaScript Registry) first, then npm when necessary. Use URL imports for one-off dependencies. Create a deps.ts file for central dependency management in larger projects.</description>
+      <examples>
+        <example title="Modern Dependency Management">
+          <correct-example title="JSR-first dependency strategy" conditions="Managing project dependencies" expected-result="Clean, maintainable dependency management" correctness-criteria="Uses JSR first, proper organization, version pinning">
+            <![CDATA[
+// deps.ts - Central dependency management
+// JSR dependencies (preferred)
+export { assert, assertEquals, assertThrows } from "jsr:@std/assert@^1.0.0";
+export { delay } from "jsr:@std/async@^1.0.0";
+export { encodeBase64, decodeBase64 } from "jsr:@std/encoding@^1.0.0";
+export { exists } from "jsr:@std/fs@^1.0.0";
+export { join, dirname } from "jsr:@std/path@^1.0.0";
+
+// npm dependencies when JSR equivalent unavailable
+export { z } from "npm:zod@^3.22.0";
+export type { Knex } from "npm:knex@^3.0.0";
+
+// Direct URL imports for experimental or one-off usage
+export { createHash } from "https://deno.land/x/crypto@v0.10.0/mod.ts";
+
+// In main application files
+import { assertEquals, delay, z } from "./deps.ts";
+
+interface UserSchema {
+  name: string;
+  email: string;
+  age: number;
+}
+
+const UserValidator = z.object({
+  name: z.string().min(1),
+  email: z.string().email(),
+  age: z.number().min(0).max(120),
+});
+
+// deno.json configuration
+{
+  "imports": {
+    "@/": "./src/",
+    "@std/assert": "jsr:@std/assert@^1.0.0",
+    "@std/http": "jsr:@std/http@^1.0.0",
+    "@std/path": "jsr:@std/path@^1.0.0",
+    "zod": "npm:zod@^3.22.0"
+  },
+  "scopes": {
+    "./vendor/": {
+      "react": "https://esm.sh/react@18.2.0"
+    }
+  }
+}
+            ]]>
+          </correct-example>
+          <incorrect-example title="Poor dependency management" conditions="Managing project dependencies" expected-result="Clean dependency organization" incorrectness-criteria="Scattered imports, npm-first approach, no central management">
+            <![CDATA[
+// ANTI-PATTERN - Scattered imports throughout codebase
+import { assertEquals } from "https://deno.land/std@0.140.0/testing/asserts.ts";
+import { delay } from "https://deno.land/std@0.141.0/async/delay.ts";  // Different std versions
+import axios from "npm:axios@1.4.0";  // Should prefer fetch or @std/http
+
+// ANTI-PATTERN - npm-first approach without considering JSR
+import { readFile } from "npm:fs-extra";  // JSR @std/fs is available
+import express from "npm:express";  // Should use Deno.serve
+
+// ANTI-PATTERN - No version pinning or consistency
+import _ from "https://cdn.skypack.dev/lodash";  // No version specified
+import { v4 } from "https://esm.sh/uuid";  // Different CDN, inconsistent
+
+// ANTI-PATTERN - Direct imports instead of deps.ts organization
+// Every file has its own import patterns
+import { serve } from "https://deno.land/std@0.140.0/http/server.ts";
+            ]]>
+          </incorrect-example>
+        </example>
+      </examples>
+    </requirement>
+
+    <requirement priority="high">
+      <description>Implement comprehensive testing using Deno's built-in test framework. Use descriptive test names, proper test organization, and include integration tests. Leverage Deno's test features like sanitizers and coverage.</description>
+      <examples>
+        <example title="Comprehensive Testing Strategy">
+          <correct-example title="Modern Deno testing patterns" conditions="Creating a comprehensive test suite" expected-result="Robust, maintainable tests" correctness-criteria="Uses Deno.test, proper organization, good coverage">
+            <![CDATA[
+// tests/user_service_test.ts - Comprehensive test suite
+import { assertEquals, assertRejects, assertExists } from "@std/assert";
+import { FakeTime } from "@std/testing/time";
+import { spy, stub, restore } from "@std/testing/mock";
+
+import { UserService } from "../src/user_service.ts";
+
+// Test group organization
+Deno.test("UserService", async (t) => {
+  await t.step("constructor - initializes empty user store", () => {
+    const service = new UserService();
+    assertEquals(service.getUserCount(), 0);
+  });
+
+  await t.step("createUser - creates user with valid data", async () => {
+    const service = new UserService();
+    const userData = { name: "John Doe", email: "john@example.com" };
+    
+    const result = await service.createUser(userData);
+    
+    assertEquals(result.status, 201);
+    assertExists(result.data);
+    assertEquals(result.data!.name, userData.name);
+    assertEquals(result.data!.email, userData.email);
+    assertExists(result.data!.id);
+    assertExists(result.data!.createdAt);
+  });
+
+  await t.step("createUser - rejects invalid email", async () => {
+    const service = new UserService();
+    const userData = { name: "John Doe", email: "invalid-email" };
+    
+    await assertRejects(
+      () => service.createUser(userData),
+      Error,
+      "Invalid email format"
+    );
+  });
+
+  await t.step("getUser - returns user when found", async () => {
+    const service = new UserService();
+    const userData = { name: "Jane Doe", email: "jane@example.com" };
+    const created = await service.createUser(userData);
+    
+    const result = service.getUser(created.data!.id);
+    
+    assertEquals(result.status, 200);
+    assertEquals(result.data!.id, created.data!.id);
+  });
+});
+
+// Integration tests
+Deno.test("UserService API Integration", async (t) => {
+  const service = new UserService();
+  
+  await t.step("full user lifecycle", async () => {
+    // Create user
+    const createResult = await service.createUser({
+      name: "Alice Smith",
+      email: "alice@example.com"
+    });
+    
+    assertEquals(createResult.status, 201);
+    const userId = createResult.data!.id;
+    
+    // Retrieve user
+    const getResult = service.getUser(userId);
+    assertEquals(getResult.status, 200);
+    assertEquals(getResult.data!.id, userId);
+    
+    // Update user
+    const updateResult = await service.updateUser(userId, { name: "Alice Johnson" });
+    assertEquals(updateResult.status, 200);
+    assertEquals(updateResult.data!.name, "Alice Johnson");
+    
+    // Delete user
+    const deleteResult = await service.deleteUser(userId);
+    assertEquals(deleteResult.status, 204);
+    
+    // Verify deletion
+    const getDeletedResult = service.getUser(userId);
+    assertEquals(getDeletedResult.status, 404);
+  });
+});
+
+// Performance benchmarks
+Deno.bench("UserService.createUser performance", async () => {
+  const service = new UserService();
+  const userData = { name: "Bench User", email: "bench@example.com" };
+  
+  await service.createUser(userData);
+});
+
+// HTTP integration tests
+Deno.test("HTTP API", async (t) => {
+  const server = Deno.serve({ port: 0 }, handler);
+  const serverAddr = server.addr as Deno.NetAddr;
+  const baseUrl = `http://localhost:${serverAddr.port}`;
+  
+  await t.step("POST /users - creates user", async () => {
+    const response = await fetch(`${baseUrl}/users`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ name: "Test User", email: "test@example.com" }),
+    });
+    
+    assertEquals(response.status, 201);
+    const result = await response.json();
+    assertExists(result.data);
+    assertEquals(result.data.name, "Test User");
+  });
+  
+  // Cleanup
+  await server.shutdown();
+});
+            ]]>
+          </correct-example>
+          <incorrect-example title="Poor testing practices" conditions="Creating test suite" expected-result="Comprehensive, maintainable tests" incorrectness-criteria="Weak assertions, no organization, missing coverage">
+            <![CDATA[
+// POOR TESTING - Weak assertions and organization
+import { assertEquals } from "@std/assert";
+
+Deno.test("user test", async () => {
+  const service = new UserService();
+  const user = await service.createUser({ name: "John", email: "john@test.com" });
+  assertEquals(user.name, "John");  // Only testing one property
+  // Missing assertions for other properties, error cases, edge cases
+});
+
+// POOR TESTING - No test organization or descriptive names
+Deno.test("test1", () => {
+  // What does this test do?
+});
+
+Deno.test("test2", () => {
+  // No clear purpose
+});
+
+// POOR TESTING - No integration tests
+// Only unit tests without real-world scenarios
+
+// POOR TESTING - Not using Deno test features
+// No sanitizers, no coverage, no benchmarks
+// No async test patterns
+// No cleanup or proper setup/teardown
+            ]]>
+          </incorrect-example>
+        </example>
+      </examples>
+    </requirement>
+
+    <requirement priority="high">
+      <description>Use Deno's deployment features effectively. Leverage deno compile for standalone executables, proper Docker containerization with multi-stage builds, and Deno Deploy optimization patterns.</description>
+      <examples>
+        <example title="Production Deployment Patterns">
+          <correct-example title="Comprehensive deployment strategy" conditions="Deploying Deno applications to production" expected-result="Optimized, secure deployment" correctness-criteria="Uses proper compilation, containerization, and deployment patterns">
+            <![CDATA[
+// Dockerfile - Multi-stage build for optimized containers
+FROM denoland/deno:2.4.0 AS base
+
+WORKDIR /app
+
+# Copy dependency files first for better caching
+COPY deno.json deno.lock ./
+COPY deps.ts ./
+
+# Cache dependencies
+RUN deno cache deps.ts
+
+# Copy source code
+COPY . .
+
+# Type check and run tests
+RUN deno task type-check
+RUN deno task test
+
+# Build stage
+FROM base AS build
+RUN deno compile \
+  --allow-net \
+  --allow-read \
+  --allow-env \
+  --output /app/server \
+  src/main.ts
+
+# Production stage
+FROM gcr.io/distroless/cc-debian12 AS production
+
+COPY --from=build /app/server /server
+
+EXPOSE 8000
+CMD ["/server"]
+
+# Deployment configuration - deno.json
+{
+  "deploy": {
+    "project": "my-app",
+    "entrypoint": "./src/main.ts",
+    "exclude": ["tests/", "*.test.ts", "*.bench.ts", "docs/"]
+  },
+  "tasks": {
+    "deploy:staging": "deno run --allow-read --allow-net deploy.ts staging",
+    "deploy:prod": "deno run --allow-read --allow-net deploy.ts production",
+    "build:docker": "docker build -t my-app .",
+    "compile:linux": "deno compile --target x86_64-unknown-linux-gnu --allow-net --allow-read --output dist/server-linux src/main.ts",
+    "compile:windows": "deno compile --target x86_64-pc-windows-msvc --allow-net --allow-read --output dist/server.exe src/main.ts",
+    "compile:macos": "deno compile --target x86_64-apple-darwin --allow-net --allow-read --output dist/server-macos src/main.ts"
+  }
+}
+
+// deploy.ts - Deployment automation script
+import { exists } from "@std/fs";
+
+interface DeployConfig {
+  environment: 'staging' | 'production';
+  region: string;
+  scaling: {
+    minInstances: number;
+    maxInstances: number;
+  };
+  env: Record<string, string>;
+}
+
+const configs: Record<string, DeployConfig> = {
+  staging: {
+    environment: 'staging',
+    region: 'us-east1',
+    scaling: { minInstances: 1, maxInstances: 3 },
+    env: { LOG_LEVEL: 'debug' }
+  },
+  production: {
+    environment: 'production',
+    region: 'us-east1',
+    scaling: { minInstances: 2, maxInstances: 10 },
+    env: { LOG_LEVEL: 'info' }
+  }
+};
+
+async function deploy(environment: string) {
+  const config = configs[environment];
+  if (!config) {
+    throw new Error(`Unknown environment: ${environment}`);
+  }
+
+  console.log(`Deploying to ${environment}...`);
+  
+  // Pre-deployment checks
+  await runChecks();
+  
+  // Deploy using Deno Deploy API or other deployment service
+  const deployment = await deployToService(config);
+  
+  console.log(`Deployed successfully: ${deployment.url}`);
+}
+
+async function runChecks() {
+  // Type checking
+  const typeCheck = new Deno.Command("deno", {
+    args: ["check", "src/main.ts"],
+  });
+  const typeResult = await typeCheck.output();
+  if (!typeResult.success) {
+    throw new Error("Type checking failed");
+  }
+
+  // Tests
+  const test = new Deno.Command("deno", {
+    args: ["test", "--allow-net"],
+  });
+  const testResult = await test.output();
+  if (!testResult.success) {
+    throw new Error("Tests failed");
+  }
+
+  // Linting
+  const lint = new Deno.Command("deno", {
+    args: ["lint"],
+  });
+  const lintResult = await lint.output();
+  if (!lintResult.success) {
+    throw new Error("Linting failed");
+  }
+}
+
+// Health check endpoint for production
+export function createHealthCheck() {
+  return {
+    '/health': () => new Response(JSON.stringify({
+      status: 'healthy',
+      timestamp: new Date().toISOString(),
+      version: Deno.env.get('APP_VERSION') || 'unknown',
+      uptime: performance.now(),
+    }), {
+      headers: { 'Content-Type': 'application/json' },
+    }),
+    
+    '/metrics': () => new Response(JSON.stringify({
+      memory: Deno.memoryUsage(),
+      runtime: {
+        version: Deno.version.deno,
+        typescript: Deno.version.typescript,
+        v8: Deno.version.v8,
+      },
+    }), {
+      headers: { 'Content-Type': 'application/json' },
+    }),
+  };
+}
+
+if (import.meta.main) {
+  const environment = Deno.args[0];
+  if (!environment) {
+    console.error("Usage: deno run deploy.ts <environment>");
+    Deno.exit(1);
+  }
+  
+  await deploy(environment);
+}
+            ]]>
+          </correct-example>
+          <incorrect-example title="Poor deployment practices" conditions="Deploying to production" expected-result="Optimized deployment pipeline" incorrectness-criteria="No optimization, poor containerization, weak deployment process">
+            <![CDATA[
+// POOR DEPLOYMENT - Inefficient Dockerfile
+FROM denoland/deno:latest  // No version pinning
+
+WORKDIR /app
+COPY . .  // Copies everything including tests, docs, etc.
+
+# No caching optimization
+# No multi-stage build
+# No security considerations
+
+RUN deno run --allow-all main.ts  // Excessive permissions in container
+
+# POOR DEPLOYMENT - No build optimization
+# No compilation, runs source code in production
+# No health checks or monitoring
+# No proper error handling
+
+// POOR DEPLOYMENT - Manual deployment process
+// No automation
+// No pre-deployment checks
+// No rollback strategy
+// No environment configuration management
+
+// POOR DEPLOYMENT - No containerization best practices
+FROM ubuntu:latest  // Heavy base image
+RUN apt-get update && apt-get install -y curl  // Unnecessary dependencies
+# No distroless or minimal base image
+# No proper user management
+# No security scanning
+            ]]>
+          </incorrect-example>
+        </example>
+      </examples>
+    </requirement>
+  </requirements>
+
+  <context description="Deno development best practices and ecosystem">
+    These standards are based on Deno 2.0+ features and the latest official documentation. They emphasize security-first development, TypeScript-first patterns, web standards compliance, and leveraging Deno's built-in toolchain. All recommendations follow official Deno documentation, expert community practices, and modern JavaScript/TypeScript development standards.
+  </context>
+
+  <references>
+    <reference as="authority" href="https://docs.deno.com/" reason="Official Deno documentation and API reference">Deno Official Documentation</reference>
+    <reference as="authority" href="https://docs.deno.com/runtime/manual/" reason="Comprehensive runtime manual">Deno Runtime Manual</reference>
+    <reference as="expert-source" href="https://jsr.io/@std" reason="Standard library modules and patterns">Deno Standard Library</reference>
+    <reference as="expert-source" href="https://deno.com/blog/v2.4" reason="Latest features and best practices">Deno 2.4 Release Notes</reference>
+    <reference as="dependency" href=".cursor/rules/000-core/002-cursor-rules-creation.mdc" reason="Follows standard rule format">Base rule format definition</reference>
+  </references>
+</rule>

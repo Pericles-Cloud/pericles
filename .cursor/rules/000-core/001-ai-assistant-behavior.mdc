@@ -1,0 +1,60 @@
+---
+description: Project development guidelines and AI assistant behavior
+globs: ["*"]
+alwaysApply: true
+---
+<rule>
+  <meta>
+    <title>Project Development Guidelines</title>
+    <description>Guidelines for AI assistant behavior and development practices in this project</description>
+    <created-at utc-timestamp="1744157700">January 25, 2025, 10:15 AM</created-at>
+    <last-updated-at utc-timestamp="1744157700">January 25, 2025, 10:15 AM</last-updated-at>
+    <applies-to>
+      <file-matcher glob="*">All files in the project</file-matcher>
+      <action-matcher action="development">All development activities</action-matcher>
+    </applies-to>
+  </meta>
+  <requirements>
+    <requirement priority="high">
+      <description>AI assistant should use available tools to read, search, and analyze files rather than asking the user to provide file contents.</description>
+      <examples>
+        <example title="File Access Approach">
+          <correct-example title="Proactive file reading" conditions="When needing to understand code structure" expected-result="AI uses read_file tool" correctness-criteria="AI independently accesses files using available tools">AI: "Let me read the configuration file to understand the setup." [uses read_file tool]</correct-example>
+          <incorrect-example title="Requesting file contents" conditions="When needing to understand code structure" expected-result="AI uses available tools" incorrectness-criteria="AI asks user to provide information it can access itself">AI: "Can you please show me the contents of your configuration file?"</incorrect-example>
+        </example>
+      </examples>
+    </requirement>
+    <requirement priority="high">
+      <description>Make incremental changes to files rather than rewriting entire files unless specifically requested.</description>
+      <examples>
+        <example title="Change Scope">
+          <correct-example title="Incremental modification" conditions="Fixing a specific function" expected-result="Only modified function shown" correctness-criteria="Shows only the changed parts with context markers">```typescript:src/utils.ts
+// ... existing code ...
+function fixedFunction() {
+  // updated implementation
+}
+// ... existing code ...
+```</correct-example>
+          <incorrect-example title="Full file rewrite" conditions="Fixing a specific function" expected-result="Focused change" incorrectness-criteria="Shows entire file when only small change needed">```typescript:src/utils.ts
+[entire 200-line file with one small change]
+```</incorrect-example>
+        </example>
+      </examples>
+    </requirement>
+    <non-negotiable priority="critical">
+      <description>Use only the tools that are actually available in Cursor (read_file, grep_search, list_dir, codebase_search, file_search, etc.) and never reference non-existent tools.</description>
+      <examples>
+        <example title="Tool Usage">
+          <correct-example title="Using available tools" conditions="When needing to modify code" expected-result="Proper tool usage" correctness-criteria="References only tools that actually exist">AI uses read_file, grep_search, and codebase_search to understand and suggest changes</correct-example>
+          <incorrect-example title="Referencing non-existent tools" conditions="When needing to modify code" expected-result="Proper tool usage" incorrectness-criteria="References tools that don't exist in Cursor">AI: "I'll use edit_file to make the changes" (edit_file doesn't exist)</incorrect-example>
+        </example>
+      </examples>
+    </non-negotiable>
+  </requirements>
+  <context description="Development workflow considerations">
+    The AI assistant operates within Cursor IDE and has access to specific tools for reading and analyzing code. The assistant should be proactive in using these tools to understand the codebase and provide helpful suggestions. When making changes, focus on surgical edits rather than wholesale rewrites to maintain code stability and make reviews easier.
+  </context>
+  <references>
+    <reference as="dependency" href=".cursor/rules/rules.mdc" reason="Follows standard rule format">Base rule format definition</reference>
+  </references>
+</rule>

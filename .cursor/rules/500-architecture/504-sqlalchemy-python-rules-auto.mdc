@@ -1,0 +1,1443 @@
+---
+description: "Comprehensive SQLAlchemy best practices with Python type hints, ORM patterns, and performance optimization"
+globs: ["*.py"]
+alwaysApply: false
+---
+
+<rule>
+  <meta>
+    <title>SQLAlchemy Best Practices with Python</title>
+    <description>Comprehensive rules for SQLAlchemy ORM development following PEP standards, performance optimization, security patterns, and modern Python practices</description>
+    <created-at utc-timestamp="1736694300">January 12, 2025, 10:45 AM</created-at>
+    <last-updated-at utc-timestamp="1736694300">January 12, 2025, 10:45 AM</last-updated-at>
+    <applies-to>
+      <file-matcher glob="*.py">All Python files using SQLAlchemy</file-matcher>
+      <action-matcher action="database-development">Triggered when working with SQLAlchemy code</action-matcher>
+    </applies-to>
+  </meta>
+  <requirements>
+    <non-negotiable priority="critical">
+      <description>Use modern SQLAlchemy 2.0+ syntax with declarative base, type hints, and Mapped annotations for all models</description>
+      <examples>
+        <example title="Modern Model Definition">
+          <correct-example title="SQLAlchemy 2.0 with type hints" conditions="Defining database models" expected-result="Fully typed model with modern syntax" correctness-criteria="Uses DeclarativeBase, Mapped, mapped_column, and proper type annotations"><![CDATA[from sqlalchemy import String, Integer, ForeignKey, DateTime, Boolean, Text
+from sqlalchemy.orm import DeclarativeBase, Mapped, mapped_column, relationship
+from datetime import datetime
+from typing import Optional, List
+
+class Base(DeclarativeBase):
+    pass
+
+class User(Base):
+    __tablename__ = "users"
+    
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    username: Mapped[str] = mapped_column(String(80), unique=True, nullable=False)
+    email: Mapped[str] = mapped_column(String(120), unique=True, nullable=False)
+    password_hash: Mapped[str] = mapped_column(String(255), nullable=False)
+    is_active: Mapped[bool] = mapped_column(Boolean, default=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
+    full_name: Mapped[Optional[str]] = mapped_column(String(200))
+    
+    # Relationships with proper type hints
+    posts: Mapped[List["Post"]] = relationship(back_populates="author", lazy="select")
+    
+    def __repr__(self) -> str:
+        return f"<User(username='{self.username}', email='{self.email}')>"]]></correct-example>
+          <incorrect-example title="Legacy SQLAlchemy 1.x syntax" conditions="Defining database models" expected-result="Modern typed model" incorrectness-criteria="Uses old Column syntax without type hints"><![CDATA[from sqlalchemy import Column, Integer, String, Boolean, DateTime
+from sqlalchemy.ext.declarative import declarative_base
+
+Base = declarative_base()
+
+class User(Base):
+    __tablename__ = "users"
+    
+    id = Column(Integer, primary_key=True)
+    username = Column(String(80), unique=True, nullable=False)
+    email = Column(String(120), unique=True, nullable=False)
+    is_active = Column(Boolean, default=True)]]></incorrect-example>
+        </example>
+      </examples>
+    </non-negotiable>
+    <non-negotiable priority="critical">
+      <description>Never use raw SQL strings or string formatting for queries. Always use parameterized queries or ORM methods to prevent SQL injection</description>
+      <examples>
+        <example title="SQL Injection Prevention">
+          <correct-example title="Parameterized ORM queries" conditions="Querying with user input" expected-result="Safe parameterized query" correctness-criteria="Uses ORM methods or text() with parameters"><![CDATA[from sqlalchemy import select, text
+from sqlalchemy.orm import Session
+
+# Safe ORM query
+def get_user_by_username(session: Session, username: str) -> Optional[User]:
+    stmt = select(User).where(User.username == username)
+    return session.scalar(stmt)
+
+# Safe raw SQL with parameters
+def get_user_by_email(session: Session, email: str) -> Optional[User]:
+    stmt = text("SELECT * FROM users WHERE email = :email")
+    result = session.execute(stmt, {"email": email})
+    return result.scalar_one_or_none()]]></correct-example>
+          <incorrect-example title="Vulnerable string formatting" conditions="Querying with user input" expected-result="Safe parameterized query" incorrectness-criteria="Uses string formatting that enables SQL injection"><![CDATA[# DANGEROUS - SQL injection vulnerability
+def get_user_by_username(session: Session, username: str) -> Optional[User]:
+    query = f"SELECT * FROM users WHERE username = '{username}'"
+    result = session.execute(text(query))
+    return result.scalar_one_or_none()
+
+# DANGEROUS - Even with .format()
+def get_user_by_email(session: Session, email: str) -> Optional[User]:
+    query = "SELECT * FROM users WHERE email = '{}'".format(email)
+    result = session.execute(text(query))
+    return result.scalar_one_or_none()]]></incorrect-example>
+        </example>
+      </examples>
+    </non-negotiable>
+    <requirement priority="critical">
+      <description>Implement proper session management using context managers or dependency injection patterns to ensure sessions are properly closed</description>
+      <examples>
+        <example title="Session Management Patterns">
+          <correct-example title="Context manager session handling" conditions="Database operations" expected-result="Properly managed session lifecycle" correctness-criteria="Uses context managers or dependency injection"><![CDATA[from sqlalchemy import create_engine
+from sqlalchemy.orm import sessionmaker, Session
+from contextlib import contextmanager
+from typing import Generator
+
+# Session factory
+engine = create_engine("postgresql://user:pass@localhost/db")
+SessionLocal = sessionmaker(bind=engine)
+
+# Context manager approach
+@contextmanager
+def get_session() -> Generator[Session, None, None]:
+    session = SessionLocal()
+    try:
+        yield session
+        session.commit()
+    except Exception:
+        session.rollback()
+        raise
+    finally:
+        session.close()
+
+# Usage
+def create_user(user_data: dict) -> User:
+    with get_session() as session:
+        user = User(**user_data)
+        session.add(user)
+        session.flush()  # Get the ID without committing
+        return user
+
+# Dependency injection for web frameworks
+def get_db() -> Generator[Session, None, None]:
+    db = SessionLocal()
+    try:
+        yield db
+    finally:
+        db.close()]]></correct-example>
+          <incorrect-example title="Unmanaged session lifecycle" conditions="Database operations" expected-result="Properly managed sessions" incorrectness-criteria="Sessions not properly closed or managed"><![CDATA[# BAD - Session not properly closed
+def create_user(user_data: dict) -> User:
+    session = SessionLocal()
+    user = User(**user_data)
+    session.add(user)
+    session.commit()
+    # Missing session.close() - resource leak!
+    return user
+
+# BAD - No error handling
+def get_user(user_id: int) -> User:
+    session = SessionLocal()
+    user = session.get(User, user_id)
+    # What if an exception occurs? Session never closed!
+    return user]]></incorrect-example>
+        </example>
+      </examples>
+    </requirement>
+    <requirement priority="critical">
+      <description>Use Alembic for database migrations and always review auto-generated migration scripts before applying them</description>
+      <examples>
+        <example title="Migration Management">
+          <correct-example title="Proper Alembic workflow" conditions="Database schema changes" expected-result="Safe and reviewable migrations" correctness-criteria="Generated migrations are reviewed and tested"><![CDATA[#!/bin/bash
+# Generate migration after model changes
+alembic revision --autogenerate -m "Add user profile fields"
+
+# Review the generated migration file
+# Check upgrade() and downgrade() functions
+# Verify data type changes and constraints
+# Test migration on development database
+
+# Apply migration
+alembic upgrade head
+
+# Example reviewed migration file
+"""Add user profile fields
+
+Revision ID: 001_add_user_profile
+Revises: 000_initial
+Create Date: 2025-01-12 10:45:00.000000
+"""
+from alembic import op
+import sqlalchemy as sa
+
+def upgrade() -> None:
+    # Add new columns with proper defaults
+    op.add_column('users', sa.Column('full_name', sa.String(200), nullable=True))
+    op.add_column('users', sa.Column('bio', sa.Text(), nullable=True))
+    op.add_column('users', sa.Column('avatar_url', sa.String(500), nullable=True))
+    
+    # Add indexes for performance
+    op.create_index('idx_users_full_name', 'users', ['full_name'])
+
+def downgrade() -> None:
+    op.drop_index('idx_users_full_name', table_name='users')
+    op.drop_column('users', 'avatar_url')
+    op.drop_column('users', 'bio')
+    op.drop_column('users', 'full_name')]]></correct-example>
+          <incorrect-example title="Blind migration application" conditions="Database schema changes" expected-result="Reviewed and tested migrations" incorrectness-criteria="Migrations applied without review or testing"><![CDATA[#!/bin/bash
+# BAD - Apply migration without review
+alembic revision --autogenerate -m "Changes"
+alembic upgrade head
+
+# BAD - Missing migration review
+"""Auto-generated migration - not reviewed
+
+Revision ID: bad_migration
+"""
+from alembic import op
+import sqlalchemy as sa
+
+def upgrade() -> None:
+    # This could be dangerous!
+    op.drop_column('users', 'important_data')
+    # No proper downgrade path
+
+def downgrade() -> None:
+    # Missing implementation
+    pass]]></incorrect-example>
+        </example>
+      </examples>
+    </requirement>
+    <requirement priority="high">
+      <description>Use explicit transaction management for complex operations and implement proper error handling with rollback mechanisms</description>
+      <examples>
+        <example title="Transaction Management">
+          <correct-example title="Explicit transaction handling" conditions="Complex database operations" expected-result="Atomic operations with proper error handling" correctness-criteria="Uses explicit transactions with rollback on errors"><![CDATA[from sqlalchemy.orm import Session
+from sqlalchemy.exc import SQLAlchemyError
+from decimal import Decimal
+import logging
+
+logger = logging.getLogger(__name__)
+
+def transfer_funds(
+    session: Session, 
+    from_account_id: int, 
+    to_account_id: int, 
+    amount: Decimal
+) -> bool:
+    """Transfer funds between accounts with proper transaction handling."""
+    try:
+        # Begin explicit transaction
+        with session.begin():
+            # Lock accounts for update to prevent race conditions
+            from_account = session.get(Account, from_account_id, with_for_update=True)
+            to_account = session.get(Account, to_account_id, with_for_update=True)
+            
+            if not from_account or not to_account:
+                raise ValueError("Account not found")
+            
+            if from_account.balance < amount:
+                raise ValueError("Insufficient funds")
+            
+            # Perform the transfer
+            from_account.balance -= amount
+            to_account.balance += amount
+            
+            # Log the transaction
+            transaction = Transaction(
+                from_account_id=from_account_id,
+                to_account_id=to_account_id,
+                amount=amount,
+                transaction_type="transfer"
+            )
+            session.add(transaction)
+            
+            # Commit happens automatically at end of context manager
+            logger.info(f"Transfer completed: {amount} from {from_account_id} to {to_account_id}")
+            return True
+            
+    except SQLAlchemyError as e:
+        logger.error(f"Database error during transfer: {str(e)}")
+        # Rollback happens automatically
+        raise
+    except ValueError as e:
+        logger.warning(f"Business logic error: {str(e)}")
+        raise]]></correct-example>
+          <incorrect-example title="Unmanaged transaction" conditions="Complex database operations" expected-result="Proper transaction management" incorrectness-criteria="No explicit transaction boundaries or error handling"><![CDATA[# BAD - No transaction management
+def transfer_funds(session: Session, from_id: int, to_id: int, amount: Decimal) -> bool:
+    from_account = session.get(Account, from_id)
+    to_account = session.get(Account, to_id)
+    
+    # Race condition possible - no locking
+    from_account.balance -= amount
+    to_account.balance += amount
+    
+    # What if this fails? Partial state!
+    session.commit()
+    return True]]></incorrect-example>
+        </example>
+      </examples>
+    </requirement>
+    <requirement priority="high">
+      <description>Optimize queries using proper indexing, eager loading strategies, and query patterns to prevent N+1 problems</description>
+      <examples>
+        <example title="Query Optimization">
+          <correct-example title="Efficient query patterns" conditions="Loading related data" expected-result="Optimized queries with proper loading strategies" correctness-criteria="Uses appropriate loading strategies and query optimization"><![CDATA[from sqlalchemy import select
+from sqlalchemy.orm import selectinload, joinedload, contains_eager
+from typing import List
+
+def get_users_with_posts_optimized(session: Session, limit: int = 10) -> List[User]:
+    """Get users with their posts using optimized loading."""
+    # Use selectinload for one-to-many relationships
+    stmt = (
+        select(User)
+        .options(selectinload(User.posts))
+        .limit(limit)
+    )
+    return session.scalars(stmt).all()
+
+def get_posts_with_author_optimized(session: Session, limit: int = 10) -> List[Post]:
+    """Get posts with authors using joined loading."""
+    # Use joinedload for many-to-one relationships
+    stmt = (
+        select(Post)
+        .options(joinedload(Post.author))
+        .limit(limit)
+    )
+    return session.scalars(stmt).all()
+
+def get_posts_with_comments_count(session: Session) -> List[tuple]:
+    """Get posts with comment counts using efficient aggregation."""
+    stmt = (
+        select(Post.id, Post.title, func.count(Comment.id).label('comment_count'))
+        .outerjoin(Comment)
+        .group_by(Post.id, Post.title)
+        .order_by(Post.created_at.desc())
+    )
+    return session.execute(stmt).all()
+
+# Create proper database indexes
+class Post(Base):
+    __tablename__ = "posts"
+    
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    title: Mapped[str] = mapped_column(String(200), nullable=False, index=True)
+    content: Mapped[str] = mapped_column(Text, nullable=False)
+    author_id: Mapped[int] = mapped_column(Integer, ForeignKey("users.id"), index=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow, index=True)
+    
+    # Composite index for common queries
+    __table_args__ = (
+        Index('idx_posts_author_created', 'author_id', 'created_at'),
+    )]]></correct-example>
+          <incorrect-example title="N+1 query problem" conditions="Loading related data" expected-result="Optimized queries" incorrectness-criteria="Causes N+1 queries and poor performance"><![CDATA[# BAD - N+1 query problem
+def get_users_with_posts_inefficient(session: Session) -> List[User]:
+    users = session.scalars(select(User)).all()
+    
+    # This will trigger N queries for N users!
+    for user in users:
+        print(f"User: {user.username}")
+        for post in user.posts:  # Lazy loading triggers query for each user
+            print(f"  Post: {post.title}")
+    
+    return users
+
+# BAD - No indexes on frequently queried columns
+class Post(Base):
+    __tablename__ = "posts"
+    
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    title: Mapped[str] = mapped_column(String(200), nullable=False)  # No index
+    author_id: Mapped[int] = mapped_column(Integer, ForeignKey("users.id"))  # No index
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)  # No index]]></incorrect-example>
+        </example>
+      </examples>
+    </requirement>
+    <requirement priority="high">
+      <description>Implement repository pattern for data access logic separation and create service layer for business logic</description>
+      <examples>
+        <example title="Repository and Service Patterns">
+          <correct-example title="Clean architecture implementation" conditions="Organizing database access code" expected-result="Separated concerns with testable code" correctness-criteria="Uses repository pattern for data access and service layer for business logic"><![CDATA[from abc import ABC, abstractmethod
+from typing import Optional, List, Protocol
+from sqlalchemy.orm import Session
+from sqlalchemy import select
+
+# Repository Interface
+class UserRepositoryInterface(Protocol):
+    def create(self, user: User) -> User:
+        ...
+    
+    def get_by_id(self, user_id: int) -> Optional[User]:
+        ...
+    
+    def get_by_username(self, username: str) -> Optional[User]:
+        ...
+    
+    def update(self, user: User) -> User:
+        ...
+    
+    def delete(self, user_id: int) -> bool:
+        ...
+
+# Repository Implementation
+class UserRepository:
+    def __init__(self, session: Session):
+        self.session = session
+    
+    def create(self, user: User) -> User:
+        self.session.add(user)
+        self.session.flush()
+        return user
+    
+    def get_by_id(self, user_id: int) -> Optional[User]:
+        return self.session.get(User, user_id)
+    
+    def get_by_username(self, username: str) -> Optional[User]:
+        stmt = select(User).where(User.username == username)
+        return self.session.scalar(stmt)
+    
+    def get_active_users(self, limit: int = 10) -> List[User]:
+        stmt = select(User).where(User.is_active == True).limit(limit)
+        return self.session.scalars(stmt).all()
+    
+    def update(self, user: User) -> User:
+        self.session.merge(user)
+        self.session.flush()
+        return user
+    
+    def delete(self, user_id: int) -> bool:
+        user = self.get_by_id(user_id)
+        if user:
+            self.session.delete(user)
+            return True
+        return False
+
+# Service Layer
+class UserService:
+    def __init__(self, user_repository: UserRepositoryInterface):
+        self.user_repository = user_repository
+    
+    def create_user(self, username: str, email: str, password: str) -> User:
+        """Create a new user with business logic validation."""
+        # Business logic validation
+        if len(username) < 3:
+            raise ValueError("Username must be at least 3 characters")
+        
+        if self.user_repository.get_by_username(username):
+            raise ValueError("Username already exists")
+        
+        # Hash password (simplified)
+        password_hash = self._hash_password(password)
+        
+        user = User(
+            username=username,
+            email=email,
+            password_hash=password_hash
+        )
+        
+        return self.user_repository.create(user)
+    
+    def authenticate_user(self, username: str, password: str) -> Optional[User]:
+        """Authenticate user with business logic."""
+        user = self.user_repository.get_by_username(username)
+        if user and user.is_active and self._verify_password(password, user.password_hash):
+            return user
+        return None
+    
+    def _hash_password(self, password: str) -> str:
+        # Implementation depends on your security requirements
+        pass
+    
+    def _verify_password(self, password: str, hash: str) -> bool:
+        # Implementation depends on your security requirements
+        pass]]></correct-example>
+          <incorrect-example title="Tightly coupled data access" conditions="Organizing database access code" expected-result="Separated concerns" incorrectness-criteria="Mixes data access, business logic, and presentation concerns"><![CDATA[# BAD - Everything mixed together
+def create_user_endpoint(request):
+    # Business logic mixed with data access
+    session = SessionLocal()
+    
+    if len(request.username) < 3:
+        return {"error": "Username too short"}
+    
+    # Direct SQL in endpoint
+    existing_user = session.scalar(
+        select(User).where(User.username == request.username)
+    )
+    
+    if existing_user:
+        return {"error": "Username exists"}
+    
+    # Password hashing in endpoint
+    password_hash = hash_password(request.password)
+    
+    user = User(
+        username=request.username,
+        email=request.email,
+        password_hash=password_hash
+    )
+    
+    session.add(user)
+    session.commit()
+    session.close()
+    
+    return {"user_id": user.id}]]></incorrect-example>
+        </example>
+      </examples>
+    </requirement>
+    <requirement priority="high">
+      <description>Use connection pooling configuration and implement proper database connection management for production environments</description>
+      <examples>
+        <example title="Connection Pool Configuration">
+          <correct-example title="Production-ready connection pooling" conditions="Production database setup" expected-result="Optimized connection management" correctness-criteria="Properly configured connection pool with monitoring"><![CDATA[from sqlalchemy import create_engine, event
+from sqlalchemy.pool import QueuePool
+from sqlalchemy.engine import Engine
+import logging
+import os
+
+# Production database configuration
+DATABASE_URL = os.getenv("DATABASE_URL", "postgresql://user:pass@localhost/db")
+
+engine = create_engine(
+    DATABASE_URL,
+    # Connection pool configuration
+    poolclass=QueuePool,
+    pool_size=20,           # Number of connections to maintain
+    max_overflow=30,        # Additional connections beyond pool_size
+    pool_pre_ping=True,     # Validate connections before use
+    pool_recycle=3600,      # Recycle connections after 1 hour
+    pool_timeout=30,        # Wait time for connection from pool
+    
+    # Performance settings
+    echo=False,             # Set to True for SQL logging in development
+    echo_pool=False,        # Pool activity logging
+    future=True,            # Use SQLAlchemy 2.0 mode
+    
+    # Connection string parameters
+    connect_args={
+        "connect_timeout": 10,
+        "application_name": "myapp",
+        "options": "-c timezone=UTC"
+    }
+)
+
+# Connection monitoring
+@event.listens_for(Engine, "connect")
+def set_connection_settings(dbapi_connection, connection_record):
+    """Set connection-level settings."""
+    with dbapi_connection.cursor() as cursor:
+        # Set statement timeout
+        cursor.execute("SET statement_timeout = '30s'")
+        # Set lock timeout
+        cursor.execute("SET lock_timeout = '10s'")
+
+@event.listens_for(Engine, "checkout")
+def receive_checkout(dbapi_connection, connection_record, connection_proxy):
+    """Log connection checkout."""
+    logging.debug(f"Connection checked out: {connection_record.info}")
+
+@event.listens_for(Engine, "checkin")
+def receive_checkin(dbapi_connection, connection_record):
+    """Log connection checkin."""
+    logging.debug(f"Connection checked in: {connection_record.info}")
+
+# Health check function
+def check_database_health() -> dict:
+    """Check database connection health."""
+    try:
+        with engine.connect() as conn:
+            result = conn.execute(text("SELECT 1")).scalar()
+            pool_status = engine.pool.status()
+            return {
+                "healthy": True,
+                "pool_size": engine.pool.size(),
+                "checked_out": engine.pool.checkedout(),
+                "overflow": engine.pool.overflow(),
+                "checked_in": engine.pool.checkedin()
+            }
+    except Exception as e:
+        return {"healthy": False, "error": str(e)}]]></correct-example>
+          <incorrect-example title="Unmanaged connections" conditions="Production database setup" expected-result="Proper connection management" incorrectness-criteria="No connection pooling or management"><![CDATA[# BAD - No connection pool configuration
+engine = create_engine("postgresql://user:pass@localhost/db")
+
+# BAD - Creating new engine for each request
+def get_user(user_id: int):
+    engine = create_engine("postgresql://user:pass@localhost/db")
+    with engine.connect() as conn:
+        result = conn.execute(text("SELECT * FROM users WHERE id = :id"), {"id": user_id})
+        return result.fetchone()
+
+# BAD - No connection monitoring or health checks
+# No pool size limits, no timeout handling
+# No connection validation]]></incorrect-example>
+        </example>
+      </examples>
+    </requirement>
+    <requirement priority="high">
+      <description>Implement comprehensive testing strategies including unit tests, integration tests, and database fixtures</description>
+      <examples>
+        <example title="Testing Strategies">
+          <correct-example title="Comprehensive test suite" conditions="Testing SQLAlchemy code" expected-result="Reliable and maintainable tests" correctness-criteria="Includes unit tests, integration tests, and proper fixtures"><![CDATA[import pytest
+from sqlalchemy import create_engine
+from sqlalchemy.orm import sessionmaker
+from sqlalchemy.pool import StaticPool
+from unittest.mock import Mock, patch
+import tempfile
+import os
+
+# Test database setup
+@pytest.fixture(scope="session")
+def engine():
+    """Create in-memory SQLite database for testing."""
+    return create_engine(
+        "sqlite:///:memory:",
+        poolclass=StaticPool,
+        connect_args={"check_same_thread": False},
+        echo=False
+    )
+
+@pytest.fixture
+def session(engine):
+    """Create a database session for testing."""
+    Base.metadata.create_all(engine)
+    SessionLocal = sessionmaker(bind=engine)
+    session = SessionLocal()
+    try:
+        yield session
+    finally:
+        session.close()
+        Base.metadata.drop_all(engine)
+
+@pytest.fixture
+def sample_user():
+    """Create a sample user for testing."""
+    return User(
+        username="testuser",
+        email="test@example.com",
+        password_hash="hashed_password"
+    )
+
+# Unit tests for repository
+class TestUserRepository:
+    def test_create_user(self, session, sample_user):
+        """Test user creation."""
+        repo = UserRepository(session)
+        created_user = repo.create(sample_user)
+        
+        assert created_user.id is not None
+        assert created_user.username == "testuser"
+        assert created_user.email == "test@example.com"
+    
+    def test_get_user_by_id(self, session, sample_user):
+        """Test user retrieval by ID."""
+        repo = UserRepository(session)
+        created_user = repo.create(sample_user)
+        session.commit()
+        
+        retrieved_user = repo.get_by_id(created_user.id)
+        assert retrieved_user is not None
+        assert retrieved_user.username == "testuser"
+    
+    def test_get_user_by_username(self, session, sample_user):
+        """Test user retrieval by username."""
+        repo = UserRepository(session)
+        repo.create(sample_user)
+        session.commit()
+        
+        retrieved_user = repo.get_by_username("testuser")
+        assert retrieved_user is not None
+        assert retrieved_user.email == "test@example.com"
+
+# Integration tests for service layer
+class TestUserService:
+    def test_create_user_success(self, session):
+        """Test successful user creation through service."""
+        repo = UserRepository(session)
+        service = UserService(repo)
+        
+        user = service.create_user("newuser", "new@example.com", "password123")
+        
+        assert user.username == "newuser"
+        assert user.email == "new@example.com"
+        assert user.password_hash is not None
+    
+    def test_create_user_duplicate_username(self, session, sample_user):
+        """Test user creation with duplicate username."""
+        repo = UserRepository(session)
+        service = UserService(repo)
+        
+        repo.create(sample_user)
+        session.commit()
+        
+        with pytest.raises(ValueError, match="Username already exists"):
+            service.create_user("testuser", "other@example.com", "password123")
+    
+    @patch('your_module.UserService._hash_password')
+    def test_password_hashing(self, mock_hash, session):
+        """Test password hashing is called."""
+        mock_hash.return_value = "mocked_hash"
+        repo = UserRepository(session)
+        service = UserService(repo)
+        
+        user = service.create_user("hashtest", "hash@example.com", "password123")
+        
+        mock_hash.assert_called_once_with("password123")
+        assert user.password_hash == "mocked_hash"
+
+# Database integration tests
+class TestDatabaseIntegration:
+    def test_transaction_rollback(self, session):
+        """Test transaction rollback on error."""
+        repo = UserRepository(session)
+        
+        try:
+            with session.begin():
+                user1 = User(username="user1", email="user1@example.com", password_hash="hash1")
+                repo.create(user1)
+                
+                # Simulate error after first creation
+                raise Exception("Simulated error")
+        except Exception:
+            pass
+        
+        # Verify rollback occurred
+        users = session.scalars(select(User)).all()
+        assert len(users) == 0
+    
+    def test_concurrent_user_creation(self, engine):
+        """Test concurrent user creation with proper isolation."""
+        import threading
+        results = []
+        
+        def create_user(username):
+            SessionLocal = sessionmaker(bind=engine)
+            session = SessionLocal()
+            try:
+                repo = UserRepository(session)
+                user = User(username=username, email=f"{username}@example.com", password_hash="hash")
+                repo.create(user)
+                session.commit()
+                results.append(user.id)
+            except Exception as e:
+                results.append(str(e))
+            finally:
+                session.close()
+        
+        Base.metadata.create_all(engine)
+        
+        threads = []
+        for i in range(5):
+            thread = threading.Thread(target=create_user, args=(f"user{i}",))
+            threads.append(thread)
+            thread.start()
+        
+        for thread in threads:
+            thread.join()
+        
+        # Verify all users were created
+        assert len([r for r in results if isinstance(r, int)]) == 5]]></correct-example>
+          <incorrect-example title="Poor testing practices" conditions="Testing SQLAlchemy code" expected-result="Comprehensive test coverage" incorrectness-criteria="Lacks proper test structure and coverage"><![CDATA[# BAD - No test fixtures or proper setup
+def test_user_creation():
+    # Using production database for testing!
+    engine = create_engine("postgresql://prod_user:prod_pass@prod_db/prod_db")
+    session = sessionmaker(bind=engine)()
+    
+    user = User(username="test", email="test@example.com")
+    session.add(user)
+    session.commit()
+    
+    # No cleanup!
+    assert user.id is not None
+
+# BAD - No isolation between tests
+class TestUser:
+    def test_create_user(self):
+        # Global state affects this test
+        user = User(username="test", email="test@example.com")
+        # ... test logic
+    
+    def test_get_user(self):
+        # This test depends on previous test data
+        user = session.query(User).first()
+        assert user is not None
+
+# BAD - No mocking or error handling tests
+def test_user_service():
+    service = UserService()
+    user = service.create_user("test", "test@example.com", "password")
+    assert user.username == "test"
+    # No testing of error conditions or edge cases]]></incorrect-example>
+        </example>
+      </examples>
+    </requirement>
+    <requirement priority="medium">
+      <description>Follow PEP 8 naming conventions and code structure. Use descriptive variable names and maintain consistent code formatting</description>
+      <examples>
+        <example title="PEP 8 Compliance">
+          <correct-example title="Proper Python naming and structure" conditions="Writing SQLAlchemy code" expected-result="PEP 8 compliant code" correctness-criteria="Follows snake_case for variables/functions, PascalCase for classes, proper imports"><![CDATA[# Proper import organization
+import os
+import logging
+from datetime import datetime, timezone
+from typing import Optional, List, Dict, Any
+from decimal import Decimal
+
+# Third-party imports
+from sqlalchemy import String, Integer, ForeignKey, DateTime, Boolean, Text, func
+from sqlalchemy.orm import DeclarativeBase, Mapped, mapped_column, relationship, Session
+from sqlalchemy.exc import SQLAlchemyError
+
+# Local imports
+from .exceptions import UserNotFoundError, InvalidCredentialsError
+from .utils import hash_password, verify_password
+
+# Constants
+MAX_USERNAME_LENGTH = 80
+MAX_EMAIL_LENGTH = 120
+DEFAULT_PAGE_SIZE = 20
+
+# Proper class naming (PascalCase)
+class UserAccount(Base):
+    """User account model following PEP 8 conventions."""
+    __tablename__ = "user_accounts"
+    
+    # Use descriptive variable names
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    username: Mapped[str] = mapped_column(String(MAX_USERNAME_LENGTH), unique=True, nullable=False)
+    email_address: Mapped[str] = mapped_column(String(MAX_EMAIL_LENGTH), unique=True, nullable=False)
+    password_hash: Mapped[str] = mapped_column(String(255), nullable=False)
+    is_active: Mapped[bool] = mapped_column(Boolean, default=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=lambda: datetime.now(timezone.utc))
+    last_login_at: Mapped[Optional[datetime]] = mapped_column(DateTime, nullable=True)
+    
+    # Relationships with descriptive names
+    user_posts: Mapped[List["BlogPost"]] = relationship(back_populates="author", lazy="select")
+    user_comments: Mapped[List["Comment"]] = relationship(back_populates="commenter", lazy="select")
+    
+    def __repr__(self) -> str:
+        return f"<UserAccount(username='{self.username}', email='{self.email_address}')>"
+    
+    def get_full_display_name(self) -> str:
+        """Get user's display name with proper method naming."""
+        return f"{self.username} ({self.email_address})"
+    
+    def update_last_login(self) -> None:
+        """Update the last login timestamp."""
+        self.last_login_at = datetime.now(timezone.utc)
+
+# Proper function naming (snake_case)
+def create_user_account(
+    session: Session,
+    username: str,
+    email_address: str,
+    raw_password: str,
+    is_active: bool = True
+) -> UserAccount:
+    """
+    Create a new user account with proper validation.
+    
+    Args:
+        session: Database session
+        username: User's chosen username
+        email_address: User's email address
+        raw_password: User's password (will be hashed)
+        is_active: Whether the account is active
+        
+    Returns:
+        Created user account
+        
+    Raises:
+        ValueError: If validation fails
+        SQLAlchemyError: If database operation fails
+    """
+    # Validate input parameters
+    if not username or len(username) < 3:
+        raise ValueError("Username must be at least 3 characters long")
+    
+    if not email_address or '@' not in email_address:
+        raise ValueError("Invalid email address format")
+    
+    if len(raw_password) < 8:
+        raise ValueError("Password must be at least 8 characters long")
+    
+    # Hash the password securely
+    hashed_password = hash_password(raw_password)
+    
+    # Create user account
+    user_account = UserAccount(
+        username=username,
+        email_address=email_address,
+        password_hash=hashed_password,
+        is_active=is_active
+    )
+    
+    try:
+        session.add(user_account)
+        session.flush()  # Get the ID without committing
+        return user_account
+    except SQLAlchemyError as database_error:
+        session.rollback()
+        logging.error(f"Failed to create user account: {database_error}")
+        raise
+
+def get_active_users_by_email_domain(
+    session: Session,
+    email_domain: str,
+    page_number: int = 1,
+    page_size: int = DEFAULT_PAGE_SIZE
+) -> List[UserAccount]:
+    """
+    Get active users by email domain with pagination.
+    
+    Args:
+        session: Database session
+        email_domain: Email domain to filter by
+        page_number: Page number (1-based)
+        page_size: Number of users per page
+        
+    Returns:
+        List of active user accounts
+    """
+    offset_value = (page_number - 1) * page_size
+    
+    return session.scalars(
+        select(UserAccount)
+        .where(
+            UserAccount.is_active == True,
+            UserAccount.email_address.like(f"%@{email_domain}")
+        )
+        .order_by(UserAccount.created_at.desc())
+        .offset(offset_value)
+        .limit(page_size)
+    ).all()]]></correct-example>
+          <incorrect-example title="Non-PEP 8 compliant code" conditions="Writing SQLAlchemy code" expected-result="PEP 8 compliant code" incorrectness-criteria="Violates naming conventions and code structure"><![CDATA[# BAD - Poor import organization and naming
+from sqlalchemy import *
+from sqlalchemy.orm import *
+import os,logging,datetime
+
+# BAD - Non-descriptive constants
+MAX_LEN = 80
+STUFF = 120
+
+# BAD - camelCase for class (should be PascalCase)
+class userAccount(Base):
+    __tablename__ = "user_accounts"
+    
+    # BAD - Inconsistent naming
+    ID = mapped_column(Integer, primary_key=True)
+    userName = mapped_column(String(80), unique=True, nullable=False)  # camelCase
+    email_addr = mapped_column(String(120), unique=True, nullable=False)  # abbreviated
+    pwd = mapped_column(String(255), nullable=False)  # abbreviated
+    active = mapped_column(Boolean, default=True)  # missing 'is_' prefix
+    
+    # BAD - Missing type hints
+    def GetName(self):  # PascalCase method name
+        return self.userName
+
+# BAD - PascalCase function name
+def CreateUser(session, name, email, password):  # Missing type hints
+    # BAD - Single letter variable names
+    u = userAccount(userName=name, email_addr=email, pwd=password)
+    session.add(u)
+    return u
+
+# BAD - Ambiguous function name
+def getStuff(session, thing, num=10):  # Non-descriptive parameters
+    return session.query(userAccount).limit(num).all()]]></incorrect-example>
+        </example>
+      </examples>
+    </requirement>
+    <requirement priority="medium">
+      <description>Use proper logging instead of print statements and implement structured logging for database operations</description>
+      <examples>
+        <example title="Structured Logging">
+          <correct-example title="Proper logging implementation" conditions="Database operations" expected-result="Structured logging with appropriate levels" correctness-criteria="Uses logging module with proper levels and structured messages"><![CDATA[import logging
+import time
+from functools import wraps
+from sqlalchemy.orm import Session
+from sqlalchemy import event, Engine
+from typing import Any, Callable
+
+# Configure logging
+logging.basicConfig(
+    level=logging.INFO,
+    format='%(asctime)s - %(name)s - %(levelname)s - %(message)s'
+)
+logger = logging.getLogger(__name__)
+
+# Database performance logging
+@event.listens_for(Engine, "before_cursor_execute")
+def before_cursor_execute(conn, cursor, statement, parameters, context, executemany):
+    context._query_start_time = time.time()
+    logger.debug(f"Starting query: {statement[:100]}...")
+
+@event.listens_for(Engine, "after_cursor_execute")
+def after_cursor_execute(conn, cursor, statement, parameters, context, executemany):
+    total_time = time.time() - context._query_start_time
+    if total_time > 0.5:  # Log slow queries
+        logger.warning(
+            f"Slow query detected",
+            extra={
+                'query_time': total_time,
+                'statement': statement[:200],
+                'parameters': parameters
+            }
+        )
+    else:
+        logger.debug(f"Query completed in {total_time:.4f}s")
+
+# Logging decorator for service methods
+def log_database_operation(operation_name: str):
+    def decorator(func: Callable) -> Callable:
+        @wraps(func)
+        def wrapper(*args, **kwargs):
+            logger.info(
+                f"Starting {operation_name}",
+                extra={
+                    'operation': operation_name,
+                    'args_count': len(args),
+                    'kwargs_keys': list(kwargs.keys())
+                }
+            )
+            
+            start_time = time.time()
+            try:
+                result = func(*args, **kwargs)
+                duration = time.time() - start_time
+                
+                logger.info(
+                    f"Completed {operation_name}",
+                    extra={
+                        'operation': operation_name,
+                        'duration': duration,
+                        'success': True
+                    }
+                )
+                return result
+                
+            except Exception as e:
+                duration = time.time() - start_time
+                logger.error(
+                    f"Failed {operation_name}",
+                    extra={
+                        'operation': operation_name,
+                        'duration': duration,
+                        'error': str(e),
+                        'error_type': type(e).__name__
+                    }
+                )
+                raise
+                
+        return wrapper
+    return decorator
+
+class UserService:
+    def __init__(self, session: Session):
+        self.session = session
+        self.logger = logging.getLogger(f"{__name__}.UserService")
+    
+    @log_database_operation("create_user")
+    def create_user(self, username: str, email: str, password: str) -> User:
+        """Create a new user with comprehensive logging."""
+        self.logger.info(
+            "Creating new user",
+            extra={
+                'username': username,
+                'email': email,
+                'action': 'user_creation'
+            }
+        )
+        
+        try:
+            # Check if user exists
+            existing_user = self.session.scalar(
+                select(User).where(User.username == username)
+            )
+            
+            if existing_user:
+                self.logger.warning(
+                    "User creation failed - username already exists",
+                    extra={
+                        'username': username,
+                        'reason': 'duplicate_username'
+                    }
+                )
+                raise ValueError("Username already exists")
+            
+            # Create user
+            user = User(
+                username=username,
+                email=email,
+                password_hash=hash_password(password)
+            )
+            
+            self.session.add(user)
+            self.session.flush()
+            
+            self.logger.info(
+                "User created successfully",
+                extra={
+                    'user_id': user.id,
+                    'username': username,
+                    'email': email
+                }
+            )
+            
+            return user
+            
+        except SQLAlchemyError as e:
+            self.logger.error(
+                "Database error during user creation",
+                extra={
+                    'username': username,
+                    'email': email,
+                    'error': str(e),
+                    'error_type': type(e).__name__
+                }
+            )
+            raise
+    
+    @log_database_operation("get_user")
+    def get_user(self, user_id: int) -> Optional[User]:
+        """Get user by ID with logging."""
+        self.logger.debug(f"Retrieving user with ID: {user_id}")
+        
+        user = self.session.get(User, user_id)
+        
+        if user:
+            self.logger.debug(
+                "User found",
+                extra={
+                    'user_id': user_id,
+                    'username': user.username
+                }
+            )
+        else:
+            self.logger.info(
+                "User not found",
+                extra={'user_id': user_id}
+            )
+        
+        return user]]></correct-example>
+          <incorrect-example title="Print statements and poor logging" conditions="Database operations" expected-result="Structured logging" incorrectness-criteria="Uses print statements and lacks structured logging"><![CDATA[# BAD - Using print statements
+def create_user(session, username, email, password):
+    print(f"Creating user: {username}")  # Should use logging
+    
+    existing_user = session.scalar(select(User).where(User.username == username))
+    if existing_user:
+        print("ERROR: User already exists!")  # No proper error handling
+        return None
+    
+    user = User(username=username, email=email, password_hash=hash_password(password))
+    session.add(user)
+    
+    print(f"User created with ID: {user.id}")  # Print instead of logging
+    return user
+
+# BAD - No logging for errors
+def get_user(session, user_id):
+    try:
+        user = session.get(User, user_id)
+        return user
+    except Exception as e:
+        print(f"Something went wrong: {e}")  # Vague error message
+        return None
+
+# BAD - No performance monitoring
+def get_all_users(session):
+    # This could be slow, but no logging
+    users = session.scalars(select(User)).all()
+    print(f"Got {len(users)} users")  # Print instead of logging
+    return users]]></incorrect-example>
+        </example>
+      </examples>
+    </requirement>
+    <requirement priority="medium">
+      <description>Implement proper error handling with custom exceptions and meaningful error messages for database operations</description>
+      <examples>
+        <example title="Custom Exception Handling">
+          <correct-example title="Comprehensive error handling" conditions="Database error scenarios" expected-result="Proper exception hierarchy with meaningful messages" correctness-criteria="Uses custom exceptions with proper inheritance and error context"><![CDATA[# Custom exception hierarchy
+class DatabaseError(Exception):
+    """Base exception for database-related errors."""
+    def __init__(self, message: str, original_error: Exception = None):
+        super().__init__(message)
+        self.original_error = original_error
+        self.message = message
+
+class UserNotFoundError(DatabaseError):
+    """Raised when a user cannot be found."""
+    def __init__(self, user_id: int = None, username: str = None):
+        if user_id:
+            message = f"User with ID {user_id} not found"
+        elif username:
+            message = f"User with username '{username}' not found"
+        else:
+            message = "User not found"
+        super().__init__(message)
+        self.user_id = user_id
+        self.username = username
+
+class DuplicateUserError(DatabaseError):
+    """Raised when attempting to create a user that already exists."""
+    def __init__(self, field: str, value: str):
+        message = f"User with {field} '{value}' already exists"
+        super().__init__(message)
+        self.field = field
+        self.value = value
+
+class InvalidUserDataError(DatabaseError):
+    """Raised when user data validation fails."""
+    def __init__(self, field: str, value: str, reason: str):
+        message = f"Invalid {field} '{value}': {reason}"
+        super().__init__(message)
+        self.field = field
+        self.value = value
+        self.reason = reason
+
+class DatabaseConnectionError(DatabaseError):
+    """Raised when database connection fails."""
+    def __init__(self, connection_string: str, original_error: Exception):
+        message = f"Failed to connect to database: {connection_string}"
+        super().__init__(message, original_error)
+
+# Service with proper error handling
+class UserService:
+    def __init__(self, session: Session):
+        self.session = session
+        self.logger = logging.getLogger(f"{__name__}.UserService")
+    
+    def create_user(self, username: str, email: str, password: str) -> User:
+        """Create a user with comprehensive error handling."""
+        try:
+            # Validate input
+            self._validate_user_input(username, email, password)
+            
+            # Check for existing user
+            existing_user = self.session.scalar(
+                select(User).where(
+                    (User.username == username) | (User.email == email)
+                )
+            )
+            
+            if existing_user:
+                if existing_user.username == username:
+                    raise DuplicateUserError("username", username)
+                else:
+                    raise DuplicateUserError("email", email)
+            
+            # Create user
+            user = User(
+                username=username,
+                email=email,
+                password_hash=self._hash_password(password)
+            )
+            
+            self.session.add(user)
+            self.session.flush()
+            
+            self.logger.info(f"User created successfully: {username}")
+            return user
+            
+        except (DuplicateUserError, InvalidUserDataError):
+            # Re-raise validation errors as-is
+            raise
+            
+        except SQLAlchemyError as e:
+            self.logger.error(
+                "Database error during user creation",
+                extra={
+                    'username': username,
+                    'email': email,
+                    'error': str(e),
+                    'error_type': type(e).__name__
+                }
+            )
+            self.session.rollback()
+            raise DatabaseError(
+                f"Failed to create user '{username}' due to database error",
+                original_error=e
+            )
+        
+        except Exception as e:
+            self.logger.error(f"Unexpected error creating user {username}: {e}")
+            self.session.rollback()
+            raise DatabaseError(
+                f"Unexpected error creating user '{username}'",
+                original_error=e
+            )
+    
+    def get_user_by_id(self, user_id: int) -> User:
+        """Get user by ID with proper error handling."""
+        try:
+            if not isinstance(user_id, int) or user_id <= 0:
+                raise InvalidUserDataError("user_id", str(user_id), "must be a positive integer")
+            
+            user = self.session.get(User, user_id)
+            if not user:
+                raise UserNotFoundError(user_id=user_id)
+            
+            return user
+            
+        except UserNotFoundError:
+            # Re-raise not found errors
+            raise
+            
+        except SQLAlchemyError as e:
+            self.logger.error(f"Database error retrieving user {user_id}: {e}")
+            raise DatabaseError(
+                f"Failed to retrieve user with ID {user_id}",
+                original_error=e
+            )
+    
+    def update_user(self, user_id: int, **kwargs) -> User:
+        """Update user with proper error handling."""
+        try:
+            user = self.get_user_by_id(user_id)  # This handles user not found
+            
+            # Validate update data
+            if 'username' in kwargs:
+                self._validate_username(kwargs['username'])
+            if 'email' in kwargs:
+                self._validate_email(kwargs['email'])
+            
+            # Update user attributes
+            for key, value in kwargs.items():
+                if hasattr(user, key):
+                    setattr(user, key, value)
+                else:
+                    raise InvalidUserDataError(key, str(value), "invalid field")
+            
+            self.session.flush()
+            self.logger.info(f"User {user_id} updated successfully")
+            return user
+            
+        except (UserNotFoundError, InvalidUserDataError):
+            # Re-raise validation errors
+            raise
+            
+        except SQLAlchemyError as e:
+            self.logger.error(f"Database error updating user {user_id}: {e}")
+            self.session.rollback()
+            raise DatabaseError(
+                f"Failed to update user {user_id}",
+                original_error=e
+            )
+    
+    def _validate_user_input(self, username: str, email: str, password: str) -> None:
+        """Validate user input data."""
+        self._validate_username(username)
+        self._validate_email(email)
+        self._validate_password(password)
+    
+    def _validate_username(self, username: str) -> None:
+        """Validate username format."""
+        if not username or not isinstance(username, str):
+            raise InvalidUserDataError("username", str(username), "cannot be empty")
+        if len(username) < 3:
+            raise InvalidUserDataError("username", username, "must be at least 3 characters")
+        if len(username) > 80:
+            raise InvalidUserDataError("username", username, "must be less than 80 characters")
+        if not username.isalnum():
+            raise InvalidUserDataError("username", username, "must contain only alphanumeric characters")
+    
+    def _validate_email(self, email: str) -> None:
+        """Validate email format."""
+        if not email or not isinstance(email, str):
+            raise InvalidUserDataError("email", str(email), "cannot be empty")
+        if '@' not in email or '.' not in email:
+            raise InvalidUserDataError("email", email, "invalid format")
+        if len(email) > 120:
+            raise InvalidUserDataError("email", email, "must be less than 120 characters")
+    
+    def _validate_password(self, password: str) -> None:
+        """Validate password strength."""
+        if not password or not isinstance(password, str):
+            raise InvalidUserDataError("password", "***", "cannot be empty")
+        if len(password) < 8:
+            raise InvalidUserDataError("password", "***", "must be at least 8 characters")
+    
+    def _hash_password(self, password: str) -> str:
+        """Hash password securely."""
+        # Implementation depends on your security requirements
+        pass]]></correct-example>
+          <incorrect-example title="Poor error handling" conditions="Database error scenarios" expected-result="Proper exception handling" incorrectness-criteria="Uses generic exceptions and lacks meaningful error messages"><![CDATA[# BAD - Generic exception handling
+def create_user(session, username, email, password):
+    try:
+        user = User(username=username, email=email, password_hash=hash_password(password))
+        session.add(user)
+        session.commit()
+        return user
+    except Exception as e:
+        print(f"Error: {e}")  # Too generic
+        return None
+
+# BAD - No validation or specific error handling
+def get_user(session, user_id):
+    try:
+        user = session.get(User, user_id)
+        return user
+    except:
+        return None  # Silent failure
+
+# BAD - Catching all exceptions without proper handling
+def update_user(session, user_id, **kwargs):
+    try:
+        user = session.get(User, user_id)
+        for key, value in kwargs.items():
+            setattr(user, key, value)  # No validation
+        session.commit()
+        return user
+    except Exception:
+        session.rollback()
+        raise Exception("Something went wrong")  # Meaningless message]]></incorrect-example>
+        </example>
+      </examples>
+    </requirement>
+  </requirements>
+  <grammar>
+    <grammar-entry title="SQLAlchemy Model Definition">
+      <pattern description="Modern SQLAlchemy 2.0 model syntax">class ModelName(Base):\n    __tablename__ = "table_name"\n    \n    field: Mapped[type] = mapped_column(SQLType, constraints...)</pattern>
+      <example description="User model with proper typing">class User(Base):
+    __tablename__ = "users"
+    
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    username: Mapped[str] = mapped_column(String(80), unique=True, nullable=False)
+    email: Mapped[str] = mapped_column(String(120), unique=True, nullable=False)</example>
+    </grammar-entry>
+    <grammar-entry title="Repository Pattern">
+      <pattern description="Repository interface and implementation">class ModelRepositoryInterface(Protocol):\n    def method_name(self, params) -> ReturnType: ...\n\nclass ModelRepository:\n    def __init__(self, session: Session):\n        self.session = session</pattern>
+      <example description="User repository implementation">class UserRepository:
+    def __init__(self, session: Session):
+        self.session = session
+    
+    def create(self, user: User) -> User:
+        self.session.add(user)
+        self.session.flush()
+        return user</example>
+    </grammar-entry>
+    <grammar-entry title="Service Layer Pattern">
+      <pattern description="Service layer with business logic">class ModelService:\n    def __init__(self, repository: ModelRepositoryInterface):\n        self.repository = repository\n    \n    def business_method(self, params) -> ReturnType:\n        # Business logic validation\n        # Repository calls\n        # Return result</pattern>
+      <example description="User service with validation">class UserService:
+    def __init__(self, user_repository: UserRepositoryInterface):
+        self.user_repository = user_repository
+    
+    def create_user(self, username: str, email: str, password: str) -> User:
+        if len(username) < 3:
+            raise ValueError("Username must be at least 3 characters")
+        # Additional business logic
+        return self.user_repository.create(user)</example>
+    </grammar-entry>
+  </grammar>
+  <context description="SQLAlchemy development considerations">
+    SQLAlchemy is a powerful ORM that provides both high-level ORM capabilities and low-level database access. When developing with SQLAlchemy, focus on leveraging its modern 2.0 features including declarative base with type hints, proper session management, and performance optimization techniques. The repository pattern helps separate data access logic from business logic, making code more testable and maintainable. Always prioritize security by using parameterized queries and never building SQL strings manually. Performance considerations include proper indexing, connection pooling, and query optimization to prevent N+1 problems.
+  </context>
+  <references>
+    <reference as="dependency" href=".cursor/rules/rules.mdc" reason="Follows standard rule format">Base rule format definition</reference>
+    <reference as="context" href=".cursor/rules/database/postgresql/postgresql.mdc" reason="Database best practices">PostgreSQL Best Practices</reference>
+    <reference as="context" href=".cursor/rules/languages/python/python-standards.mdc" reason="Python coding standards">Python Development Standards</reference>
+  </references>
+</rule>
+ 

@@ -1,0 +1,647 @@
+---
+description: Comprehensive Cypress testing standards with modern e2e patterns, component testing, and CI/CD integration following expert best practices
+globs: ["**/*.{cy,spec,test}.{js,ts,jsx,tsx}"]
+alwaysApply: false
+---
+
+<rule>
+  <meta>
+    <title>Cypress E2E Testing Standards</title>
+    <description>Comprehensive Cypress end-to-end testing framework standards with component testing, modern automation patterns, and CI/CD integration following expert recommendations</description>
+    <created-at utc-timestamp="1744398600">January 29, 2025, 2:30 PM</created-at>
+    <last-updated-at utc-timestamp="1744398600">January 29, 2025, 2:30 PM</last-updated-at>
+    <applies-to>
+      <file-matcher glob="**/*.{cy,spec,test}.{js,ts,jsx,tsx}">Cypress test files</file-matcher>
+      <file-matcher glob="**/cypress.config.{js,ts}">Cypress configuration files</file-matcher>
+      <file-matcher glob="**/cypress/**/*.{js,ts}">End-to-end and component test files</file-matcher>
+      <action-matcher action="cypress-testing">Triggered when writing or configuring tests with Cypress</action-matcher>
+    </applies-to>
+  </meta>
+
+  <requirements>
+    <non-negotiable priority="critical">
+      <description>Use Cypress modern configuration with component testing, TypeScript support, and comprehensive project setup including custom commands and proper test isolation.</description>
+      <examples>
+        <example title="Modern Cypress Configuration">
+          <correct-example title="Comprehensive cypress.config.ts setup" conditions="Setting up Cypress configuration" expected-result="Optimized Cypress setup with component testing and CI/CD integration" correctness-criteria="Uses defineConfig, includes TypeScript support, component testing, and performance optimization"><![CDATA[// cypress.config.ts
+import { defineConfig } from 'cypress'
+
+export default defineConfig({
+  // Global configuration
+  projectId: 'abc123',
+  
+  // E2E Testing configuration
+  e2e: {
+    baseUrl: 'http://localhost:3000',
+    supportFile: 'cypress/support/e2e.ts',
+    specPattern: 'cypress/e2e/**/*.{cy,spec}.{js,jsx,ts,tsx}',
+    
+    // Browser configuration
+    browser: 'chrome',
+    chromeWebSecurity: false,
+    
+    // Viewport settings
+    viewportWidth: 1280,
+    viewportHeight: 720,
+    
+    // Timeouts
+    defaultCommandTimeout: 10000,
+    requestTimeout: 10000,
+    responseTimeout: 10000,
+    pageLoadTimeout: 30000,
+    
+    // Test isolation
+    testIsolation: true,
+    
+    // Video and screenshot settings
+    video: true,
+    screenshotOnRunFailure: true,
+    videosFolder: 'cypress/videos',
+    screenshotsFolder: 'cypress/screenshots',
+    
+    // Setup and teardown
+    setupNodeEvents(on, config) {
+      // Code coverage
+      require('@cypress/code-coverage/task')(on, config)
+      
+      // Environment-specific configuration
+      if (config.env.environment === 'staging') {
+        config.baseUrl = 'https://staging.example.com'
+      } else if (config.env.environment === 'production') {
+        config.baseUrl = 'https://example.com'
+      }
+      
+      // Custom tasks
+      on('task', {
+        log(message) {
+          console.log(message)
+          return null
+        },
+        
+        seedDatabase(data) {
+          // Database seeding logic
+          return null
+        },
+        
+        clearDatabase() {
+          // Database cleanup logic
+          return null
+        }
+      })
+      
+      // File operations
+      on('task', {
+        readFile(filename) {
+          return require('fs').readFileSync(filename, 'utf8')
+        }
+      })
+      
+      return config
+    },
+  },
+
+  // Component Testing configuration
+  component: {
+    devServer: {
+      framework: 'react', // or 'vue', 'angular', 'svelte'
+      bundler: 'vite', // or 'webpack'
+    },
+    supportFile: 'cypress/support/component.ts',
+    specPattern: 'src/**/*.{cy,spec}.{js,jsx,ts,tsx}',
+    
+    // Component-specific settings
+    viewportWidth: 1000,
+    viewportHeight: 600,
+    video: false,
+  },
+
+  // Environment variables
+  env: {
+    apiUrl: 'http://localhost:3001/api',
+    coverage: true,
+    
+    // Test user credentials
+    testUserEmail: 'test@example.com',
+    testUserPassword: 'password123',
+    
+    // Feature flags
+    enableNewFeatures: true,
+  },
+
+  // Retry configuration
+  retries: {
+    runMode: 3,
+    openMode: 0,
+  },
+
+  // Slow test threshold
+  slowTestThreshold: 10000,
+
+  // Custom configuration
+  experimentalStudio: true,
+  experimentalMemoryManagement: true,
+})
+
+// cypress/support/e2e.ts
+import './commands'
+import '@cypress/code-coverage/support'
+
+// Global configuration
+Cypress.config('defaultCommandTimeout', 10000)
+
+// Custom error handling
+Cypress.on('uncaught:exception', (err, runnable) => {
+  // Return false to prevent the error from failing the test
+  if (err.message.includes('ResizeObserver loop limit exceeded')) {
+    return false
+  }
+  return true
+})
+
+// cypress/support/commands.ts
+declare global {
+  namespace Cypress {
+    interface Chainable {
+      login(email: string, password: string): Chainable<void>
+      loginAsAdmin(): Chainable<void>
+      createUser(userData: any): Chainable<any>
+      clearDatabase(): Chainable<void>
+      waitForApiResponse(alias: string): Chainable<void>
+      getByTestId(testId: string): Chainable<JQuery<HTMLElement>>
+    }
+  }
+}
+
+Cypress.Commands.add('login', (email: string, password: string) => {
+  cy.visit('/login')
+  cy.get('[data-testid="email-input"]').type(email)
+  cy.get('[data-testid="password-input"]').type(password)
+  cy.get('[data-testid="login-button"]').click()
+  cy.url().should('include', '/dashboard')
+})
+
+Cypress.Commands.add('loginAsAdmin', () => {
+  cy.login(Cypress.env('testUserEmail'), Cypress.env('testUserPassword'))
+})
+
+Cypress.Commands.add('createUser', (userData) => {
+  cy.request({
+    method: 'POST',
+    url: `${Cypress.env('apiUrl')}/users`,
+    body: userData,
+  }).then((response) => {
+    expect(response.status).to.eq(201)
+    return cy.wrap(response.body)
+  })
+})
+
+Cypress.Commands.add('clearDatabase', () => {
+  cy.task('clearDatabase')
+})
+
+Cypress.Commands.add('waitForApiResponse', (alias: string) => {
+  cy.wait(alias).then((interception) => {
+    expect(interception.response?.statusCode).to.be.oneOf([200, 201, 204])
+  })
+})
+
+Cypress.Commands.add('getByTestId', (testId: string) => {
+  return cy.get(`[data-testid="${testId}"]`)
+})]]></correct-example>
+          <incorrect-example title="Basic configuration without optimization" conditions="Setting up Cypress configuration" expected-result="Optimized Cypress setup" incorrectness-criteria="Missing TypeScript support, no component testing, minimal configuration, no custom commands"><![CDATA[// cypress.config.js - Basic configuration
+module.exports = {
+  e2e: {
+    baseUrl: 'http://localhost:3000',
+    setupNodeEvents(on, config) {
+      // implement node event listeners here
+    },
+  },
+}]]></incorrect-example>
+        </example>
+      </examples>
+    </non-negotiable>
+
+    <non-negotiable priority="critical">
+      <description>Implement comprehensive test patterns including page objects, custom commands, and proper test organization with component testing integration and API testing capabilities.</description>
+      <examples>
+        <example title="Comprehensive Test Implementation">
+          <correct-example title="Modern Cypress test patterns" conditions="Writing comprehensive Cypress tests" expected-result="Well-structured tests with proper patterns" correctness-criteria="Uses page objects, custom commands, proper assertions, and modern Cypress practices"><![CDATA[// cypress/e2e/auth/login.cy.ts
+describe('Authentication Flow', () => {
+  beforeEach(() => {
+    cy.clearDatabase()
+    cy.visit('/login')
+  })
+
+  it('should login successfully with valid credentials', () => {
+    cy.getByTestId('email-input').type('admin@example.com')
+    cy.getByTestId('password-input').type('password123')
+    cy.getByTestId('login-button').click()
+    
+    cy.url().should('include', '/dashboard')
+    cy.getByTestId('welcome-message').should('contain', 'Welcome')
+  })
+
+  it('should display error for invalid credentials', () => {
+    cy.getByTestId('email-input').type('invalid@example.com')
+    cy.getByTestId('password-input').type('wrongpassword')
+    cy.getByTestId('login-button').click()
+    
+    cy.getByTestId('error-message').should('contain', 'Invalid credentials')
+    cy.url().should('include', '/login')
+  })
+
+  it('should handle API errors gracefully', () => {
+    cy.intercept('POST', '/api/auth/login', { statusCode: 500 }).as('loginError')
+    
+    cy.getByTestId('email-input').type('admin@example.com')
+    cy.getByTestId('password-input').type('password123')
+    cy.getByTestId('login-button').click()
+    
+    cy.wait('@loginError')
+    cy.getByTestId('error-message').should('contain', 'Server error')
+  })
+})
+
+// cypress/e2e/user-management/users.cy.ts
+describe('User Management', () => {
+  beforeEach(() => {
+    cy.loginAsAdmin()
+    cy.visit('/admin/users')
+  })
+
+  it('should create a new user', () => {
+    const userData = {
+      name: 'Test User',
+      email: 'test@example.com',
+      role: 'user'
+    }
+
+    cy.intercept('POST', '/api/users').as('createUser')
+    
+    cy.getByTestId('add-user-button').click()
+    cy.getByTestId('user-modal').should('be.visible')
+    
+    cy.getByTestId('name-input').type(userData.name)
+    cy.getByTestId('email-input').type(userData.email)
+    cy.getByTestId('role-select').select(userData.role)
+    
+    cy.getByTestId('save-button').click()
+    
+    cy.waitForApiResponse('@createUser')
+    cy.getByTestId('user-modal').should('not.exist')
+    cy.getByTestId('user-table').should('contain', userData.name)
+  })
+
+  it('should edit an existing user', () => {
+    cy.createUser({ name: 'Original Name', email: 'original@example.com', role: 'user' })
+    cy.reload()
+    
+    cy.intercept('PATCH', '/api/users/*').as('updateUser')
+    
+    cy.getByTestId('user-table').within(() => {
+      cy.contains('original@example.com').parent().within(() => {
+        cy.getByTestId('edit-button').click()
+      })
+    })
+    
+    cy.getByTestId('name-input').clear().type('Updated Name')
+    cy.getByTestId('save-button').click()
+    
+    cy.waitForApiResponse('@updateUser')
+    cy.getByTestId('user-table').should('contain', 'Updated Name')
+  })
+})
+
+// Component Testing Example
+// src/components/Button.cy.tsx
+import { Button } from './Button'
+
+describe('Button Component', () => {
+  it('should render with default props', () => {
+    cy.mount(<Button>Click me</Button>)
+    cy.get('button').should('contain', 'Click me')
+    cy.get('button').should('have.class', 'btn-primary')
+  })
+
+  it('should handle click events', () => {
+    const onClick = cy.stub()
+    cy.mount(<Button onClick={onClick}>Click me</Button>)
+    
+    cy.get('button').click()
+    cy.then(() => {
+      expect(onClick).to.have.been.called
+    })
+  })
+
+  it('should render different variants', () => {
+    cy.mount(<Button variant="secondary">Secondary</Button>)
+    cy.get('button').should('have.class', 'btn-secondary')
+    
+    cy.mount(<Button variant="danger">Danger</Button>)
+    cy.get('button').should('have.class', 'btn-danger')
+  })
+
+  it('should be disabled when disabled prop is true', () => {
+    cy.mount(<Button disabled>Disabled</Button>)
+    cy.get('button').should('be.disabled')
+    cy.get('button').should('have.class', 'btn-disabled')
+  })
+})
+
+// API Testing Example
+// cypress/e2e/api/users-api.cy.ts
+describe('Users API', () => {
+  it('should perform CRUD operations', () => {
+    const userData = {
+      name: 'API Test User',
+      email: 'apitest@example.com',
+      role: 'user'
+    }
+
+    // Create user
+    cy.request({
+      method: 'POST',
+      url: `${Cypress.env('apiUrl')}/users`,
+      body: userData
+    }).then((response) => {
+      expect(response.status).to.eq(201)
+      expect(response.body).to.include(userData)
+      
+      const userId = response.body.id
+
+      // Read user
+      cy.request(`${Cypress.env('apiUrl')}/users/${userId}`)
+        .then((response) => {
+          expect(response.status).to.eq(200)
+          expect(response.body.id).to.eq(userId)
+        })
+
+      // Update user
+      cy.request({
+        method: 'PATCH',
+        url: `${Cypress.env('apiUrl')}/users/${userId}`,
+        body: { name: 'Updated Name' }
+      }).then((response) => {
+        expect(response.status).to.eq(200)
+        expect(response.body.name).to.eq('Updated Name')
+      })
+
+      // Delete user
+      cy.request({
+        method: 'DELETE',
+        url: `${Cypress.env('apiUrl')}/users/${userId}`
+      }).then((response) => {
+        expect(response.status).to.eq(204)
+      })
+    })
+  })
+})
+
+// Page Object Pattern
+// cypress/support/pages/LoginPage.ts
+export class LoginPage {
+  visit() {
+    cy.visit('/login')
+    return this
+  }
+
+  fillEmail(email: string) {
+    cy.getByTestId('email-input').type(email)
+    return this
+  }
+
+  fillPassword(password: string) {
+    cy.getByTestId('password-input').type(password)
+    return this
+  }
+
+  submit() {
+    cy.getByTestId('login-button').click()
+    return this
+  }
+
+  expectError(message: string) {
+    cy.getByTestId('error-message').should('contain', message)
+    return this
+  }
+
+  expectSuccess() {
+    cy.url().should('include', '/dashboard')
+    return this
+  }
+}
+
+// Usage in tests
+// cypress/e2e/auth/login-with-page-object.cy.ts
+import { LoginPage } from '../../support/pages/LoginPage'
+
+describe('Login with Page Object', () => {
+  const loginPage = new LoginPage()
+
+  it('should login successfully', () => {
+    loginPage
+      .visit()
+      .fillEmail('admin@example.com')
+      .fillPassword('password123')
+      .submit()
+      .expectSuccess()
+  })
+})]]></correct-example>
+          <incorrect-example title="Basic tests without proper patterns" conditions="Writing Cypress tests" expected-result="Well-structured tests" incorrectness-criteria="No custom commands, poor organization, no page objects, minimal assertions"><![CDATA[// Basic test - inadequate
+describe('Login', () => {
+  it('logs in', () => {
+    cy.visit('/login')
+    cy.get('#email').type('admin@example.com')
+    cy.get('#password').type('password')
+    cy.get('#submit').click()
+    cy.url().should('include', '/dashboard')
+  })
+})
+
+// Missing:
+// - Custom commands
+// - Page objects
+// - Proper assertions
+// - Error handling
+// - API testing]]></incorrect-example>
+        </example>
+      </examples>
+    </non-negotiable>
+
+    <requirement priority="high">
+      <description>Implement comprehensive CI/CD integration with parallel execution, visual testing, and performance monitoring for continuous quality assurance in Cypress workflows.</description>
+      <examples>
+        <example title="CI/CD Integration for Cypress">
+          <correct-example title="Comprehensive CI/CD setup with Cypress" conditions="Setting up CI/CD pipeline with Cypress" expected-result="Optimized CI/CD with comprehensive testing" correctness-criteria="Includes parallel execution, visual testing, performance monitoring, and proper artifact management"><![CDATA[# .github/workflows/cypress.yml
+name: Cypress Tests
+
+on:
+  push:
+    branches: [main, develop]
+  pull_request:
+    branches: [main]
+
+jobs:
+  cypress-run:
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        containers: [1, 2, 3, 4]
+        browser: [chrome, firefox, edge]
+        
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: 'npm'
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Build application
+        run: npm run build
+
+      - name: Start application
+        run: |
+          npm run start &
+          npx wait-on http://localhost:3000
+        env:
+          NODE_ENV: production
+
+      - name: Run Cypress tests
+        uses: cypress-io/github-action@v6
+        with:
+          browser: ${{ matrix.browser }}
+          record: true
+          parallel: true
+          group: 'UI Tests - ${{ matrix.browser }}'
+        env:
+          CYPRESS_RECORD_KEY: ${{ secrets.CYPRESS_RECORD_KEY }}
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          CYPRESS_PROJECT_ID: ${{ secrets.CYPRESS_PROJECT_ID }}
+
+      - name: Upload screenshots
+        uses: actions/upload-artifact@v3
+        if: failure()
+        with:
+          name: cypress-screenshots-${{ matrix.browser }}-${{ matrix.containers }}
+          path: cypress/screenshots
+
+      - name: Upload videos
+        uses: actions/upload-artifact@v3
+        if: always()
+        with:
+          name: cypress-videos-${{ matrix.browser }}-${{ matrix.containers }}
+          path: cypress/videos
+
+  component-tests:
+    runs-on: ubuntu-latest
+    
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: 'npm'
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Run component tests
+        run: npm run cypress:component
+        
+      - name: Upload component test results
+        uses: actions/upload-artifact@v3
+        if: always()
+        with:
+          name: component-test-results
+          path: cypress/reports
+
+# Docker configuration
+# Dockerfile.cypress
+FROM cypress/included:13.6.0
+
+WORKDIR /app
+
+COPY package*.json ./
+RUN npm ci
+
+COPY . .
+
+RUN npm run build
+
+CMD ["npx", "cypress", "run"]
+
+# package.json scripts
+{
+  "scripts": {
+    "cypress:open": "cypress open",
+    "cypress:run": "cypress run",
+    "cypress:run:chrome": "cypress run --browser chrome",
+    "cypress:run:firefox": "cypress run --browser firefox",
+    "cypress:run:headed": "cypress run --headed",
+    "cypress:component": "cypress run --component",
+    "cypress:component:open": "cypress open --component",
+    "cypress:record": "cypress run --record",
+    "cypress:parallel": "cypress run --record --parallel",
+    "cypress:docker": "docker run -v $PWD:/app -w /app cypress/included:13.6.0"
+  }
+}]]></correct-example>
+          <incorrect-example title="Basic CI without optimization" conditions="Setting up CI/CD pipeline" expected-result="Optimized CI/CD with comprehensive testing" incorrectness-criteria="Missing parallel execution, no visual testing, poor artifact management"><![CDATA[# Basic CI - inadequate
+name: Test
+on: [push]
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - run: npm install
+      - run: npx cypress run
+
+# Missing:
+# - Parallel execution
+# - Multiple browsers
+# - Artifact management
+# - Component testing
+# - Performance monitoring]]></incorrect-example>
+        </example>
+      </examples>
+    </requirement>
+  </requirements>
+
+  <context description="Modern end-to-end testing with Cypress">
+    Cypress is a comprehensive end-to-end testing framework that provides excellent developer experience with real-time browser testing, powerful debugging capabilities, and time-travel debugging. It excels in integration testing and provides both e2e and component testing capabilities.
+
+    Key advantages of Cypress include:
+    - Real-time browser testing with time-travel debugging
+    - Automatic waiting and retry logic
+    - Network traffic control and stubbing
+    - Visual testing and screenshot capabilities
+    - Component testing alongside e2e testing
+    - Excellent developer tools and debugging experience
+    - Built-in CI/CD integration and parallelization
+
+    Modern Cypress testing strategies emphasize comprehensive user workflow coverage, component isolation testing, API testing integration, and performance monitoring. The framework supports both traditional e2e testing and modern component testing approaches.
+
+    Effective Cypress practices include proper test organization with page objects, custom commands for common operations, comprehensive assertion patterns, and continuous integration with parallel execution across multiple browser environments.
+  </context>
+
+  <references>
+    <reference as="dependency" href=".cursor/rules/000-core/002-cursor-rules-creation.mdc" reason="Follows standard rule format">Base rule format definition</reference>
+    <reference as="context" href="https://docs.cypress.io/" reason="Official Cypress documentation">Cypress Testing Framework</reference>
+    <reference as="context" href="https://docs.cypress.io/guides/core-concepts/introduction-to-cypress" reason="Cypress core concepts">Cypress Core Concepts</reference>
+    <reference as="context" href="https://docs.cypress.io/guides/component-testing/introduction" reason="Cypress component testing">Cypress Component Testing</reference>
+  </references>
+</rule>
+description:
+globs:
+alwaysApply: false
+---

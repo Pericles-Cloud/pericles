@@ -1,0 +1,1544 @@
+---
+description: Modern React development patterns using functional components, hooks, and TypeScript
+globs: ["*.{ts,tsx,js,jsx}"]
+alwaysApply: false
+---
+
+<rule>
+  <meta>
+    <title>React Core Standards Auto</title>
+    <description>Modern React development patterns using functional components, hooks, and TypeScript</description>
+    <created-at utc-timestamp="1744250480">January 27, 2025, 1:01 PM</created-at>
+    <last-updated-at utc-timestamp="1744250480">January 27, 2025, 1:01 PM</last-updated-at>
+    <applies-to>
+      <file-matcher glob="*.{ts,tsx,js,jsx}">React component files and TypeScript/JavaScript files</file-matcher>
+      <action-matcher action="react-development">Triggered when developing React applications</action-matcher>
+    </applies-to>
+  </meta>
+  <requirements>
+    <non-negotiable priority="critical">
+      <description>Use functional components with hooks instead of class components, and avoid any type while following TypeScript core standards.</description>
+      <examples>
+        <example title="Functional Components with TypeScript">
+          <correct-example title="Modern functional component with proper typing" conditions="Creating React components" expected-result="Type-safe functional component" correctness-criteria="Uses functional component, proper TypeScript interfaces, hooks"><![CDATA[// components/UserProfile.tsx
+import React from 'react';
+
+interface User {
+  id: string;
+  name: string;
+  email: string;
+  avatar?: string;
+  isActive: boolean;
+}
+
+interface UserProfileProps {
+  user: User;
+  onEdit?: (user: User) => void;
+  onDelete?: (userId: string) => void;
+  className?: string;
+}
+
+export const UserProfile: React.FC<UserProfileProps> = ({ 
+  user, 
+  onEdit, 
+  onDelete, 
+  className = '' 
+}) => {
+  const handleEdit = () => {
+    onEdit?.(user);
+  };
+
+  const handleDelete = () => {
+    onDelete?.(user.id);
+  };
+
+  return (
+    <div className={`user-profile ${className}`}>
+      <div className="user-header">
+        {user.avatar && (
+          <img 
+            src={user.avatar} 
+            alt={`${user.name}'s avatar`} 
+            className="avatar"
+          />
+        )}
+        <div className="user-info">
+          <h3>{user.name}</h3>
+          <p>{user.email}</p>
+          <span className={`status ${user.isActive ? 'active' : 'inactive'}`}>
+            {user.isActive ? 'Active' : 'Inactive'}
+          </span>
+        </div>
+      </div>
+      <div className="user-actions">
+        {onEdit && (
+          <button onClick={handleEdit} type="button">
+            Edit
+          </button>
+        )}
+        {onDelete && (
+          <button onClick={handleDelete} type="button" className="danger">
+            Delete
+          </button>
+        )}
+      </div>
+    </div>
+  );
+};]]></correct-example>
+          <incorrect-example title="Class component with loose typing" conditions="Creating React components" expected-result="Type-safe functional component" incorrectness-criteria="Uses class component, any types, missing proper interfaces"><![CDATA[// Bad: Class component with any types
+import React, { Component } from 'react';
+
+class UserProfile extends Component<any, any> {
+  constructor(props: any) {
+    super(props);
+    this.state = {};
+  }
+
+  handleEdit = () => {
+    this.props.onEdit(this.props.user);
+  };
+
+  render() {
+    const { user } = this.props;
+    return (
+      <div>
+        <h3>{user.name}</h3>
+        <p>{user.email}</p>
+        <button onClick={this.handleEdit}>Edit</button>
+      </div>
+    );
+  }
+}]]></incorrect-example>
+        </example>
+      </examples>
+    </non-negotiable>
+
+    <non-negotiable priority="critical">
+      <description>Use proper React hooks patterns with TypeScript, including useState, useEffect, useMemo, useCallback, and custom hooks for reusable logic.</description>
+      <examples>
+        <example title="React Hooks with TypeScript">
+          <correct-example title="Proper hooks usage with TypeScript" conditions="Using React hooks" expected-result="Type-safe hooks implementation" correctness-criteria="Proper TypeScript typing, efficient hook usage, custom hooks"><![CDATA[// hooks/useUsers.ts
+import { useState, useEffect, useCallback, useMemo } from 'react';
+
+export interface User {
+  id: string;
+  name: string;
+  email: string;
+  isActive: boolean;
+}
+
+interface UseUsersResult {
+  users: User[];
+  loading: boolean;
+  error: string | null;
+  fetchUsers: () => Promise<void>;
+  addUser: (user: Omit<User, 'id'>) => Promise<void>;
+  updateUser: (id: string, updates: Partial<User>) => Promise<void>;
+  deleteUser: (id: string) => Promise<void>;
+  activeUsers: User[];
+  userCount: number;
+}
+
+export const useUsers = (): UseUsersResult => {
+  const [users, setUsers] = useState<User[]>([]);
+  const [loading, setLoading] = useState<boolean>(false);
+  const [error, setError] = useState<string | null>(null);
+
+  const fetchUsers = useCallback(async (): Promise<void> => {
+    setLoading(true);
+    setError(null);
+    try {
+      const response = await fetch('/api/users');
+      if (!response.ok) {
+        throw new Error('Failed to fetch users');
+      }
+      const userData: User[] = await response.json();
+      setUsers(userData);
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'An error occurred');
+    } finally {
+      setLoading(false);
+    }
+  }, []);
+
+  const addUser = useCallback(async (newUser: Omit<User, 'id'>): Promise<void> => {
+    try {
+      const response = await fetch('/api/users', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(newUser),
+      });
+      if (!response.ok) {
+        throw new Error('Failed to add user');
+      }
+      const createdUser: User = await response.json();
+      setUsers(prev => [...prev, createdUser]);
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Failed to add user');
+    }
+  }, []);
+
+  const updateUser = useCallback(async (id: string, updates: Partial<User>): Promise<void> => {
+    try {
+      const response = await fetch(`/api/users/${id}`, {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(updates),
+      });
+      if (!response.ok) {
+        throw new Error('Failed to update user');
+      }
+      setUsers(prev => prev.map(user => 
+        user.id === id ? { ...user, ...updates } : user
+      ));
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Failed to update user');
+    }
+  }, []);
+
+  const deleteUser = useCallback(async (id: string): Promise<void> => {
+    try {
+      const response = await fetch(`/api/users/${id}`, {
+        method: 'DELETE',
+      });
+      if (!response.ok) {
+        throw new Error('Failed to delete user');
+      }
+      setUsers(prev => prev.filter(user => user.id !== id));
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Failed to delete user');
+    }
+  }, []);
+
+  // Memoized computed values
+  const activeUsers = useMemo(() => 
+    users.filter(user => user.isActive), 
+    [users]
+  );
+
+  const userCount = useMemo(() => users.length, [users]);
+
+  useEffect(() => {
+    fetchUsers();
+  }, [fetchUsers]);
+
+  return {
+    users,
+    loading,
+    error,
+    fetchUsers,
+    addUser,
+    updateUser,
+    deleteUser,
+    activeUsers,
+    userCount,
+  };
+};
+
+// components/UserList.tsx
+import React, { useState, useMemo } from 'react';
+import { useUsers } from '../hooks/useUsers';
+import { UserProfile } from './UserProfile';
+
+interface UserListProps {
+  showInactiveUsers?: boolean;
+  onUserSelect?: (userId: string) => void;
+}
+
+export const UserList: React.FC<UserListProps> = ({ 
+  showInactiveUsers = false,
+  onUserSelect 
+}) => {
+  const { 
+    users, 
+    loading, 
+    error, 
+    updateUser, 
+    deleteUser, 
+    activeUsers 
+  } = useUsers();
+  
+  const [searchTerm, setSearchTerm] = useState<string>('');
+
+  const filteredUsers = useMemo(() => {
+    const usersToShow = showInactiveUsers ? users : activeUsers;
+    return usersToShow.filter(user =>
+      user.name.toLowerCase().includes(searchTerm.toLowerCase()) ||
+      user.email.toLowerCase().includes(searchTerm.toLowerCase())
+    );
+  }, [users, activeUsers, showInactiveUsers, searchTerm]);
+
+  const handleUserEdit = useCallback(async (user: User) => {
+    // Edit logic here
+    console.log('Editing user:', user);
+  }, []);
+
+  const handleUserDelete = useCallback(async (userId: string) => {
+    if (window.confirm('Are you sure you want to delete this user?')) {
+      await deleteUser(userId);
+    }
+  }, [deleteUser]);
+
+  if (loading) {
+    return <div className="loading">Loading users...</div>;
+  }
+
+  if (error) {
+    return <div className="error">Error: {error}</div>;
+  }
+
+  return (
+    <div className="user-list">
+      <div className="user-list-header">
+        <input
+          type="text"
+          placeholder="Search users..."
+          value={searchTerm}
+          onChange={(e) => setSearchTerm(e.target.value)}
+          className="search-input"
+        />
+        <span className="user-count">
+          Showing {filteredUsers.length} users
+        </span>
+      </div>
+      <div className="user-grid">
+        {filteredUsers.map(user => (
+          <UserProfile
+            key={user.id}
+            user={user}
+            onEdit={handleUserEdit}
+            onDelete={handleUserDelete}
+            onClick={() => onUserSelect?.(user.id)}
+          />
+        ))}
+      </div>
+    </div>
+  );
+};]]></correct-example>
+          <incorrect-example title="Poor hooks usage with any types" conditions="Using React hooks" expected-result="Type-safe hooks implementation" incorrectness-criteria="Missing TypeScript types, inefficient hook usage, no memoization"><![CDATA[// Bad hooks usage
+import React, { useState, useEffect } from 'react';
+
+export const BadUserList = () => {
+  const [users, setUsers] = useState<any>([]);
+  const [loading, setLoading] = useState<any>(false);
+
+  useEffect(() => {
+    // Bad: API call on every render
+    fetch('/api/users')
+      .then(response => response.json())
+      .then(data => setUsers(data));
+  });
+
+  // Bad: No memoization, recreated on every render
+  const activeUsers = users.filter((user: any) => user.isActive);
+
+  return (
+    <div>
+      {users.map((user: any) => (
+        <div key={user.id}>{user.name}</div>
+      ))}
+    </div>
+  );
+};]]></incorrect-example>
+        </example>
+      </examples>
+    </non-negotiable>
+
+    <requirement priority="critical">
+      <description>Implement proper component composition patterns with render props, compound components, and higher-order components when appropriate, using TypeScript generics for reusability.</description>
+      <examples>
+        <example title="Component Composition">
+          <correct-example title="Compound components with TypeScript" conditions="Creating reusable component systems" expected-result="Flexible and reusable components" correctness-criteria="Uses compound components, proper TypeScript generics, flexible composition"><![CDATA[// components/Modal/Modal.tsx
+import React, { createContext, useContext, useState, ReactNode } from 'react';
+
+interface ModalContextType {
+  isOpen: boolean;
+  open: () => void;
+  close: () => void;
+}
+
+const ModalContext = createContext<ModalContextType | null>(null);
+
+const useModal = (): ModalContextType => {
+  const context = useContext(ModalContext);
+  if (!context) {
+    throw new Error('Modal components must be used within Modal');
+  }
+  return context;
+};
+
+interface ModalProps {
+  children: ReactNode;
+  defaultOpen?: boolean;
+}
+
+export const Modal: React.FC<ModalProps> & {
+  Trigger: React.FC<ModalTriggerProps>;
+  Content: React.FC<ModalContentProps>;
+  Header: React.FC<ModalHeaderProps>;
+  Body: React.FC<ModalBodyProps>;
+  Footer: React.FC<ModalFooterProps>;
+  Close: React.FC<ModalCloseProps>;
+} = ({ children, defaultOpen = false }) => {
+  const [isOpen, setIsOpen] = useState(defaultOpen);
+  
+  const open = () => setIsOpen(true);
+  const close = () => setIsOpen(false);
+
+  return (
+    <ModalContext.Provider value={{ isOpen, open, close }}>
+      {children}
+    </ModalContext.Provider>
+  );
+};
+
+interface ModalTriggerProps {
+  children: ReactNode;
+  asChild?: boolean;
+}
+
+const ModalTrigger: React.FC<ModalTriggerProps> = ({ children, asChild = false }) => {
+  const { open } = useModal();
+  
+  if (asChild) {
+    return React.cloneElement(children as React.ReactElement, { onClick: open });
+  }
+  
+  return (
+    <button onClick={open} type="button">
+      {children}
+    </button>
+  );
+};
+
+interface ModalContentProps {
+  children: ReactNode;
+  className?: string;
+}
+
+const ModalContent: React.FC<ModalContentProps> = ({ children, className = '' }) => {
+  const { isOpen, close } = useModal();
+  
+  if (!isOpen) return null;
+  
+  return (
+    <div className="modal-overlay" onClick={close}>
+      <div 
+        className={`modal-content ${className}`}
+        onClick={(e) => e.stopPropagation()}
+      >
+        {children}
+      </div>
+    </div>
+  );
+};
+
+interface ModalHeaderProps {
+  children: ReactNode;
+  className?: string;
+}
+
+const ModalHeader: React.FC<ModalHeaderProps> = ({ children, className = '' }) => (
+  <div className={`modal-header ${className}`}>
+    {children}
+  </div>
+);
+
+interface ModalBodyProps {
+  children: ReactNode;
+  className?: string;
+}
+
+const ModalBody: React.FC<ModalBodyProps> = ({ children, className = '' }) => (
+  <div className={`modal-body ${className}`}>
+    {children}
+  </div>
+);
+
+interface ModalFooterProps {
+  children: ReactNode;
+  className?: string;
+}
+
+const ModalFooter: React.FC<ModalFooterProps> = ({ children, className = '' }) => (
+  <div className={`modal-footer ${className}`}>
+    {children}
+  </div>
+);
+
+interface ModalCloseProps {
+  children?: ReactNode;
+  asChild?: boolean;
+}
+
+const ModalClose: React.FC<ModalCloseProps> = ({ children, asChild = false }) => {
+  const { close } = useModal();
+  
+  if (asChild && children) {
+    return React.cloneElement(children as React.ReactElement, { onClick: close });
+  }
+  
+  return (
+    <button onClick={close} type="button" className="modal-close">
+      {children || '×'}
+    </button>
+  );
+};
+
+// Attach components to main Modal
+Modal.Trigger = ModalTrigger;
+Modal.Content = ModalContent;
+Modal.Header = ModalHeader;
+Modal.Body = ModalBody;
+Modal.Footer = ModalFooter;
+Modal.Close = ModalClose;
+
+// Usage example
+export const ExampleUsage: React.FC = () => (
+  <Modal>
+    <Modal.Trigger>
+      <button>Open Modal</button>
+    </Modal.Trigger>
+    <Modal.Content>
+      <Modal.Header>
+        <h2>Modal Title</h2>
+        <Modal.Close asChild>
+          <button>×</button>
+        </Modal.Close>
+      </Modal.Header>
+      <Modal.Body>
+        <p>Modal content goes here...</p>
+      </Modal.Body>
+      <Modal.Footer>
+        <Modal.Close>Cancel</Modal.Close>
+        <button>Confirm</button>
+      </Modal.Footer>
+    </Modal.Content>
+  </Modal>
+);
+
+// Generic data fetching component with render props
+interface DataFetcherProps<T> {
+  url: string;
+  children: (data: {
+    data: T | null;
+    loading: boolean;
+    error: string | null;
+    refetch: () => void;
+  }) => ReactNode;
+}
+
+export function DataFetcher<T>({ url, children }: DataFetcherProps<T>) {
+  const [data, setData] = useState<T | null>(null);
+  const [loading, setLoading] = useState<boolean>(true);
+  const [error, setError] = useState<string | null>(null);
+
+  const fetchData = useCallback(async () => {
+    setLoading(true);
+    setError(null);
+    try {
+      const response = await fetch(url);
+      if (!response.ok) {
+        throw new Error('Failed to fetch data');
+      }
+      const result: T = await response.json();
+      setData(result);
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'An error occurred');
+    } finally {
+      setLoading(false);
+    }
+  }, [url]);
+
+  useEffect(() => {
+    fetchData();
+  }, [fetchData]);
+
+  return <>{children({ data, loading, error, refetch: fetchData })}</>;
+}
+
+// Usage of generic DataFetcher
+interface User {
+  id: string;
+  name: string;
+  email: string;
+}
+
+export const UserDataExample: React.FC = () => (
+  <DataFetcher<User[]> url="/api/users">
+    {({ data: users, loading, error, refetch }) => {
+      if (loading) return <div>Loading...</div>;
+      if (error) return <div>Error: {error}</div>;
+      if (!users) return <div>No data</div>;
+
+      return (
+        <div>
+          <button onClick={refetch}>Refresh</button>
+          {users.map(user => (
+            <div key={user.id}>{user.name}</div>
+          ))}
+        </div>
+      );
+    }}
+  </DataFetcher>
+);]]></correct-example>
+          <incorrect-example title="Poor component composition" conditions="Creating reusable component systems" expected-result="Flexible and reusable components" incorrectness-criteria="Rigid component structure, no composition, poor reusability"><![CDATA[// Bad: Monolithic component with poor reusability
+interface BadModalProps {
+  isOpen: boolean;
+  title: string;
+  content: string;
+  onClose: () => void;
+  showFooter?: boolean;
+  footerContent?: string;
+}
+
+export const BadModal: React.FC<BadModalProps> = ({ 
+  isOpen, 
+  title, 
+  content, 
+  onClose,
+  showFooter,
+  footerContent 
+}) => {
+  if (!isOpen) return null;
+
+  return (
+    <div className="modal">
+      <div className="modal-header">
+        <h2>{title}</h2>
+        <button onClick={onClose}>×</button>
+      </div>
+      <div className="modal-body">
+        <p>{content}</p>
+      </div>
+      {showFooter && (
+        <div className="modal-footer">
+          <p>{footerContent}</p>
+        </div>
+      )}
+    </div>
+  );
+};]]></incorrect-example>
+        </example>
+      </examples>
+    </requirement>
+
+    <requirement priority="high">
+      <description>Use React.memo, useMemo, and useCallback appropriately for performance optimization, avoiding premature optimization while preventing unnecessary re-renders.</description>
+      <examples>
+        <example title="Performance Optimization">
+          <correct-example title="Strategic memoization" conditions="Optimizing React component performance" expected-result="Efficient rendering without over-optimization" correctness-criteria="Uses memoization strategically, proper dependency arrays, measurable performance benefit"><![CDATA[// components/OptimizedUserList.tsx
+import React, { memo, useMemo, useCallback, useState } from 'react';
+
+interface User {
+  id: string;
+  name: string;
+  email: string;
+  department: string;
+  salary: number;
+}
+
+interface UserCardProps {
+  user: User;
+  onSelect: (userId: string) => void;
+  onEdit: (user: User) => void;
+  isSelected: boolean;
+}
+
+// Memoized component to prevent unnecessary re-renders
+const UserCard = memo<UserCardProps>(({ user, onSelect, onEdit, isSelected }) => {
+  console.log(`Rendering UserCard for ${user.name}`); // Debug log
+  
+  const handleSelect = useCallback(() => {
+    onSelect(user.id);
+  }, [onSelect, user.id]);
+
+  const handleEdit = useCallback(() => {
+    onEdit(user);
+  }, [onEdit, user]);
+
+  return (
+    <div className={`user-card ${isSelected ? 'selected' : ''}`}>
+      <h3>{user.name}</h3>
+      <p>{user.email}</p>
+      <p>{user.department}</p>
+      <div className="user-actions">
+        <button onClick={handleSelect}>
+          {isSelected ? 'Deselect' : 'Select'}
+        </button>
+        <button onClick={handleEdit}>Edit</button>
+      </div>
+    </div>
+  );
+});
+
+UserCard.displayName = 'UserCard';
+
+interface UserListProps {
+  users: User[];
+  searchTerm: string;
+  selectedDepartment: string;
+}
+
+export const OptimizedUserList: React.FC<UserListProps> = ({ 
+  users, 
+  searchTerm, 
+  selectedDepartment 
+}) => {
+  const [selectedUserIds, setSelectedUserIds] = useState<Set<string>>(new Set());
+
+  // Memoize expensive filtering and sorting operations
+  const filteredAndSortedUsers = useMemo(() => {
+    console.log('Recalculating filtered users'); // Debug log
+    
+    return users
+      .filter(user => {
+        const matchesSearch = searchTerm === '' || 
+          user.name.toLowerCase().includes(searchTerm.toLowerCase()) ||
+          user.email.toLowerCase().includes(searchTerm.toLowerCase());
+        
+        const matchesDepartment = selectedDepartment === '' || 
+          user.department === selectedDepartment;
+        
+        return matchesSearch && matchesDepartment;
+      })
+      .sort((a, b) => a.name.localeCompare(b.name));
+  }, [users, searchTerm, selectedDepartment]);
+
+  // Memoize expensive calculations
+  const userStats = useMemo(() => {
+    console.log('Recalculating user stats'); // Debug log
+    
+    const totalUsers = filteredAndSortedUsers.length;
+    const averageSalary = filteredAndSortedUsers.reduce(
+      (sum, user) => sum + user.salary, 0
+    ) / totalUsers;
+    
+    const departmentCounts = filteredAndSortedUsers.reduce(
+      (acc, user) => {
+        acc[user.department] = (acc[user.department] || 0) + 1;
+        return acc;
+      }, 
+      {} as Record<string, number>
+    );
+
+    return {
+      totalUsers,
+      averageSalary: isNaN(averageSalary) ? 0 : averageSalary,
+      departmentCounts,
+    };
+  }, [filteredAndSortedUsers]);
+
+  // Memoize event handlers to prevent unnecessary re-renders
+  const handleUserSelect = useCallback((userId: string) => {
+    setSelectedUserIds(prev => {
+      const newSet = new Set(prev);
+      if (newSet.has(userId)) {
+        newSet.delete(userId);
+      } else {
+        newSet.add(userId);
+      }
+      return newSet;
+    });
+  }, []);
+
+  const handleUserEdit = useCallback((user: User) => {
+    console.log('Editing user:', user.name);
+    // Edit logic here
+  }, []);
+
+  // Memoize the selected user IDs check
+  const isUserSelected = useCallback((userId: string) => {
+    return selectedUserIds.has(userId);
+  }, [selectedUserIds]);
+
+  return (
+    <div className="optimized-user-list">
+      <div className="user-stats">
+        <p>Total Users: {userStats.totalUsers}</p>
+        <p>Average Salary: ${userStats.averageSalary.toFixed(2)}</p>
+        <p>Selected: {selectedUserIds.size}</p>
+      </div>
+      
+      <div className="user-grid">
+        {filteredAndSortedUsers.map(user => (
+          <UserCard
+            key={user.id}
+            user={user}
+            onSelect={handleUserSelect}
+            onEdit={handleUserEdit}
+            isSelected={isUserSelected(user.id)}
+          />
+        ))}
+      </div>
+    </div>
+  );
+};
+
+// Hook for performance monitoring
+export const useRenderLogger = (componentName: string, props?: any) => {
+  const renderCount = useRef(0);
+  
+  useEffect(() => {
+    renderCount.current++;
+    console.log(`${componentName} rendered ${renderCount.current} times`, props);
+  });
+};
+
+// Example of when NOT to use memo (simple components)
+interface SimpleButtonProps {
+  children: React.ReactNode;
+  onClick: () => void;
+}
+
+// Don't memo simple components without expensive computations
+export const SimpleButton: React.FC<SimpleButtonProps> = ({ children, onClick }) => {
+  return <button onClick={onClick}>{children}</button>;
+};
+
+// Example of proper memo usage with custom comparison
+interface ExpensiveComponentProps {
+  data: ComplexData[];
+  config: Config;
+  theme: Theme;
+}
+
+const ExpensiveComponent = memo<ExpensiveComponentProps>(({ data, config, theme }) => {
+  // Expensive rendering logic
+  const processedData = useMemo(() => {
+    return data.map(item => expensiveProcessing(item));
+  }, [data]);
+
+  return (
+    <div>
+      {processedData.map(item => (
+        <ComplexItem key={item.id} item={item} config={config} theme={theme} />
+      ))}
+    </div>
+  );
+}, (prevProps, nextProps) => {
+  // Custom comparison function
+  return (
+    prevProps.data === nextProps.data &&
+    prevProps.config.version === nextProps.config.version &&
+    prevProps.theme.name === nextProps.theme.name
+  );
+});
+
+ExpensiveComponent.displayName = 'ExpensiveComponent';]]></correct-example>
+          <incorrect-example title="Poor performance optimization" conditions="Optimizing React component performance" expected-result="Efficient rendering without over-optimization" incorrectness-criteria="Over-memoization, incorrect dependencies, premature optimization"><![CDATA[// Bad: Over-memoization and incorrect dependencies
+import React, { memo, useMemo, useCallback } from 'react';
+
+// Bad: Memoizing every simple component
+const BadSimpleComponent = memo(({ text }: { text: string }) => {
+  return <p>{text}</p>; // Too simple to benefit from memo
+});
+
+// Bad: Incorrect dependencies in useMemo
+const BadExpensiveComponent = ({ users, filter }) => {
+  const filteredUsers = useMemo(() => {
+    return users.filter(user => user.name.includes(filter));
+  }, [users]); // Missing 'filter' dependency!
+
+  // Bad: useCallback without proper dependencies
+  const handleClick = useCallback(() => {
+    console.log(filteredUsers.length);
+  }, []); // Missing 'filteredUsers' dependency!
+
+  return (
+    <div>
+      {filteredUsers.map(user => (
+        <div key={user.id} onClick={handleClick}>
+          {user.name}
+        </div>
+      ))}
+    </div>
+  );
+};
+
+// Bad: Memoizing everything unnecessarily
+const OverOptimizedComponent = memo(() => {
+  const memoizedString = useMemo(() => 'Hello World', []); // Unnecessary
+  const memoizedNumber = useMemo(() => 42, []); // Unnecessary
+  
+  const handleClick = useCallback(() => {
+    console.log('clicked');
+  }, []); // Unnecessary for simple function
+
+  return (
+    <div>
+      <p>{memoizedString}</p>
+      <p>{memoizedNumber}</p>
+      <button onClick={handleClick}>Click</button>
+    </div>
+  );
+});]]></incorrect-example>
+        </example>
+      </examples>
+    </requirement>
+
+    <requirement priority="high">
+      <description>Implement comprehensive error boundaries and error handling patterns with proper TypeScript error types and user-friendly error messages.</description>
+      <examples>
+        <example title="Error Handling">
+          <correct-example title="Comprehensive error boundary implementation" conditions="Implementing error handling in React" expected-result="Robust error handling with recovery" correctness-criteria="Error boundaries, typed errors, fallback UI, error recovery"><![CDATA[// components/ErrorBoundary.tsx
+import React, { Component, ErrorInfo, ReactNode } from 'react';
+
+interface ErrorInfo {
+  componentStack: string;
+  errorBoundary?: string;
+  errorBoundaryStack?: string;
+}
+
+interface ErrorBoundaryState {
+  hasError: boolean;
+  error: Error | null;
+  errorInfo: ErrorInfo | null;
+}
+
+interface ErrorBoundaryProps {
+  children: ReactNode;
+  fallback?: (error: Error, errorInfo: ErrorInfo, resetError: () => void) => ReactNode;
+  onError?: (error: Error, errorInfo: ErrorInfo) => void;
+}
+
+export class ErrorBoundary extends Component<ErrorBoundaryProps, ErrorBoundaryState> {
+  constructor(props: ErrorBoundaryProps) {
+    super(props);
+    this.state = {
+      hasError: false,
+      error: null,
+      errorInfo: null,
+    };
+  }
+
+  static getDerivedStateFromError(error: Error): Partial<ErrorBoundaryState> {
+    return {
+      hasError: true,
+      error,
+    };
+  }
+
+  componentDidCatch(error: Error, errorInfo: ErrorInfo) {
+    this.setState({
+      error,
+      errorInfo,
+    });
+
+    // Log error to monitoring service
+    this.props.onError?.(error, errorInfo);
+    
+    // Log to console in development
+    if (process.env.NODE_ENV === 'development') {
+      console.error('Error Boundary caught an error:', error, errorInfo);
+    }
+  }
+
+  resetError = (): void => {
+    this.setState({
+      hasError: false,
+      error: null,
+      errorInfo: null,
+    });
+  };
+
+  render(): ReactNode {
+    if (this.state.hasError && this.state.error && this.state.errorInfo) {
+      if (this.props.fallback) {
+        return this.props.fallback(this.state.error, this.state.errorInfo, this.resetError);
+      }
+
+      return (
+        <div className="error-boundary">
+          <div className="error-container">
+            <h2>Something went wrong</h2>
+            <p>We apologize for the inconvenience. An unexpected error occurred.</p>
+            
+            {process.env.NODE_ENV === 'development' && (
+              <details className="error-details">
+                <summary>Error Details (Development)</summary>
+                <pre className="error-stack">
+                  {this.state.error.message}
+                  {this.state.error.stack}
+                </pre>
+                <pre className="component-stack">
+                  {this.state.errorInfo.componentStack}
+                </pre>
+              </details>
+            )}
+            
+            <div className="error-actions">
+              <button onClick={this.resetError} type="button">
+                Try Again
+              </button>
+              <button onClick={() => window.location.reload()} type="button">
+                Reload Page
+              </button>
+            </div>
+          </div>
+        </div>
+      );
+    }
+
+    return this.props.children;
+  }
+}
+
+// Custom error types
+export class APIError extends Error {
+  constructor(
+    message: string,
+    public status: number,
+    public code?: string
+  ) {
+    super(message);
+    this.name = 'APIError';
+  }
+}
+
+export class ValidationError extends Error {
+  constructor(
+    message: string,
+    public field: string
+  ) {
+    super(message);
+    this.name = 'ValidationError';
+  }
+}
+
+// Error handling hook
+interface UseErrorHandlerResult {
+  error: Error | null;
+  setError: (error: Error | null) => void;
+  clearError: () => void;
+  handleAsync: <T>(asyncFn: () => Promise<T>) => Promise<T | null>;
+}
+
+export const useErrorHandler = (): UseErrorHandlerResult => {
+  const [error, setError] = useState<Error | null>(null);
+
+  const clearError = useCallback(() => {
+    setError(null);
+  }, []);
+
+  const handleAsync = useCallback(async <T>(asyncFn: () => Promise<T>): Promise<T | null> => {
+    try {
+      clearError();
+      const result = await asyncFn();
+      return result;
+    } catch (err) {
+      const error = err instanceof Error ? err : new Error('An unknown error occurred');
+      setError(error);
+      return null;
+    }
+  }, [clearError]);
+
+  return { error, setError, clearError, handleAsync };
+};
+
+// Async component with error handling
+interface AsyncUserListProps {
+  userId: string;
+}
+
+export const AsyncUserList: React.FC<AsyncUserListProps> = ({ userId }) => {
+  const [users, setUsers] = useState<User[]>([]);
+  const [loading, setLoading] = useState<boolean>(true);
+  const { error, handleAsync } = useErrorHandler();
+
+  const fetchUsers = useCallback(async () => {
+    setLoading(true);
+    const result = await handleAsync(async () => {
+      const response = await fetch(`/api/users/${userId}`);
+      
+      if (!response.ok) {
+        if (response.status === 404) {
+          throw new APIError('User not found', 404, 'USER_NOT_FOUND');
+        }
+        if (response.status === 403) {
+          throw new APIError('Access denied', 403, 'ACCESS_DENIED');
+        }
+        throw new APIError(`HTTP ${response.status}`, response.status);
+      }
+      
+      return response.json();
+    });
+    
+    if (result) {
+      setUsers(result);
+    }
+    setLoading(false);
+  }, [userId, handleAsync]);
+
+  useEffect(() => {
+    fetchUsers();
+  }, [fetchUsers]);
+
+  if (loading) {
+    return <div className="loading">Loading users...</div>;
+  }
+
+  if (error) {
+    return (
+      <div className="error-state">
+        <p className="error-message">
+          {error instanceof APIError 
+            ? `API Error: ${error.message}` 
+            : `Error: ${error.message}`
+          }
+        </p>
+        <button onClick={fetchUsers} type="button">
+          Retry
+        </button>
+      </div>
+    );
+  }
+
+  return (
+    <div className="user-list">
+      {users.map(user => (
+        <div key={user.id}>{user.name}</div>
+      ))}
+    </div>
+  );
+};
+
+// Usage with multiple error boundaries
+export const App: React.FC = () => {
+  return (
+    <ErrorBoundary
+      onError={(error, errorInfo) => {
+        // Send to error monitoring service
+        console.error('Global error:', error, errorInfo);
+      }}
+    >
+      <div className="app">
+        <header>My App</header>
+        
+        <ErrorBoundary
+          fallback={(error, errorInfo, resetError) => (
+            <div className="nav-error">
+              <p>Navigation failed to load</p>
+              <button onClick={resetError}>Retry Navigation</button>
+            </div>
+          )}
+        >
+          <Navigation />
+        </ErrorBoundary>
+        
+        <main>
+          <ErrorBoundary
+            fallback={(error, errorInfo, resetError) => (
+              <div className="content-error">
+                <p>Content failed to load</p>
+                <button onClick={resetError}>Retry Content</button>
+              </div>
+            )}
+          >
+            <AsyncUserList userId="123" />
+          </ErrorBoundary>
+        </main>
+      </div>
+    </ErrorBoundary>
+  );
+};]]></correct-example>
+          <incorrect-example title="Poor error handling" conditions="Implementing error handling in React" expected-result="Robust error handling with recovery" incorrectness-criteria="No error boundaries, unhandled promises, poor error messages"><![CDATA[// Bad: No error boundaries or proper error handling
+export const BadUserList = () => {
+  const [users, setUsers] = useState([]);
+
+  useEffect(() => {
+    // Bad: Unhandled promise rejection
+    fetch('/api/users')
+      .then(response => response.json())
+      .then(data => setUsers(data));
+  }, []);
+
+  // Bad: No error state handling
+  return (
+    <div>
+      {users.map(user => (
+        <div key={user.id}>{user.name}</div>
+      ))}
+    </div>
+  );
+};
+
+// Bad: Class component without error boundary
+class BadComponent extends Component {
+  componentDidMount() {
+    // This will crash the entire app if it throws
+    throw new Error('Unhandled error!');
+  }
+
+  render() {
+    return <div>This will crash</div>;
+  }
+}]]></incorrect-example>
+        </example>
+      </examples>
+    </requirement>
+
+    <requirement priority="medium">
+      <description>Implement proper testing strategies using React Testing Library, Jest, and TypeScript, focusing on user behavior rather than implementation details.</description>
+      <examples>
+        <example title="Testing Implementation">
+          <correct-example title="Comprehensive React testing" conditions="Testing React components" expected-result="Thorough user-focused tests" correctness-criteria="Tests user behavior, proper mocking, accessibility testing"><![CDATA[// __tests__/UserProfile.test.tsx
+import React from 'react';
+import { render, screen, fireEvent, waitFor } from '@testing-library/react';
+import userEvent from '@testing-library/user-event';
+import { UserProfile } from '../components/UserProfile';
+import type { User } from '../types';
+
+const mockUser: User = {
+  id: '1',
+  name: 'John Doe',
+  email: 'john@example.com',
+  avatar: 'https://example.com/avatar.jpg',
+  isActive: true,
+};
+
+describe('UserProfile', () => {
+  it('renders user information correctly', () => {
+    render(<UserProfile user={mockUser} />);
+    
+    expect(screen.getByText('John Doe')).toBeInTheDocument();
+    expect(screen.getByText('john@example.com')).toBeInTheDocument();
+    expect(screen.getByText('Active')).toBeInTheDocument();
+    
+    const avatar = screen.getByRole('img', { name: /john doe's avatar/i });
+    expect(avatar).toHaveAttribute('src', mockUser.avatar);
+  });
+
+  it('calls onEdit when edit button is clicked', async () => {
+    const user = userEvent.setup();
+    const mockOnEdit = jest.fn();
+    
+    render(<UserProfile user={mockUser} onEdit={mockOnEdit} />);
+    
+    const editButton = screen.getByRole('button', { name: /edit/i });
+    await user.click(editButton);
+    
+    expect(mockOnEdit).toHaveBeenCalledWith(mockUser);
+    expect(mockOnEdit).toHaveBeenCalledTimes(1);
+  });
+
+  it('calls onDelete when delete button is clicked', async () => {
+    const user = userEvent.setup();
+    const mockOnDelete = jest.fn();
+    
+    render(<UserProfile user={mockUser} onDelete={mockOnDelete} />);
+    
+    const deleteButton = screen.getByRole('button', { name: /delete/i });
+    await user.click(deleteButton);
+    
+    expect(mockOnDelete).toHaveBeenCalledWith(mockUser.id);
+  });
+
+  it('does not render edit button when onEdit is not provided', () => {
+    render(<UserProfile user={mockUser} />);
+    
+    expect(screen.queryByRole('button', { name: /edit/i })).not.toBeInTheDocument();
+  });
+
+  it('shows inactive status for inactive users', () => {
+    const inactiveUser = { ...mockUser, isActive: false };
+    
+    render(<UserProfile user={inactiveUser} />);
+    
+    expect(screen.getByText('Inactive')).toBeInTheDocument();
+    expect(screen.queryByText('Active')).not.toBeInTheDocument();
+  });
+
+  it('applies custom className', () => {
+    const { container } = render(
+      <UserProfile user={mockUser} className="custom-class" />
+    );
+    
+    expect(container.firstChild).toHaveClass('user-profile', 'custom-class');
+  });
+
+  // Accessibility tests
+  it('has proper accessibility attributes', () => {
+    render(<UserProfile user={mockUser} onEdit={jest.fn()} onDelete={jest.fn()} />);
+    
+    const editButton = screen.getByRole('button', { name: /edit/i });
+    const deleteButton = screen.getByRole('button', { name: /delete/i });
+    
+    expect(editButton).toHaveAttribute('type', 'button');
+    expect(deleteButton).toHaveAttribute('type', 'button');
+    
+    const avatar = screen.getByRole('img');
+    expect(avatar).toHaveAccessibleName();
+  });
+});
+
+// __tests__/hooks/useUsers.test.ts
+import { renderHook, act, waitFor } from '@testing-library/react';
+import { useUsers } from '../hooks/useUsers';
+
+// Mock fetch
+global.fetch = jest.fn();
+const mockFetch = fetch as jest.MockedFunction<typeof fetch>;
+
+describe('useUsers hook', () => {
+  beforeEach(() => {
+    mockFetch.mockClear();
+  });
+
+  it('fetches users on mount', async () => {
+    const mockUsers = [
+      { id: '1', name: 'John Doe', email: 'john@example.com', isActive: true },
+      { id: '2', name: 'Jane Smith', email: 'jane@example.com', isActive: false },
+    ];
+
+    mockFetch.mockResolvedValueOnce({
+      ok: true,
+      json: async () => mockUsers,
+    } as Response);
+
+    const { result } = renderHook(() => useUsers());
+
+    expect(result.current.loading).toBe(true);
+    expect(result.current.users).toEqual([]);
+
+    await waitFor(() => {
+      expect(result.current.loading).toBe(false);
+    });
+
+    expect(result.current.users).toEqual(mockUsers);
+    expect(result.current.error).toBeNull();
+    expect(mockFetch).toHaveBeenCalledWith('/api/users');
+  });
+
+  it('handles fetch error', async () => {
+    mockFetch.mockRejectedValueOnce(new Error('Network error'));
+
+    const { result } = renderHook(() => useUsers());
+
+    await waitFor(() => {
+      expect(result.current.loading).toBe(false);
+    });
+
+    expect(result.current.error).toBe('Network error');
+    expect(result.current.users).toEqual([]);
+  });
+
+  it('adds user successfully', async () => {
+    const initialUsers = [
+      { id: '1', name: 'John Doe', email: 'john@example.com', isActive: true },
+    ];
+    const newUser = { id: '2', name: 'Jane Smith', email: 'jane@example.com', isActive: true };
+
+    // Mock initial fetch
+    mockFetch.mockResolvedValueOnce({
+      ok: true,
+      json: async () => initialUsers,
+    } as Response);
+
+    // Mock add user
+    mockFetch.mockResolvedValueOnce({
+      ok: true,
+      json: async () => newUser,
+    } as Response);
+
+    const { result } = renderHook(() => useUsers());
+
+    await waitFor(() => {
+      expect(result.current.loading).toBe(false);
+    });
+
+    await act(async () => {
+      await result.current.addUser({
+        name: 'Jane Smith',
+        email: 'jane@example.com',
+        isActive: true,
+      });
+    });
+
+    expect(result.current.users).toHaveLength(2);
+    expect(result.current.users).toContainEqual(newUser);
+    expect(mockFetch).toHaveBeenCalledWith('/api/users', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        name: 'Jane Smith',
+        email: 'jane@example.com',
+        isActive: true,
+      }),
+    });
+  });
+
+  it('computes activeUsers correctly', async () => {
+    const mockUsers = [
+      { id: '1', name: 'John Doe', email: 'john@example.com', isActive: true },
+      { id: '2', name: 'Jane Smith', email: 'jane@example.com', isActive: false },
+      { id: '3', name: 'Bob Johnson', email: 'bob@example.com', isActive: true },
+    ];
+
+    mockFetch.mockResolvedValueOnce({
+      ok: true,
+      json: async () => mockUsers,
+    } as Response);
+
+    const { result } = renderHook(() => useUsers());
+
+    await waitFor(() => {
+      expect(result.current.loading).toBe(false);
+    });
+
+    expect(result.current.activeUsers).toHaveLength(2);
+    expect(result.current.activeUsers.every(user => user.isActive)).toBe(true);
+    expect(result.current.userCount).toBe(3);
+  });
+});
+
+// __tests__/integration/UserManagement.test.tsx
+import React from 'react';
+import { render, screen, waitFor } from '@testing-library/react';
+import userEvent from '@testing-library/user-event';
+import { UserManagement } from '../components/UserManagement';
+import { server } from '../mocks/server';
+import { rest } from 'msw';
+
+describe('UserManagement Integration', () => {
+  it('loads and displays users', async () => {
+    render(<UserManagement />);
+
+    expect(screen.getByText(/loading/i)).toBeInTheDocument();
+
+    await waitFor(() => {
+      expect(screen.getByText('John Doe')).toBeInTheDocument();
+      expect(screen.getByText('Jane Smith')).toBeInTheDocument();
+    });
+
+    expect(screen.queryByText(/loading/i)).not.toBeInTheDocument();
+  });
+
+  it('handles server error gracefully', async () => {
+    server.use(
+      rest.get('/api/users', (req, res, ctx) => {
+        return res(ctx.status(500), ctx.json({ error: 'Server error' }));
+      })
+    );
+
+    render(<UserManagement />);
+
+    await waitFor(() => {
+      expect(screen.getByText(/failed to fetch users/i)).toBeInTheDocument();
+    });
+  });
+
+  it('filters users by search term', async () => {
+    const user = userEvent.setup();
+
+    render(<UserManagement />);
+
+    await waitFor(() => {
+      expect(screen.getByText('John Doe')).toBeInTheDocument();
+    });
+
+    const searchInput = screen.getByRole('textbox', { name: /search/i });
+    await user.type(searchInput, 'john');
+
+    expect(screen.getByText('John Doe')).toBeInTheDocument();
+    expect(screen.queryByText('Jane Smith')).not.toBeInTheDocument();
+  });
+});
+
+// jest.config.js
+module.exports = {
+  testEnvironment: 'jsdom',
+  setupFilesAfterEnv: ['<rootDir>/src/setupTests.ts'],
+  moduleNameMapping: {
+    '^@/(.*)$': '<rootDir>/src/$1',
+  },
+  collectCoverageFrom: [
+    'src/**/*.{ts,tsx}',
+    '!src/**/*.d.ts',
+    '!src/index.tsx',
+    '!src/reportWebVitals.ts',
+  ],
+  coverageThreshold: {
+    global: {
+      branches: 80,
+      functions: 80,
+      lines: 80,
+      statements: 80,
+    },
+  },
+};
+
+// src/setupTests.ts
+import '@testing-library/jest-dom';
+import { server } from './mocks/server';
+
+beforeAll(() => server.listen());
+afterEach(() => server.resetHandlers());
+afterAll(() => server.close());]]></correct-example>
+          <incorrect-example title="Poor testing practices" conditions="Testing React components" expected-result="Thorough user-focused tests" incorrectness-criteria="Tests implementation details, no accessibility testing, poor mocking"><![CDATA[// Bad testing practices
+import { shallow } from 'enzyme'; // Avoid enzyme, use React Testing Library
+
+describe('BadUserProfile', () => {
+  // Bad: Testing implementation details
+  it('has correct state', () => {
+    const wrapper = shallow(<UserProfile user={mockUser} />);
+    expect(wrapper.state('isExpanded')).toBe(false);
+  });
+
+  // Bad: Testing internal methods
+  it('calls handleClick method', () => {
+    const wrapper = shallow(<UserProfile user={mockUser} />);
+    const instance = wrapper.instance();
+    const spy = jest.spyOn(instance, 'handleClick');
+    instance.handleClick();
+    expect(spy).toHaveBeenCalled();
+  });
+
+  // Bad: Not testing user behavior
+  it('renders div with className', () => {
+    const wrapper = shallow(<UserProfile user={mockUser} />);
+    expect(wrapper.find('.user-profile')).toHaveLength(1);
+  });
+
+  // Bad: No proper async testing
+  it('fetches data', () => {
+    const wrapper = shallow(<AsyncComponent />);
+    // Missing async/await and proper waiting
+    expect(wrapper.state('data')).toBeDefined();
+  });
+});]]></incorrect-example>
+        </example>
+      </examples>
+    </requirement>
+  </requirements>
+  
+  <context description="Modern React development considerations">
+    React development has evolved significantly with the introduction of hooks in React 16.8 and subsequent improvements. Modern React emphasizes functional components, hooks for state management, and performance optimization through proper memoization.
+
+    Key considerations for modern React development:
+    - Functional components with hooks are the standard approach
+    - TypeScript integration for better type safety and developer experience
+    - Performance optimization with React.memo, useMemo, and useCallback
+    - Component composition patterns for reusability and flexibility
+    - Comprehensive error handling with error boundaries
+    - User-focused testing with React Testing Library
+    - Accessibility considerations in component design
+    - Modern build tools and development workflow
+    - State management patterns appropriate to application scale
+
+    The React ecosystem continues to evolve with new patterns and best practices. Server Components, Concurrent Features, and Suspense are becoming increasingly important for modern React applications, especially in frameworks like Next.js.
+
+    TypeScript integration has become essential for large-scale React applications, providing better developer experience, catching errors at compile time, and improving code maintainability.
+  </context>
+  
+  <references>
+    <reference as="dependency" href=".cursor/rules/000-core/002-cursor-rules-creation.mdc" reason="Follows standard rule format">Base rule format definition</reference>
+    <reference as="dependency" href=".cursor/rules/languages/typescript-core-standards-auto.mdc" reason="Incorporates TypeScript best practices">TypeScript core standards and best practices</reference>
+    <reference as="context" href="https://react.dev/" reason="Official React documentation">React Official Documentation</reference>
+    <reference as="context" href="https://react.dev/reference/react" reason="React API reference">React API Reference</reference>
+    <reference as="context" href="https://testing-library.com/docs/react-testing-library/intro/" reason="Testing best practices">React Testing Library</reference>
+    <reference as="context" href="https://reactjs.org/docs/hooks-intro.html" reason="Hooks documentation">React Hooks Guide</reference>
+    <reference as="context" href="https://reactjs.org/docs/error-boundaries.html" reason="Error handling">React Error Boundaries</reference>
+    <reference as="context" href="https://reactjs.org/docs/optimizing-performance.html" reason="Performance optimization">React Performance Optimization</reference>
+  </references>
+</rule>

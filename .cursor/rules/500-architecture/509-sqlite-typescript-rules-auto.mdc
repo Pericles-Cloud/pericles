@@ -1,0 +1,103 @@
+---
+description: "Rules for SQLite best practices with TypeScript"
+globs: ["*.{ts,tsx,sql}"]
+alwaysApply: false
+---
+<rule>
+  <meta>
+    <title>SQLite Best Practices for TypeScript</title>
+    <description>A rule to enforce best practices for using SQLite in TypeScript applications, focusing on performance, security, and maintainability.</description>
+    <created-at utc-timestamp="1744412400">April 12, 2025, 11:00 AM AEST</created-at>
+    <last-updated-at utc-timestamp="1744412400">April 12, 2025, 11:00 AM AEST</last-updated-at>
+    <applies-to>
+      <file-matcher glob="*.{ts,tsx}">All TypeScript files using SQLite</file-matcher>
+      <file-matcher glob="*.sql">All SQLite migration/query files</file-matcher>
+      <action-matcher action="code-commit">Triggered when committing code changes</action-matcher>
+    </applies-to>
+  </meta>
+  <requirements>
+    <requirement priority="critical">
+      <description>Enable Write-Ahead Logging (WAL) mode for better concurrency and performance.</description>
+      <examples>
+        <example title="Enabling WAL mode">
+          <correct-example title="Setting WAL pragma" conditions="Initializing a database connection" expected-result="WAL mode enabled" correctness-criteria="Executes PRAGMA journal_mode=WAL"><![CDATA[
+import Database from 'better-sqlite3';
+
+const db = new Database('mydatabase.db');
+db.pragma('journal_mode = WAL');
+]]></correct-example>
+        </example>
+      </examples>
+    </requirement>
+    <non-negotiable priority="critical">
+      <description>Always use parameterized queries (prepared statements) to prevent SQL injection vulnerabilities.</description>
+      <examples>
+        <example title="Parameterized Queries">
+          <correct-example title="Using prepared statements" conditions="Querying with user input" expected-result="A safe, parameterized query" correctness-criteria="Uses placeholders (?) and passes parameters separately."><![CDATA[
+const stmt = db.prepare('SELECT * FROM users WHERE id = ?');
+const user = stmt.get(userId);
+]]></correct-example>
+          <incorrect-example title="Using string interpolation" conditions="Querying with user input" expected-result="A safe, parameterized query" incorrectness-criteria="Injects user input directly into the SQL string."><![CDATA[
+const user = db.prepare(`SELECT * FROM users WHERE id = ${userId}`).get();
+]]></incorrect-example>
+        </example>
+      </examples>
+    </non-negotiable>
+    <requirement priority="high">
+      <description>Wrap multiple related database operations in a transaction to ensure atomicity.</description>
+      <examples>
+        <example title="Using Transactions">
+          <correct-example title="Atomic transfer operation" conditions="Performing multiple related writes" expected-result="Operations are atomic (all succeed or all fail)" correctness-criteria="Uses a transaction function"><![CDATA[
+const transfer = db.transaction((from, to, amount) => {
+  db.prepare('UPDATE accounts SET balance = balance - ? WHERE id = ?').run(amount, from);
+  db.prepare('UPDATE accounts SET balance = balance + ? WHERE id = ?').run(amount, to);
+});
+
+transfer('accountA', 'accountB', 100);
+]]></correct-example>
+        </example>
+      </examples>
+    </requirement>
+    <requirement priority="high">
+      <description>Create indexes on columns that are frequently used in WHERE clauses to optimize query performance.</description>
+      <examples>
+        <example title="Creating an Index">
+          <correct-example title="Indexing a foreign key" conditions="Defining table schema" expected-result="Faster lookups on the indexed column" correctness-criteria="Creates an index on a frequently queried column"><![CDATA[
+CREATE TABLE posts (
+  id INTEGER PRIMARY KEY,
+  user_id INTEGER,
+  title TEXT,
+  FOREIGN KEY(user_id) REFERENCES users(id)
+);
+
+CREATE INDEX idx_posts_user_id ON posts(user_id);
+]]></correct-example>
+        </example>
+      </examples>
+    </requirement>
+    <requirement priority="high">
+        <description>Use a robust SQLite library like `better-sqlite3` for synchronous queries in Node.js, which simplifies code and can be faster for many use cases.</description>
+    </requirement>
+    <requirement priority="medium">
+      <description>Define a strict schema with appropriate data types (INTEGER, TEXT, REAL, BLOB, NUMERIC) and use constraints like NOT NULL and UNIQUE where applicable.</description>
+    </requirement>
+     <requirement priority="medium">
+        <description>Configure PRAGMA synchronous = NORMAL (1) when WAL is enabled to improve performance, as it's a safe default that prevents data corruption.</description>
+          <examples>
+            <example title="Setting Synchronous Pragma">
+              <correct-example title="Setting synchronous pragma" conditions="Initializing a database connection" expected-result="Safer, faster writes" correctness-criteria="Executes PRAGMA synchronous=NORMAL"><![CDATA[
+const db = new Database('mydatabase.db');
+db.pragma('journal_mode = WAL');
+db.pragma('synchronous = NORMAL');
+]]></correct-example>
+            </example>
+        </examples>
+    </requirement>
+  </requirements>
+  <context description="Development considerations for SQLite with TypeScript">
+    SQLite is an excellent choice for many applications, from local development databases to production applications with moderate write concurrency. When used with TypeScript, it's important to leverage libraries that provide good type safety and performance. These rules focus on creating a robust, secure, and performant setup.
+  </context>
+  <references>
+    <reference as="dependency" href=".cursor/rules/rules.mdc" reason="Follows standard rule format">Base rule format definition</reference>
+  </references>
+</rule>

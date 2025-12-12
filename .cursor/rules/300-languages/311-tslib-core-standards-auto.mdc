@@ -1,0 +1,1165 @@
+---
+description: "Comprehensive tslib TypeScript runtime library standards for helper functions, import optimization, polyfill management, and build configuration following TypeScript community standards"
+globs:
+  - "**/*.{ts,tsx,js,jsx}"
+  - "**/tsconfig.json"
+  - "**/package.json"
+  - "**/webpack.config.*"
+alwaysApply: false
+---
+
+<rule>
+  <meta>
+    <title>TSLib Core Standards</title>
+    <description>Comprehensive tslib TypeScript runtime library standards for helper functions, import optimization, polyfill management, and build configuration following TypeScript community standards</description>
+    <created-at utc-timestamp="1744157700">January 25, 2025, 10:15 AM</created-at>
+    <last-updated-at utc-timestamp="1744157700">January 25, 2025, 10:15 AM</last-updated-at>
+    <applies-to>
+      <file-matcher glob="**/*.{ts,tsx,js,jsx}">TypeScript and JavaScript files using tslib</file-matcher>
+      <file-matcher glob="**/tsconfig.json">TypeScript configuration files</file-matcher>
+      <file-matcher glob="**/package.json">Package configuration files</file-matcher>
+      <file-matcher glob="**/webpack.config.*">Webpack configuration files</file-matcher>
+      <action-matcher action="typescript-compilation">Triggered when working with TypeScript compilation</action-matcher>
+    </applies-to>
+  </meta>
+  <requirements>
+    <non-negotiable priority="critical">
+      <description>Configure tslib properly in TypeScript projects for optimal bundle size, correct import behavior, and runtime helper optimization. Use importHelpers compiler option and configure build tools for efficient tslib usage with proper polyfill management.</description>
+      <examples>
+        <example title="Comprehensive TSLib Configuration">
+          <correct-example title="Proper tslib setup with TypeScript configuration and build optimization" conditions="Setting up TypeScript project with tslib" expected-result="Optimized TypeScript compilation with efficient helper usage" correctness-criteria="Proper tsconfig setup, package configuration, build tool integration, import optimization"><![CDATA[# TypeScript - Comprehensive tslib configuration and usage
+
+# Package.json configuration
+{
+  "name": "typescript-project",
+  "version": "1.0.0",
+  "dependencies": {
+    "tslib": "^2.6.2"
+  },
+  "devDependencies": {
+    "typescript": "^5.3.0",
+    "@types/node": "^20.0.0",
+    "webpack": "^5.89.0",
+    "ts-loader": "^9.5.0",
+    "babel-loader": "^9.1.0",
+    "@babel/core": "^7.23.0",
+    "@babel/preset-env": "^7.23.0",
+    "@babel/preset-typescript": "^7.23.0"
+  },
+  "scripts": {
+    "build": "tsc",
+    "build:webpack": "webpack --mode production",
+    "build:analyze": "webpack-bundle-analyzer dist/bundle.js",
+    "clean": "rm -rf dist",
+    "type-check": "tsc --noEmit"
+  },
+  "browserslist": [
+    "> 1%",
+    "last 2 versions",
+    "not dead"
+  ]
+}
+
+# TypeScript configuration (tsconfig.json)
+{
+  "compilerOptions": {
+    // Enable tslib helper imports
+    "importHelpers": true,
+    
+    // Module and compilation settings
+    "target": "ES2020",
+    "lib": ["ES2020", "DOM", "DOM.Iterable"],
+    "module": "ESNext",
+    "moduleResolution": "node",
+    "allowSyntheticDefaultImports": true,
+    "esModuleInterop": true,
+    
+    // Strict type checking
+    "strict": true,
+    "noImplicitReturns": true,
+    "noFallthroughCasesInSwitch": true,
+    "noUncheckedIndexedAccess": true,
+    
+    // Output settings
+    "outDir": "./dist",
+    "rootDir": "./src",
+    "declaration": true,
+    "declarationMap": true,
+    "sourceMap": true,
+    
+    // Tree shaking optimization
+    "moduleDetection": "force",
+    "verbatimModuleSyntax": false,
+    
+    // Performance
+    "skipLibCheck": true,
+    "forceConsistentCasingInFileNames": true,
+    
+    // Experimental features that benefit from tslib
+    "experimentalDecorators": true,
+    "emitDecoratorMetadata": true,
+    "useDefineForClassFields": false
+  },
+  "include": [
+    "src/**/*"
+  ],
+  "exclude": [
+    "node_modules",
+    "dist",
+    "**/*.test.ts",
+    "**/*.spec.ts"
+  ],
+  "ts-node": {
+    "esm": true,
+    "experimentalSpecifierResolution": "node"
+  }
+}
+
+# TypeScript code utilizing tslib helpers (src/examples.ts)
+import { __awaiter, __generator, __decorate, __metadata, __spreadArray } from 'tslib';
+
+// Class with decorators (uses tslib decorator helpers)
+function LogMethod(target: any, propertyKey: string, descriptor: PropertyDescriptor) {
+  const originalMethod = descriptor.value;
+  descriptor.value = function (...args: any[]) {
+    console.log(`Calling ${propertyKey} with args:`, args);
+    return originalMethod.apply(this, args);
+  };
+  return descriptor;
+}
+
+function Entity(name: string) {
+  return function (constructor: Function) {
+    Reflect.defineMetadata('entity:name', name, constructor);
+  };
+}
+
+@Entity('User')
+export class UserService {
+  private users: User[] = [];
+
+  @LogMethod
+  async createUser(userData: Partial<User>): Promise<User> {
+    // This async function will use tslib's __awaiter helper
+    return new Promise((resolve) => {
+      setTimeout(() => {
+        const user: User = {
+          id: Math.random().toString(36),
+          name: userData.name || 'Unknown',
+          email: userData.email || '',
+          createdAt: new Date(),
+          ...userData
+        };
+        this.users.push(user);
+        resolve(user);
+      }, 100);
+    });
+  }
+
+  @LogMethod
+  async *getUsersBatch(batchSize: number = 10): AsyncGenerator<User[], void, unknown> {
+    // This async generator will use tslib's __asyncGenerator helper
+    for (let i = 0; i < this.users.length; i += batchSize) {
+      const batch = this.users.slice(i, i + batchSize);
+      yield batch;
+      // Simulate async operation
+      await new Promise(resolve => setTimeout(resolve, 50));
+    }
+  }
+
+  @LogMethod
+  mergeUsers(...userArrays: User[][]): User[] {
+    // This spread operation will use tslib's __spreadArray helper
+    return userArrays.reduce((merged, users) => [...merged, ...users], []);
+  }
+
+  @LogMethod
+  async processUsersWithAsyncIteration(users: User[]): Promise<ProcessedUser[]> {
+    // Complex async iteration using multiple tslib helpers
+    const processed: ProcessedUser[] = [];
+    
+    for await (const user of this.asyncUserProcessor(users)) {
+      processed.push(user);
+    }
+    
+    return processed;
+  }
+
+  private async *asyncUserProcessor(users: User[]): AsyncGenerator<ProcessedUser> {
+    for (const user of users) {
+      // Simulate async processing
+      await new Promise(resolve => setTimeout(resolve, 10));
+      
+      yield {
+        ...user,
+        processed: true,
+        processedAt: new Date()
+      };
+    }
+  }
+}
+
+// Interface definitions
+interface User {
+  id: string;
+  name: string;
+  email: string;
+  createdAt: Date;
+}
+
+interface ProcessedUser extends User {
+  processed: boolean;
+  processedAt: Date;
+}
+
+// Class inheritance example (uses tslib's __extends helper)
+export class AdminUserService extends UserService {
+  private adminUsers: User[] = [];
+
+  constructor() {
+    super(); // This will use tslib's __extends helper
+  }
+
+  async createAdminUser(userData: Partial<User>): Promise<User> {
+    const user = await super.createUser(userData);
+    this.adminUsers.push(user);
+    return user;
+  }
+
+  getAdminUsers(): User[] {
+    return [...this.adminUsers]; // Uses __spreadArray helper
+  }
+}
+
+// Advanced TypeScript features that benefit from tslib
+export class DataProcessor {
+  // Private fields (uses tslib helpers for compatibility)
+  #processedCount = 0;
+  #errorCount = 0;
+
+  async processData<T extends Record<string, any>>(
+    data: T[],
+    processor: (item: T) => Promise<T>
+  ): Promise<T[]> {
+    const results: T[] = [];
+    
+    try {
+      for (const item of data) {
+        try {
+          const processed = await processor(item);
+          results.push(processed);
+          this.#processedCount++;
+        } catch (error) {
+          this.#errorCount++;
+          console.error('Processing error:', error);
+        }
+      }
+    } catch (error) {
+      console.error('Fatal processing error:', error);
+      throw error;
+    }
+    
+    return results;
+  }
+
+  getStats() {
+    return {
+      processed: this.#processedCount,
+      errors: this.#errorCount
+    };
+  }
+}
+
+# Webpack configuration for tslib optimization (webpack.config.js)
+const path = require('path');
+const webpack = require('webpack');
+const { BundleAnalyzerPlugin } = require('webpack-bundle-analyzer');
+
+module.exports = {
+  entry: './src/index.ts',
+  output: {
+    filename: 'bundle.js',
+    path: path.resolve(__dirname, 'dist'),
+    clean: true
+  },
+  resolve: {
+    extensions: ['.ts', '.tsx', '.js', '.jsx'],
+    alias: {
+      // Optimize tslib imports
+      'tslib': path.resolve(__dirname, 'node_modules/tslib/tslib.es6.js')
+    }
+  },
+  module: {
+    rules: [
+      {
+        test: /\.tsx?$/,
+        use: [
+          {
+            loader: 'ts-loader',
+            options: {
+              // Enable tslib helper imports
+              configFile: 'tsconfig.json',
+              transpileOnly: false,
+              compilerOptions: {
+                importHelpers: true
+              }
+            }
+          }
+        ],
+        exclude: /node_modules/
+      }
+    ]
+  },
+  optimization: {
+    splitChunks: {
+      chunks: 'all',
+      cacheGroups: {
+        // Separate tslib into its own chunk for better caching
+        tslib: {
+          test: /[\\/]node_modules[\\/]tslib[\\/]/,
+          name: 'tslib',
+          chunks: 'all',
+          priority: 20
+        },
+        vendor: {
+          test: /[\\/]node_modules[\\/]/,
+          name: 'vendor',
+          chunks: 'all',
+          priority: 10
+        }
+      }
+    },
+    // Tree shaking optimization
+    usedExports: true,
+    sideEffects: false
+  },
+  plugins: [
+    // Analyze bundle to verify tslib usage
+    process.env.ANALYZE && new BundleAnalyzerPlugin({
+      analyzerMode: 'static',
+      openAnalyzer: false
+    })
+  ].filter(Boolean)
+};
+
+# Babel configuration for tslib with polyfills (babel.config.js)
+module.exports = {
+  presets: [
+    [
+      '@babel/preset-env',
+      {
+        targets: {
+          browsers: ['> 1%', 'last 2 versions', 'not dead']
+        },
+        useBuiltIns: 'usage',
+        corejs: 3,
+        // Let TypeScript handle helpers, don't duplicate with Babel
+        loose: true,
+        modules: false
+      }
+    ],
+    [
+      '@babel/preset-typescript',
+      {
+        // Let tslib handle TypeScript helpers
+        allowDeclareFields: true,
+        onlyRemoveTypeImports: true
+      }
+    ]
+  ],
+  plugins: [
+    // Don't transform helpers, let tslib handle them
+    ['@babel/plugin-transform-runtime', {
+      helpers: false, // tslib handles helpers
+      corejs: false,
+      regenerator: true,
+      useESModules: true
+    }]
+  ]
+};
+
+# Rollup configuration for libraries (rollup.config.js)
+import typescript from '@rollup/plugin-typescript';
+import { nodeResolve } from '@rollup/plugin-node-resolve';
+import commonjs from '@rollup/plugin-commonjs';
+import { terser } from 'rollup-plugin-terser';
+
+export default {
+  input: 'src/index.ts',
+  output: [
+    {
+      file: 'dist/index.cjs.js',
+      format: 'cjs',
+      sourcemap: true
+    },
+    {
+      file: 'dist/index.esm.js',
+      format: 'esm',
+      sourcemap: true
+    }
+  ],
+  external: ['tslib'], // Keep tslib as external dependency
+  plugins: [
+    nodeResolve(),
+    commonjs(),
+    typescript({
+      tsconfig: './tsconfig.json',
+      // Ensure tslib helpers are imported, not inlined
+      importHelpers: true,
+      // Don't include tslib in bundle
+      exclude: ['node_modules/tslib/**']
+    }),
+    terser({
+      compress: {
+        pure_getters: true,
+        unsafe: true,
+        unsafe_comps: true,
+        warnings: false
+      }
+    })
+  ]
+};
+
+# TypeScript performance monitoring (src/performance.ts)
+export class TSLibPerformanceMonitor {
+  private static metrics = new Map<string, {
+    calls: number;
+    totalTime: number;
+    avgTime: number;
+  }>();
+
+  static trackHelper(helperName: string, fn: Function) {
+    return function (...args: any[]) {
+      const start = performance.now();
+      const result = fn.apply(this, args);
+      const end = performance.now();
+      
+      const existing = TSLibPerformanceMonitor.metrics.get(helperName) || {
+        calls: 0,
+        totalTime: 0,
+        avgTime: 0
+      };
+      
+      existing.calls++;
+      existing.totalTime += (end - start);
+      existing.avgTime = existing.totalTime / existing.calls;
+      
+      TSLibPerformanceMonitor.metrics.set(helperName, existing);
+      
+      return result;
+    };
+  }
+
+  static getMetrics() {
+    return Object.fromEntries(TSLibPerformanceMonitor.metrics);
+  }
+
+  static resetMetrics() {
+    TSLibPerformanceMonitor.metrics.clear();
+  }
+}
+
+# Testing tslib integration (src/__tests__/tslib.test.ts)
+import { UserService, AdminUserService } from '../examples';
+
+describe('TSLib Integration', () => {
+  let userService: UserService;
+
+  beforeEach(() => {
+    userService = new UserService();
+  });
+
+  test('async/await functionality with __awaiter helper', async () => {
+    const user = await userService.createUser({
+      name: 'Test User',
+      email: 'test@example.com'
+    });
+
+    expect(user).toBeDefined();
+    expect(user.name).toBe('Test User');
+    expect(user.email).toBe('test@example.com');
+  });
+
+  test('async generator functionality with __asyncGenerator helper', async () => {
+    // Create some test users first
+    await userService.createUser({ name: 'User 1' });
+    await userService.createUser({ name: 'User 2' });
+    await userService.createUser({ name: 'User 3' });
+
+    const batches = [];
+    for await (const batch of userService.getUsersBatch(2)) {
+      batches.push(batch);
+    }
+
+    expect(batches.length).toBeGreaterThan(0);
+    expect(batches[0]).toHaveLength(2);
+  });
+
+  test('spread array functionality with __spreadArray helper', () => {
+    const users1 = [{ id: '1', name: 'User 1' }];
+    const users2 = [{ id: '2', name: 'User 2' }];
+    
+    const merged = userService.mergeUsers(users1, users2);
+    
+    expect(merged).toHaveLength(2);
+    expect(merged[0].name).toBe('User 1');
+    expect(merged[1].name).toBe('User 2');
+  });
+
+  test('class inheritance with __extends helper', async () => {
+    const adminService = new AdminUserService();
+    
+    const user = await adminService.createAdminUser({
+      name: 'Admin User',
+      email: 'admin@example.com'
+    });
+
+    expect(user).toBeDefined();
+    expect(adminService.getAdminUsers()).toContain(user);
+  });
+});]]></correct-example>
+          <incorrect-example title="Poor tslib configuration without optimization" conditions="Setting up TypeScript project" expected-result="Optimized tslib usage" incorrectness-criteria="No importHelpers option, poor build configuration, no bundle optimization, missing polyfill management"><![CDATA[// BAD: Poor tslib configuration
+
+# Poor package.json (missing tslib)
+{
+  "name": "bad-typescript-project",
+  "dependencies": {
+    // Missing tslib dependency
+  },
+  "devDependencies": {
+    "typescript": "^5.3.0"
+  }
+}
+
+# Poor TypeScript configuration (tsconfig.json)
+{
+  "compilerOptions": {
+    // Missing importHelpers - helpers will be inlined
+    "target": "ES5",
+    "module": "CommonJS",
+    
+    // No optimization settings
+    // No strict checking
+    
+    "outDir": "./dist"
+  }
+}
+
+# Poor webpack configuration
+module.exports = {
+  entry: './src/index.ts',
+  module: {
+    rules: [
+      {
+        test: /\.ts$/,
+        use: 'ts-loader'
+        // No optimization for tslib
+        // No configuration for helper imports
+      }
+    ]
+  }
+  // No optimization
+  // No bundle analysis
+  // No splitting for tslib
+};
+
+# Poor TypeScript code (will inline helpers)
+export class BadService {
+  async method() {
+    // Each async function will inline __awaiter helper
+    // instead of importing from tslib
+    return Promise.resolve('result');
+  }
+  
+  // No proper decorator usage
+  // No optimization considerations
+}]]></incorrect-example>
+        </example>
+      </examples>
+    </non-negotiable>
+
+    <requirement priority="high">
+      <description>Monitor and optimize tslib usage for bundle size, performance impact, and browser compatibility. Implement proper polyfill strategies and configure build tools for optimal tslib integration with tree shaking and code splitting.</description>
+      <examples>
+        <example title="TSLib Performance and Bundle Optimization">
+          <correct-example title="Comprehensive monitoring and optimization of tslib usage" conditions="Optimizing TypeScript build with tslib" expected-result="Minimal bundle size with optimal performance and compatibility" correctness-criteria="Bundle analysis, performance monitoring, polyfill management, compatibility checks"><![CDATA[// TypeScript - Advanced tslib optimization and monitoring
+
+# Bundle analysis configuration (analyze-bundle.js)
+const webpack = require('webpack');
+const { BundleAnalyzerPlugin } = require('webpack-bundle-analyzer');
+const path = require('path');
+
+const analyzeConfig = {
+  mode: 'production',
+  entry: './src/index.ts',
+  output: {
+    filename: '[name].[contenthash].js',
+    path: path.resolve(__dirname, 'dist/analysis'),
+    clean: true
+  },
+  resolve: {
+    extensions: ['.ts', '.tsx', '.js']
+  },
+  module: {
+    rules: [
+      {
+        test: /\.tsx?$/,
+        use: [
+          {
+            loader: 'ts-loader',
+            options: {
+              configFile: 'tsconfig.json'
+            }
+          }
+        ]
+      }
+    ]
+  },
+  plugins: [
+    new BundleAnalyzerPlugin({
+      analyzerMode: 'static',
+      openAnalyzer: false,
+      reportFilename: 'bundle-report.html',
+      generateStatsFile: true,
+      statsFilename: 'bundle-stats.json'
+    }),
+    new webpack.DefinePlugin({
+      'process.env.NODE_ENV': JSON.stringify('production')
+    })
+  ],
+  optimization: {
+    splitChunks: {
+      chunks: 'all',
+      minSize: 0,
+      cacheGroups: {
+        tslib: {
+          test: /[\\/]node_modules[\\/]tslib[\\/]/,
+          name: 'tslib',
+          chunks: 'all',
+          priority: 30,
+          enforce: true
+        },
+        helpers: {
+          test: /[\\/]src[\\/]helpers[\\/]/,
+          name: 'helpers',
+          chunks: 'all',
+          priority: 20
+        },
+        vendor: {
+          test: /[\\/]node_modules[\\/]/,
+          name: 'vendor',
+          chunks: 'all',
+          priority: 10
+        }
+      }
+    },
+    usedExports: true,
+    sideEffects: false
+  }
+};
+
+module.exports = analyzeConfig;
+
+# Performance monitoring utility (src/utils/performance-monitor.ts)
+interface HelperMetrics {
+  name: string;
+  usageCount: number;
+  totalExecutionTime: number;
+  averageExecutionTime: number;
+  bundleSize: number;
+  firstUsed: number;
+  lastUsed: number;
+}
+
+interface BundleMetrics {
+  tslibSize: number;
+  tslibGzippedSize: number;
+  helpersUsed: string[];
+  unusedHelpers: string[];
+  duplicateHelpers: string[];
+  optimizationSuggestions: string[];
+}
+
+export class TSLibOptimizationMonitor {
+  private static instance: TSLibOptimizationMonitor;
+  private metrics: Map<string, HelperMetrics> = new Map();
+  private bundleMetrics: BundleMetrics | null = null;
+  private isMonitoring = false;
+
+  static getInstance(): TSLibOptimizationMonitor {
+    if (!TSLibOptimizationMonitor.instance) {
+      TSLibOptimizationMonitor.instance = new TSLibOptimizationMonitor();
+    }
+    return TSLibOptimizationMonitor.instance;
+  }
+
+  startMonitoring(): void {
+    if (this.isMonitoring) return;
+    
+    this.isMonitoring = true;
+    this.interceptTSLibHelpers();
+    this.schedulePeriodicReports();
+  }
+
+  stopMonitoring(): void {
+    this.isMonitoring = false;
+  }
+
+  private interceptTSLibHelpers(): void {
+    // Monitor common tslib helpers
+    const helpers = [
+      '__extends', '__assign', '__rest', '__decorate', '__param',
+      '__metadata', '__awaiter', '__generator', '__createBinding',
+      '__exportStar', '__values', '__read', '__spread', '__spreadArrays',
+      '__await', '__asyncGenerator', '__asyncDelegator', '__asyncValues',
+      '__makeTemplateObject', '__importStar', '__importDefault'
+    ];
+
+    helpers.forEach(helperName => {
+      this.wrapHelper(helperName);
+    });
+  }
+
+  private wrapHelper(helperName: string): void {
+    try {
+      const tslibModule = require('tslib');
+      const originalHelper = tslibModule[helperName];
+      
+      if (typeof originalHelper === 'function') {
+        tslibModule[helperName] = (...args: any[]) => {
+          const startTime = performance.now();
+          const result = originalHelper.apply(this, args);
+          const endTime = performance.now();
+          
+          this.recordHelperUsage(helperName, endTime - startTime);
+          
+          return result;
+        };
+      }
+    } catch (error) {
+      console.warn(`Failed to wrap tslib helper ${helperName}:`, error);
+    }
+  }
+
+  private recordHelperUsage(helperName: string, executionTime: number): void {
+    const existing = this.metrics.get(helperName) || {
+      name: helperName,
+      usageCount: 0,
+      totalExecutionTime: 0,
+      averageExecutionTime: 0,
+      bundleSize: 0,
+      firstUsed: Date.now(),
+      lastUsed: Date.now()
+    };
+
+    existing.usageCount++;
+    existing.totalExecutionTime += executionTime;
+    existing.averageExecutionTime = existing.totalExecutionTime / existing.usageCount;
+    existing.lastUsed = Date.now();
+
+    this.metrics.set(helperName, existing);
+  }
+
+  async analyzeBundleUsage(): Promise<BundleMetrics> {
+    // Analyze actual bundle for tslib usage
+    try {
+      const bundleStats = await this.getBundleStats();
+      const tslibUsage = this.analyzeTSLibInBundle(bundleStats);
+      
+      this.bundleMetrics = {
+        tslibSize: tslibUsage.size,
+        tslibGzippedSize: tslibUsage.gzippedSize,
+        helpersUsed: tslibUsage.helpersFound,
+        unusedHelpers: tslibUsage.unusedHelpers,
+        duplicateHelpers: tslibUsage.duplicates,
+        optimizationSuggestions: this.generateOptimizationSuggestions(tslibUsage)
+      };
+
+      return this.bundleMetrics;
+    } catch (error) {
+      console.error('Failed to analyze bundle:', error);
+      throw error;
+    }
+  }
+
+  private async getBundleStats(): Promise<any> {
+    // Implementation would read webpack stats or similar
+    // This is a simplified version
+    return {
+      chunks: [],
+      modules: [],
+      assets: []
+    };
+  }
+
+  private analyzeTSLibInBundle(stats: any): any {
+    // Analyze bundle for tslib usage patterns
+    const helpersFound: string[] = [];
+    const unusedHelpers: string[] = [];
+    const duplicates: string[] = [];
+    
+    // Implementation would parse bundle content
+    // This is a placeholder
+    
+    return {
+      size: 1024, // bytes
+      gzippedSize: 512, // bytes
+      helpersFound,
+      unusedHelpers,
+      duplicates
+    };
+  }
+
+  private generateOptimizationSuggestions(analysis: any): string[] {
+    const suggestions: string[] = [];
+
+    if (analysis.unusedHelpers.length > 0) {
+      suggestions.push(
+        `Remove unused helpers: ${analysis.unusedHelpers.join(', ')}`
+      );
+    }
+
+    if (analysis.duplicates.length > 0) {
+      suggestions.push(
+        `Deduplicate helpers: ${analysis.duplicates.join(', ')}`
+      );
+    }
+
+    if (analysis.size > 5120) { // 5KB
+      suggestions.push(
+        'Consider using more specific imports or alternative approaches'
+      );
+    }
+
+    const overusedHelpers = Array.from(this.metrics.entries())
+      .filter(([_, metrics]) => metrics.usageCount > 1000)
+      .map(([name]) => name);
+
+    if (overusedHelpers.length > 0) {
+      suggestions.push(
+        `Consider optimizing high-usage helpers: ${overusedHelpers.join(', ')}`
+      );
+    }
+
+    return suggestions;
+  }
+
+  getPerformanceReport(): {
+    metrics: HelperMetrics[];
+    bundleMetrics: BundleMetrics | null;
+    totalHelpers: number;
+    totalUsage: number;
+    averageExecutionTime: number;
+  } {
+    const metrics = Array.from(this.metrics.values());
+    const totalUsage = metrics.reduce((sum, m) => sum + m.usageCount, 0);
+    const totalExecutionTime = metrics.reduce((sum, m) => sum + m.totalExecutionTime, 0);
+
+    return {
+      metrics,
+      bundleMetrics: this.bundleMetrics,
+      totalHelpers: metrics.length,
+      totalUsage,
+      averageExecutionTime: totalUsage > 0 ? totalExecutionTime / totalUsage : 0
+    };
+  }
+
+  private schedulePeriodicReports(): void {
+    if (!this.isMonitoring) return;
+
+    setTimeout(() => {
+      this.generatePerformanceReport();
+      this.schedulePeriodicReports();
+    }, 30000); // Report every 30 seconds
+  }
+
+  private generatePerformanceReport(): void {
+    const report = this.getPerformanceReport();
+    
+    if (report.totalUsage > 0) {
+      console.group('🔧 TSLib Performance Report');
+      console.log(`Total helpers used: ${report.totalHelpers}`);
+      console.log(`Total usage count: ${report.totalUsage}`);
+      console.log(`Average execution time: ${report.averageExecutionTime.toFixed(3)}ms`);
+      
+      const topHelpers = report.metrics
+        .sort((a, b) => b.usageCount - a.usageCount)
+        .slice(0, 5);
+      
+      console.log('Top 5 most used helpers:');
+      topHelpers.forEach((helper, index) => {
+        console.log(
+          `  ${index + 1}. ${helper.name}: ${helper.usageCount} uses, ` +
+          `${helper.averageExecutionTime.toFixed(3)}ms avg`
+        );
+      });
+      
+      console.groupEnd();
+    }
+  }
+
+  exportMetrics(): string {
+    const report = this.getPerformanceReport();
+    return JSON.stringify(report, null, 2);
+  }
+
+  async saveMetricsToFile(filename: string = 'tslib-metrics.json'): Promise<void> {
+    const fs = await import('fs/promises');
+    const metrics = this.exportMetrics();
+    await fs.writeFile(filename, metrics, 'utf8');
+    console.log(`TSLib metrics saved to ${filename}`);
+  }
+}
+
+# Compatibility checker (src/utils/compatibility-checker.ts)
+interface CompatibilityReport {
+  browser: string;
+  version: string;
+  supported: boolean;
+  requiredPolyfills: string[];
+  tslibCompatibility: 'full' | 'partial' | 'none';
+  recommendations: string[];
+}
+
+export class TSLibCompatibilityChecker {
+  private static supportMatrix = {
+    'chrome': { minVersion: 61, features: ['async', 'generators', 'classes'] },
+    'firefox': { minVersion: 60, features: ['async', 'generators', 'classes'] },
+    'safari': { minVersion: 12, features: ['async', 'generators', 'classes'] },
+    'edge': { minVersion: 16, features: ['async', 'generators', 'classes'] },
+    'ie': { minVersion: 11, features: ['classes'], polyfillsRequired: ['async', 'generators'] }
+  };
+
+  static checkCompatibility(userAgent: string): CompatibilityReport {
+    const browserInfo = this.parseBrowserInfo(userAgent);
+    const support = this.supportMatrix[browserInfo.name.toLowerCase()];
+    
+    if (!support) {
+      return {
+        browser: browserInfo.name,
+        version: browserInfo.version,
+        supported: false,
+        requiredPolyfills: ['all'],
+        tslibCompatibility: 'none',
+        recommendations: ['Use modern browser or comprehensive polyfills']
+      };
+    }
+
+    const isSupported = parseFloat(browserInfo.version) >= support.minVersion;
+    const requiredPolyfills = this.getRequiredPolyfills(browserInfo, support);
+    
+    return {
+      browser: browserInfo.name,
+      version: browserInfo.version,
+      supported: isSupported,
+      requiredPolyfills,
+      tslibCompatibility: this.getTSLibCompatibility(isSupported, requiredPolyfills),
+      recommendations: this.getRecommendations(isSupported, requiredPolyfills)
+    };
+  }
+
+  private static parseBrowserInfo(userAgent: string): { name: string; version: string } {
+    // Simplified browser detection
+    const patterns = [
+      { name: 'Chrome', pattern: /Chrome\/(\d+)/ },
+      { name: 'Firefox', pattern: /Firefox\/(\d+)/ },
+      { name: 'Safari', pattern: /Safari\/(\d+)/ },
+      { name: 'Edge', pattern: /Edge\/(\d+)/ },
+      { name: 'IE', pattern: /MSIE (\d+)/ }
+    ];
+
+    for (const { name, pattern } of patterns) {
+      const match = userAgent.match(pattern);
+      if (match) {
+        return { name, version: match[1] };
+      }
+    }
+
+    return { name: 'Unknown', version: '0' };
+  }
+
+  private static getRequiredPolyfills(
+    browserInfo: { name: string; version: string },
+    support: any
+  ): string[] {
+    const version = parseFloat(browserInfo.version);
+    const polyfills: string[] = [];
+
+    if (version < support.minVersion) {
+      if (support.polyfillsRequired) {
+        polyfills.push(...support.polyfillsRequired);
+      } else {
+        polyfills.push('core-js', 'regenerator-runtime');
+      }
+    }
+
+    return polyfills;
+  }
+
+  private static getTSLibCompatibility(
+    isSupported: boolean,
+    requiredPolyfills: string[]
+  ): 'full' | 'partial' | 'none' {
+    if (isSupported && requiredPolyfills.length === 0) {
+      return 'full';
+    }
+    if (requiredPolyfills.length > 0 && !requiredPolyfills.includes('all')) {
+      return 'partial';
+    }
+    return 'none';
+  }
+
+  private static getRecommendations(
+    isSupported: boolean,
+    requiredPolyfills: string[]
+  ): string[] {
+    const recommendations: string[] = [];
+
+    if (!isSupported) {
+      recommendations.push('Upgrade to a modern browser version');
+    }
+
+    if (requiredPolyfills.length > 0) {
+      recommendations.push(`Add polyfills: ${requiredPolyfills.join(', ')}`);
+      recommendations.push('Consider using Babel with preset-env for automatic polyfills');
+    }
+
+    if (requiredPolyfills.includes('all')) {
+      recommendations.push('Use comprehensive polyfill solution like core-js');
+    }
+
+    return recommendations;
+  }
+}
+
+# Automated optimization script (scripts/optimize-tslib.js)
+const fs = require('fs/promises');
+const path = require('path');
+const { execSync } = require('child_process');
+
+async function optimizeTSLibUsage() {
+  console.log('🔧 Starting TSLib optimization process...');
+
+  try {
+    // 1. Analyze current bundle
+    console.log('📊 Analyzing current bundle...');
+    execSync('npm run build:analyze', { stdio: 'inherit' });
+
+    // 2. Check TypeScript configuration
+    console.log('⚙️  Checking TypeScript configuration...');
+    const tsconfig = JSON.parse(await fs.readFile('tsconfig.json', 'utf8'));
+    
+    if (!tsconfig.compilerOptions.importHelpers) {
+      console.warn('⚠️  importHelpers is not enabled in tsconfig.json');
+      console.log('💡 Recommendation: Enable importHelpers for better optimization');
+    }
+
+    // 3. Verify tslib dependency
+    console.log('📦 Checking tslib dependency...');
+    const packageJson = JSON.parse(await fs.readFile('package.json', 'utf8'));
+    
+    if (!packageJson.dependencies?.tslib && !packageJson.devDependencies?.tslib) {
+      console.error('❌ tslib is not installed');
+      console.log('💡 Run: npm install tslib');
+      return;
+    }
+
+    // 4. Generate optimization report
+    console.log('📈 Generating optimization report...');
+    const report = await generateOptimizationReport();
+    
+    await fs.writeFile(
+      'tslib-optimization-report.json',
+      JSON.stringify(report, null, 2)
+    );
+
+    console.log('✅ TSLib optimization analysis complete!');
+    console.log('📄 Report saved to tslib-optimization-report.json');
+
+  } catch (error) {
+    console.error('❌ Optimization failed:', error);
+    process.exit(1);
+  }
+}
+
+async function generateOptimizationReport() {
+  return {
+    timestamp: new Date().toISOString(),
+    analysis: {
+      configurationStatus: 'optimal',
+      bundleSize: '2.3KB (gzipped)',
+      helpersUsed: ['__awaiter', '__generator', '__extends'],
+      recommendations: [
+        'Configuration is optimal',
+        'Consider upgrading to latest tslib version',
+        'Monitor bundle size with webpack-bundle-analyzer'
+      ]
+    }
+  };
+}
+
+if (require.main === module) {
+  optimizeTSLibUsage().catch(console.error);
+}
+
+module.exports = { optimizeTSLibUsage };]]></correct-example>
+          <incorrect-example title="Poor tslib optimization without monitoring" conditions="Managing tslib in production" expected-result="Optimized tslib usage with monitoring" incorrectness-criteria="No bundle analysis, no performance monitoring, poor polyfill strategy, missing optimization"><![CDATA[// BAD: Poor tslib optimization
+
+# No bundle analysis
+# No performance monitoring
+# No compatibility checking
+
+# Poor webpack config (no optimization)
+module.exports = {
+  entry: './src/index.ts',
+  module: {
+    rules: [
+      {
+        test: /\.ts$/,
+        use: 'ts-loader'
+      }
+    ]
+  }
+  // No optimization for tslib
+  // No bundle splitting
+  // No analysis tools
+};
+
+# No monitoring
+class BadService {
+  async method() {
+    // No awareness of helper usage
+    // No performance tracking
+    return 'result';
+  }
+}
+
+# No compatibility checking
+# No polyfill strategy
+# No optimization scripts
+# No bundle analysis]]></incorrect-example>
+        </example>
+      </examples>
+    </requirement>
+  </requirements>
+  
+  <context description="TSLib runtime library considerations">
+    TSLib is the TypeScript runtime library that contains helper functions for supporting TypeScript features that are not natively supported in the target JavaScript environment. It helps reduce bundle size by providing reusable helper functions instead of inlining them in every module.
+
+    Key considerations include:
+    - Proper configuration with importHelpers option in TypeScript compiler
+    - Bundle optimization through code splitting and tree shaking
+    - Performance monitoring of helper function usage and execution time
+    - Browser compatibility management with appropriate polyfill strategies
+    - Build tool integration for optimal tslib usage across different bundlers
+    - Monitoring and analysis of bundle size impact and optimization opportunities
+
+    TSLib is essential for modern TypeScript projects targeting older JavaScript environments while maintaining optimal bundle sizes and performance characteristics.
+  </context>
+  
+  <references>
+    <reference as="dependency" href=".cursor/rules/000-core/002-cursor-rules-creation.mdc" reason="Follows standard rule format">Base rule format definition</reference>
+    <reference as="context" href="https://www.npmjs.com/package/tslib" reason="Official package documentation">TSLib Package Documentation</reference>
+    <reference as="context" href="https://www.typescriptlang.org/docs/handbook/compiler-options.html#importhelpers" reason="TypeScript compiler options">TypeScript importHelpers Option</reference>
+  </references>
+</rule>

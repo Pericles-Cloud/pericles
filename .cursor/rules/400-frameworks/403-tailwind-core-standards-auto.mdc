@@ -1,0 +1,863 @@
+---
+description: Comprehensive Tailwind CSS best practices following utility-first methodology, responsive design patterns, and modern Tailwind features
+globs: ["*.{html,tsx,jsx,ts,js,vue,svelte}"]
+alwaysApply: false
+---
+
+<rule>
+  <meta>
+    <title>Tailwind Core Standards Auto</title>
+    <description>Comprehensive Tailwind CSS best practices following utility-first methodology, responsive design patterns, and modern Tailwind features</description>
+    <created-at utc-timestamp="1744251080">January 27, 2025, 1:11 PM</created-at>
+    <last-updated-at utc-timestamp="1744251080">January 27, 2025, 1:11 PM</last-updated-at>
+    <applies-to>
+      <file-matcher glob="*.{html,tsx,jsx,ts,js,vue,svelte}">HTML, React, Vue, and Svelte files using Tailwind CSS</file-matcher>
+      <action-matcher action="tailwind-styling">Triggered when styling with Tailwind CSS</action-matcher>
+    </applies-to>
+  </meta>
+  <requirements>
+    <non-negotiable priority="critical">
+      <description>Use utility-first approach with semantic class ordering: layout, flexbox/grid, spacing, sizing, typography, colors, borders, effects, and responsive prefixes.</description>
+      <examples>
+        <example title="Utility Class Ordering">
+          <correct-example title="Proper utility class ordering" conditions="Styling components with Tailwind" expected-result="Clean, readable utility classes" correctness-criteria="Follows logical ordering, responsive design, semantic grouping"><![CDATA[<!-- Layout and positioning first -->
+<div class="relative flex items-center justify-between w-full max-w-4xl mx-auto p-6 bg-white rounded-lg shadow-lg">
+  <!-- Flexbox container with proper ordering -->
+  <div class="flex flex-col sm:flex-row items-start sm:items-center gap-4 flex-1">
+    <!-- Image with responsive sizing -->
+    <img 
+      class="w-16 h-16 sm:w-20 sm:h-20 rounded-full object-cover ring-2 ring-blue-500 ring-offset-2" 
+      src="/avatar.jpg" 
+      alt="User avatar"
+    />
+    <!-- Content with typography and spacing -->
+    <div class="flex flex-col gap-1">
+      <h3 class="text-lg sm:text-xl font-semibold text-gray-900 leading-tight">
+        John Doe
+      </h3>
+      <p class="text-sm text-gray-600">
+        Software Engineer
+      </p>
+      <p class="text-xs text-gray-500">
+        San Francisco, CA
+      </p>
+    </div>
+  </div>
+  
+  <!-- Action buttons with consistent styling -->
+  <div class="flex items-center gap-2 ml-4">
+    <button class="inline-flex items-center px-3 py-2 text-sm font-medium text-white bg-blue-600 rounded-md hover:bg-blue-700 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:ring-offset-2 transition-colors">
+      Edit
+    </button>
+    <button class="inline-flex items-center px-3 py-2 text-sm font-medium text-gray-700 bg-gray-200 rounded-md hover:bg-gray-300 focus:outline-none focus:ring-2 focus:ring-gray-500 focus:ring-offset-2 transition-colors">
+      Delete
+    </button>
+  </div>
+</div>
+
+<!-- Card grid with responsive layout -->
+<div class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-6 p-6">
+  <div class="group relative overflow-hidden bg-white rounded-xl shadow-sm border border-gray-200 hover:shadow-md hover:border-gray-300 transition-all duration-200">
+    <div class="aspect-w-16 aspect-h-9 bg-gray-100">
+      <img class="w-full h-48 object-cover group-hover:scale-105 transition-transform duration-300" src="/image.jpg" alt="Card image" />
+    </div>
+    <div class="p-4">
+      <h4 class="text-lg font-semibold text-gray-900 mb-2 line-clamp-2">
+        Card Title Here
+      </h4>
+      <p class="text-sm text-gray-600 line-clamp-3 mb-4">
+        This is a description that might be quite long and needs to be truncated properly.
+      </p>
+      <div class="flex items-center justify-between">
+        <span class="text-xs font-medium text-blue-600 bg-blue-50 px-2 py-1 rounded-full">
+          Category
+        </span>
+        <time class="text-xs text-gray-500">
+          2 hours ago
+        </time>
+      </div>
+    </div>
+  </div>
+</div>]]></correct-example>
+          <incorrect-example title="Poor utility class organization" conditions="Styling components with Tailwind" expected-result="Clean, readable utility classes" incorrectness-criteria="Random class ordering, missing responsive design, inconsistent patterns"><![CDATA[<!-- Bad: Random class ordering and poor responsive design -->
+<div class="bg-white shadow-lg rounded-lg relative p-6 mx-auto w-full flex justify-between items-center max-w-4xl">
+  <div class="gap-4 flex-1 flex items-start flex-col sm:flex-row sm:items-center">
+    <img class="ring-offset-2 ring-2 object-cover rounded-full ring-blue-500 w-16 h-16 sm:h-20 sm:w-20" src="/avatar.jpg" />
+    <div class="gap-1 flex flex-col">
+      <h3 class="leading-tight text-gray-900 font-semibold text-lg sm:text-xl">John Doe</h3>
+      <p class="text-gray-600 text-sm">Software Engineer</p>
+    </div>
+  </div>
+  <div class="gap-2 flex ml-4 items-center">
+    <button class="transition-colors focus:ring-offset-2 focus:ring-2 focus:ring-blue-500 focus:outline-none hover:bg-blue-700 bg-blue-600 text-white font-medium text-sm py-2 px-3 rounded-md inline-flex items-center">Edit</button>
+  </div>
+</div>]]></incorrect-example>
+        </example>
+      </examples>
+    </non-negotiable>
+
+    <non-negotiable priority="critical">
+      <description>Implement mobile-first responsive design using Tailwind's breakpoint prefixes (sm:, md:, lg:, xl:, 2xl:) and avoid hard-coded values when Tailwind utilities are available.</description>
+      <examples>
+        <example title="Responsive Design Patterns">
+          <correct-example title="Mobile-first responsive design" conditions="Creating responsive layouts" expected-result="Proper responsive behavior across devices" correctness-criteria="Mobile-first approach, semantic breakpoints, consistent spacing"><![CDATA[<!-- Mobile-first navigation -->
+<nav class="bg-white border-b border-gray-200">
+  <div class="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
+    <div class="flex justify-between items-center h-16">
+      <!-- Logo -->
+      <div class="flex-shrink-0">
+        <img class="h-8 w-auto" src="/logo.svg" alt="Company" />
+      </div>
+      
+      <!-- Desktop navigation -->
+      <div class="hidden md:block">
+        <div class="ml-10 flex items-baseline space-x-4">
+          <a href="#" class="px-3 py-2 rounded-md text-sm font-medium text-gray-900 hover:text-gray-700">Home</a>
+          <a href="#" class="px-3 py-2 rounded-md text-sm font-medium text-gray-500 hover:text-gray-700">About</a>
+          <a href="#" class="px-3 py-2 rounded-md text-sm font-medium text-gray-500 hover:text-gray-700">Services</a>
+          <a href="#" class="px-3 py-2 rounded-md text-sm font-medium text-gray-500 hover:text-gray-700">Contact</a>
+        </div>
+      </div>
+      
+      <!-- Mobile menu button -->
+      <div class="md:hidden">
+        <button class="p-2 rounded-md text-gray-400 hover:text-gray-500 hover:bg-gray-100 focus:outline-none focus:ring-2 focus:ring-inset focus:ring-blue-500">
+          <svg class="h-6 w-6" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 6h16M4 12h16M4 18h16" />
+          </svg>
+        </button>
+      </div>
+    </div>
+  </div>
+</nav>
+
+<!-- Responsive hero section -->
+<section class="relative bg-gray-900 text-white">
+  <div class="absolute inset-0 bg-gradient-to-r from-blue-800 to-purple-900 opacity-75"></div>
+  <div class="relative max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-16 sm:py-24 lg:py-32">
+    <div class="text-center lg:text-left lg:max-w-2xl">
+      <h1 class="text-3xl sm:text-4xl lg:text-5xl xl:text-6xl font-bold leading-tight mb-6">
+        Build Amazing 
+        <span class="text-blue-400">Web Experiences</span>
+      </h1>
+      <p class="text-lg sm:text-xl lg:text-2xl text-gray-300 mb-8 max-w-3xl">
+        Create beautiful, responsive websites with modern design principles and cutting-edge technology.
+      </p>
+      <div class="flex flex-col sm:flex-row gap-4 justify-center lg:justify-start">
+        <button class="w-full sm:w-auto px-8 py-3 bg-blue-600 hover:bg-blue-700 rounded-lg font-semibold text-lg transition-colors">
+          Get Started
+        </button>
+        <button class="w-full sm:w-auto px-8 py-3 border-2 border-white text-white hover:bg-white hover:text-gray-900 rounded-lg font-semibold text-lg transition-colors">
+          Learn More
+        </button>
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- Responsive grid layout -->
+<section class="py-12 sm:py-16 lg:py-20 bg-gray-50">
+  <div class="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
+    <div class="text-center mb-12 lg:mb-16">
+      <h2 class="text-2xl sm:text-3xl lg:text-4xl font-bold text-gray-900 mb-4">
+        Our Features
+      </h2>
+      <p class="text-lg text-gray-600 max-w-3xl mx-auto">
+        Discover the powerful features that make our platform stand out.
+      </p>
+    </div>
+    
+    <div class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-6 lg:gap-8">
+      <div class="bg-white p-6 lg:p-8 rounded-xl shadow-sm hover:shadow-md transition-shadow">
+        <div class="w-12 h-12 bg-blue-100 rounded-lg flex items-center justify-center mb-4">
+          <svg class="w-6 h-6 text-blue-600" fill="currentColor" viewBox="0 0 20 20">
+            <path d="M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z"/>
+          </svg>
+        </div>
+        <h3 class="text-xl font-semibold text-gray-900 mb-2">Feature One</h3>
+        <p class="text-gray-600">Description of the first feature with sufficient detail to explain its benefits.</p>
+      </div>
+    </div>
+  </div>
+</section>]]></correct-example>
+          <incorrect-example title="Desktop-first or non-responsive design" conditions="Creating responsive layouts" expected-result="Proper responsive behavior across devices" incorrectness-criteria="Desktop-first approach, missing breakpoints, hard-coded values"><![CDATA[<!-- Bad: Desktop-first approach and hard-coded values -->
+<nav class="bg-white border-b border-gray-200">
+  <div style="max-width: 1200px;" class="mx-auto px-8">
+    <div class="flex justify-between items-center" style="height: 80px;">
+      <img style="height: 40px;" src="/logo.svg" alt="Company" />
+      <div class="flex space-x-8">
+        <a href="#" class="text-gray-900">Home</a>
+        <a href="#" class="text-gray-500">About</a>
+        <a href="#" class="text-gray-500">Services</a>
+      </div>
+    </div>
+  </div>
+</nav>
+
+<!-- Bad: No responsive breakpoints -->
+<section class="bg-gray-900 text-white">
+  <div class="max-w-7xl mx-auto px-8 py-32">
+    <h1 class="text-6xl font-bold mb-6">Build Amazing Web Experiences</h1>
+    <p class="text-2xl text-gray-300 mb-8">Create beautiful websites.</p>
+    <button class="px-8 py-3 bg-blue-600 rounded-lg">Get Started</button>
+  </div>
+</section>]]></incorrect-example>
+        </example>
+      </examples>
+    </non-negotiable>
+
+    <requirement priority="critical">
+      <description>Use consistent spacing scale, typography scale, and color palette following Tailwind's design system. Extract reusable components when utility combinations exceed 10-15 classes.</description>
+      <examples>
+        <example title="Design System Consistency">
+          <correct-example title="Consistent design system usage" conditions="Building cohesive UI components" expected-result="Consistent spacing, typography, and colors" correctness-criteria="Uses Tailwind's built-in scales, component extraction for complex patterns"><![CDATA[<!-- Consistent spacing and typography scale -->
+<article class="max-w-4xl mx-auto px-4 sm:px-6 lg:px-8 py-8 sm:py-12">
+  <!-- Typography hierarchy -->
+  <header class="mb-8">
+    <h1 class="text-3xl sm:text-4xl lg:text-5xl font-bold text-gray-900 leading-tight mb-4">
+      Article Title Using Consistent Typography Scale
+    </h1>
+    <p class="text-lg sm:text-xl text-gray-600 leading-relaxed mb-6">
+      Subtitle or lead paragraph with proper spacing and typography scale.
+    </p>
+    <div class="flex items-center gap-4 text-sm text-gray-500">
+      <time>January 27, 2025</time>
+      <span>•</span>
+      <span>5 min read</span>
+      <span>•</span>
+      <span>By John Doe</span>
+    </div>
+  </header>
+
+  <!-- Content with consistent spacing -->
+  <div class="prose prose-lg max-w-none">
+    <p class="text-base leading-7 text-gray-700 mb-6">
+      Body text using consistent line height and spacing scale.
+    </p>
+    
+    <h2 class="text-2xl font-bold text-gray-900 mt-8 mb-4">
+      Section Heading
+    </h2>
+    
+    <p class="text-base leading-7 text-gray-700 mb-6">
+      More body text with consistent spacing.
+    </p>
+  </div>
+</article>
+
+<!-- Component extraction for complex patterns -->
+<!-- Button component class -->
+<style>
+.btn-primary {
+  @apply inline-flex items-center px-4 py-2 bg-blue-600 text-white text-sm font-medium rounded-md shadow-sm hover:bg-blue-700 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:ring-offset-2 disabled:opacity-50 disabled:cursor-not-allowed transition-colors;
+}
+
+.btn-secondary {
+  @apply inline-flex items-center px-4 py-2 bg-white text-gray-700 text-sm font-medium rounded-md border border-gray-300 shadow-sm hover:bg-gray-50 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:ring-offset-2 disabled:opacity-50 disabled:cursor-not-allowed transition-colors;
+}
+
+.card {
+  @apply bg-white rounded-lg shadow-sm border border-gray-200 overflow-hidden hover:shadow-md transition-shadow;
+}
+
+.card-header {
+  @apply px-6 py-4 border-b border-gray-200;
+}
+
+.card-body {
+  @apply px-6 py-4;
+}
+
+.card-footer {
+  @apply px-6 py-4 bg-gray-50 border-t border-gray-200;
+}
+</style>
+
+<!-- Usage of extracted components -->
+<div class="space-y-6">
+  <div class="card">
+    <div class="card-header">
+      <h3 class="text-lg font-semibold text-gray-900">Card Title</h3>
+    </div>
+    <div class="card-body">
+      <p class="text-gray-600">Card content goes here.</p>
+    </div>
+    <div class="card-footer">
+      <div class="flex justify-end gap-2">
+        <button class="btn-secondary">Cancel</button>
+        <button class="btn-primary">Save</button>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- Color palette consistency -->
+<div class="bg-gray-50 p-8">
+  <!-- Primary colors -->
+  <div class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4 mb-8">
+    <div class="bg-blue-500 text-white p-4 rounded-lg">Primary Blue</div>
+    <div class="bg-blue-600 text-white p-4 rounded-lg">Primary Blue Dark</div>
+    <div class="bg-blue-100 text-blue-900 p-4 rounded-lg">Primary Blue Light</div>
+    <div class="bg-blue-50 text-blue-800 p-4 rounded-lg">Primary Blue Lightest</div>
+  </div>
+  
+  <!-- Success states -->
+  <div class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4 mb-8">
+    <div class="bg-green-500 text-white p-4 rounded-lg">Success</div>
+    <div class="bg-yellow-500 text-white p-4 rounded-lg">Warning</div>
+    <div class="bg-red-500 text-white p-4 rounded-lg">Error</div>
+    <div class="bg-gray-500 text-white p-4 rounded-lg">Neutral</div>
+  </div>
+</div>]]></correct-example>
+          <incorrect-example title="Inconsistent design system usage" conditions="Building cohesive UI components" expected-result="Consistent spacing, typography, and colors" incorrectness-criteria="Random spacing values, inconsistent typography, mixed color palettes"><![CDATA[<!-- Bad: Inconsistent spacing and typography -->
+<article style="max-width: 900px; padding: 25px; margin: 0 auto;">
+  <header style="margin-bottom: 35px;">
+    <h1 style="font-size: 42px; margin-bottom: 18px; color: #1a1a1a;">
+      Inconsistent Typography
+    </h1>
+    <p style="font-size: 19px; color: #666; margin-bottom: 22px;">
+      Random font sizes and spacing values.
+    </p>
+  </header>
+  
+  <div>
+    <p style="font-size: 16px; line-height: 1.7; margin-bottom: 28px; color: #333;">
+      Body text with arbitrary values.
+    </p>
+    
+    <h2 style="font-size: 26px; margin-top: 45px; margin-bottom: 12px; color: #222;">
+      Section Heading
+    </h2>
+  </div>
+</article>
+
+<!-- Bad: No component extraction for repetitive patterns -->
+<button class="inline-flex items-center px-4 py-2 bg-blue-600 text-white text-sm font-medium rounded-md shadow-sm hover:bg-blue-700 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:ring-offset-2 disabled:opacity-50 disabled:cursor-not-allowed transition-colors">
+  Button 1
+</button>
+<button class="inline-flex items-center px-4 py-2 bg-blue-600 text-white text-sm font-medium rounded-md shadow-sm hover:bg-blue-700 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:ring-offset-2 disabled:opacity-50 disabled:cursor-not-allowed transition-colors">
+  Button 2
+</button>]]></incorrect-example>
+        </example>
+      </examples>
+    </requirement>
+
+    <requirement priority="high">
+      <description>Optimize for performance using Tailwind's JIT mode, purging unused styles, and following proper Tailwind configuration patterns for custom themes and plugins.</description>
+      <examples>
+        <example title="Tailwind Configuration and Optimization">
+          <correct-example title="Optimized Tailwind configuration" conditions="Setting up Tailwind for production" expected-result="Performance-optimized Tailwind setup" correctness-criteria="JIT mode, proper purging, custom theme configuration"><![CDATA[// tailwind.config.js
+/** @type {import('tailwindcss').Config} */
+module.exports = {
+  content: [
+    './src/**/*.{js,ts,jsx,tsx,html}',
+    './pages/**/*.{js,ts,jsx,tsx}',
+    './components/**/*.{js,ts,jsx,tsx}',
+    './app/**/*.{js,ts,jsx,tsx}',
+  ],
+  theme: {
+    extend: {
+      colors: {
+        primary: {
+          50: '#eff6ff',
+          100: '#dbeafe',
+          200: '#bfdbfe',
+          300: '#93c5fd',
+          400: '#60a5fa',
+          500: '#3b82f6',
+          600: '#2563eb',
+          700: '#1d4ed8',
+          800: '#1e40af',
+          900: '#1e3a8a',
+          950: '#172554',
+        },
+        gray: {
+          50: '#f9fafb',
+          100: '#f3f4f6',
+          200: '#e5e7eb',
+          300: '#d1d5db',
+          400: '#9ca3af',
+          500: '#6b7280',
+          600: '#4b5563',
+          700: '#374151',
+          800: '#1f2937',
+          900: '#111827',
+          950: '#030712',
+        },
+      },
+      fontFamily: {
+        sans: ['Inter', 'system-ui', 'sans-serif'],
+        mono: ['JetBrains Mono', 'monospace'],
+      },
+      spacing: {
+        '18': '4.5rem',
+        '88': '22rem',
+      },
+      animation: {
+        'fade-in': 'fadeIn 0.5s ease-in-out',
+        'slide-up': 'slideUp 0.3s ease-out',
+      },
+      keyframes: {
+        fadeIn: {
+          '0%': { opacity: '0' },
+          '100%': { opacity: '1' },
+        },
+        slideUp: {
+          '0%': { transform: 'translateY(10px)', opacity: '0' },
+          '100%': { transform: 'translateY(0)', opacity: '1' },
+        },
+      },
+      typography: (theme) => ({
+        DEFAULT: {
+          css: {
+            color: theme('colors.gray.700'),
+            maxWidth: 'none',
+            hr: {
+              borderColor: theme('colors.gray.200'),
+              marginTop: '3rem',
+              marginBottom: '3rem',
+            },
+            'h1, h2, h3, h4': {
+              color: theme('colors.gray.900'),
+            },
+            a: {
+              color: theme('colors.primary.600'),
+              textDecoration: 'none',
+              '&:hover': {
+                color: theme('colors.primary.700'),
+                textDecoration: 'underline',
+              },
+            },
+            code: {
+              backgroundColor: theme('colors.gray.100'),
+              padding: '0.25rem 0.375rem',
+              borderRadius: '0.25rem',
+              fontSize: '0.875em',
+              fontWeight: '400',
+            },
+            'code::before': {
+              content: '""',
+            },
+            'code::after': {
+              content: '""',
+            },
+          },
+        },
+      }),
+    },
+  },
+  plugins: [
+    require('@tailwindcss/forms'),
+    require('@tailwindcss/typography'),
+    require('@tailwindcss/aspect-ratio'),
+    require('@tailwindcss/container-queries'),
+  ],
+}
+
+// postcss.config.js
+module.exports = {
+  plugins: {
+    tailwindcss: {},
+    autoprefixer: {},
+    ...(process.env.NODE_ENV === 'production' ? { cssnano: {} } : {}),
+  },
+}
+
+// Global CSS with custom components
+/* globals.css */
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+@layer base {
+  html {
+    font-feature-settings: 'cv11', 'ss01';
+    font-variation-settings: 'opsz' 32;
+  }
+  
+  body {
+    @apply bg-white text-gray-900 antialiased;
+  }
+}
+
+@layer components {
+  .btn {
+    @apply inline-flex items-center justify-center px-4 py-2 text-sm font-medium rounded-md border transition-colors focus:outline-none focus:ring-2 focus:ring-offset-2 disabled:opacity-50 disabled:pointer-events-none;
+  }
+  
+  .btn-primary {
+    @apply btn bg-primary-600 text-white border-transparent hover:bg-primary-700 focus:ring-primary-500;
+  }
+  
+  .btn-secondary {
+    @apply btn bg-white text-gray-700 border-gray-300 hover:bg-gray-50 focus:ring-primary-500;
+  }
+  
+  .btn-ghost {
+    @apply btn bg-transparent text-gray-700 border-transparent hover:bg-gray-100 focus:ring-primary-500;
+  }
+  
+  .input {
+    @apply block w-full px-3 py-2 text-sm border border-gray-300 rounded-md placeholder-gray-400 focus:outline-none focus:ring-2 focus:ring-primary-500 focus:border-primary-500 disabled:bg-gray-50 disabled:text-gray-500;
+  }
+  
+  .card {
+    @apply bg-white rounded-lg border border-gray-200 shadow-sm;
+  }
+  
+  .badge {
+    @apply inline-flex items-center px-2.5 py-0.5 text-xs font-medium rounded-full;
+  }
+  
+  .badge-primary {
+    @apply badge bg-primary-100 text-primary-800;
+  }
+  
+  .badge-success {
+    @apply badge bg-green-100 text-green-800;
+  }
+  
+  .badge-warning {
+    @apply badge bg-yellow-100 text-yellow-800;
+  }
+  
+  .badge-error {
+    @apply badge bg-red-100 text-red-800;
+  }
+}
+
+@layer utilities {
+  .text-balance {
+    text-wrap: balance;
+  }
+  
+  .animate-in {
+    @apply animate-fade-in;
+  }
+  
+  .scroll-smooth {
+    scroll-behavior: smooth;
+  }
+}
+
+// Example usage of optimized setup
+<div class="min-h-screen bg-gray-50">
+  <nav class="bg-white border-b border-gray-200">
+    <div class="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
+      <div class="flex justify-between items-center h-16">
+        <div class="flex items-center">
+          <img class="h-8 w-auto" src="/logo.svg" alt="Logo" />
+        </div>
+        <div class="flex items-center gap-4">
+          <button class="btn-ghost">Sign In</button>
+          <button class="btn-primary">Get Started</button>
+        </div>
+      </div>
+    </div>
+  </nav>
+  
+  <main class="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
+    <div class="card p-6">
+      <h1 class="text-2xl font-bold text-gray-900 mb-4">
+        Welcome to Our Platform
+      </h1>
+      <p class="text-gray-600 mb-6">
+        Start building amazing experiences with our optimized Tailwind setup.
+      </p>
+      <div class="flex items-center gap-2">
+        <span class="badge-primary">New</span>
+        <span class="badge-success">Featured</span>
+      </div>
+    </div>
+  </main>
+</div>]]></correct-example>
+          <incorrect-example title="Poor Tailwind configuration" conditions="Setting up Tailwind for production" expected-result="Performance-optimized Tailwind setup" incorrectness-criteria="No content purging, missing JIT, poor configuration"><![CDATA[// Bad: Poor Tailwind configuration
+module.exports = {
+  // Missing content paths for purging
+  purge: [],
+  theme: {
+    // No custom theme configuration
+  },
+  variants: {
+    // Outdated variants configuration
+    extend: {},
+  },
+  plugins: [],
+}
+
+// Bad: No component extraction
+<button class="inline-flex items-center justify-center px-4 py-2 text-sm font-medium text-white bg-blue-600 border border-transparent rounded-md shadow-sm hover:bg-blue-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-blue-500 disabled:opacity-50 disabled:pointer-events-none transition-colors duration-150">
+  Button
+</button>
+
+// Bad: Inline styles mixed with Tailwind
+<div class="p-4" style="background-color: #f3f4f6; margin-top: 20px;">
+  <h1 class="text-2xl" style="color: #1f2937;">Title</h1>
+</div>]]></incorrect-example>
+        </example>
+      </examples>
+    </requirement>
+
+    <requirement priority="high">
+      <description>Implement accessible design patterns using Tailwind classes for focus states, screen reader support, and semantic color usage following WCAG guidelines.</description>
+      <examples>
+        <example title="Accessibility with Tailwind">
+          <correct-example title="Accessible component design" conditions="Building accessible UI components" expected-result="WCAG compliant accessible components" correctness-criteria="Proper focus states, semantic markup, screen reader support"><![CDATA[<!-- Accessible form with proper focus states -->
+<form class="max-w-md mx-auto p-6 bg-white rounded-lg shadow-sm border border-gray-200">
+  <fieldset class="space-y-6">
+    <legend class="text-lg font-semibold text-gray-900 mb-4">
+      Contact Information
+    </legend>
+    
+    <div>
+      <label for="name" class="block text-sm font-medium text-gray-700 mb-2">
+        Full Name <span class="text-red-500" aria-label="required">*</span>
+      </label>
+      <input
+        type="text"
+        id="name"
+        name="name"
+        required
+        aria-describedby="name-error"
+        class="block w-full px-3 py-2 border border-gray-300 rounded-md shadow-sm placeholder-gray-400 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500 invalid:border-red-500 invalid:ring-red-500"
+        placeholder="Enter your full name"
+      />
+      <p id="name-error" class="mt-1 text-sm text-red-600 hidden" role="alert">
+        Please enter your full name
+      </p>
+    </div>
+    
+    <div>
+      <label for="email" class="block text-sm font-medium text-gray-700 mb-2">
+        Email Address <span class="text-red-500" aria-label="required">*</span>
+      </label>
+      <input
+        type="email"
+        id="email"
+        name="email"
+        required
+        aria-describedby="email-hint email-error"
+        class="block w-full px-3 py-2 border border-gray-300 rounded-md shadow-sm placeholder-gray-400 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500 invalid:border-red-500 invalid:ring-red-500"
+        placeholder="you@example.com"
+      />
+      <p id="email-hint" class="mt-1 text-sm text-gray-500">
+        We'll never share your email address
+      </p>
+      <p id="email-error" class="mt-1 text-sm text-red-600 hidden" role="alert">
+        Please enter a valid email address
+      </p>
+    </div>
+    
+    <div>
+      <button
+        type="submit"
+        class="w-full flex justify-center py-2 px-4 border border-transparent rounded-md shadow-sm text-sm font-medium text-white bg-blue-600 hover:bg-blue-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-blue-500 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
+      >
+        Submit Form
+      </button>
+    </div>
+  </fieldset>
+</form>
+
+<!-- Accessible navigation with keyboard support -->
+<nav class="bg-white border-b border-gray-200" role="navigation" aria-label="Main navigation">
+  <div class="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
+    <div class="flex justify-between items-center h-16">
+      <div class="flex items-center">
+        <a href="/" class="flex-shrink-0 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:ring-offset-2 rounded-sm">
+          <img class="h-8 w-auto" src="/logo.svg" alt="Company Logo" />
+        </a>
+      </div>
+      
+      <div class="hidden md:block">
+        <div class="ml-10 flex items-baseline space-x-4" role="menubar">
+          <a
+            href="/"
+            role="menuitem"
+            class="px-3 py-2 rounded-md text-sm font-medium text-gray-900 hover:text-blue-600 focus:outline-none focus:text-blue-600 focus:ring-2 focus:ring-blue-500 focus:ring-offset-2"
+            aria-current="page"
+          >
+            Home
+          </a>
+          <a
+            href="/about"
+            role="menuitem"
+            class="px-3 py-2 rounded-md text-sm font-medium text-gray-500 hover:text-blue-600 focus:outline-none focus:text-blue-600 focus:ring-2 focus:ring-blue-500 focus:ring-offset-2"
+          >
+            About
+          </a>
+          <a
+            href="/services"
+            role="menuitem"
+            class="px-3 py-2 rounded-md text-sm font-medium text-gray-500 hover:text-blue-600 focus:outline-none focus:text-blue-600 focus:ring-2 focus:ring-blue-500 focus:ring-offset-2"
+          >
+            Services
+          </a>
+        </div>
+      </div>
+      
+      <!-- Mobile menu button -->
+      <div class="md:hidden">
+        <button
+          type="button"
+          aria-expanded="false"
+          aria-controls="mobile-menu"
+          aria-label="Toggle navigation menu"
+          class="p-2 rounded-md text-gray-400 hover:text-gray-500 hover:bg-gray-100 focus:outline-none focus:ring-2 focus:ring-inset focus:ring-blue-500"
+        >
+          <svg class="h-6 w-6" fill="none" viewBox="0 0 24 24" stroke="currentColor" aria-hidden="true">
+            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 6h16M4 12h16M4 18h16" />
+          </svg>
+        </button>
+      </div>
+    </div>
+  </div>
+  
+  <!-- Mobile menu -->
+  <div id="mobile-menu" class="md:hidden hidden" role="menu">
+    <div class="px-2 pt-2 pb-3 space-y-1 sm:px-3">
+      <a
+        href="/"
+        role="menuitem"
+        class="block px-3 py-2 rounded-md text-base font-medium text-gray-900 hover:text-blue-600 hover:bg-gray-50 focus:outline-none focus:text-blue-600 focus:bg-gray-50 focus:ring-2 focus:ring-blue-500"
+        aria-current="page"
+      >
+        Home
+      </a>
+    </div>
+  </div>
+</nav>
+
+<!-- Accessible modal with focus management -->
+<div class="fixed inset-0 bg-gray-500 bg-opacity-75 flex items-center justify-center p-4 z-50" role="dialog" aria-modal="true" aria-labelledby="modal-title">
+  <div class="bg-white rounded-lg shadow-xl max-w-md w-full p-6 focus:outline-none" tabindex="-1">
+    <div class="flex items-center justify-between mb-4">
+      <h2 id="modal-title" class="text-lg font-semibold text-gray-900">
+        Confirm Action
+      </h2>
+      <button
+        type="button"
+        aria-label="Close modal"
+        class="p-1 text-gray-400 hover:text-gray-500 focus:outline-none focus:ring-2 focus:ring-blue-500 rounded-sm"
+      >
+        <svg class="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor" aria-hidden="true">
+          <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12" />
+        </svg>
+      </button>
+    </div>
+    
+    <p class="text-sm text-gray-600 mb-6">
+      Are you sure you want to delete this item? This action cannot be undone.
+    </p>
+    
+    <div class="flex justify-end gap-3">
+      <button
+        type="button"
+        class="px-4 py-2 text-sm font-medium text-gray-700 bg-white border border-gray-300 rounded-md hover:bg-gray-50 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:ring-offset-2"
+      >
+        Cancel
+      </button>
+      <button
+        type="button"
+        class="px-4 py-2 text-sm font-medium text-white bg-red-600 border border-transparent rounded-md hover:bg-red-700 focus:outline-none focus:ring-2 focus:ring-red-500 focus:ring-offset-2"
+      >
+        Delete
+      </button>
+    </div>
+  </div>
+</div>
+
+<!-- Accessible status indicators -->
+<div class="space-y-4">
+  <div class="flex items-center gap-2">
+    <div class="w-2 h-2 bg-green-500 rounded-full" aria-hidden="true"></div>
+    <span class="text-sm text-gray-700">
+      <span class="sr-only">Status: </span>Online
+    </span>
+  </div>
+  
+  <div class="flex items-center gap-2">
+    <div class="w-2 h-2 bg-yellow-500 rounded-full" aria-hidden="true"></div>
+    <span class="text-sm text-gray-700">
+      <span class="sr-only">Status: </span>Away
+    </span>
+  </div>
+  
+  <div class="flex items-center gap-2">
+    <div class="w-2 h-2 bg-red-500 rounded-full" aria-hidden="true"></div>
+    <span class="text-sm text-gray-700">
+      <span class="sr-only">Status: </span>Offline
+    </span>
+  </div>
+</div>]]></correct-example>
+          <incorrect-example title="Inaccessible design patterns" conditions="Building accessible UI components" expected-result="WCAG compliant accessible components" incorrectness-criteria="Missing focus states, poor semantic markup, no screen reader support"><![CDATA[<!-- Bad: Inaccessible form -->
+<form class="p-6 bg-white rounded-lg">
+  <div class="mb-4">
+    <!-- Bad: No label association -->
+    <div class="text-sm text-gray-700 mb-2">Name</div>
+    <!-- Bad: No focus states, poor contrast -->
+    <input 
+      type="text" 
+      class="w-full p-2 border border-gray-200 rounded"
+      placeholder="Enter name"
+    />
+  </div>
+  
+  <!-- Bad: Button with poor focus state -->
+  <button class="px-4 py-2 bg-blue-500 text-white rounded hover:bg-blue-600">
+    Submit
+  </button>
+</form>
+
+<!-- Bad: Non-semantic navigation -->
+<div class="flex space-x-4">
+  <div class="text-blue-600 cursor-pointer">Home</div>
+  <div class="text-gray-500 cursor-pointer">About</div>
+  <div class="text-gray-500 cursor-pointer">Contact</div>
+</div>
+
+<!-- Bad: Modal without proper accessibility -->
+<div class="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center">
+  <div class="bg-white p-6 rounded-lg">
+    <h2 class="text-lg mb-4">Modal Title</h2>
+    <p class="mb-4">Modal content</p>
+    <button class="px-4 py-2 bg-blue-500 text-white rounded">OK</button>
+  </div>
+</div>]]></incorrect-example>
+        </example>
+      </examples>
+    </requirement>
+  </requirements>
+  
+  <context description="Modern Tailwind CSS development considerations">
+    Tailwind CSS has evolved into the leading utility-first CSS framework, emphasizing maintainability, consistency, and developer productivity. Modern Tailwind development focuses on design systems, component abstraction, and performance optimization.
+
+    Key considerations for modern Tailwind CSS development:
+    - Utility-first approach promotes consistency and reduces CSS bloat
+    - Mobile-first responsive design is essential for modern web applications
+    - Design system integration ensures visual consistency across applications
+    - Performance optimization through JIT compilation and proper purging
+    - Component extraction prevents utility class repetition
+    - Accessibility considerations are built into the design process
+    - Custom configuration enables brand-specific design systems
+    - Plugin ecosystem extends functionality for specific use cases
+
+    Expert insights from the Tailwind community emphasize the importance of balancing utility classes with component abstraction, maintaining design system consistency, and optimizing for both developer experience and runtime performance.
+
+    The framework continues to evolve with features like container queries, arbitrary value support, and improved tooling that enhance the development experience while maintaining the core utility-first philosophy.
+  </context>
+  
+  <references>
+    <reference as="dependency" href=".cursor/rules/000-core/002-cursor-rules-creation.mdc" reason="Follows standard rule format">Base rule format definition</reference>
+    <reference as="context" href="https://tailwindcss.com/docs" reason="Official Tailwind CSS documentation">Tailwind CSS Official Documentation</reference>
+    <reference as="context" href="https://tailwindui.com/documentation" reason="Tailwind UI patterns">Tailwind UI Design Patterns</reference>
+    <reference as="context" href="https://refactoringui.com/" reason="Design principles">Refactoring UI Design Principles</reference>
+    <reference as="context" href="https://headlessui.com/" reason="Accessible components">Headless UI Accessibility Patterns</reference>
+    <reference as="context" href="https://www.w3.org/WAI/WCAG21/quickref/" reason="Accessibility guidelines">WCAG 2.1 Guidelines</reference>
+    <reference as="context" href="https://github.com/tailwindlabs/tailwindcss" reason="Framework repository">Tailwind CSS GitHub Repository</reference>
+  </references>
+</rule>
+description:
+globs:
+alwaysApply: false
+---

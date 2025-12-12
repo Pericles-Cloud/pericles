@@ -1,0 +1,157 @@
+---
+description: Defines an implementation-agnostic rule for a Controller Agent that initiates end-user notifications, coordinates other agents, and interacts with the end-user while enforcing tenant isolation and operational SLAs.
+globs: ".cursor/rules/controller-agent.mdc"
+alwaysApply: false
+---
+
+<rule>
+  <meta>
+    <title>Controller Agent</title>
+    <description>Agent responsible for initiating notifications to end-users about validated events, orchestrating Monitoring/Validation/Impact/Summarization agents, and interacting with users (ack, snooze, escalate), while ensuring security, auditability, and SLAs.</description>
+    <created-at utc-timestamp="1761004800">October 21, 2025, 00:00 UTC</created-at>
+    <last-updated-at utc-timestamp="1761004800">October 21, 2025, 00:00 UTC</last-updated-at>
+    <applies-to>
+      <file-matcher glob="**/*">Conceptual guidance; applicable to any implementation of a Controller Agent across services and runtimes.</file-matcher>
+      <action-matcher action="create-controller-agent">Triggered when designing or refactoring controller/orchestration capabilities.</action-matcher>
+    </applies-to>
+  </meta>
+
+  <!--
+    Assumptions (technology-agnostic):
+    - Upstream agents: Monitoring Agent (identifies), Validation Agent (confirms & impact), Impact Assessment Agent (quantifies impact), Summarization Agent (maintains summaries).
+    - Controller Agent: coordinates agent actions, initiates tenant-scoped notifications, and handles user interactions/commands.
+    - Notification channels may include email, SMS, in-app, Slack/Teams, and webhooks; channel availability may vary by tenant/user.
+    - All timestamps MUST be timezone-aware and normalized (ISO 8601 recommended).
+  -->
+
+  <requirements>
+    <non-negotiable priority="critical">
+      <description>Tenant isolation: enforce tenant scope on all reads/writes and notifications; never leak data across tenants.</description>
+      <examples>
+        <example title="Tenant-scoped orchestration">
+          <correct-example title="Scoped notifications" conditions="Publish message" expected-result="Sent" correctness-criteria="message.tenant_id == controller.tenant_id"><![CDATA[
+if message.tenant_id == controller.tenant_id: send(message) else: deny
+]]></correct-example>
+          <incorrect-example title="Cross-tenant notify" conditions="Publish message" expected-result="Denied" incorrectness-criteria="Not checking tenant scope"><![CDATA[
+send(message) // regardless of tenant_id
+]]></incorrect-example>
+        </example>
+      </examples>
+    </non-negotiable>
+
+    <non-negotiable priority="critical">
+      <description>Idempotency and deduplication: ensure repeated triggers do not create duplicate notifications or duplicate downstream agent commands.</description>
+      <examples>
+        <example title="Idempotent send">
+          <correct-example title="Idempotency key" conditions="Retry path" expected-result="Single delivery" correctness-criteria="Same key avoids duplicates"><![CDATA[
+idempotency_key = hash(event_id|tenant_id|channel|template_version)
+send_if_new(idempotency_key)
+]]></correct-example>
+          <incorrect-example title="Duplicate sends" conditions="Retry path" expected-result="Avoid duplicates" incorrectness-criteria="No idempotency key"><![CDATA[
+send(event) // on each retry, duplicates
+]]></incorrect-example>
+        </example>
+      </examples>
+    </non-negotiable>
+
+    <non-negotiable priority="critical">
+      <description>Security, authorization, and audit: authenticate agent-to-agent calls; authorize user-initiated actions; log all notifications, commands, and state transitions with non-sensitive context.</description>
+      <examples>
+        <example title="Audit trail">
+          <correct-example title="Structured audit" conditions="Send notification" expected-result="Audited" correctness-criteria="Records tenant, event_id, channel, template, actor"><![CDATA[
+audit({ action:"NOTIFY", tenant_id, event_id, channel, template, actor:user.id })
+]]></correct-example>
+          <incorrect-example title="Missing audit" conditions="Send notification" expected-result="Audited" incorrectness-criteria="No audit entry"><![CDATA[
+send(notification) // no audit log
+]]></incorrect-example>
+        </example>
+      </examples>
+    </non-negotiable>
+
+    <requirement priority="high">
+      <description>Notification policy: honor per-tenant/user preferences (channels, quiet hours, locales), escalation rules, and rate limits; implement backoff and channel fallback.</description>
+    </requirement>
+
+    <requirement priority="high">
+      <description>Templating and localization: use versioned templates with variables; support i18n and accessibility; track template version in audit.</description>
+    </requirement>
+
+    <requirement priority="high">
+      <description>Orchestration: issue commands to other agents (e.g., re-validate, re-summarize, recalc impact), and maintain a state machine per event.</description>
+    </requirement>
+
+    <requirement priority="high">
+      <description>SLAs and reliability: define per-tenant SLAs for notify and command dispatch; use queues, retries with bounded exponential backoff, and dead-letter handling.</description>
+    </requirement>
+
+    <requirement priority="medium">
+      <description>Privacy and compliance: avoid sending sensitive data to channels that do not allow it; support redaction and link-based detail views.</description>
+    </requirement>
+
+    <requirement priority="medium">
+      <description>Webhook integrations: sign payloads, verify recipients, and support replay protection with timestamps and nonces.</description>
+    </requirement>
+  </requirements>
+
+  <grammar>
+    <schema title="Notification Message Schema (conceptual)" description="Normalized notification payload sent to channels."><![CDATA[
+NotificationMessage {
+  id: string // unique notification identifier
+  tenant_id: string
+  event_id: string
+  channel: 'EMAIL' | 'SMS' | 'APP' | 'SLACK' | 'TEAMS' | 'WEBHOOK'
+  template_id: string
+  template_version: string
+  locale?: string
+  variables: Record<string, string | number | boolean>
+  idempotency_key: string
+  created_at: string // ISO 8601
+}
+]]></schema>
+
+    <schema title="Controller Command Schema (conceptual)" description="Commands to coordinate other agents."><![CDATA[
+ControllerCommand {
+  id: string
+  tenant_id: string
+  event_id: string
+  target_agent: 'MONITORING' | 'VALIDATION' | 'IMPACT' | 'SUMMARIZATION'
+  action: 'RECHECK' | 'RESUMMARIZE' | 'RECALCULATE' | 'PAUSE' | 'RESUME'
+  reason?: string
+  requested_by: 'SYSTEM' | 'USER' | 'SCHEDULE'
+  created_at: string // ISO 8601
+}
+]]></schema>
+
+    <grammar-entry title="Controller State Machine">
+      <pattern description="High-level states">NEW -> NOTIFYING -> WAITING_ACK -> (ACKED|SNOOZED|ESCALATED) -> CLOSED</pattern>
+      <example description="Error path">on send failure: retry with backoff -> if exceeded -> DEAD_LETTER and alert</example>
+    </grammar-entry>
+  </grammar>
+
+  <context description="Role, Responsibilities, Requirements">
+    <![CDATA[
+Name: Controller Agent
+Description: Initiates end-user notifications about validated events and coordinates agent actions; provides user interaction endpoints (acknowledge, snooze, escalate) while maintaining tenant isolation and auditability.
+Role:
+  - Deliver tenant-scoped notifications across configured channels with preferences and rate limits.
+  - Coordinate Monitoring/Validation/Impact/Summarization agents via typed commands.
+  - Surface a user interaction layer and record responses.
+Responsibilities:
+  - Enforce idempotency, authorization, and comprehensive audit logging.
+  - Maintain a per-event state machine and adhere to SLAs with retries/backoff.
+  - Safeguard privacy; do not disclose sensitive content on untrusted channels.
+Requirements:
+  - Honor quiet hours, locale, and template versioning; support channel fallbacks.
+  - Sign and validate webhooks; implement replay protection and delivery tracking.
+  - Provide dashboards/metrics for notification outcomes and orchestration health.
+    ]]>
+  </context>
+
+  <references>
+    <reference as="dependency" href=".cursor/rules/000-core/002-cursor-rules-creation.mdc" reason="Follows standard rule format">Cursor Rule File Format (.mdc)</reference>
+    <reference as="context" href=".cursor/rules/001-application/008-pericles-monitoring-agent-core-standards-auto.mdc" reason="Upstream event identification">Monitoring Agent Standards</reference>
+    <reference as="context" href=".cursor/rules/000-core/004-validation-agent-core-standards-auto.mdc" reason="Event confirmation and impact">Validation Agent Standards</reference>
+    <reference as="context" href=".cursor/rules/001-application/009-pericles-impact-assessment-agent-core-standards-auto.mdc" reason="Downstream impact assessment">Impact Assessment Agent Standards</reference>
+  </references>
+</rule>
+

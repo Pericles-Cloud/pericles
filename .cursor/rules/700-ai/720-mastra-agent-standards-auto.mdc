@@ -1,0 +1,635 @@
+---
+description: Comprehensive Mastra agent development standards with TypeScript, covering agent creation, tool integration, workflow orchestration, and production server deployment
+globs: ["**/mastra/**/*.ts", "**/agents/**/*.ts", "**/workflows/**/*.ts"]
+alwaysApply: false
+---
+
+<rule>
+  <meta>
+    <title>Mastra Agent Standards Auto</title>
+    <description>Comprehensive Mastra agent development standards with TypeScript, covering agent creation, tool integration, workflow orchestration, and production server deployment following Mastra.ai best practices</description>
+    <created-at utc-timestamp="1765502400">December 12, 2025, 4:00 AM</created-at>
+    <last-updated-at utc-timestamp="1765502400">December 12, 2025, 4:00 AM</last-updated-at>
+    <applies-to>
+      <file-matcher glob="**/mastra/**/*.ts">Mastra configuration and setup files</file-matcher>
+      <file-matcher glob="**/agents/**/*.ts">Mastra agent definition files</file-matcher>
+      <file-matcher glob="**/workflows/**/*.ts">Mastra workflow orchestration files</file-matcher>
+      <action-matcher action="mastra-development">Triggered when developing Mastra agents and workflows</action-matcher>
+    </applies-to>
+  </meta>
+
+  <requirements>
+    <non-negotiable priority="critical">
+      <description>Use Mastra framework with proper TypeScript configuration, agent registration, and production-ready patterns following official Mastra.ai standards.</description>
+      <examples>
+        <example title="Complete Mastra Setup with Agents and Server">
+          <correct-example title="Production-ready Mastra configuration" conditions="Setting up Mastra instance with agents and server" expected-result="Fully configured Mastra application" correctness-criteria="Uses proper TypeScript config, agent registration, server setup, type safety"><![CDATA[// src/mastra/index.ts - Main Mastra instance configuration
+import { Mastra } from "@mastra/core/mastra";
+import { testAgent, codeReviewAgent } from "./agents";
+import { organizationWorkflow } from "./workflows";
+
+export const mastra = new Mastra({
+  // Register agents for application-wide availability
+  agents: {
+    testAgent,
+    codeReviewAgent,
+  },
+
+  // Register workflows
+  workflows: {
+    organizationWorkflow,
+  },
+
+  // Server configuration
+  server: {
+    port: 4111, // Default
+    timeout: 180000, // 3 minutes default
+    bodyLimit: "10mb",
+
+    // CORS configuration for production
+    cors: {
+      origin: ["https://example.com", "https://app.example.com"],
+      allowMethods: ["GET", "POST", "PUT", "DELETE", "OPTIONS"],
+      allowHeaders: ["Content-Type", "Authorization"],
+      credentials: true,
+    },
+  },
+});
+
+// src/mastra/agents/test-agent.ts - Basic agent definition
+import { Agent } from "@mastra/core/agent";
+import { testTool } from "../tools";
+
+export const testAgent = new Agent({
+  name: "test-agent",
+  instructions: "You are a helpful assistant that organizes tasks and schedules.",
+  model: "openai/gpt-4o-mini",
+  tools: { testTool },
+});
+
+// src/mastra/agents/code-review-agent.ts - Advanced agent with provider options
+import { Agent } from "@mastra/core/agent";
+import { openai } from "@ai-sdk/openai";
+
+export const codeReviewAgent = new Agent({
+  name: "code-review-agent",
+
+  // Complex instructions with provider-specific options
+  instructions: [
+    {
+      role: "system",
+      content: "You are an expert code reviewer specializing in TypeScript, React, and Node.js. Focus on: code quality, security vulnerabilities, performance, maintainability, and best practices.",
+      providerOptions: {
+        openai: { reasoningEffort: "high" },
+        anthropic: { cacheControl: { type: "ephemeral" } },
+      },
+    },
+    "When reviewing code, provide specific examples and actionable recommendations.",
+    "Rate severity as: critical, high, medium, low, or info.",
+  ],
+
+  // Using Vercel AI SDK for direct provider configuration
+  model: openai("gpt-4o-mini"),
+
+  // Runtime context for dynamic model selection
+  model: ({ runtimeContext }) => {
+    const userTier = runtimeContext.get("user-tier");
+    return userTier === "enterprise"
+      ? openai("gpt-4o")
+      : openai("gpt-4o-mini");
+  },
+});
+
+// src/mastra/tools/test-tool.ts - Tool definition
+import { createTool } from "@mastra/core/tool";
+import { z } from "zod";
+
+export const testTool = createTool({
+  name: "test-tool",
+  description: "Formats text with emphasis",
+  inputSchema: z.object({
+    text: z.string(),
+  }),
+  outputSchema: z.object({
+    emphasized: z.string(),
+  }),
+  execute: async ({ context, mastra, runtimeContext }) => {
+    const formatted = `**${context.text}**`;
+    return { emphasized: formatted };
+  },
+});
+
+// src/mastra/workflows/organization-workflow.ts - Workflow with agents
+import { createWorkflow, createStep } from "@mastra/core/workflow";
+
+const step1 = createStep({
+  id: "organize-tasks",
+  execute: async ({ inputData, mastra }) => {
+    const agent = mastra.getAgent("testAgent");
+
+    // Use agent with memory
+    const response = await agent.generate(
+      `Organize these tasks: ${inputData.tasks}`,
+      {
+        memory: {
+          thread: inputData.userId,
+          resource: "task-organization",
+        },
+        maxSteps: 10,
+        onStepFinish: ({ text, toolCalls, toolResults, finishReason, usage }) => {
+          console.log("Step completed:", { text, toolCalls, finishReason, usage });
+        },
+      }
+    );
+
+    return { organizedTasks: response.text };
+  },
+});
+
+// Agent as workflow step
+const step2 = createStep(testAgent);
+
+export const organizationWorkflow = createWorkflow({
+  name: "organization-workflow",
+  triggerSchema: z.object({
+    tasks: z.string(),
+    userId: z.string(),
+  }),
+})
+  .then(step1)
+  .map(async ({ context }) => ({
+    prompt: `Create a summary: ${context.organizedTasks}`,
+  }))
+  .then(step2)
+  .commit();
+
+// package.json - Required dependencies
+{
+  "name": "mastra-app",
+  "type": "module",
+  "dependencies": {
+    "@mastra/core": "latest",
+    "@ai-sdk/openai": "latest",
+    "@ai-sdk/anthropic": "latest",
+    "zod": "^3.22.0"
+  },
+  "scripts": {
+    "dev": "mastra dev",
+    "build": "mastra build",
+    "start": "node .mastra/index.js"
+  }
+}
+
+// tsconfig.json - Required TypeScript configuration
+{
+  "compilerOptions": {
+    "target": "ES2022",
+    "module": "ES2022",
+    "moduleResolution": "bundler",
+    "esModuleInterop": true,
+    "strict": true,
+    "skipLibCheck": true,
+    "resolveJsonModule": true,
+    "allowSyntheticDefaultImports": true
+  }
+}
+
+// .env - Environment variables
+OPENAI_API_KEY=your-key-here
+ANTHROPIC_API_KEY=your-key-here
+PORT=4111]]></correct-example>
+
+          <incorrect-example title="Basic configuration without optimization" conditions="Setting up Mastra instance" expected-result="Production-ready configuration" incorrectness-criteria="Missing server config, no type safety, poor agent organization, CommonJS modules"><![CDATA[// Bad: CommonJS configuration
+const { Mastra } = require("@mastra/core");
+
+// Bad: No server configuration
+const mastra = new Mastra({
+  agents: { testAgent },
+});
+
+// Bad: Agent without proper instructions or tools
+export const testAgent = {
+  name: "test",
+  model: "gpt-4",
+};
+
+// Bad: No type safety
+const workflow = createWorkflow()
+  .then(async (data) => {
+    // No input validation
+    return agent.generate(data.message);
+  });
+
+// Missing:
+// - TypeScript ES2022 modules
+// - Server configuration (port, timeout, CORS)
+// - Proper agent registration
+// - Tool integration
+// - Memory configuration
+// - Error handling]]></incorrect-example>
+        </example>
+      </examples>
+    </non-negotiable>
+
+    <requirement priority="critical">
+      <description>Implement agents with proper response handling, streaming, structured output, and error management following Mastra patterns.</description>
+      <examples>
+        <example title="Advanced Agent Response Patterns">
+          <correct-example title="Complete agent response handling" conditions="Implementing agent with various response types" expected-result="Robust agent with proper error handling" correctness-criteria="Uses streaming, structured output, callbacks, error handling"><![CDATA[// src/mastra/agents/analysis-agent.ts
+import { Agent } from "@mastra/core/agent";
+import { z } from "zod";
+
+export const analysisAgent = new Agent({
+  name: "analysis-agent",
+  instructions: "You analyze text and provide structured insights.",
+  model: "openai/gpt-4o",
+});
+
+// Example 1: Standard generation with error handling
+export async function analyzeText(text: string) {
+  try {
+    const response = await analysisAgent.generate([
+      { role: "user", content: `Analyze this text: ${text}` },
+    ]);
+
+    console.log("Analysis:", response.text);
+    console.log("Token usage:", response.usage);
+
+    return response.text;
+  } catch (error) {
+    console.error("Analysis failed:", error);
+    throw new Error("Failed to analyze text");
+  }
+}
+
+// Example 2: Streaming response for real-time UI
+export async function streamAnalysis(text: string) {
+  try {
+    const stream = await analysisAgent.stream([
+      { role: "user", content: `Analyze this text: ${text}` },
+    ], {
+      onFinish: ({ steps, text, finishReason, usage }) => {
+        console.log("Stream completed:", {
+          totalSteps: steps.length,
+          finalText: text,
+          reason: finishReason,
+          tokensUsed: usage,
+        });
+      },
+    });
+
+    // Stream to client
+    for await (const chunk of stream.textStream) {
+      process.stdout.write(chunk);
+    }
+  } catch (error) {
+    console.error("Stream failed:", error);
+    throw error;
+  }
+}
+
+// Example 3: Structured output with validation
+export async function getStructuredAnalysis(text: string) {
+  const analysisSchema = z.object({
+    summary: z.string().describe("Brief summary of the text"),
+    sentiment: z.enum(["positive", "negative", "neutral"]),
+    keywords: z.array(z.string()).describe("Key topics and themes"),
+    actionItems: z.array(z.object({
+      task: z.string(),
+      priority: z.enum(["high", "medium", "low"]),
+    })),
+    confidence: z.number().min(0).max(1),
+  });
+
+  try {
+    const response = await analysisAgent.generate(
+      [{ role: "user", content: `Analyze: ${text}` }],
+      {
+        structuredOutput: {
+          schema: analysisSchema,
+        },
+        maxSteps: 10,
+        onStepFinish: ({ text, toolCalls, finishReason, usage }) => {
+          console.log("Step:", { text, toolCalls, finishReason, usage });
+        },
+      }
+    );
+
+    // Type-safe structured output
+    const analysis = response.object;
+    console.log("Summary:", analysis.summary);
+    console.log("Sentiment:", analysis.sentiment);
+    console.log("Keywords:", analysis.keywords);
+
+    return analysis;
+  } catch (error) {
+    console.error("Structured analysis failed:", error);
+    throw error;
+  }
+}
+
+// Example 4: Sub-agent for structured output
+export async function getEnhancedStructuredAnalysis(text: string) {
+  const response = await analysisAgent.generate(
+    [{ role: "user", content: text }],
+    {
+      structuredOutput: {
+        schema: z.object({
+          summary: z.string(),
+          details: z.array(z.string()),
+        }),
+        model: "openai/gpt-4o", // Use different model for structuring
+      },
+    }
+  );
+
+  return response.object;
+}
+
+// Example 5: Image processing
+export async function analyzeImage(imageUrl: string) {
+  const response = await analysisAgent.generate([
+    {
+      role: "user",
+      content: [
+        {
+          type: "image",
+          image: imageUrl,
+          mimeType: "image/jpeg",
+        },
+        {
+          type: "text",
+          text: "Describe this image in detail, focusing on key elements and context.",
+        },
+      ],
+    },
+  ]);
+
+  return response.text;
+}
+
+// Example 6: Multi-turn conversation
+export async function conversationalAnalysis(messages: Array<{ role: string; content: string }>) {
+  const response = await analysisAgent.generate(messages, {
+    memory: {
+      thread: "analysis-session-123",
+      resource: "document-456",
+    },
+    maxSteps: 15,
+  });
+
+  return response.text;
+}]]></correct-example>
+
+          <incorrect-example title="Poor response handling" conditions="Implementing agent responses" expected-result="Robust agent implementation" incorrectness-criteria="No error handling, no streaming, no structured output, missing callbacks"><![CDATA[// Bad: No error handling
+const response = await agent.generate(text);
+console.log(response.text);
+
+// Bad: No streaming for long responses
+const result = await agent.generate(longText);
+// User waits for entire response
+
+// Bad: Unstructured output parsing
+const response = await agent.generate("Analyze this");
+const data = JSON.parse(response.text); // Fragile parsing
+
+// Bad: No monitoring or callbacks
+await agent.generate(text);
+// No visibility into progress
+
+// Missing:
+// - Try-catch error handling
+// - Streaming for real-time responses
+// - Zod schema validation for structured output
+// - onStepFinish callbacks for monitoring
+// - Memory configuration for conversations
+// - Token usage tracking]]></incorrect-example>
+        </example>
+      </examples>
+    </requirement>
+
+    <requirement priority="high">
+      <description>Integrate agents into workflows with proper step composition, data flow, and orchestration patterns.</description>
+      <examples>
+        <example title="Workflow Orchestration Patterns">
+          <correct-example title="Advanced workflow with agents and tools" conditions="Building complex workflows" expected-result="Well-orchestrated workflow" correctness-criteria="Uses proper step composition, data mapping, error handling"><![CDATA[// src/mastra/workflows/content-pipeline.ts
+import { createWorkflow, createStep } from "@mastra/core/workflow";
+import { z } from "zod";
+
+// Step 1: Direct agent invocation with control
+const analyzeStep = createStep({
+  id: "analyze-content",
+  execute: async ({ inputData, mastra, runtimeContext }) => {
+    const agent = mastra.getAgent("analysisAgent");
+
+    try {
+      const response = await agent.generate(
+        `Analyze this content: ${inputData.content}`,
+        {
+          memory: {
+            thread: inputData.userId,
+            resource: `content-${inputData.contentId}`,
+          },
+          maxSteps: 10,
+          onStepFinish: ({ text, toolCalls, finishReason, usage }) => {
+            console.log("Analysis step:", { text, toolCalls, finishReason });
+          },
+        }
+      );
+
+      return {
+        analysis: response.text,
+        tokenUsage: response.usage,
+      };
+    } catch (error) {
+      console.error("Analysis failed:", error);
+      throw error;
+    }
+  },
+});
+
+// Step 2: Tool invocation
+const formatStep = createStep({
+  id: "format-content",
+  execute: async ({ inputData, mastra }) => {
+    const tool = mastra.getTool("formatTool");
+
+    const response = await tool.execute({
+      context: { text: inputData.analysis },
+    });
+
+    return { formatted: response.formatted };
+  },
+});
+
+// Step 3: Agent as step (simpler composition)
+const summaryAgent = mastra.getAgent("summaryAgent");
+const summarizeStep = createStep(summaryAgent);
+
+// Complex workflow with branching and parallel execution
+export const contentPipeline = createWorkflow({
+  name: "content-pipeline",
+  triggerSchema: z.object({
+    content: z.string(),
+    contentId: z.string(),
+    userId: z.string(),
+    options: z.object({
+      includeKeywords: z.boolean(),
+      generateSummary: z.boolean(),
+    }),
+  }),
+})
+  // Step 1: Analyze content
+  .then(analyzeStep)
+
+  // Step 2: Format based on analysis
+  .then(formatStep)
+
+  // Step 3: Conditional branching
+  .branch({
+    when: ({ context }) => context.options.generateSummary,
+    then: ({ context }) => ({
+      prompt: `Summarize this analysis: ${context.formatted}`,
+    }),
+  })
+  .then(summarizeStep)
+
+  // Step 4: Parallel operations
+  .parallel([
+    createStep({
+      id: "extract-keywords",
+      execute: async ({ mastra, context }) => {
+        if (!context.options.includeKeywords) {
+          return { keywords: [] };
+        }
+
+        const agent = mastra.getAgent("keywordAgent");
+        const response = await agent.generate(
+          `Extract keywords: ${context.formatted}`
+        );
+
+        return { keywords: response.text.split(",") };
+      },
+    }),
+    createStep({
+      id: "generate-metadata",
+      execute: async ({ context }) => {
+        return {
+          metadata: {
+            processedAt: new Date().toISOString(),
+            wordCount: context.formatted.split(" ").length,
+          },
+        };
+      },
+    }),
+  ])
+
+  // Final aggregation
+  .then(createStep({
+    id: "aggregate-results",
+    execute: async ({ context }) => {
+      return {
+        result: {
+          analysis: context.analysis,
+          formatted: context.formatted,
+          summary: context.summary || null,
+          keywords: context.keywords || [],
+          metadata: context.metadata,
+          tokenUsage: context.tokenUsage,
+        },
+      };
+    },
+  }))
+
+  .commit();
+
+// Workflow execution with error handling
+export async function executeContentPipeline(input: {
+  content: string;
+  contentId: string;
+  userId: string;
+  options: { includeKeywords: boolean; generateSummary: boolean };
+}) {
+  try {
+    const result = await contentPipeline.execute(input);
+    console.log("Pipeline completed:", result);
+    return result;
+  } catch (error) {
+    console.error("Pipeline failed:", error);
+    throw new Error("Content pipeline execution failed");
+  }
+}]]></correct-example>
+
+          <incorrect-example title="Poor workflow implementation" conditions="Building workflows" expected-result="Well-orchestrated workflow" incorrectness-criteria="No error handling, poor data flow, missing type safety"><![CDATA[// Bad: No type validation
+const workflow = createWorkflow()
+  .then(async (data) => {
+    return agent.generate(data.text); // No input schema
+  });
+
+// Bad: No error handling
+const step = createStep({
+  execute: async ({ mastra }) => {
+    const agent = mastra.getAgent("agent");
+    return await agent.generate("text"); // No try-catch
+  },
+});
+
+// Bad: Missing data transformation
+const workflow = createWorkflow()
+  .then(step1)
+  .then(step2); // Output of step1 might not match input of step2
+
+// Missing:
+// - Zod schemas for type safety
+// - Error handling in steps
+// - Data mapping between steps
+// - Conditional logic and branching
+// - Parallel execution optimization
+// - Memory configuration
+// - Monitoring and logging]]></incorrect-example>
+        </example>
+      </examples>
+    </requirement>
+  </requirements>
+
+  <context description="Mastra framework development considerations">
+    Mastra is a TypeScript framework for building AI-powered applications with agents, workflows, and tools. It provides production-ready infrastructure with observability, memory management, and deployment capabilities.
+
+    Key architectural principles:
+    - TypeScript-first with ES2022 modules and bundler resolution
+    - Agents as autonomous reasoning entities with LLM and tool integration
+    - Workflows as graph-based orchestration for explicit control
+    - Tools as structured operations with Zod schemas
+    - Hono-based HTTP server for production deployment
+    - Memory management with thread and resource scoping
+    - Multi-provider support (OpenAI, Anthropic, Gemini, 40+ providers)
+
+    Production considerations:
+    - Use `mastra build` to generate Hono server
+    - Configure CORS for cross-origin requests
+    - Set appropriate timeouts and body limits
+    - Implement structured output with Zod for reliability
+    - Use streaming for long-running responses
+    - Monitor token usage and costs
+    - Implement proper error handling and logging
+
+    Best practices from Mastra.ai team:
+    - Register agents in Mastra instance for shared resources
+    - Use memory with thread/resource IDs for conversation context
+    - Implement onStepFinish callbacks for monitoring
+    - Use structured output instead of JSON parsing
+    - Compose agents as workflow steps when possible
+    - Use runtime context for dynamic configuration
+    - Test agents with Mastra Studio before deployment
+  </context>
+
+  <references>
+    <reference as="dependency" href=".cursor/rules/000-core/002-cursor-rules-creation.mdc" reason="Follows standard rule format">Base rule format definition</reference>
+    <reference as="context" href="https://mastra.ai/docs" reason="Official Mastra documentation">Mastra Official Documentation</reference>
+    <reference as="context" href="https://mastra.ai/docs/agents/overview" reason="Agent development">Mastra Agents Guide</reference>
+    <reference as="context" href="https://mastra.ai/docs/workflows/agents-and-tools" reason="Workflow patterns">Mastra Workflows Documentation</reference>
+    <reference as="context" href="https://mastra.ai/docs/server-db/production-server" reason="Deployment">Mastra Production Server Setup</reference>
+    <reference as="context" href="https://mastra.ai/docs/deployment/server-deployment" reason="Server deployment">Mastra Server Deployment Guide</reference>
+    <reference as="context" href="https://github.com/mastra-ai/mastra" reason="Source code and examples">Mastra GitHub Repository</reference>
+  </references>
+</rule>

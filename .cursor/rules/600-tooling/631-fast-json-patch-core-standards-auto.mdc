@@ -1,0 +1,1478 @@
+<rule>
+  <meta>
+    <title>Fast-JSON-Patch Core Standards</title>
+    <description>Comprehensive fast-json-patch standards for JSON document manipulation, patch operations, validation, performance optimization, and TypeScript integration following RFC 6902 standards</description>
+    <created-at utc-timestamp="1744157700">January 25, 2025, 10:15 AM</created-at>
+    <last-updated-at utc-timestamp="1744157700">January 25, 2025, 10:15 AM</last-updated-at>
+    <applies-to>
+      <file-matcher glob="**/*.{ts,tsx,js,jsx}">TypeScript and JavaScript files using fast-json-patch</file-matcher>
+      <file-matcher glob="**/patches/**/*">JSON patch operation files</file-matcher>
+      <file-matcher glob="**/json/**/*">JSON manipulation files</file-matcher>
+      <file-matcher glob="**/*patch*">Patch-related files</file-matcher>
+      <action-matcher action="json-manipulation">Triggered when working with JSON patch operations</action-matcher>
+    </applies-to>
+  </meta>
+  <requirements>
+    <non-negotiable priority="critical">
+      <description>Use fast-json-patch for all JSON document manipulation with proper RFC 6902 compliance, comprehensive validation, error handling, and performance optimization. Implement type-safe patch operations with proper conflict resolution and rollback mechanisms.</description>
+      <examples>
+        <example title="Comprehensive Fast-JSON-Patch Implementation">
+          <correct-example title="Proper fast-json-patch usage with validation and error handling" conditions="Implementing JSON patch operations" expected-result="Type-safe, validated JSON patching with proper error handling and performance optimization" correctness-criteria="RFC 6902 compliance, validation, error handling, TypeScript integration, performance optimization"><![CDATA[// TypeScript - Comprehensive fast-json-patch implementation
+import { 
+  applyPatch, 
+  createPatch, 
+  compare, 
+  validate, 
+  Operation, 
+  PatchResult,
+  deepClone,
+  JsonPatchError,
+  TestPatchResult
+} from 'fast-json-patch';
+
+// Type definitions for enhanced type safety
+interface PatchOperationContext {
+  source: any;
+  target?: any;
+  patches: Operation[];
+  options: PatchOptions;
+  metadata: {
+    timestamp: number;
+    userId?: string;
+    operationId: string;
+    version: number;
+  };
+}
+
+interface PatchOptions {
+  validate?: boolean;
+  mutateDocument?: boolean;
+  banPrototypeModifications?: boolean;
+  acceptUndefined?: boolean;
+  reversible?: boolean;
+  trackChanges?: boolean;
+}
+
+interface PatchValidationResult {
+  isValid: boolean;
+  errors: ValidationError[];
+  warnings: ValidationWarning[];
+  suggestions: string[];
+}
+
+interface ValidationError {
+  type: 'schema' | 'operation' | 'path' | 'value';
+  message: string;
+  path: string;
+  operation: Operation;
+}
+
+interface ValidationWarning {
+  type: 'performance' | 'compatibility' | 'security';
+  message: string;
+  severity: 'low' | 'medium' | 'high';
+}
+
+// Enhanced JSON patch service with comprehensive functionality
+export class JsonPatchService {
+  private static instance: JsonPatchService;
+  private operationHistory: Map<string, PatchOperationContext[]> = new Map();
+  private validationCache: Map<string, PatchValidationResult> = new Map();
+  private performanceMetrics: Map<string, number[]> = new Map();
+
+  static getInstance(): JsonPatchService {
+    if (!JsonPatchService.instance) {
+      JsonPatchService.instance = new JsonPatchService();
+    }
+    return JsonPatchService.instance;
+  }
+
+  /**
+   * Apply patches with comprehensive validation and error handling
+   */
+  async applyPatches(
+    document: any,
+    patches: Operation[],
+    options: PatchOptions = {}
+  ): Promise<{
+    result: any;
+    applied: Operation[];
+    rejected: Operation[];
+    errors: JsonPatchError[];
+    metrics: {
+      operationsCount: number;
+      executionTime: number;
+      memoryUsage: number;
+    };
+  }> {
+    const startTime = performance.now();
+    const initialMemory = this.getMemoryUsage();
+    
+    // Validate inputs
+    this.validateDocument(document);
+    const validationResult = await this.validatePatches(patches, document);
+    
+    if (!validationResult.isValid && options.validate !== false) {
+      throw new Error(`Patch validation failed: ${validationResult.errors.map(e => e.message).join(', ')}`);
+    }
+
+    // Clone document if not mutating original
+    const workingDocument = options.mutateDocument ? document : deepClone(document);
+    
+    const applied: Operation[] = [];
+    const rejected: Operation[] = [];
+    const errors: JsonPatchError[] = [];
+
+    // Apply patches with error handling
+    for (const patch of patches) {
+      try {
+        const patchResult = this.applySinglePatch(workingDocument, patch, options);
+        
+        if (patchResult.test === false) {
+          rejected.push(patch);
+          continue;
+        }
+        
+        applied.push(patch);
+        
+        // Log operation for history tracking
+        if (options.trackChanges) {
+          this.recordOperation({
+            source: document,
+            patches: [patch],
+            options,
+            metadata: {
+              timestamp: Date.now(),
+              operationId: this.generateOperationId(),
+              version: this.getDocumentVersion(workingDocument)
+            }
+          });
+        }
+        
+      } catch (error) {
+        errors.push({
+          name: 'JsonPatchError',
+          message: error.message,
+          operation: patch,
+          tree: workingDocument
+        } as JsonPatchError);
+        
+        rejected.push(patch);
+        
+        // Stop on first error unless configured otherwise
+        if (!options.continueOnError) {
+          break;
+        }
+      }
+    }
+
+    const endTime = performance.now();
+    const finalMemory = this.getMemoryUsage();
+
+    const metrics = {
+      operationsCount: applied.length,
+      executionTime: endTime - startTime,
+      memoryUsage: finalMemory - initialMemory
+    };
+
+    // Record performance metrics
+    this.recordPerformanceMetrics('applyPatches', metrics.executionTime);
+
+    return {
+      result: workingDocument,
+      applied,
+      rejected,
+      errors,
+      metrics
+    };
+  }
+
+  /**
+   * Create optimized patches between two documents
+   */
+  createOptimizedPatch(
+    source: any,
+    target: any,
+    options: {
+      optimize?: boolean;
+      includeTest?: boolean;
+      customCompare?: (obj1: any, obj2: any, key: string) => boolean;
+    } = {}
+  ): {
+    patches: Operation[];
+    statistics: {
+      totalOperations: number;
+      operationTypes: Record<string, number>;
+      optimizationSavings: number;
+    };
+  } {
+    // Generate initial patches
+    const initialPatches = compare(source, target);
+    
+    // Optimize patches if requested
+    const optimizedPatches = options.optimize 
+      ? this.optimizePatches(initialPatches)
+      : initialPatches;
+
+    // Add test operations if requested
+    const finalPatches = options.includeTest
+      ? this.addTestOperations(optimizedPatches, source)
+      : optimizedPatches;
+
+    // Generate statistics
+    const statistics = this.generatePatchStatistics(initialPatches, finalPatches);
+
+    return {
+      patches: finalPatches,
+      statistics
+    };
+  }
+
+  /**
+   * Validate patches against document and schema
+   */
+  async validatePatches(
+    patches: Operation[],
+    document: any,
+    schema?: any
+  ): Promise<PatchValidationResult> {
+    const cacheKey = this.generateValidationCacheKey(patches, document);
+    
+    if (this.validationCache.has(cacheKey)) {
+      return this.validationCache.get(cacheKey)!;
+    }
+
+    const errors: ValidationError[] = [];
+    const warnings: ValidationWarning[] = [];
+    const suggestions: string[] = [];
+
+    // Validate each patch operation
+    for (const patch of patches) {
+      try {
+        // Validate operation structure
+        this.validateOperationStructure(patch, errors);
+        
+        // Validate path syntax
+        this.validatePathSyntax(patch.path, errors);
+        
+        // Validate operation against document
+        this.validateOperationAgainstDocument(patch, document, errors, warnings);
+        
+        // Schema validation if provided
+        if (schema) {
+          this.validateAgainstSchema(patch, schema, errors);
+        }
+
+      } catch (error) {
+        errors.push({
+          type: 'operation',
+          message: error.message,
+          path: patch.path,
+          operation: patch
+        });
+      }
+    }
+
+    // Generate performance warnings
+    this.generatePerformanceWarnings(patches, warnings);
+    
+    // Generate optimization suggestions
+    this.generateOptimizationSuggestions(patches, suggestions);
+
+    const result: PatchValidationResult = {
+      isValid: errors.length === 0,
+      errors,
+      warnings,
+      suggestions
+    };
+
+    // Cache result
+    this.validationCache.set(cacheKey, result);
+    
+    return result;
+  }
+
+  /**
+   * Create reversible patches with rollback capability
+   */
+  createReversiblePatch(
+    document: any,
+    patches: Operation[]
+  ): {
+    forward: Operation[];
+    reverse: Operation[];
+    apply: () => Promise<any>;
+    rollback: () => Promise<any>;
+  } {
+    // Create forward patches
+    const forward = [...patches];
+    
+    // Create reverse patches by applying forward and comparing
+    const modifiedDocument = deepClone(document);
+    applyPatch(modifiedDocument, forward);
+    const reverse = compare(modifiedDocument, document);
+
+    return {
+      forward,
+      reverse,
+      apply: async () => {
+        const result = await this.applyPatches(document, forward);
+        return result.result;
+      },
+      rollback: async () => {
+        const result = await this.applyPatches(document, reverse);
+        return result.result;
+      }
+    };
+  }
+
+  /**
+   * Batch process multiple patch operations
+   */
+  async batchProcess(
+    operations: Array<{
+      document: any;
+      patches: Operation[];
+      options?: PatchOptions;
+    }>,
+    concurrency: number = 5
+  ): Promise<Array<{
+    success: boolean;
+    result?: any;
+    error?: Error;
+    metrics: any;
+  }>> {
+    const results: Array<{
+      success: boolean;
+      result?: any;
+      error?: Error;
+      metrics: any;
+    }> = [];
+
+    // Process in batches to control concurrency
+    for (let i = 0; i < operations.length; i += concurrency) {
+      const batch = operations.slice(i, i + concurrency);
+      
+      const batchPromises = batch.map(async (operation) => {
+        try {
+          const result = await this.applyPatches(
+            operation.document,
+            operation.patches,
+            operation.options
+          );
+          
+          return {
+            success: true,
+            result: result.result,
+            metrics: result.metrics
+          };
+        } catch (error) {
+          return {
+            success: false,
+            error: error as Error,
+            metrics: { operationsCount: 0, executionTime: 0, memoryUsage: 0 }
+          };
+        }
+      });
+
+      const batchResults = await Promise.all(batchPromises);
+      results.push(...batchResults);
+    }
+
+    return results;
+  }
+
+  /**
+   * Merge conflicting patches intelligently
+   */
+  mergePatches(
+    patches1: Operation[],
+    patches2: Operation[],
+    conflictResolution: 'first-wins' | 'last-wins' | 'merge' | 'fail' = 'fail'
+  ): {
+    merged: Operation[];
+    conflicts: Array<{
+      path: string;
+      operation1: Operation;
+      operation2: Operation;
+      resolution: string;
+    }>;
+  } {
+    const merged: Operation[] = [];
+    const conflicts: Array<{
+      path: string;
+      operation1: Operation;
+      operation2: Operation;
+      resolution: string;
+    }> = [];
+
+    const pathMap1 = new Map(patches1.map(p => [p.path, p]));
+    const pathMap2 = new Map(patches2.map(p => [p.path, p]));
+
+    // Process all unique paths
+    const allPaths = new Set([...pathMap1.keys(), ...pathMap2.keys()]);
+
+    for (const path of allPaths) {
+      const op1 = pathMap1.get(path);
+      const op2 = pathMap2.get(path);
+
+      if (op1 && op2) {
+        // Conflict detected
+        const resolution = this.resolveConflict(op1, op2, conflictResolution);
+        
+        conflicts.push({
+          path,
+          operation1: op1,
+          operation2: op2,
+          resolution: resolution.type
+        });
+
+        if (resolution.operation) {
+          merged.push(resolution.operation);
+        }
+      } else {
+        // No conflict, add the operation
+        merged.push(op1 || op2!);
+      }
+    }
+
+    return { merged, conflicts };
+  }
+
+  // Private helper methods
+  private applySinglePatch(
+    document: any,
+    patch: Operation,
+    options: PatchOptions
+  ): PatchResult {
+    const patchArray = [patch];
+    const result = applyPatch(document, patchArray, options.validate);
+    return result[0];
+  }
+
+  private validateDocument(document: any): void {
+    if (document === null || document === undefined) {
+      throw new Error('Document cannot be null or undefined');
+    }
+  }
+
+  private validateOperationStructure(operation: Operation, errors: ValidationError[]): void {
+    if (!operation.op) {
+      errors.push({
+        type: 'operation',
+        message: 'Operation must have an "op" field',
+        path: operation.path || '',
+        operation
+      });
+    }
+
+    if (!operation.path) {
+      errors.push({
+        type: 'operation',
+        message: 'Operation must have a "path" field',
+        path: '',
+        operation
+      });
+    }
+
+    const validOps = ['add', 'remove', 'replace', 'move', 'copy', 'test'];
+    if (!validOps.includes(operation.op)) {
+      errors.push({
+        type: 'operation',
+        message: `Invalid operation type: ${operation.op}`,
+        path: operation.path,
+        operation
+      });
+    }
+  }
+
+  private validatePathSyntax(path: string, errors: ValidationError[]): void {
+    if (!path.startsWith('/')) {
+      errors.push({
+        type: 'path',
+        message: 'Path must start with "/"',
+        path,
+        operation: {} as Operation
+      });
+    }
+
+    // Validate JSON Pointer syntax
+    try {
+      // Basic validation - more comprehensive validation would go here
+      if (path.includes('//')) {
+        errors.push({
+          type: 'path',
+          message: 'Path cannot contain empty segments',
+          path,
+          operation: {} as Operation
+        });
+      }
+    } catch (error) {
+      errors.push({
+        type: 'path',
+        message: `Invalid path syntax: ${error.message}`,
+        path,
+        operation: {} as Operation
+      });
+    }
+  }
+
+  private validateOperationAgainstDocument(
+    operation: Operation,
+    document: any,
+    errors: ValidationError[],
+    warnings: ValidationWarning[]
+  ): void {
+    // Validate that the operation can be performed on the document
+    try {
+      const testPatch = [operation];
+      validate(testPatch, document);
+    } catch (error) {
+      errors.push({
+        type: 'operation',
+        message: error.message,
+        path: operation.path,
+        operation
+      });
+    }
+  }
+
+  private validateAgainstSchema(
+    operation: Operation,
+    schema: any,
+    errors: ValidationError[]
+  ): void {
+    // Schema validation implementation would go here
+    // This is a placeholder for actual schema validation
+  }
+
+  private optimizePatches(patches: Operation[]): Operation[] {
+    // Optimization logic - remove redundant operations, merge similar operations, etc.
+    const optimized: Operation[] = [];
+    const pathMap = new Map<string, Operation[]>();
+
+    // Group operations by path
+    patches.forEach(patch => {
+      if (!pathMap.has(patch.path)) {
+        pathMap.set(patch.path, []);
+      }
+      pathMap.get(patch.path)!.push(patch);
+    });
+
+    // Optimize each path group
+    pathMap.forEach((ops, path) => {
+      const optimizedOps = this.optimizePathOperations(ops);
+      optimized.push(...optimizedOps);
+    });
+
+    return optimized;
+  }
+
+  private optimizePathOperations(operations: Operation[]): Operation[] {
+    if (operations.length <= 1) return operations;
+
+    // Remove redundant operations
+    const filtered = operations.filter((op, index) => {
+      // Remove if there's a later operation that makes this one redundant
+      for (let i = index + 1; i < operations.length; i++) {
+        if (this.operationMakesRedundant(operations[i], op)) {
+          return false;
+        }
+      }
+      return true;
+    });
+
+    return filtered;
+  }
+
+  private operationMakesRedundant(later: Operation, earlier: Operation): boolean {
+    // Logic to determine if a later operation makes an earlier one redundant
+    if (later.path !== earlier.path) return false;
+    
+    // A replace operation makes previous add/replace operations redundant
+    if (later.op === 'replace' && (earlier.op === 'add' || earlier.op === 'replace')) {
+      return true;
+    }
+    
+    // A remove operation makes previous operations redundant
+    if (later.op === 'remove') {
+      return true;
+    }
+    
+    return false;
+  }
+
+  private addTestOperations(patches: Operation[], source: any): Operation[] {
+    const withTests: Operation[] = [];
+    
+    patches.forEach(patch => {
+      // Add test operation before destructive operations
+      if (patch.op === 'remove' || patch.op === 'replace') {
+        try {
+          const currentValue = this.getValueAtPath(source, patch.path);
+          withTests.push({
+            op: 'test',
+            path: patch.path,
+            value: currentValue
+          });
+        } catch (error) {
+          // Path doesn't exist, no test needed
+        }
+      }
+      
+      withTests.push(patch);
+    });
+    
+    return withTests;
+  }
+
+  private getValueAtPath(document: any, path: string): any {
+    // Implementation to get value at JSON pointer path
+    const parts = path.split('/').slice(1); // Remove empty first element
+    let current = document;
+    
+    for (const part of parts) {
+      const decodedPart = part.replace(/~1/g, '/').replace(/~0/g, '~');
+      current = current[decodedPart];
+    }
+    
+    return current;
+  }
+
+  private generatePatchStatistics(
+    original: Operation[],
+    optimized: Operation[]
+  ): {
+    totalOperations: number;
+    operationTypes: Record<string, number>;
+    optimizationSavings: number;
+  } {
+    const operationTypes: Record<string, number> = {};
+    
+    optimized.forEach(op => {
+      operationTypes[op.op] = (operationTypes[op.op] || 0) + 1;
+    });
+    
+    return {
+      totalOperations: optimized.length,
+      operationTypes,
+      optimizationSavings: Math.max(0, original.length - optimized.length)
+    };
+  }
+
+  private generatePerformanceWarnings(
+    patches: Operation[],
+    warnings: ValidationWarning[]
+  ): void {
+    // Warn about potentially expensive operations
+    if (patches.length > 100) {
+      warnings.push({
+        type: 'performance',
+        message: `Large number of operations (${patches.length}) may impact performance`,
+        severity: 'medium'
+      });
+    }
+
+    // Warn about deep paths
+    const deepPaths = patches.filter(p => p.path.split('/').length > 10);
+    if (deepPaths.length > 0) {
+      warnings.push({
+        type: 'performance',
+        message: `${deepPaths.length} operations target deep paths which may be slow`,
+        severity: 'low'
+      });
+    }
+  }
+
+  private generateOptimizationSuggestions(
+    patches: Operation[],
+    suggestions: string[]
+  ): void {
+    // Suggest batching similar operations
+    const pathGroups = this.groupOperationsByPath(patches);
+    const largePaths = Array.from(pathGroups.entries())
+      .filter(([_, ops]) => ops.length > 5);
+    
+    if (largePaths.length > 0) {
+      suggestions.push(
+        `Consider batching operations for paths: ${largePaths.map(([path]) => path).join(', ')}`
+      );
+    }
+
+    // Suggest using replace instead of remove + add
+    const removeAddPairs = this.findRemoveAddPairs(patches);
+    if (removeAddPairs.length > 0) {
+      suggestions.push(
+        `Consider using 'replace' instead of 'remove' + 'add' for ${removeAddPairs.length} operations`
+      );
+    }
+  }
+
+  private groupOperationsByPath(patches: Operation[]): Map<string, Operation[]> {
+    const groups = new Map<string, Operation[]>();
+    
+    patches.forEach(patch => {
+      if (!groups.has(patch.path)) {
+        groups.set(patch.path, []);
+      }
+      groups.get(patch.path)!.push(patch);
+    });
+    
+    return groups;
+  }
+
+  private findRemoveAddPairs(patches: Operation[]): Array<[Operation, Operation]> {
+    const pairs: Array<[Operation, Operation]> = [];
+    
+    for (let i = 0; i < patches.length - 1; i++) {
+      const current = patches[i];
+      const next = patches[i + 1];
+      
+      if (current.op === 'remove' && next.op === 'add' && current.path === next.path) {
+        pairs.push([current, next]);
+      }
+    }
+    
+    return pairs;
+  }
+
+  private resolveConflict(
+    op1: Operation,
+    op2: Operation,
+    strategy: 'first-wins' | 'last-wins' | 'merge' | 'fail'
+  ): { type: string; operation?: Operation } {
+    switch (strategy) {
+      case 'first-wins':
+        return { type: 'first-wins', operation: op1 };
+      case 'last-wins':
+        return { type: 'last-wins', operation: op2 };
+      case 'merge':
+        return this.mergeOperations(op1, op2);
+      case 'fail':
+      default:
+        throw new Error(`Patch conflict at path: ${op1.path}`);
+    }
+  }
+
+  private mergeOperations(op1: Operation, op2: Operation): { type: string; operation?: Operation } {
+    // Attempt to merge two conflicting operations
+    if (op1.op === 'replace' && op2.op === 'replace') {
+      // For replace operations, use the latter value
+      return { type: 'merged-replace', operation: op2 };
+    }
+    
+    // Default to last-wins for other cases
+    return { type: 'merged-default', operation: op2 };
+  }
+
+  private recordOperation(context: PatchOperationContext): void {
+    const docId = this.generateDocumentId(context.source);
+    
+    if (!this.operationHistory.has(docId)) {
+      this.operationHistory.set(docId, []);
+    }
+    
+    this.operationHistory.get(docId)!.push(context);
+    
+    // Limit history size
+    const history = this.operationHistory.get(docId)!;
+    if (history.length > 100) {
+      history.splice(0, history.length - 100);
+    }
+  }
+
+  private recordPerformanceMetrics(operation: string, time: number): void {
+    if (!this.performanceMetrics.has(operation)) {
+      this.performanceMetrics.set(operation, []);
+    }
+    
+    const metrics = this.performanceMetrics.get(operation)!;
+    metrics.push(time);
+    
+    // Keep only last 100 measurements
+    if (metrics.length > 100) {
+      metrics.splice(0, metrics.length - 100);
+    }
+  }
+
+  private generateOperationId(): string {
+    return `op_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`;
+  }
+
+  private generateDocumentId(document: any): string {
+    // Simple hash of document for identification
+    return `doc_${JSON.stringify(document).length}_${typeof document}`;
+  }
+
+  private generateValidationCacheKey(patches: Operation[], document: any): string {
+    return `val_${JSON.stringify(patches)}_${this.generateDocumentId(document)}`;
+  }
+
+  private getDocumentVersion(document: any): number {
+    // Simple versioning based on content
+    return JSON.stringify(document).length;
+  }
+
+  private getMemoryUsage(): number {
+    // Browser environment check
+    if (typeof performance !== 'undefined' && (performance as any).memory) {
+      return (performance as any).memory.usedJSHeapSize;
+    }
+    return 0;
+  }
+
+  // Public utility methods
+  getOperationHistory(documentId: string): PatchOperationContext[] {
+    return this.operationHistory.get(documentId) || [];
+  }
+
+  getPerformanceMetrics(): Record<string, { average: number; min: number; max: number }> {
+    const result: Record<string, { average: number; min: number; max: number }> = {};
+    
+    this.performanceMetrics.forEach((times, operation) => {
+      result[operation] = {
+        average: times.reduce((sum, time) => sum + time, 0) / times.length,
+        min: Math.min(...times),
+        max: Math.max(...times)
+      };
+    });
+    
+    return result;
+  }
+
+  clearCache(): void {
+    this.validationCache.clear();
+    this.operationHistory.clear();
+    this.performanceMetrics.clear();
+  }
+}
+
+// Utility functions for common patch operations
+export const patchUtils = {
+  /**
+   * Create a patch to set a value at a specific path
+   */
+  setValue: (path: string, value: any): Operation => ({
+    op: 'replace',
+    path,
+    value
+  }),
+
+  /**
+   * Create a patch to add a value at a specific path
+   */
+  addValue: (path: string, value: any): Operation => ({
+    op: 'add',
+    path,
+    value
+  }),
+
+  /**
+   * Create a patch to remove a value at a specific path
+   */
+  removeValue: (path: string): Operation => ({
+    op: 'remove',
+    path
+  }),
+
+  /**
+   * Create patches for array operations
+   */
+  arrayOps: {
+    push: (arrayPath: string, value: any): Operation => ({
+      op: 'add',
+      path: `${arrayPath}/-`,
+      value
+    }),
+
+    insertAt: (arrayPath: string, index: number, value: any): Operation => ({
+      op: 'add',
+      path: `${arrayPath}/${index}`,
+      value
+    }),
+
+    removeAt: (arrayPath: string, index: number): Operation => ({
+      op: 'remove',
+      path: `${arrayPath}/${index}`
+    }),
+
+    replaceAt: (arrayPath: string, index: number, value: any): Operation => ({
+      op: 'replace',
+      path: `${arrayPath}/${index}`,
+      value
+    })
+  },
+
+  /**
+   * Create patches for object operations
+   */
+  objectOps: {
+    setProperty: (objectPath: string, property: string, value: any): Operation => ({
+      op: 'add',
+      path: `${objectPath}/${property}`,
+      value
+    }),
+
+    removeProperty: (objectPath: string, property: string): Operation => ({
+      op: 'remove',
+      path: `${objectPath}/${property}`
+    }),
+
+    renameProperty: (objectPath: string, oldName: string, newName: string): Operation[] => [
+      { op: 'copy', from: `${objectPath}/${oldName}`, path: `${objectPath}/${newName}` },
+      { op: 'remove', path: `${objectPath}/${oldName}` }
+    ]
+  }
+};
+
+// Example usage and integration patterns
+export class DocumentManager {
+  private patchService = JsonPatchService.getInstance();
+
+  async updateDocument(
+    documentId: string,
+    currentDocument: any,
+    patches: Operation[]
+  ): Promise<{
+    success: boolean;
+    document?: any;
+    errors?: string[];
+  }> {
+    try {
+      const result = await this.patchService.applyPatches(
+        currentDocument,
+        patches,
+        {
+          validate: true,
+          mutateDocument: false,
+          trackChanges: true
+        }
+      );
+
+      if (result.errors.length > 0) {
+        return {
+          success: false,
+          errors: result.errors.map(e => e.message)
+        };
+      }
+
+      return {
+        success: true,
+        document: result.result
+      };
+    } catch (error) {
+      return {
+        success: false,
+        errors: [error.message]
+      };
+    }
+  }
+
+  async mergeDocuments(
+    baseDocument: any,
+    document1: any,
+    document2: any
+  ): Promise<any> {
+    const patches1 = this.patchService.createOptimizedPatch(baseDocument, document1).patches;
+    const patches2 = this.patchService.createOptimizedPatch(baseDocument, document2).patches;
+
+    const { merged } = this.patchService.mergePatches(patches1, patches2, 'merge');
+    
+    const result = await this.patchService.applyPatches(baseDocument, merged);
+    return result.result;
+  }
+}]]></correct-example>
+          <incorrect-example title="Poor fast-json-patch usage without validation or error handling" conditions="Using fast-json-patch for JSON manipulation" expected-result="Proper JSON patch implementation" incorrectness-criteria="No validation, poor error handling, no type safety, missing optimization"><![CDATA[// BAD: Poor fast-json-patch usage
+import { applyPatch, compare } from 'fast-json-patch';
+
+// No validation or error handling
+function badPatchDocument(doc, patches) {
+  // Direct application without validation
+  applyPatch(doc, patches);
+  return doc;
+}
+
+// No type safety
+function badCreatePatch(source, target) {
+  const patches = compare(source, target);
+  return patches; // No optimization or validation
+}
+
+// Poor conflict resolution
+function badMergePatches(patches1, patches2) {
+  // Just concatenate without conflict detection
+  return [...patches1, ...patches2];
+}
+
+// No performance considerations
+function badBatchProcess(operations) {
+  const results = [];
+  for (const op of operations) {
+    // Synchronous processing without error handling
+    const result = applyPatch(op.document, op.patches);
+    results.push(result);
+  }
+  return results;
+}
+
+// No history tracking
+// No rollback capability
+// No optimization
+// No comprehensive validation]]></incorrect-example>
+        </example>
+      </examples>
+    </non-negotiable>
+
+    <requirement priority="high">
+      <description>Implement comprehensive testing for fast-json-patch operations including unit tests for patch validation, integration tests for complex document manipulation, and performance tests for large-scale operations.</description>
+      <examples>
+        <example title="Fast-JSON-Patch Testing Patterns">
+          <correct-example title="Comprehensive testing for JSON patch operations" conditions="Testing fast-json-patch implementations" expected-result="Thorough test coverage with proper validation and performance testing" correctness-criteria="Unit tests, integration tests, performance tests, error handling validation"><![CDATA[// TypeScript - Comprehensive fast-json-patch testing
+import { JsonPatchService, patchUtils } from '../json-patch-service';
+import { Operation } from 'fast-json-patch';
+
+describe('Fast-JSON-Patch Service', () => {
+  let patchService: JsonPatchService;
+
+  beforeEach(() => {
+    patchService = JsonPatchService.getInstance();
+    patchService.clearCache();
+  });
+
+  describe('Basic Patch Operations', () => {
+    it('should apply simple add operation correctly', async () => {
+      const document = { name: 'John' };
+      const patches: Operation[] = [
+        { op: 'add', path: '/age', value: 30 }
+      ];
+
+      const result = await patchService.applyPatches(document, patches);
+
+      expect(result.result).toEqual({ name: 'John', age: 30 });
+      expect(result.applied).toHaveLength(1);
+      expect(result.rejected).toHaveLength(0);
+      expect(result.errors).toHaveLength(0);
+    });
+
+    it('should apply replace operation correctly', async () => {
+      const document = { name: 'John', age: 25 };
+      const patches: Operation[] = [
+        { op: 'replace', path: '/age', value: 30 }
+      ];
+
+      const result = await patchService.applyPatches(document, patches);
+
+      expect(result.result).toEqual({ name: 'John', age: 30 });
+      expect(result.applied).toHaveLength(1);
+    });
+
+    it('should apply remove operation correctly', async () => {
+      const document = { name: 'John', age: 25, city: 'NYC' };
+      const patches: Operation[] = [
+        { op: 'remove', path: '/city' }
+      ];
+
+      const result = await patchService.applyPatches(document, patches);
+
+      expect(result.result).toEqual({ name: 'John', age: 25 });
+      expect(result.applied).toHaveLength(1);
+    });
+
+    it('should handle array operations correctly', async () => {
+      const document = { items: ['a', 'b', 'c'] };
+      const patches: Operation[] = [
+        { op: 'add', path: '/items/1', value: 'x' },
+        { op: 'remove', path: '/items/3' }
+      ];
+
+      const result = await patchService.applyPatches(document, patches);
+
+      expect(result.result.items).toEqual(['a', 'x', 'b']);
+    });
+  });
+
+  describe('Patch Validation', () => {
+    it('should validate patch structure correctly', async () => {
+      const document = { name: 'John' };
+      const invalidPatches: any[] = [
+        { path: '/age', value: 30 }, // Missing op
+        { op: 'invalid', path: '/age', value: 30 }, // Invalid op
+        { op: 'add', value: 30 } // Missing path
+      ];
+
+      for (const patch of invalidPatches) {
+        const result = await patchService.validatePatches([patch], document);
+        expect(result.isValid).toBe(false);
+        expect(result.errors.length).toBeGreaterThan(0);
+      }
+    });
+
+    it('should validate path syntax correctly', async () => {
+      const document = { name: 'John' };
+      const invalidPaths = [
+        'age', // Missing leading slash
+        '//', // Empty segments
+        '/age//value' // Double slash
+      ];
+
+      for (const path of invalidPaths) {
+        const patch: Operation = { op: 'add', path, value: 30 };
+        const result = await patchService.validatePatches([patch], document);
+        expect(result.isValid).toBe(false);
+      }
+    });
+
+    it('should validate operations against document structure', async () => {
+      const document = { name: 'John' };
+      const patches: Operation[] = [
+        { op: 'remove', path: '/nonexistent' }, // Path doesn't exist
+        { op: 'replace', path: '/name/invalid', value: 'test' } // Invalid nested path
+      ];
+
+      const result = await patchService.validatePatches(patches, document);
+      expect(result.isValid).toBe(false);
+      expect(result.errors.length).toBeGreaterThan(0);
+    });
+
+    it('should generate performance warnings for large operations', async () => {
+      const document = { items: [] };
+      const patches: Operation[] = Array.from({ length: 150 }, (_, i) => ({
+        op: 'add',
+        path: `/items/${i}`,
+        value: `item-${i}`
+      }));
+
+      const result = await patchService.validatePatches(patches, document);
+      expect(result.warnings.some(w => w.type === 'performance')).toBe(true);
+    });
+  });
+
+  describe('Patch Optimization', () => {
+    it('should optimize redundant operations', () => {
+      const source = { name: 'John', age: 25 };
+      const target = { name: 'Jane', age: 30 };
+
+      const { patches, statistics } = patchService.createOptimizedPatch(source, target, {
+        optimize: true
+      });
+
+      expect(patches).toHaveLength(2);
+      expect(patches[0]).toEqual({ op: 'replace', path: '/name', value: 'Jane' });
+      expect(patches[1]).toEqual({ op: 'replace', path: '/age', value: 30 });
+      expect(statistics.totalOperations).toBe(2);
+    });
+
+    it('should add test operations when requested', () => {
+      const source = { name: 'John', age: 25 };
+      const target = { name: 'Jane', age: 25 };
+
+      const { patches } = patchService.createOptimizedPatch(source, target, {
+        includeTest: true
+      });
+
+      const testOp = patches.find(p => p.op === 'test');
+      expect(testOp).toBeDefined();
+      expect(testOp!.path).toBe('/name');
+      expect(testOp!.value).toBe('John');
+    });
+
+    it('should generate optimization suggestions', async () => {
+      const document = { items: Array.from({ length: 10 }, (_, i) => i) };
+      const patches: Operation[] = Array.from({ length: 10 }, (_, i) => ({
+        op: 'replace',
+        path: `/items/${i}`,
+        value: i * 2
+      }));
+
+      const result = await patchService.validatePatches(patches, document);
+      expect(result.suggestions.length).toBeGreaterThan(0);
+    });
+  });
+
+  describe('Conflict Resolution', () => {
+    it('should detect conflicts in merge operations', () => {
+      const patches1: Operation[] = [
+        { op: 'replace', path: '/name', value: 'Alice' }
+      ];
+      const patches2: Operation[] = [
+        { op: 'replace', path: '/name', value: 'Bob' }
+      ];
+
+      expect(() => {
+        patchService.mergePatches(patches1, patches2, 'fail');
+      }).toThrow('Patch conflict');
+    });
+
+    it('should resolve conflicts with first-wins strategy', () => {
+      const patches1: Operation[] = [
+        { op: 'replace', path: '/name', value: 'Alice' }
+      ];
+      const patches2: Operation[] = [
+        { op: 'replace', path: '/name', value: 'Bob' }
+      ];
+
+      const { merged, conflicts } = patchService.mergePatches(patches1, patches2, 'first-wins');
+
+      expect(merged).toHaveLength(1);
+      expect(merged[0].value).toBe('Alice');
+      expect(conflicts).toHaveLength(1);
+    });
+
+    it('should resolve conflicts with last-wins strategy', () => {
+      const patches1: Operation[] = [
+        { op: 'replace', path: '/name', value: 'Alice' }
+      ];
+      const patches2: Operation[] = [
+        { op: 'replace', path: '/name', value: 'Bob' }
+      ];
+
+      const { merged, conflicts } = patchService.mergePatches(patches1, patches2, 'last-wins');
+
+      expect(merged).toHaveLength(1);
+      expect(merged[0].value).toBe('Bob');
+      expect(conflicts).toHaveLength(1);
+    });
+  });
+
+  describe('Reversible Operations', () => {
+    it('should create reversible patches', async () => {
+      const document = { name: 'John', age: 25 };
+      const patches: Operation[] = [
+        { op: 'replace', path: '/name', value: 'Jane' },
+        { op: 'add', path: '/city', value: 'NYC' }
+      ];
+
+      const reversible = patchService.createReversiblePatch(document, patches);
+
+      // Apply forward patches
+      const forwardResult = await reversible.apply();
+      expect(forwardResult).toEqual({ name: 'Jane', age: 25, city: 'NYC' });
+
+      // Apply reverse patches
+      const reverseResult = await reversible.rollback();
+      expect(reverseResult).toEqual(document);
+    });
+  });
+
+  describe('Batch Processing', () => {
+    it('should process multiple operations in batches', async () => {
+      const operations = Array.from({ length: 10 }, (_, i) => ({
+        document: { value: i },
+        patches: [{ op: 'replace', path: '/value', value: i * 2 }] as Operation[]
+      }));
+
+      const results = await patchService.batchProcess(operations, 3);
+
+      expect(results).toHaveLength(10);
+      results.forEach((result, index) => {
+        expect(result.success).toBe(true);
+        expect(result.result?.value).toBe(index * 2);
+      });
+    });
+
+    it('should handle errors in batch processing', async () => {
+      const operations = [
+        {
+          document: { value: 1 },
+          patches: [{ op: 'replace', path: '/value', value: 2 }] as Operation[]
+        },
+        {
+          document: { value: 1 },
+          patches: [{ op: 'invalid', path: '/value', value: 2 }] as any[]
+        }
+      ];
+
+      const results = await patchService.batchProcess(operations);
+
+      expect(results[0].success).toBe(true);
+      expect(results[1].success).toBe(false);
+      expect(results[1].error).toBeDefined();
+    });
+  });
+
+  describe('Performance Testing', () => {
+    it('should handle large documents efficiently', async () => {
+      const largeDocument = {
+        items: Array.from({ length: 1000 }, (_, i) => ({
+          id: i,
+          name: `Item ${i}`,
+          value: Math.random()
+        }))
+      };
+
+      const patches: Operation[] = Array.from({ length: 100 }, (_, i) => ({
+        op: 'replace',
+        path: `/items/${i}/value`,
+        value: i * 2
+      }));
+
+      const startTime = performance.now();
+      const result = await patchService.applyPatches(largeDocument, patches);
+      const endTime = performance.now();
+
+      expect(result.applied).toHaveLength(100);
+      expect(endTime - startTime).toBeLessThan(1000); // Should complete in under 1 second
+    });
+
+    it('should maintain performance metrics', async () => {
+      const document = { value: 1 };
+      const patches: Operation[] = [{ op: 'replace', path: '/value', value: 2 }];
+
+      // Perform multiple operations
+      for (let i = 0; i < 5; i++) {
+        await patchService.applyPatches(document, patches);
+      }
+
+      const metrics = patchService.getPerformanceMetrics();
+      expect(metrics.applyPatches).toBeDefined();
+      expect(metrics.applyPatches.average).toBeGreaterThan(0);
+    });
+
+    it('should optimize memory usage for large operations', async () => {
+      const initialMemory = (performance as any).memory?.usedJSHeapSize || 0;
+      
+      const largeDocument = {
+        data: Array.from({ length: 10000 }, (_, i) => ({ id: i, value: `data-${i}` }))
+      };
+
+      const patches: Operation[] = Array.from({ length: 1000 }, (_, i) => ({
+        op: 'replace',
+        path: `/data/${i}/value`,
+        value: `updated-${i}`
+      }));
+
+      const result = await patchService.applyPatches(largeDocument, patches, {
+        mutateDocument: false
+      });
+
+      expect(result.applied).toHaveLength(1000);
+      
+      // Memory usage should be reasonable
+      if ((performance as any).memory) {
+        const finalMemory = (performance as any).memory.usedJSHeapSize;
+        const memoryIncrease = finalMemory - initialMemory;
+        expect(memoryIncrease).toBeLessThan(50 * 1024 * 1024); // Less than 50MB increase
+      }
+    });
+  });
+
+  describe('Utility Functions', () => {
+    it('should create correct array operations', () => {
+      const pushOp = patchUtils.arrayOps.push('/items', 'newItem');
+      expect(pushOp).toEqual({ op: 'add', path: '/items/-', value: 'newItem' });
+
+      const insertOp = patchUtils.arrayOps.insertAt('/items', 2, 'insertedItem');
+      expect(insertOp).toEqual({ op: 'add', path: '/items/2', value: 'insertedItem' });
+
+      const removeOp = patchUtils.arrayOps.removeAt('/items', 1);
+      expect(removeOp).toEqual({ op: 'remove', path: '/items/1' });
+    });
+
+    it('should create correct object operations', () => {
+      const setOp = patchUtils.objectOps.setProperty('/user', 'email', 'user@example.com');
+      expect(setOp).toEqual({ op: 'add', path: '/user/email', value: 'user@example.com' });
+
+      const removeOp = patchUtils.objectOps.removeProperty('/user', 'email');
+      expect(removeOp).toEqual({ op: 'remove', path: '/user/email' });
+
+      const renameOps = patchUtils.objectOps.renameProperty('/user', 'name', 'fullName');
+      expect(renameOps).toHaveLength(2);
+      expect(renameOps[0].op).toBe('copy');
+      expect(renameOps[1].op).toBe('remove');
+    });
+  });
+
+  describe('Integration Testing', () => {
+    it('should work with complex nested operations', async () => {
+      const document = {
+        users: [
+          { id: 1, name: 'John', profile: { age: 25, city: 'NYC' } },
+          { id: 2, name: 'Jane', profile: { age: 30, city: 'LA' } }
+        ],
+        metadata: { version: 1, lastUpdated: '2023-01-01' }
+      };
+
+      const patches: Operation[] = [
+        { op: 'replace', path: '/users/0/profile/age', value: 26 },
+        { op: 'add', path: '/users/0/profile/country', value: 'USA' },
+        { op: 'replace', path: '/metadata/version', value: 2 },
+        { op: 'replace', path: '/metadata/lastUpdated', value: '2023-01-02' }
+      ];
+
+      const result = await patchService.applyPatches(document, patches);
+
+      expect(result.result.users[0].profile.age).toBe(26);
+      expect(result.result.users[0].profile.country).toBe('USA');
+      expect(result.result.metadata.version).toBe(2);
+      expect(result.applied).toHaveLength(4);
+    });
+
+    it('should maintain operation history', async () => {
+      const document = { counter: 0 };
+      const patches: Operation[] = [
+        { op: 'replace', path: '/counter', value: 1 }
+      ];
+
+      await patchService.applyPatches(document, patches, { trackChanges: true });
+      
+      // Note: This would require access to document ID generation
+      // In a real implementation, you'd have a way to track document IDs
+      const metrics = patchService.getPerformanceMetrics();
+      expect(Object.keys(metrics).length).toBeGreaterThan(0);
+    });
+  });
+});]]></correct-example>
+          <incorrect-example title="Poor fast-json-patch testing without comprehensive coverage" conditions="Testing JSON patch operations" expected-result="Comprehensive testing strategy" incorrectness-criteria="No validation testing, missing error cases, no performance testing, poor integration coverage"><![CDATA[// BAD: Poor fast-json-patch testing
+
+describe('Bad JSON Patch Tests', () => {
+  
+  // No comprehensive setup
+  // No error case testing
+  
+  it('should apply patch', () => {
+    const doc = { name: 'John' };
+    const patches = [{ op: 'add', path: '/age', value: 30 }];
+    
+    const result = applyPatch(doc, patches);
+    expect(result).toBeDefined();
+    // No validation of actual result
+    // No error handling testing
+  });
+
+  // No validation testing
+  // No performance testing
+  // No conflict resolution testing
+  // No integration testing
+  // No edge case testing
+  
+  it('should work', () => {
+    expect(true).toBe(true);
+    // Meaningless test
+  });
+});]]></incorrect-example>
+        </example>
+      </examples>
+    </requirement>
+  </requirements>
+  
+  <context description="Fast-JSON-Patch development considerations">
+    Fast-JSON-Patch is a library that implements RFC 6902 JSON Patch standard for describing changes to JSON documents. It provides efficient operations for adding, removing, replacing, moving, copying, and testing values in JSON structures, making it ideal for state management, document collaboration, and API updates.
+
+    Key considerations include:
+    - RFC 6902 compliance for interoperability with other JSON Patch implementations
+    - Performance optimization for large documents and batch operations
+    - Comprehensive validation of patch operations and document structure
+    - Conflict resolution strategies for concurrent modifications
+    - TypeScript integration for type-safe document manipulation
+    - Error handling and rollback capabilities for robust applications
+
+    Fast-JSON-Patch is commonly used in real-time collaborative applications, state management systems, API versioning, and document synchronization scenarios where precise change tracking is essential.
+  </context>
+  
+  <references>
+    <reference as="dependency" href=".cursor/rules/000-core/002-cursor-rules-creation.mdc" reason="Follows standard rule format">Base rule format definition</reference>
+    <reference as="context" href="https://www.npmjs.com/package/fast-json-patch" reason="Official package documentation">Fast-JSON-Patch Package Documentation</reference>
+    <reference as="context" href="https://tools.ietf.org/html/rfc6902" reason="JSON Patch specification">RFC 6902 JSON Patch Standard</reference>
+  </references>
+</rule>
+ 
