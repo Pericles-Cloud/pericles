@@ -1,0 +1,413 @@
+// Prisma Schema for Pericles Monitoring Agent
+// Database: PostgreSQL 16 (Docker local) / Neon serverless (production)
+
+generator client {
+  provider      = "prisma-client-js"
+  binaryTargets = ["native", "linux-musl-arm64-openssl-3.0.x", "linux-musl-openssl-3.0.x"]
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+// ============================================================================
+// ORGANIZATION MODEL (Root entity for multi-tenancy)
+// ============================================================================
+model Organization {
+  id                        String   @id @default(uuid())
+  name                      String
+  email_domain              String?  // For root organization check (@pericles.cloud)
+  is_root                   Boolean  @default(false)
+
+  // Company details (from Levi Strauss data)
+  address_line1             String?
+  city                      String?
+  state                     String?
+  zip_code                  String?
+  country                   String?
+  phone_number              String?
+  website                   String?
+  most_recent_shipment_date DateTime?
+  database_updated_date     DateTime?
+  customer_type             String?
+
+  created_at                DateTime @default(now())
+  updated_at                DateTime @updatedAt
+
+  // Relations
+  events          Event[]
+  incidents       Incident[]
+  riskAssessments RiskAssessment[]
+  eventHashes     EventHash[]
+  context         OrganizationContext?
+  suppliers       Supplier[]
+  shipments       Shipment[]
+
+  @@index([email_domain])
+  @@index([is_root])
+}
+
+// ============================================================================
+// ORGANIZATION CONTEXT (ERP and configuration data)
+// ============================================================================
+model OrganizationContext {
+  id                    String   @id @default(uuid())
+  organization_id       String   @unique
+  organization          Organization @relation(fields: [organization_id], references: [id], onDelete: Cascade)
+
+  // ERP-synced data (JSON for flexibility)
+  plants                Json     // Array of plant objects with locations
+  warehouses            Json     // Array of warehouse objects
+  suppliers             Json     // Array of supplier objects
+  shipping_lanes        Json     // Array of shipping lane objects
+
+  // Risk monitoring preferences
+  monitored_risk_types  String[] // e.g., ["flood", "strike", "port_closure"]
+  geographic_radius_km  Float    @default(100)
+  severity_threshold    Float    @default(0.5)
+
+  // Business documents metadata
+  strategic_documents   Json?    // References to annual plans, risk policies, etc.
+
+  last_erp_sync         DateTime?
+  created_at            DateTime @default(now())
+  updated_at            DateTime @updatedAt
+
+  @@index([organization_id])
+}
+
+// ============================================================================
+// EVENT MODEL (Raw detected events before validation)
+// ============================================================================
+model Event {
+  id                String   @id @default(uuid())
+  organization_id   String
+  organization      Organization @relation(fields: [organization_id], references: [id], onDelete: Cascade)
+
+  // Event identification
+  event_hash        String   // Stable content hash for deduplication
+  type              String   // incident category: flood, strike, port_closure, etc.
+  source            String   // Data source: news_api, weather_api, port_feed, etc.
+
+  // Event details
+  title             String
+  description       String   @db.Text
+
+  // Location (optional)
+  location_name     String?
+  latitude          Float?
+  longitude         Float?
+
+  // Temporal
+  detected_at       DateTime @default(now())
+  event_timestamp   DateTime // When the event actually occurred/was reported
+
+  // Risk scoring
+  severity          Float    // 0.0 - 1.0
+  confidence        Float    // 0.0 - 1.0
+  risk_factors      String[] // e.g., ["high_impact", "cascading_risk"]
+  affected_domains  String[] // e.g., ["manufacturing", "logistics"]
+
+  // Validation workflow
+  validation_status String   @default("pending") // pending, validated, rejected, duplicate
+  validated_at      DateTime?
+
+  // Raw data preservation
+  raw_data          Json?    // Original API response for audit trail
+
+  // Relations
+  incident          Incident?
+  riskAssessment    RiskAssessment?
+
+  created_at        DateTime @default(now())
+  updated_at        DateTime @updatedAt
+
+  @@unique([organization_id, event_hash])
+  @@index([organization_id, validation_status])
+  @@index([organization_id, event_timestamp])
+  @@index([event_hash])
+  @@index([type])
+  @@index([source])
+}
+
+// ============================================================================
+// INCIDENT MODEL (Validated events promoted to incidents)
+// ============================================================================
+model Incident {
+  id                String   @id @default(uuid())
+  organization_id   String
+  organization      Organization @relation(fields: [organization_id], references: [id], onDelete: Cascade)
+
+  // Source event
+  event_id          String   @unique
+  event             Event    @relation(fields: [event_id], references: [id], onDelete: Cascade)
+
+  // Incident metadata
+  incident_number   String   @unique // Human-readable: INC-2025-0001
+  status            String   @default("open") // open, investigating, resolved, closed
+  priority          String   // critical, high, medium, low
+
+  // Assignment and workflow
+  assigned_to       String?  // User ID
+  assigned_at       DateTime?
+  resolved_at       DateTime?
+  closed_at         DateTime?
+
+  // Impact tracking
+  estimated_impact  Float?   // Financial impact in USD
+  actual_impact     Float?
+  impact_calculated_at DateTime?
+
+  // Response tracking
+  response_plan_id  String?  // Link to Plans module
+  notifications_sent Int     @default(0)
+
+  // Multi-source validation
+  confirming_sources String[] // Additional sources that validated this incident
+  validation_count   Int      @default(1)
+
+  created_at        DateTime @default(now())
+  updated_at        DateTime @updatedAt
+
+  @@index([organization_id, status])
+  @@index([organization_id, priority])
+  @@index([incident_number])
+  @@index([created_at])
+}
+
+// ============================================================================
+// RISK ASSESSMENT MODEL (Agent-generated risk analysis)
+// ============================================================================
+model RiskAssessment {
+  id                String   @id @default(uuid())
+  organization_id   String
+  organization      Organization @relation(fields: [organization_id], references: [id], onDelete: Cascade)
+
+  // Source event
+  event_id          String   @unique
+  event             Event    @relation(fields: [event_id], references: [id], onDelete: Cascade)
+
+  // Assessment scores
+  severity_score    Float    // 0.0 - 1.0 (normalized)
+  confidence_score  Float    // 0.0 - 1.0
+
+  // Risk classification
+  risk_category     String   // operational, financial, reputational, compliance
+  risk_type         String   // specific type: flood, strike, etc.
+
+  // Impact analysis
+  geographic_impact Json     // Affected regions, entities
+  supply_chain_impact Json   // Affected plants, suppliers, lanes
+  financial_impact_estimate Float?
+
+  // Reasoning
+  risk_factors      String[] // Contributing factors
+  affected_domains  String[] // Business domains affected
+  mitigation_suggestions String[] // AI-generated recommendations
+
+  // Assessment metadata
+  assessed_by       String   @default("monitoring_agent") // agent name or user_id
+  assessment_model  String   @default("claude-sonnet-4-5") // Model used
+
+  created_at        DateTime @default(now())
+  updated_at        DateTime @updatedAt
+
+  @@index([organization_id, risk_category])
+  @@index([organization_id, severity_score])
+  @@index([event_id])
+}
+
+// ============================================================================
+// EVENT HASH MODEL (Deduplication tracking)
+// ============================================================================
+model EventHash {
+  id                String   @id @default(uuid())
+  organization_id   String
+  organization      Organization @relation(fields: [organization_id], references: [id], onDelete: Cascade)
+
+  hash              String   // SHA-256 hash of normalized event content
+
+  // Tracking
+  first_seen_at     DateTime @default(now())
+  last_seen_at      DateTime @default(now())
+  occurrence_count  Int      @default(1)
+
+  // Reference to original event
+  original_event_id String
+
+  // Expiration for bounded lookback window
+  expires_at        DateTime // TTL for hash (e.g., 7 days)
+
+  @@unique([organization_id, hash])
+  @@index([organization_id, expires_at])
+  @@index([hash])
+}
+
+// ============================================================================
+// MONITORING AUDIT LOG (Observability and debugging)
+// ============================================================================
+model MonitoringAuditLog {
+  id                String   @id @default(uuid())
+  organization_id   String?  // Nullable for system-wide events
+
+  // Event details
+  event_type        String   // monitoring_cycle, source_fetch, deduplication, error
+  source            String?  // Which data source
+  status            String   // success, failure, partial
+
+  // Metrics
+  events_detected   Int      @default(0)
+  events_filtered   Int      @default(0)
+  events_published  Int      @default(0)
+  duplicates_found  Int      @default(0)
+
+  // Performance
+  duration_ms       Int?
+
+  // Error tracking
+  error_message     String?  @db.Text
+  error_stack       String?  @db.Text
+
+  // Context
+  metadata          Json?    // Additional structured data
+
+  created_at        DateTime @default(now())
+
+  @@index([organization_id, created_at])
+  @@index([event_type])
+  @@index([status])
+}
+
+// ============================================================================
+// SUPPLIER MODEL (Levi Strauss supplier data)
+// ============================================================================
+model Supplier {
+  id                  String   @id
+  organization_id     String
+  organization        Organization @relation(fields: [organization_id], references: [id], onDelete: Cascade)
+
+  // Supplier details
+  name                String
+  address             String?  @db.Text
+  website             String?
+  contact_info        String?  @db.Text
+  country             String?
+  country_code        String?
+  latitude            Float?
+  longitude           Float?
+
+  // Shipping data
+  total_shipments     Int      @default(0)
+  destination_ports   String[]
+  departure_ports     String[]
+  hs_codes            String[]
+
+  // Notify party
+  notify_party_name    String?  @db.Text
+  notify_party_address String?  @db.Text
+
+  created_at          DateTime @default(now())
+  updated_at          DateTime @updatedAt
+
+  // Relations
+  shipments           Shipment[]
+
+  @@index([organization_id])
+  @@index([country_code])
+  @@index([name])
+}
+
+// ============================================================================
+// CARRIER MODEL (Shipping carriers from BOLs)
+// ============================================================================
+model Carrier {
+  id                String   @id
+  scac_code         String   @unique
+  name              String
+  total_shipments   Int      @default(0)
+
+  created_at        DateTime @default(now())
+  updated_at        DateTime @updatedAt
+
+  // Relations
+  shipments         Shipment[]
+
+  @@index([scac_code])
+  @@index([name])
+}
+
+// ============================================================================
+// SHIPMENT MODEL (Bill of Lading data)
+// ============================================================================
+model Shipment {
+  id                      String   @id
+  organization_id         String
+  organization            Organization @relation(fields: [organization_id], references: [id], onDelete: Cascade)
+
+  supplier_id             String?
+  supplier                Supplier? @relation(fields: [supplier_id], references: [id], onDelete: SetNull)
+
+  carrier_id              String?
+  carrier                 Carrier? @relation(fields: [carrier_id], references: [id], onDelete: SetNull)
+
+  // BOL details
+  bol_number              String
+  master_bol_number       String?
+  containers_count        Int?
+  shipping_route          String?  @db.Text
+
+  // Financial
+  value_usd               Float?
+
+  // Dates
+  arrival_date            DateTime?
+  estimated_arrival_date  DateTime?
+
+  // Ports
+  destination_port        String?
+  destination_port_code   String?
+  departure_port          String?
+  departure_port_code     String?
+  last_visit_foreign_port String?
+
+  // Vessel
+  vessel_name             String?
+  vessel_code             String?
+  voyage                  String?
+
+  // Containers
+  container_ids           String[]
+  container_sizes         String[]
+  container_types         String[]
+
+  // Products
+  hs_codes                String[]
+  hs_code_descriptions    String[]
+  product_description     String?  @db.Text
+  product_description_raw String?  @db.Text
+  quantity                Float?
+  quantity_unit           String?
+  teu                     Float?
+  weight                  Float?
+
+  // Marks
+  marks_numbers           String?  @db.Text
+  marks_numbers_raw       String?  @db.Text
+
+  // Notify party
+  notify_party_name       String?  @db.Text
+  notify_party_address    String?  @db.Text
+  notify_party_country_code String?
+
+  created_at              DateTime @default(now())
+  updated_at              DateTime @updatedAt
+
+  @@index([organization_id])
+  @@index([supplier_id])
+  @@index([carrier_id])
+  @@index([bol_number])
+  @@index([arrival_date])
+  @@index([destination_port])
+  @@index([departure_port])
+}

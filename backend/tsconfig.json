@@ -11,6 +11,15 @@
     "outDir": "dist"
   },
   "include": [
-    "src/**/*"
+    "src/**/*",
+    "api/**/*",
+    "scripts/**/*",
+    "prisma/**/*"
+  ],
+  "exclude": [
+    "node_modules",
+    "dist",
+    ".mastra",
+    "coverage"
   ]
 }

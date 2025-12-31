@@ -1,0 +1,154 @@
+services:
+  # PostgreSQL 16 Database
+  postgres:
+    image: postgres:16-alpine
+    container_name: pericles-postgres
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: pericles_user
+      POSTGRES_PASSWORD: pericles_dev_password
+      POSTGRES_DB: pericles
+      POSTGRES_MULTIPLE_DATABASES: pericles,mastra
+      PGDATA: /var/lib/postgresql/data/pgdata
+    ports:
+      - "5432:5432"
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+      - ./backend/scripts/create-multiple-postgresql-databases.sh:/docker-entrypoint-initdb.d/create-multiple-postgresql-databases.sh
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U pericles_user -d pericles"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  # pgAdmin 4 - Database Management UI
+  pgadmin:
+    image: dpage/pgadmin4:latest
+    container_name: pericles-pgadmin
+    restart: unless-stopped
+    environment:
+      PGADMIN_DEFAULT_EMAIL: admin@pericles.dev
+      PGADMIN_DEFAULT_PASSWORD: admin
+      PGADMIN_CONFIG_SERVER_MODE: 'False'
+    ports:
+      - "5050:80"
+    volumes:
+      - pgadmin_data:/var/lib/pgadmin
+    depends_on:
+      - postgres
+    profiles:
+      - tools
+
+  # Redis - Message Queue and Caching
+  redis:
+    image: redis:7-alpine
+    container_name: pericles-redis
+    restart: unless-stopped
+    ports:
+      - "6379:6379"
+    volumes:
+      - redis_data:/data
+    command: redis-server --appendonly yes
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  # Mastra Studio - AI Agent Development UI
+  mastra:
+    image: node:20-alpine
+    container_name: pericles-mastra
+    restart: unless-stopped
+    working_dir: /app/backend
+    ports:
+      - "4111:4111"
+    volumes:
+      - ./backend:/app/backend
+      - ./backend/.env.docker:/app/backend/.env:ro
+      - mastra_node_modules:/app/backend/node_modules
+      - npm_cache:/root/.npm
+    environment:
+      # AI Provider API Keys
+      OPENAI_API_KEY: ${OPENAI_API_KEY}
+      ANTHROPIC_API_KEY: ${ANTHROPIC_API_KEY}
+      GOOGLE_GENERATIVE_AI_API_KEY: ${GOOGLE_GENERATIVE_AI_API_KEY}
+      # News & Social Media APIs
+      THENEWSAPI_API_KEY: ${THENEWSAPI_API_KEY}
+      TWITTERAPIIO_API_KEY: ${TWITTERAPIIO_API_KEY}
+      # Weather API
+      OPENWEATHER_API_KEY: ${OPENWEATHER_API_KEY}
+      NODE_ENV: development
+      # npm configuration for faster installs
+      npm_config_update_notifier: "false"
+      npm_config_fund: "false"
+      npm_config_audit: "false"
+    command: sh scripts/start-mastra-dev.sh
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD-SHELL", "wget -q --spider http://localhost:4111/api || exit 1"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 60s
+
+  # Mastra Server - Production AI Agent Server
+  mastra-server:
+    image: node:20-alpine
+    container_name: pericles-mastra-server
+    restart: unless-stopped
+    working_dir: /app/backend
+    ports:
+      - "3001:4111"
+    volumes:
+      - ./backend:/app/backend
+      - ./backend/.env.docker:/app/backend/.env:ro
+      - mastra_server_node_modules:/app/backend/node_modules
+      - npm_cache:/root/.npm
+    environment:
+      # AI Provider API Keys
+      OPENAI_API_KEY: ${OPENAI_API_KEY}
+      ANTHROPIC_API_KEY: ${ANTHROPIC_API_KEY}
+      GOOGLE_GENERATIVE_AI_API_KEY: ${GOOGLE_GENERATIVE_AI_API_KEY}
+      # News & Social Media APIs
+      THENEWSAPI_API_KEY: ${THENEWSAPI_API_KEY}
+      TWITTERAPIIO_API_KEY: ${TWITTERAPIIO_API_KEY}
+      # Weather API
+      OPENWEATHER_API_KEY: ${OPENWEATHER_API_KEY}
+      NODE_ENV: production
+      # npm configuration for faster installs
+      npm_config_update_notifier: "false"
+      npm_config_fund: "false"
+      npm_config_audit: "false"
+    command: sh scripts/start-mastra-prod.sh
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD-SHELL", "wget -q --spider http://localhost:4111/api || exit 1"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 120s
+    profiles:
+      - production
+
+volumes:
+  postgres_data:
+    driver: local
+  pgadmin_data:
+    driver: local
+  redis_data:
+    driver: local
+  mastra_node_modules:
+    driver: local
+  mastra_server_node_modules:
+    driver: local
+  npm_cache:
+    driver: local

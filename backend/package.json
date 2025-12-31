@@ -7,7 +7,25 @@
     "test": "echo \"Error: no test specified\" && exit 1",
     "dev": "mastra dev",
     "build": "mastra build",
-    "start": "mastra start"
+    "start": "mastra start",
+    "monitoring:start": "node dist/monitoring/start.js",
+    "prisma:generate": "prisma generate",
+    "prisma:migrate:dev": "prisma migrate dev",
+    "prisma:migrate:deploy": "prisma migrate deploy",
+    "prisma:seed": "prisma db seed",
+    "prisma:studio": "prisma studio",
+    "mock:create": "tsx src/scripts/mocker/index.ts create",
+    "mock:reset": "tsx src/scripts/mocker/index.ts reset",
+    "mock:status": "tsx src/scripts/mocker/index.ts status",
+    "mock:help": "tsx src/scripts/mocker/index.ts help",
+    "lint": "eslint . --ext ts,tsx",
+    "lint:fix": "eslint . --ext ts,tsx --fix",
+    "lint:strict": "eslint . --ext ts,tsx --max-warnings 0",
+    "format": "prettier --write .",
+    "format:check": "prettier --check .",
+    "type-check": "tsc --noEmit",
+    "lint-staged": "lint-staged",
+    "prepare": "node -e \"try { require('husky') } catch (e) { process.exit(0) }\" && husky install || true"
   },
   "keywords": [],
   "author": "",
@@ -22,11 +40,28 @@
     "@mastra/libsql": "^0.16.4",
     "@mastra/loggers": "^0.10.19",
     "@mastra/memory": "^0.15.13",
-    "zod": "^4.1.13"
+    "@mastra/pg": "^0.17.10",
+    "@prisma/client": "^6.12.0",
+    "csv-parse": "^6.1.0",
+    "dotenv": "^17.2.3",
+    "pino": "^9.0.0",
+    "pino-pretty": "^11.0.0",
+    "zod": "^3.23.8"
   },
   "devDependencies": {
+    "@eslint/js": "^9.18.0",
     "@types/node": "^25.0.1",
+    "eslint": "^9.18.0",
+    "husky": "^9.1.7",
+    "lint-staged": "^15.2.11",
     "mastra": "^0.18.8",
-    "typescript": "^5.9.3"
+    "prettier": "^3.4.2",
+    "prisma": "^6.12.0",
+    "tsx": "^4.19.2",
+    "typescript": "^5.9.3",
+    "typescript-eslint": "^8.19.1"
+  },
+  "prisma": {
+    "seed": "tsx prisma/seed.ts"
   }
 }
