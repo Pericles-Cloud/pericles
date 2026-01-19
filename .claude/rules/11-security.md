@@ -240,6 +240,140 @@ security:
   - trivy fs --severity HIGH,CRITICAL .
 ```
 
+## JWT Authentication
+
+```typescript
+import jwt from 'jsonwebtoken';
+
+interface AccessTokenPayload {
+  userId: string;
+  email: string;
+  role: 'OWNER' | 'ADMIN' | 'MEMBER' | 'GUEST';
+  type: 'access';
+}
+
+interface RefreshTokenPayload {
+  userId: string;
+  type: 'refresh';
+}
+
+const ACCESS_TOKEN_EXPIRY = '15m';  // Short-lived
+const REFRESH_TOKEN_EXPIRY = '7d';
+
+export function generateTokenPair(user: User): { accessToken: string; refreshToken: string } {
+  const accessToken = jwt.sign(
+    { userId: user.id, email: user.email, role: user.role, type: 'access' },
+    process.env.JWT_SECRET!,
+    { expiresIn: ACCESS_TOKEN_EXPIRY }
+  );
+
+  const refreshToken = jwt.sign(
+    { userId: user.id, type: 'refresh' },
+    process.env.JWT_REFRESH_SECRET!,
+    { expiresIn: REFRESH_TOKEN_EXPIRY }
+  );
+
+  return { accessToken, refreshToken };
+}
+
+export function verifyAccessToken(token: string): AccessTokenPayload | null {
+  try {
+    const decoded = jwt.verify(token, process.env.JWT_SECRET!) as AccessTokenPayload;
+    return decoded.type === 'access' ? decoded : null;
+  } catch {
+    return null; // Token invalid or expired
+  }
+}
+```
+
+### JWT Security Rules
+
+| Rule | Requirement |
+|------|-------------|
+| Access token expiry | Max 15 minutes |
+| Refresh token expiry | Max 7 days |
+| Secrets | Different for access vs refresh |
+| Storage | httpOnly cookies (not localStorage) |
+| Refresh | Rotate refresh token on use |
+
+## Rate Limiting
+
+```typescript
+import rateLimit from 'express-rate-limit';
+
+// Authentication endpoints - strict limits
+export const authRateLimit = rateLimit({
+  windowMs: 15 * 60 * 1000, // 15 minutes
+  max: 5,                    // 5 attempts per window
+  message: { error: 'TOO_MANY_ATTEMPTS', message: 'Try again later' },
+  standardHeaders: true,
+  keyGenerator: (req) => req.ip + ':' + (req.headers['user-agent'] || 'unknown'),
+});
+
+// API endpoints - moderate limits
+export const apiRateLimit = rateLimit({
+  windowMs: 60 * 1000,  // 1 minute
+  max: 100,             // 100 requests per minute
+  standardHeaders: true,
+});
+
+// Apply to routes
+app.use('/api/auth', authRateLimit);
+app.use('/api', apiRateLimit);
+```
+
+### Rate Limit Guidelines
+
+| Endpoint Type | Limit | Window |
+|---------------|-------|--------|
+| Login/Register | 5 | 15 min |
+| Password reset | 3 | 1 hour |
+| API queries | 100 | 1 min |
+| Monitoring triggers | 10 | 1 min |
+
+## Session Security
+
+```typescript
+// Middleware to validate authenticated requests
+export function authenticateJWT(req: Request, res: Response, next: NextFunction): void {
+  const authHeader = req.headers.authorization;
+
+  if (!authHeader?.startsWith('Bearer ')) {
+    res.status(401).json({ error: 'MISSING_AUTH_TOKEN' });
+    return;
+  }
+
+  const token = authHeader.substring(7);
+  const decoded = verifyAccessToken(token);
+
+  if (!decoded) {
+    res.status(401).json({ error: 'INVALID_TOKEN' });
+    return;
+  }
+
+  req.user = {
+    id: decoded.userId,
+    email: decoded.email,
+    role: decoded.role,
+  };
+
+  next();
+}
+
+// Secure logout - invalidate refresh tokens
+export async function logout(userId: string): Promise<void> {
+  await prisma.refreshToken.deleteMany({
+    where: { user_id: userId },
+  });
+
+  audit({
+    action: 'USER_LOGOUT',
+    actor_id: userId,
+    timestamp: new Date().toISOString(),
+  });
+}
+```
+
 ## Security Checklist
 
 Before merging any PR:
@@ -252,3 +386,5 @@ Before merging any PR:
 - [ ] Proper error handling (no stack traces to users)
 - [ ] Authentication/authorization checks present
 - [ ] Rate limiting on sensitive endpoints
+- [ ] JWT tokens are short-lived (15 min max)
+- [ ] Tenant isolation enforced on all data access
