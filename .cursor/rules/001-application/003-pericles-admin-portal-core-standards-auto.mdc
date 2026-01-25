@@ -1706,7 +1706,6 @@ model User {
     <reference as="dependency" href="500-architecture/517-docker-core-standards-auto.mdc" reason="Docker development standards">Comprehensive Docker containerization standards for local development environment</reference>
     <reference as="dependency" href="500-architecture/524-neon-core-standards-auto.mdc" reason="Neon serverless PostgreSQL standards">Comprehensive Neon serverless PostgreSQL best practices for production database</reference>
     <reference as="dependency" href="500-architecture/526-vercel-deployment-core-standards-auto.mdc" reason="Vercel deployment standards">Comprehensive Vercel deployment best practices and configuration standards</reference>
-    <reference as="dependency" href="600-tooling/613-nx-core-standards-auto.mdc" reason="Nx workspace standards for monorepo organization and execution">Nx monorepo standards</reference>
     <reference as="context" href="prisma/schema.prisma" reason="Database schema foundation">Existing Prisma ORM schema for authentication and application data</reference>
     <reference as="context" href="src/types/" reason="Core data types and domain logic">Application interfaces and data model definitions for consistency</reference>
     <reference as="context" href="api/auth/" reason="Authentication implementation patterns">Established authentication API patterns and security measures</reference>

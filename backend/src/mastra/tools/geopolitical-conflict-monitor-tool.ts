@@ -18,14 +18,14 @@ import { z } from 'zod';
  * - Geopolitical Tensions
  * - Security Threats
  *
- * Organization Isolation: Filters events based on organization's geographic exposure and supply chain
+ * Organization Isolation: Filters events based on organization's geographic exposure
  */
 
 const LocationInputSchema = z.object({
   latitude: z.number().min(-90).max(90),
   longitude: z.number().min(-180).max(180),
   name: z.string(),
-  country_code: z.string().length(2).optional()
+  country_code: z.string().length(2).nullable().optional()
 });
 
 const ConflictEventSchema = z.object({
@@ -70,40 +70,34 @@ export const geopoliticalConflictMonitorTool = createTool({
   }),
 
   execute: async ({ context }) => {
-    const { locations, severity_threshold: _severity_threshold, lookback_hours: _lookback_hours, organization_id } = context;
+    const { locations, severity_threshold, lookback_hours, organization_id } = context;
 
-    // Log the input parameters received
     console.log(`[Geopolitical Monitor] Tool executed with context:`, JSON.stringify(context, null, 2));
 
-    // CRITICAL: Validate organization_id
     if (!organization_id) {
       throw new Error('organization_id is required for geopolitical monitoring');
     }
 
     console.log(`[Geopolitical Monitor] Monitoring ${locations.length} locations for organization: ${organization_id}`);
 
-    // PLACEHOLDER: Actual GDELT API integration to be implemented
-    // API Documentation: https://blog.gdeltproject.org/gdelt-doc-2-0-api-debuts/
-    //
-    // Example GDELT Query for conflicts:
-    // https://api.gdeltproject.org/api/v2/doc/doc?query=conflict%20war%20sourcecountry:SY&mode=artlist&maxrecords=250&format=json
-
     try {
-      const conflictEvents: Array<z.infer<typeof ConflictEventSchema>> = [];
-      const apiCallsMade = 0;
-      const conflictCount = 0;
-      const terroristAttackCount = 0;
-      const highSeverityCount = 0;
+      const severityThresholdValue = severity_threshold === 'low' ? 0.3 : severity_threshold === 'medium' ? 0.5 : 0.7;
 
-      // TODO: Implement GDELT API integration
-      // const events = await fetchGDELTConflictEvents(_locations, lookback_hours: _lookback_hours, severity_threshold);
-      // apiCallsMade += locations.length;
+      const { events, apiCallsMade } = await fetchGDELTConflictEvents(locations, lookback_hours);
+      const filteredEvents = events.filter(e => e.severity >= severityThresholdValue);
 
-      // PLACEHOLDER: Return empty array for now
-      console.log(`[Geopolitical Monitor] Found ${conflictEvents.length} events (${conflictCount} conflicts, ${terroristAttackCount} terrorist attacks), made ${apiCallsMade} API calls`);
+      const conflictCount = filteredEvents.filter(e =>
+        e.event_type === 'armed_conflict' || e.event_type === 'war'
+      ).length;
+      const terroristAttackCount = filteredEvents.filter(e =>
+        e.event_type === 'terrorist_attack'
+      ).length;
+      const highSeverityCount = filteredEvents.filter(e => e.severity >= 0.7).length;
+
+      console.log(`[Geopolitical Monitor] Found ${filteredEvents.length} events (${conflictCount} conflicts, ${terroristAttackCount} terrorist attacks), made ${apiCallsMade} API calls`);
 
       return {
-        conflict_events: conflictEvents,
+        conflict_events: filteredEvents,
         conflict_count: conflictCount,
         terrorist_attack_count: terroristAttackCount,
         high_severity_count: highSeverityCount,
@@ -118,216 +112,257 @@ export const geopoliticalConflictMonitorTool = createTool({
 });
 
 // ============================================================================
-// Helper Functions (to be implemented with actual API integration)
+// GDELT API Integration for Conflicts
 // ============================================================================
 
-/**
- * Fetch conflict events from GDELT API
- *
- * GDELT DOC 2.0 API provides real-time conflict detection from global news
- */
-async function _fetchGDELTConflictEvents(
-  _locations: Array<{ latitude: number; longitude: number; name: string; country_code?: string }>,
-  _lookbackHours: number,
-  _severityThreshold: string
-): Promise<Array<z.infer<typeof ConflictEventSchema>>> {
-  // TODO: Implement GDELT API calls for conflict events
-  //
-  // const events: z.infer<typeof ConflictEventSchema>[] = [];
-  // const timespan = `${lookbackHours}h`;
-  //
-  // // Conflict-related search queries
-  // const conflictQueries = [
-  //   'war', 'conflict', 'attack', 'bombing', 'airstrike',
-  //   'military', 'armed forces', 'terrorist', 'casualties',
-  //   'border dispute', 'invasion', 'siege'
-  // ];
-  //
-  // for (const location of locations) {
-  //   for (const query of conflictQueries) {
-  //     const url = new URL('https://api.gdeltproject.org/api/v2/doc/doc');
-  //     url.searchParams.set('query', location.country_code
-  //       ? `${query} sourcecountry:${location.country_code}`
-  //       : query
-  //     );
-  //     url.searchParams.set('mode', 'artlist');
-  //     url.searchParams.set('timespan', _timespan);
-  //     url.searchParams.set('format', 'json');
-  //     url.searchParams.set('maxrecords', '100');
-  //
-  //     try {
-  //       const response = await fetch(url.toString());
-  //       const data = await response.json();
-  //
-  //       if (!data.articles) continue;
-  //
-  //       for (const article of data.articles) {
-  //         // Extract conflict details
-  //         const eventType = classifyConflictEventType(article.title, article.seendate);
-  //
-  //         // Calculate severity from tone and content
-  //         const severity = calculateConflictSeverity(
-  //           article.tone,
-  //           eventType,
-  //           article.title
-  //         );
-  //
-  //         // Filter by severity threshold
-  //         if (!meetsSeverityThreshold(_severity, _severityThreshold)) continue;
-  //
-  //         // Extract location details
-  //         const eventLocation = extractConflictLocation(_article, _location);
-  //
-  //         // Extract actors (_countries, groups involved)
-  //         const actors = extractActors(article.title);
-  //
-  //         events.push({
-  //           event_id: `gdelt-${article.url}`,
-  //           event_type: eventType,
-  //           title: article.title,
-  //           description: article.seendate || '',
-  //           severity,
-  //           location: eventLocation,
-  //           actors,
-  //           tone: article.tone,
-  //           event_timestamp: new Date(article.seendate).toISOString(),
-  //           source_url: article.url,
-  //           raw_data: article
-  //         });
-  //       }
-  //     } catch (_err) {
-  //       console.error(`[Geopolitical Monitor] Error fetching GDELT data for ${query}:`, _err);
-  //       continue;
-  //     }
-  //   }
-  // }
-  //
-  // return events;
+// Conflict-related search terms for GDELT queries
+const CONFLICT_SEARCH_TERMS = [
+  'war conflict',
+  'terrorist attack',
+  'bombing explosion',
+  'military airstrike',
+  'armed forces attack',
+  'border dispute conflict',
+  'casualties killed',
+  'invasion troops'
+];
 
-  return [];
+interface GDELTArticle {
+  url: string;
+  title: string;
+  seendate: string;
+  domain: string;
+  language: string;
+  sourcecountry: string;
+  tone?: number;
+}
+
+interface GDELTResponse {
+  articles?: GDELTArticle[];
 }
 
 /**
- * Classify conflict event type from GDELT data
+ * Fetch conflict events from GDELT DOC 2.0 API
  */
-function _classifyConflictEventType(_title: string, _description: string): string {
-  // TODO: Implement classification logic
-  //
-  // const text = (title + ' ' + description).toLowerCase();
-  //
-  // if (text.includes('war') || text.includes('armed conflict')) return 'armed_conflict';
-  // if (text.includes('terrorist') || text.includes('terrorism')) return 'terrorist_attack';
-  // if (text.includes('military') || text.includes('airstrike') || text.includes('bombing')) return 'military_action';
-  // if (text.includes('border') && text.includes('dispute')) return 'border_dispute';
-  // if (text.includes('tension') || text.includes('standoff')) return 'tension';
-  // if (text.includes('threat') || text.includes('security')) return 'security_threat';
+async function fetchGDELTConflictEvents(
+  locations: Array<{ latitude: number; longitude: number; name: string; country_code?: string | null }>,
+  lookbackHours: number
+): Promise<{ events: Array<z.infer<typeof ConflictEventSchema>>; apiCallsMade: number }> {
+  const events: Array<z.infer<typeof ConflictEventSchema>> = [];
+  const seenUrls = new Set<string>();
+  let apiCallsMade = 0;
+
+  // Get unique country codes from locations
+  const countryCodes = new Set<string>();
+  for (const loc of locations) {
+    if (loc.country_code) {
+      countryCodes.add(loc.country_code.toUpperCase());
+    }
+  }
+
+  const searchCountries = countryCodes.size > 0 ? Array.from(countryCodes) : [''];
+
+  for (const countryCode of searchCountries) {
+    for (const searchTerm of CONFLICT_SEARCH_TERMS) {
+      try {
+        const url = new URL('https://api.gdeltproject.org/api/v2/doc/doc');
+
+        const query = countryCode
+          ? `${searchTerm} sourcecountry:${countryCode}`
+          : searchTerm;
+
+        url.searchParams.set('query', query);
+        url.searchParams.set('mode', 'artlist');
+        url.searchParams.set('timespan', `${Math.min(lookbackHours, 72)}h`);
+        url.searchParams.set('maxrecords', '50');
+        url.searchParams.set('format', 'json');
+
+        const response = await fetch(url.toString(), {
+          headers: { 'Accept': 'application/json' },
+          signal: AbortSignal.timeout(15000)
+        });
+
+        apiCallsMade++;
+
+        if (!response.ok) {
+          console.warn(`[GDELT Conflict] API error: ${response.status} for query: ${query}`);
+          continue;
+        }
+
+        const data = await response.json() as GDELTResponse;
+
+        if (!data.articles || !Array.isArray(data.articles)) {
+          continue;
+        }
+
+        for (const article of data.articles) {
+          if (seenUrls.has(article.url)) continue;
+          seenUrls.add(article.url);
+
+          const eventType = classifyConflictEventType(article.title, searchTerm);
+          const severity = calculateConflictSeverity(article, eventType);
+          const eventTimestamp = parseGDELTDate(article.seendate);
+          const actors = extractActors(article.title);
+
+          const location = findLocationForCountry(locations, article.sourcecountry);
+
+          events.push({
+            event_id: `gdelt-conf-${hashString(article.url)}`,
+            event_type: eventType,
+            title: article.title,
+            description: `Conflict event detected from ${article.domain}: ${article.title}`,
+            severity,
+            location: {
+              name: location?.name || article.sourcecountry || 'Unknown',
+              country: article.sourcecountry || 'Unknown',
+              latitude: location?.latitude || 0,
+              longitude: location?.longitude || 0
+            },
+            actors: actors.length > 0 ? actors : undefined,
+            tone: article.tone,
+            event_timestamp: eventTimestamp,
+            source_url: article.url,
+            raw_data: { domain: article.domain, language: article.language }
+          });
+        }
+
+        await sleep(100);
+
+      } catch (err) {
+        console.error(`[GDELT Conflict] Error fetching events:`, err);
+      }
+    }
+  }
+
+  return { events, apiCallsMade };
+}
+
+/**
+ * Classify conflict event type from article title
+ */
+function classifyConflictEventType(title: string, searchTerm: string): string {
+  const titleLower = title.toLowerCase();
+
+  if (titleLower.includes('terrorist') || titleLower.includes('terrorism') || titleLower.includes('isis') || titleLower.includes('al-qaeda')) {
+    return 'terrorist_attack';
+  }
+  if (titleLower.includes('war') || titleLower.includes('armed conflict') || titleLower.includes('invasion')) {
+    return 'armed_conflict';
+  }
+  if (titleLower.includes('airstrike') || titleLower.includes('bombing') || titleLower.includes('missile')) {
+    return 'military_action';
+  }
+  if (titleLower.includes('border') && (titleLower.includes('dispute') || titleLower.includes('clash'))) {
+    return 'border_dispute';
+  }
+  if (titleLower.includes('tension') || titleLower.includes('standoff') || titleLower.includes('escalation')) {
+    return 'tension';
+  }
+  if (titleLower.includes('threat') || titleLower.includes('security alert')) {
+    return 'security_threat';
+  }
+
+  // Fall back to search term
+  if (searchTerm.includes('terrorist')) return 'terrorist_attack';
+  if (searchTerm.includes('war') || searchTerm.includes('conflict')) return 'armed_conflict';
+  if (searchTerm.includes('military') || searchTerm.includes('airstrike')) return 'military_action';
+  if (searchTerm.includes('border')) return 'border_dispute';
 
   return 'geopolitical_event';
 }
 
 /**
- * Calculate severity for conflict event
+ * Calculate severity for conflict events
  */
-function _calculateConflictSeverity(
-  _tone: number | undefined,
-  _eventType: string,
-  _title: string
-): number {
-  // TODO: Implement severity calculation
-  //
-  // Base severity by event type
-  let severity = 0.5;
+function calculateConflictSeverity(article: GDELTArticle, eventType: string): number {
+  let baseSeverity = 0.6;
 
-  switch (_eventType) {
-    case 'armed_conflict':
-    case 'terrorist_attack':
-      severity = 0.9;
-      break;
-    case 'military_action':
-      severity = 0.8;
-      break;
-    case 'border_dispute':
-      severity = 0.7;
-      break;
-    case 'tension':
-      severity = 0.6;
-      break;
-    case 'security_threat':
-      severity = 0.7;
-      break;
-    default:
-      severity = 0.5;
+  switch (eventType) {
+    case 'terrorist_attack': baseSeverity = 0.95; break;
+    case 'armed_conflict': baseSeverity = 0.9; break;
+    case 'military_action': baseSeverity = 0.85; break;
+    case 'border_dispute': baseSeverity = 0.7; break;
+    case 'tension': baseSeverity = 0.6; break;
+    case 'security_threat': baseSeverity = 0.65; break;
   }
 
-  // Adjust based on GDELT tone (more negative = higher severity)
-  // if (tone !== undefined && tone < 0) {
-  //   severity = Math.min(1.0, severity + Math.abs(_tone) / 20);
-  // }
-
-  // Increase severity if casualties mentioned
-  // const text = title.toLowerCase();
-  // if (text.includes('casualties') || text.includes('killed') || text.includes('deaths')) {
-  //   severity = Math.min(1.0, severity + 0.1);
-  // }
-
-  return severity;
-}
-
-/**
- * Extract conflict location from GDELT article
- */
-function _extractConflictLocation(_article: any, monitoredLocation: any): any {
-  // TODO: Implement location extraction
-  //
-  // GDELT articles may include location data
-  // Fall back to monitored location if specific location unavailable
-
-  return {
-    name: monitoredLocation.name,
-    country: monitoredLocation.name,
-    latitude: monitoredLocation.latitude,
-    longitude: monitoredLocation.longitude
-  };
-}
-
-/**
- * Extract actors (_countries, _groups) involved in conflict
- */
-function _extractActors(_title: string): string[] {
-  // TODO: Implement actor extraction
-  //
-  // Use NER (Named Entity Recognition) to extract:
-  // - Country names
-  // - Group names (e.g., "Hamas", "Taliban", "NATO")
-  // - Leader names
-  //
-  // const actors: string[] = [];
-  //
-  // // Simple keyword extraction for now
-  // const keywords = title.split(' ');
-  // for (const word of keywords) {
-  //   if (word.length > 4 && /^[A-Z]/.test(_word)) {
-  //     actors.push(_word);
-  //   }
-  // }
-  //
-  // return actors.slice(0, 5); // Limit to top 5
-
-  return [];
-}
-
-/**
- * Check if severity meets threshold
- */
-function _meetsSeverityThreshold(severity: number, threshold: string): boolean {
-  switch (threshold) {
-    case 'high':
-      return severity >= 0.7;
-    case 'medium':
-      return severity >= 0.5;
-    case 'low':
-      return severity >= 0.3;
-    default:
-      return true;
+  // Adjust based on tone
+  if (article.tone !== undefined && article.tone < 0) {
+    const toneAdjustment = Math.min(0.1, Math.abs(article.tone) / 100);
+    baseSeverity += toneAdjustment;
   }
+
+  // Increase severity for casualties
+  const titleLower = article.title.toLowerCase();
+  if (titleLower.includes('killed') || titleLower.includes('deaths') || titleLower.includes('casualties')) {
+    baseSeverity = Math.min(0.99, baseSeverity + 0.05);
+  }
+
+  return Math.max(0.1, Math.min(0.99, baseSeverity));
+}
+
+/**
+ * Extract actors (countries, groups) from title
+ */
+function extractActors(title: string): string[] {
+  const actors: string[] = [];
+
+  // Common actor patterns
+  const actorPatterns = [
+    /\b(Russia|Ukraine|China|Iran|Israel|Hamas|Hezbollah|NATO|US|USA|United States)\b/gi,
+    /\b(Taliban|ISIS|Al-Qaeda|IDF|military)\b/gi
+  ];
+
+  for (const pattern of actorPatterns) {
+    const matches = title.match(pattern);
+    if (matches) {
+      for (const match of matches) {
+        if (!actors.includes(match)) {
+          actors.push(match);
+        }
+      }
+    }
+  }
+
+  return actors.slice(0, 5);
+}
+
+/**
+ * Parse GDELT date format (YYYYMMDDHHMMSS) to ISO 8601
+ */
+function parseGDELTDate(seendate: string): string {
+  try {
+    const year = seendate.substring(0, 4);
+    const month = seendate.substring(4, 6);
+    const day = seendate.substring(6, 8);
+    const hour = seendate.substring(8, 10);
+    const minute = seendate.substring(10, 12);
+    const second = seendate.substring(12, 14);
+
+    return new Date(`${year}-${month}-${day}T${hour}:${minute}:${second}Z`).toISOString();
+  } catch {
+    return new Date().toISOString();
+  }
+}
+
+function findLocationForCountry(
+  locations: Array<{ latitude: number; longitude: number; name: string; country_code?: string | null }>,
+  countryCode: string
+): { latitude: number; longitude: number; name: string } | undefined {
+  const normalizedCode = countryCode?.toUpperCase();
+  return locations.find(loc => loc.country_code?.toUpperCase() === normalizedCode);
+}
+
+function hashString(str: string): string {
+  let hash = 0;
+  for (let i = 0; i < str.length; i++) {
+    const char = str.charCodeAt(i);
+    hash = ((hash << 5) - hash) + char;
+    hash = hash & hash;
+  }
+  return Math.abs(hash).toString(16).substring(0, 12);
+}
+
+function sleep(ms: number): Promise<void> {
+  return new Promise(resolve => setTimeout(resolve, ms));
 }

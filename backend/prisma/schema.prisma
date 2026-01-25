@@ -13,14 +13,21 @@ datasource db {
 
 // ============================================================================
 // ORGANIZATION MODEL (Root entity for multi-tenancy)
+// Supports hierarchical organizations with parent-child relationships
+// Root organization (Pericles, Inc.) owns all child organizations
 // ============================================================================
 model Organization {
   id                        String   @id @default(uuid())
   name                      String
-  email_domain              String?  // For root organization check (@pericles.cloud)
+  email_domains             String[] @default([]) // Domains for auto-assignment (e.g., ["pericles.cloud", "pericles.ai"])
   is_root                   Boolean  @default(false)
 
-  // Company details (from Levi Strauss data)
+  // Hierarchical organization structure
+  parent_organization_id    String?
+  parent_organization       Organization?  @relation("OrganizationHierarchy", fields: [parent_organization_id], references: [id], onDelete: SetNull)
+  child_organizations       Organization[] @relation("OrganizationHierarchy")
+
+  // Company details
   address_line1             String?
   city                      String?
   state                     String?
@@ -36,16 +43,111 @@ model Organization {
   updated_at                DateTime @updatedAt
 
   // Relations
-  events          Event[]
-  incidents       Incident[]
-  riskAssessments RiskAssessment[]
-  eventHashes     EventHash[]
-  context         OrganizationContext?
-  suppliers       Supplier[]
-  shipments       Shipment[]
+  events              Event[]
+  incidents           Incident[]
+  riskAssessments     RiskAssessment[]
+  eventHashes         EventHash[]
+  context             OrganizationContext?
+  settings            OrganizationSettings?
+  toolConfigs         DataSourceToolConfig[]
+  suppliers           Supplier[]
+  shipments           Shipment[]
+  users               UserOrganization[]
+  workflows           Workflow[]
 
-  @@index([email_domain])
   @@index([is_root])
+  @@index([parent_organization_id])
+}
+
+// ============================================================================
+// ORGANIZATION SETTINGS (Organization-level configuration)
+// ============================================================================
+model OrganizationSettings {
+  id                    String   @id @default(uuid())
+  organization_id       String   @unique
+  organization          Organization @relation(fields: [organization_id], references: [id], onDelete: Cascade)
+
+  // Agent Settings
+  monitoring_agent_enabled       Boolean  @default(true)
+  monitoring_polling_interval_ms Int      @default(15000)
+  monitoring_enabled_sources     Json     @default("{\"weather\":true,\"political\":true,\"cybersecurity\":true,\"economic\":true,\"news\":true,\"maritime\":true,\"labor\":true,\"regulatory\":true,\"pandemic\":true,\"geopolitical\":true}")
+
+  // AI Settings
+  ai_model_provider      String   @default("openai")
+  ai_model_name          String   @default("gpt-4o")
+  ai_model_temperature   Float    @default(0.7)
+  ai_max_tokens          Int      @default(4096)
+
+  // Notification Settings
+  notifications_email_enabled    Boolean  @default(true)
+  notifications_email_recipients Json     @default("[]")
+  notifications_severity_threshold Float  @default(0.7)
+  notifications_slack_enabled    Boolean  @default(false)
+  notifications_slack_webhook_url String?
+  notifications_digest_enabled   Boolean  @default(true)
+  notifications_digest_frequency String   @default("weekly")
+
+  // Integration Status
+  integration_sap_configured     Boolean  @default(false)
+  integration_sap_last_sync      DateTime?
+  integration_sap_sync_frequency String   @default("daily")
+
+  // Data Retention
+  retention_events_days      Int      @default(365)
+  retention_audit_logs_days  Int      @default(90)
+  retention_incidents_days   Int      @default(730)
+
+  created_at DateTime @default(now())
+  updated_at DateTime @updatedAt
+
+  @@index([organization_id])
+}
+
+// ============================================================================
+// DATA SOURCE TOOL CONFIG (Per-tool configuration for monitoring agents)
+// ============================================================================
+model DataSourceToolConfig {
+  id                String   @id @default(uuid())
+  organization_id   String
+  organization      Organization @relation(fields: [organization_id], references: [id], onDelete: Cascade)
+
+  // Tool identification
+  data_source       String   // weather, political, cybersecurity, economic, news, maritime, labor, regulatory, pandemic, geopolitical
+  tool_id           String   // noaa, eonet, gdelt, nvd, cisa, fred, thenewsapi, twitter, rss feeds, etc.
+  tool_name         String   // Human-readable name: "NOAA Weather API", "NASA EONET"
+
+  // Common settings
+  enabled           Boolean  @default(true)
+  api_timeout_ms    Int      @default(15000)
+  severity_threshold Float   @default(0.5)  // 0.0-1.0 (low=0.3, medium=0.5, high=0.7)
+  lookback_hours    Int      @default(24)
+
+  // Tool-specific configuration (flexible JSON)
+  // Examples:
+  // - RSS tools: { "feed_urls": ["https://..."], "max_items": 50 }
+  // - GDELT tools: { "search_terms": ["strike", "protest"], "country_filters": ["US", "CN"] }
+  // - API tools: { "api_key_env": "NOAA_API_KEY", "base_url": "https://..." }
+  // - Weather: { "proximity_radius_km": 500, "min_magnitude": 4.0 }
+  config            Json     @default("{}")
+
+  // API credentials (optional override)
+  api_key_encrypted String?  // Encrypted API key for this specific tool
+  api_key_env_var   String?  // Environment variable name for API key
+
+  // Metadata
+  description       String?  @db.Text
+  documentation_url String?
+  last_success_at   DateTime?
+  last_error_at     DateTime?
+  last_error_message String? @db.Text
+  total_events_fetched Int   @default(0)
+
+  created_at        DateTime @default(now())
+  updated_at        DateTime @updatedAt
+
+  @@unique([organization_id, data_source, tool_id])
+  @@index([organization_id, data_source])
+  @@index([organization_id, enabled])
 }
 
 // ============================================================================
@@ -410,4 +512,254 @@ model Shipment {
   @@index([arrival_date])
   @@index([destination_port])
   @@index([departure_port])
+}
+
+// ============================================================================
+// USER MODEL (Authentication entity)
+// ============================================================================
+model User {
+  id                    String    @id @default(uuid())
+  email                 String    @unique
+  email_verified        Boolean   @default(false)
+  email_verified_at     DateTime?
+
+  // Password authentication (nullable for OAuth-only users)
+  password_hash         String?
+
+  // Google OAuth fields
+  google_id             String?   @unique
+  google_avatar_url     String?
+
+  // Profile
+  name                  String?
+  avatar_url            String?
+
+  // Status and security
+  status                String    @default("active") // active, suspended, deleted
+  last_login_at         DateTime?
+  failed_login_attempts Int       @default(0)
+  locked_until          DateTime?
+
+  created_at            DateTime  @default(now())
+  updated_at            DateTime  @updatedAt
+
+  // Relations
+  memberships           UserOrganization[]
+  refresh_tokens        RefreshToken[]
+  audit_logs            AuthAuditLog[]
+
+  @@index([email])
+  @@index([google_id])
+  @@index([status])
+}
+
+// ============================================================================
+// USER-ORGANIZATION RELATIONSHIP (Many-to-Many with role)
+// ============================================================================
+model UserOrganization {
+  id              String       @id @default(uuid())
+  user_id         String
+  user            User         @relation(fields: [user_id], references: [id], onDelete: Cascade)
+  organization_id String
+  organization    Organization @relation(fields: [organization_id], references: [id], onDelete: Cascade)
+
+  // Role within organization
+  role            String       @default("MEMBER") // OWNER, ADMIN, MEMBER, GUEST
+
+  // Invitation tracking
+  invited_by      String?      // user_id of inviter
+  invited_at      DateTime?
+  accepted_at     DateTime?
+
+  // Status
+  status          String       @default("active") // active, pending, suspended
+
+  created_at      DateTime     @default(now())
+  updated_at      DateTime     @updatedAt
+
+  @@unique([user_id, organization_id])
+  @@index([user_id])
+  @@index([organization_id])
+  @@index([role])
+}
+
+// ============================================================================
+// REFRESH TOKEN MODEL (For JWT token rotation)
+// ============================================================================
+model RefreshToken {
+  id            String    @id @default(uuid())
+  user_id       String
+  user          User      @relation(fields: [user_id], references: [id], onDelete: Cascade)
+
+  token_hash    String    @unique  // SHA-256 hash of token
+  device_info   String?             // User agent / device identifier
+  ip_address    String?
+
+  expires_at    DateTime
+  revoked_at    DateTime?
+  revoked_reason String?
+
+  created_at    DateTime  @default(now())
+
+  @@index([user_id])
+  @@index([token_hash])
+  @@index([expires_at])
+}
+
+// ============================================================================
+// AUTH AUDIT LOG MODEL (Security event tracking)
+// ============================================================================
+model AuthAuditLog {
+  id              String    @id @default(uuid())
+  user_id         String?
+  user            User?     @relation(fields: [user_id], references: [id], onDelete: SetNull)
+  organization_id String?
+
+  // Event details
+  event_type      String    // LOGIN, LOGOUT, LOGIN_FAILED, TOKEN_REFRESH, PASSWORD_RESET, etc.
+  event_status    String    // SUCCESS, FAILURE
+
+  // Request context
+  ip_address      String?
+  user_agent      String?
+
+  // Additional data
+  metadata        Json?     // Additional event-specific data
+  error_message   String?
+
+  created_at      DateTime  @default(now())
+
+  @@index([user_id, created_at])
+  @@index([organization_id, created_at])
+  @@index([event_type])
+  @@index([created_at])
+}
+
+// ============================================================================
+// WORKFLOW BUILDER MODELS (Plans workflow builder for contingency planning)
+// ============================================================================
+
+model Workflow {
+  id              String   @id @default(uuid())
+  organization_id String
+  organization    Organization @relation(fields: [organization_id], references: [id], onDelete: Cascade)
+
+  name            String
+  description     String?  @db.Text
+  status          WorkflowStatus @default(DRAFT)
+  version         Int      @default(1)
+
+  // Viewport state for canvas persistence
+  viewport_x      Float    @default(0)
+  viewport_y      Float    @default(0)
+  viewport_zoom   Float    @default(1)
+
+  // Execution settings
+  execution_mode  ExecutionMode @default(MANUAL)
+  is_active       Boolean  @default(false)
+
+  created_by      String
+  created_at      DateTime @default(now())
+  updated_at      DateTime @updatedAt
+
+  nodes           WorkflowNode[]
+  edges           WorkflowEdge[]
+  executions      WorkflowExecution[]
+
+  @@unique([organization_id, name])
+  @@index([organization_id])
+  @@index([organization_id, status])
+}
+
+model WorkflowNode {
+  id              String   @id @default(uuid())
+  workflow_id     String
+  workflow        Workflow @relation(fields: [workflow_id], references: [id], onDelete: Cascade)
+
+  client_id       String   // UI library ID (e.g., "node-1")
+  type            NodeType
+  label           String?
+  position_x      Float
+  position_y      Float
+  data            Json     @default("{}")  // Node-specific config
+
+  created_at      DateTime @default(now())
+  updated_at      DateTime @updatedAt
+
+  outgoing_edges  WorkflowEdge[] @relation("SourceNode")
+  incoming_edges  WorkflowEdge[] @relation("TargetNode")
+
+  @@unique([workflow_id, client_id])
+  @@index([workflow_id])
+}
+
+model WorkflowEdge {
+  id              String   @id @default(uuid())
+  workflow_id     String
+  workflow        Workflow @relation(fields: [workflow_id], references: [id], onDelete: Cascade)
+
+  client_id       String   // UI library ID (e.g., "edge-1-2")
+  source_node_id  String
+  source_node     WorkflowNode @relation("SourceNode", fields: [source_node_id], references: [id], onDelete: Cascade)
+  target_node_id  String
+  target_node     WorkflowNode @relation("TargetNode", fields: [target_node_id], references: [id], onDelete: Cascade)
+
+  source_handle   String?  // Handle identifier (e.g., "yes", "no" for conditions)
+  target_handle   String?
+  label           String?
+  data            Json     @default("{}")
+
+  created_at      DateTime @default(now())
+  updated_at      DateTime @updatedAt
+
+  @@unique([workflow_id, client_id])
+  @@index([workflow_id])
+  @@index([source_node_id])
+  @@index([target_node_id])
+}
+
+model WorkflowExecution {
+  id              String   @id @default(uuid())
+  workflow_id     String
+  workflow        Workflow @relation(fields: [workflow_id], references: [id], onDelete: Cascade)
+
+  status          ExecutionStatus @default(PENDING)
+  triggered_by    String?  // "manual", "trigger:incident", etc.
+  started_at      DateTime?
+  completed_at    DateTime?
+  error           String?  @db.Text
+  execution_log   Json     @default("[]")
+
+  created_at      DateTime @default(now())
+
+  @@index([workflow_id])
+  @@index([workflow_id, status])
+}
+
+enum WorkflowStatus {
+  DRAFT
+  PUBLISHED
+  ARCHIVED
+}
+
+enum ExecutionMode {
+  MANUAL
+  AUTOMATIC
+  BOTH
+}
+
+enum NodeType {
+  TRIGGER
+  ACTION
+  CONDITION
+  NOTIFICATION
+  END
+}
+
+enum ExecutionStatus {
+  PENDING
+  RUNNING
+  COMPLETED
+  FAILED
+  CANCELLED
 }

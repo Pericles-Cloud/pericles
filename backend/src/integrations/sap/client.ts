@@ -62,7 +62,7 @@ export class SAPClient {
     }
 
     try {
-      const response = await fetch(this.config.tokenUrl!, {
+      const response = await fetch(this.config.tokenUrl ?? `${this.config.baseUrl}/sap/bc/sec/oauth2/token`, {
         method: 'POST',
         headers: {
           'Content-Type': 'application/x-www-form-urlencoded',
@@ -121,7 +121,7 @@ export class SAPClient {
           Accept: 'application/json',
           'Content-Type': 'application/json',
         },
-        signal: AbortSignal.timeout(this.config.timeout!),
+        signal: AbortSignal.timeout(this.config.timeout ?? 30000),
       });
 
       if (!response.ok) {

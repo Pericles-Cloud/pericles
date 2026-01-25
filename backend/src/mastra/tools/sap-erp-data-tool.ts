@@ -259,15 +259,15 @@ export const sapGetSuppliersT = createTool({
 
       // Transform and filter
       let suppliers = response.d.results
-        .filter((_bp) => bp.to_Supplier)
+        .filter((bp) => bp.to_Supplier)
         .map(_transformSAPSupplier);
 
       if (critical_only) {
-        suppliers = suppliers.filter((_s) => s.critical);
+        suppliers = suppliers.filter((s) => s.critical);
       }
 
       // Determine data source
-      const dataSource = process.env.SAP_S4HANA_USE_MOCK === 'false' ? 'sap_production' : 'sap_mock';
+      const dataSource: 'sap_production' | 'sap_mock' = process.env.SAP_S4HANA_USE_MOCK === 'false' ? 'sap_production' : 'sap_mock';
 
       console.log(`[SAP Tool] Retrieved ${suppliers.length} suppliers from ${dataSource}`);
 
@@ -277,9 +277,9 @@ export const sapGetSuppliersT = createTool({
         data_source: dataSource,
         timestamp: new Date().toISOString(),
       };
-    } catch (_error) {
+    } catch (error) {
       clearTimeout(_timeout);
-      console.error('[SAP Tool] Failed to fetch suppliers:', _error);
+      console.error('[SAP Tool] Failed to fetch suppliers:', error);
       throw new Error(
         `SAP API error: ${error instanceof Error ? error.message : 'Unknown error'}`
       );
@@ -356,10 +356,10 @@ export const sapGetPlantsT = createTool({
       let plants = response.d.results.map(_transformSAPPlant);
 
       if (plant_type !== 'all') {
-        plants = plants.filter((_p) => p.plant_type === plant_type);
+        plants = plants.filter((p) => p.plant_type === plant_type);
       }
 
-      const dataSource = process.env.SAP_S4HANA_USE_MOCK === 'false' ? 'sap_production' : 'sap_mock';
+      const dataSource: 'sap_production' | 'sap_mock' = process.env.SAP_S4HANA_USE_MOCK === 'false' ? 'sap_production' : 'sap_mock';
 
       console.log(`[SAP Tool] Retrieved ${plants.length} plants from ${dataSource}`);
 
@@ -369,9 +369,9 @@ export const sapGetPlantsT = createTool({
         data_source: dataSource,
         timestamp: new Date().toISOString(),
       };
-    } catch (_error) {
+    } catch (error) {
       clearTimeout(_timeout);
-      console.error('[SAP Tool] Failed to fetch plants:', _error);
+      console.error('[SAP Tool] Failed to fetch plants:', error);
       throw new Error(
         `SAP API error: ${error instanceof Error ? error.message : 'Unknown error'}`
       );
@@ -425,10 +425,10 @@ export const sapGetMaterialStockTool = createTool({
       let stock = response.d.results.map(_transformSAPMaterialStock);
 
       if (material_filter) {
-        stock = stock.filter((_s) => s.material.includes(material_filter));
+        stock = stock.filter((s) => s.material.includes(material_filter));
       }
 
-      const dataSource = process.env.SAP_S4HANA_USE_MOCK === 'false' ? 'sap_production' : 'sap_mock';
+      const dataSource: 'sap_production' | 'sap_mock' = process.env.SAP_S4HANA_USE_MOCK === 'false' ? 'sap_production' : 'sap_mock';
 
       console.log(`[SAP Tool] Retrieved ${stock.length} stock records from ${dataSource}`);
 
@@ -439,9 +439,9 @@ export const sapGetMaterialStockTool = createTool({
         data_source: dataSource,
         timestamp: new Date().toISOString(),
       };
-    } catch (_error) {
+    } catch (error) {
       clearTimeout(_timeout);
-      console.error('[SAP Tool] Failed to fetch material stock:', _error);
+      console.error('[SAP Tool] Failed to fetch material stock:', error);
       throw new Error(
         `SAP API error: ${error instanceof Error ? error.message : 'Unknown error'}`
       );
@@ -490,7 +490,7 @@ export const sapGetShippingLanesTool = createTool({
     });
 
     const controller = new AbortController();
-    const _timeout = setTimeout(() => { controller.abort(); }, 30000);
+    const timeout = setTimeout(() => { controller.abort(); }, 30000);
 
     try {
       // Fetch shipping lanes
@@ -499,33 +499,33 @@ export const sapGetShippingLanesTool = createTool({
         sapClient.getPlants(), // Need plant data for transformations
       ]);
 
-      clearTimeout(_timeout);
+      clearTimeout(timeout);
 
       // Create plants map for lookups
-      const _plantsMap = new Map(plantsResponse.d.results.map((_p) => [p.Plant, p]));
+      const plantsMap = new Map(plantsResponse.d.results.map((p) => [p.Plant, p]));
 
       // Transform and filter
-      let shippingLanes = lanesResponse.d.results.map((_lane) =>
-        transformSAPShippingLane(_lane, _plantsMap)
+      let shippingLanes = lanesResponse.d.results.map((lane) =>
+        transformSAPShippingLane(lane, plantsMap)
       );
 
       if (origin_plant) {
-        shippingLanes = shippingLanes.filter((_l) => l.origin.plant_id === origin_plant);
+        shippingLanes = shippingLanes.filter((l) => l.origin.plant_id === origin_plant);
       }
 
       if (destination_plant) {
-        shippingLanes = shippingLanes.filter((_l) => l.destination.plant_id === destination_plant);
+        shippingLanes = shippingLanes.filter((l) => l.destination.plant_id === destination_plant);
       }
 
       if (mode !== 'all') {
-        shippingLanes = shippingLanes.filter((_l) => l.mode === mode);
+        shippingLanes = shippingLanes.filter((l) => l.mode === mode);
       }
 
       if (active_only) {
-        shippingLanes = shippingLanes.filter((_l) => l.active);
+        shippingLanes = shippingLanes.filter((l) => l.active);
       }
 
-      const dataSource = process.env.SAP_S4HANA_USE_MOCK === 'false' ? 'sap_production' : 'sap_mock';
+      const dataSource: 'sap_production' | 'sap_mock' = process.env.SAP_S4HANA_USE_MOCK === 'false' ? 'sap_production' : 'sap_mock';
 
       console.log(`[SAP Tool] Retrieved ${shippingLanes.length} shipping lanes from ${dataSource}`);
 
@@ -535,9 +535,9 @@ export const sapGetShippingLanesTool = createTool({
         data_source: dataSource,
         timestamp: new Date().toISOString(),
       };
-    } catch (_error) {
-      clearTimeout(_timeout);
-      console.error('[SAP Tool] Failed to fetch shipping lanes:', _error);
+    } catch (error) {
+      clearTimeout(timeout);
+      console.error('[SAP Tool] Failed to fetch shipping lanes:', error);
       throw new Error(
         `SAP API error: ${error instanceof Error ? error.message : 'Unknown error'}`
       );

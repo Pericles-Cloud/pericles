@@ -54,7 +54,7 @@ const MonitoringPlanSchema = z.object({
 
 const KeywordInputSchema = z.object({
   keyword: z.string().min(1),
-  category: z.string().nullable().default(null).describe('Category tag (e.g., supplier_name, port_name, product). Pass null if no category.')
+  category: z.string().nullable().optional().describe('Category tag (e.g., supplier_name, port_name, product). Pass null or omit if no category.')
 });
 
 const MediaEventSchema = z.object({
@@ -258,7 +258,7 @@ interface TwitterAPIResponse {
  * @param regions - Array of country codes (ISO 3166-1 alpha-2) to filter by
  */
 async function fetchNewsArticles(
-  keywords: Array<{ keyword: string; category?: string }>,
+  keywords: Array<{ keyword: string; category?: string | null }>,
   lookbackHours: number,
   sentimentThreshold: number,
   regions: string[] = []
@@ -359,7 +359,7 @@ async function fetchNewsArticles(
  * API Docs: https://docs.twitterapi.io/api-reference/endpoint/tweet_advanced_search
  */
 async function fetchTwitterPosts(
-  keywords: Array<{ keyword: string; category?: string }>,
+  keywords: Array<{ keyword: string; category?: string | null }>,
   lookbackHours: number,
   sentimentThreshold: number
 ): Promise<Array<z.infer<typeof MediaEventSchema>>> {
@@ -661,7 +661,7 @@ const COUNTRY_CODE_MAP: Record<string, string> = {
  * @returns Array of unique ISO 3166-1 alpha-2 country codes
  */
 function extractCountryCodesFromPlan(
-  regions: Array<{ country: string; country_code?: string; priority?: string }>
+  regions: Array<{ country: string; country_code?: string | null; priority?: string | null }>
 ): string[] {
   const codes = new Set<string>();
 
@@ -691,7 +691,7 @@ function extractCountryCodesFromPlan(
  * @returns Array of unique ISO 3166-1 alpha-2 country codes
  */
 function extractCountryCodesFromLocations(
-  locations: Array<{ name: string; city?: string; country: string; country_code?: string; latitude?: number; longitude?: number }>
+  locations: Array<{ name: string; city?: string | null; country: string; country_code?: string | null; latitude?: number | null; longitude?: number | null }>
 ): string[] {
   const codes = new Set<string>();
 

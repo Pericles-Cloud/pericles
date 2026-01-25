@@ -1,6 +1,11 @@
 import { Agent } from '@mastra/core/agent';
-import { Memory } from '@mastra/memory';
-import { getPostgresStore } from '../../monitoring/db-client';
+// NOTE: Memory disabled due to OpenAI Responses API bug where item_reference
+// entries in conversation history are not properly resolved, causing:
+// "No tool call found for function call output with call_id" errors.
+// The monitoring agent is designed to be stateless - each cycle is independent.
+// Re-enable when Mastra/AI SDK fixes this issue.
+// import { Memory } from '@mastra/memory';
+// import { getPostgresStore } from '../../monitoring/db-client';
 
 // Import all monitoring tools
 import {
@@ -272,7 +277,8 @@ export const monitoringAgent = new Agent({
       },
     },
   },
-  memory: new Memory({
-    storage: getPostgresStore(), // Shared PostgreSQL storage for agent memory
-  }),
+  // Memory disabled - see note at top of file about OpenAI Responses API bug
+  // memory: new Memory({
+  //   storage: getPostgresStore(),
+  // }),
 });

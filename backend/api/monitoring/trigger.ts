@@ -48,33 +48,37 @@ export default async function handler(
 ): Promise<void> {
   // Handle CORS preflight
   if (req.method === 'OPTIONS') {
-    return res.status(200).json({});
+    res.status(200).json({});
+    return;
   }
 
   // Only accept POST
   if (req.method !== 'POST') {
-    return res.status(405).json({
+    res.status(405).json({
       error: 'Method not allowed',
       message: 'Only POST requests are supported',
     });
+    return;
   }
 
   // Authenticate
   if (!authenticateRequest(req)) {
-    return res.status(401).json({
+    res.status(401).json({
       error: 'Unauthorized',
       message: 'Invalid or missing Bearer token',
     });
+    return;
   }
 
   // Extract organization_id
   const { organization_id } = req.body;
 
   if (!organization_id) {
-    return res.status(400).json({
+    res.status(400).json({
       error: 'Bad request',
       message: 'organization_id is required in request body',
     });
+    return;
   }
 
   logger.info({ organizationId: organization_id }, '[API] Monitoring cycle triggered');
@@ -88,7 +92,7 @@ export default async function handler(
     const metrics = await runMonitoringCycle(config);
 
     // Return metrics
-    return res.status(200).json({
+    res.status(200).json({
       success: true,
       organizationId: organization_id,
       metrics: {
@@ -108,7 +112,7 @@ export default async function handler(
   } catch (error) {
     logger.error({ error, organizationId: organization_id }, '[API] Monitoring cycle failed');
 
-    return res.status(500).json({
+    res.status(500).json({
       error: 'Internal server error',
       message: (error as Error).message,
       organizationId: organization_id,

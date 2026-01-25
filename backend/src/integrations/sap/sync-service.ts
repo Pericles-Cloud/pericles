@@ -110,10 +110,10 @@ export async function syncSAPDataForOrganization(
         await prisma.organizationContext.update({
           where: { organization_id: organizationId },
           data: {
-            plants: contextData.plants as Prisma.JsonValue,
-            warehouses: contextData.warehouses as Prisma.JsonValue,
-            suppliers: contextData.suppliers as Prisma.JsonValue,
-            shipping_lanes: contextData.shipping_lanes as Prisma.JsonValue,
+            plants: contextData.plants as unknown as Prisma.InputJsonValue,
+            warehouses: contextData.warehouses as unknown as Prisma.InputJsonValue,
+            suppliers: contextData.suppliers as unknown as Prisma.InputJsonValue,
+            shipping_lanes: contextData.shipping_lanes as unknown as Prisma.InputJsonValue,
             monitored_risk_types: contextData.risk_preferences.monitored_risk_types,
             geographic_radius_km: contextData.risk_preferences.geographic_radius_km,
             severity_threshold: contextData.risk_preferences.severity_threshold,
@@ -129,10 +129,10 @@ export async function syncSAPDataForOrganization(
         await prisma.organizationContext.create({
           data: {
             organization_id: organizationId,
-            plants: contextData.plants as Prisma.JsonValue,
-            warehouses: contextData.warehouses as Prisma.JsonValue,
-            suppliers: contextData.suppliers as Prisma.JsonValue,
-            shipping_lanes: contextData.shipping_lanes as Prisma.JsonValue,
+            plants: contextData.plants as unknown as Prisma.InputJsonValue,
+            warehouses: contextData.warehouses as unknown as Prisma.InputJsonValue,
+            suppliers: contextData.suppliers as unknown as Prisma.InputJsonValue,
+            shipping_lanes: contextData.shipping_lanes as unknown as Prisma.InputJsonValue,
             monitored_risk_types: contextData.risk_preferences.monitored_risk_types,
             geographic_radius_km: contextData.risk_preferences.geographic_radius_km,
             severity_threshold: contextData.risk_preferences.severity_threshold,

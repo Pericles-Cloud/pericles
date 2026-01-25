@@ -20,7 +20,7 @@ const DATA_DIR = '/Users/gary/Development/bigdecibel/pericles.ai/data';
 const ORGANIZATION_ID = '550e8400-e29b-41d4-a716-446655440000'; // Levi Strauss
 
 // Helper function to parse CSV
-function parseCSV(content: string): any[] {
+function parseCSV(content: string): Array<Record<string, string>> {
   return parse(content, {
     columns: true,
     skip_empty_lines: true,
@@ -46,7 +46,7 @@ async function loadOrganizationData() {
     create: {
       id: ORGANIZATION_ID,
       name: orgData.company_name || 'Levi Strauss & Co',
-      email_domain: 'levi.com',
+      email_domains: ['levi.com'],
       is_root: false,
       address_line1: orgData.address_line1,
       city: orgData.city,
@@ -58,6 +58,7 @@ async function loadOrganizationData() {
       customer_type: orgData.customer_type,
     },
     update: {
+      email_domains: ['levi.com'],
       address_line1: orgData.address_line1,
       city: orgData.city,
       state: orgData.state,
@@ -269,8 +270,8 @@ async function createOrganizationContext() {
       location: {
         city: s.address?.split(',')[0] || 'Unknown',
         country: s.country || 'Unknown',
-        latitude: s.latitude!,
-        longitude: s.longitude!,
+        latitude: s.latitude ?? 0,
+        longitude: s.longitude ?? 0,
       },
       tier: 1, // Assume tier 1 for all
     }));

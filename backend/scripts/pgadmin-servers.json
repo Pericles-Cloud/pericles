@@ -1,0 +1,13 @@
+{
+  "Servers": {
+    "1": {
+      "Name": "Pericles PostgreSQL",
+      "Group": "Servers",
+      "Host": "postgres",
+      "Port": 5432,
+      "MaintenanceDB": "pericles",
+      "Username": "pericles_user",
+      "SSLMode": "prefer"
+    }
+  }
+}

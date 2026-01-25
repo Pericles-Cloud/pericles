@@ -119,6 +119,25 @@ export function isMonitoringRunning(): boolean {
 }
 
 // ============================================================================
+// Progress Callback Types
+// ============================================================================
+
+export type ProgressPhase = 'starting' | 'loading_context' | 'executing_tools' | 'processing_events' | 'complete' | 'error';
+
+export interface ProgressUpdate {
+  phase: ProgressPhase;
+  message: string;
+  tool?: string;
+  toolIndex?: number;
+  totalTools?: number;
+  eventsDetected?: number;
+  eventsPublished?: number;
+  timestamp: string;
+}
+
+export type ProgressCallback = (update: ProgressUpdate) => void;
+
+// ============================================================================
 // Single Monitoring Cycle
 // ============================================================================
 
@@ -126,12 +145,23 @@ export function isMonitoringRunning(): boolean {
  * Execute single monitoring cycle
  *
  * @param config - Monitoring configuration
+ * @param onProgress - Optional callback for progress updates
  * @returns Cycle metrics
  */
-export async function runMonitoringCycle(config: MonitoringConfig): Promise<CycleMetrics> {
+export async function runMonitoringCycle(
+  config: MonitoringConfig,
+  onProgress?: ProgressCallback
+): Promise<CycleMetrics> {
   const metrics = initializeCycleMetrics(config.organizationId);
   const cycleLogger = createLogger({ organizationId: config.organizationId });
 
+  const emitProgress = (update: Omit<ProgressUpdate, 'timestamp'>) => {
+    if (onProgress) {
+      onProgress({ ...update, timestamp: new Date().toISOString() });
+    }
+  };
+
+  emitProgress({ phase: 'starting', message: 'Initializing monitoring cycle...' });
   cycleLogger.debug('[Cycle] Starting monitoring cycle');
 
   try {
@@ -142,20 +172,41 @@ export async function runMonitoringCycle(config: MonitoringConfig): Promise<Cycl
       throw new Error('Monitoring agent not found in Mastra registry');
     }
 
+    emitProgress({ phase: 'loading_context', message: 'Loading organization context...' });
+
+    // Count enabled sources to estimate total tools
+    const enabledSourceCount = Object.values(config.enabledSources).filter(Boolean).length;
+    const estimatedTools = enabledSourceCount + 2; // +2 for context/lookup tools
+    let currentToolIndex = 0;
+
     // Execute agent with structured prompt
     const monitoringPrompt = createMonitoringPrompt(config);
 
     cycleLogger.debug({ prompt: monitoringPrompt }, '[Cycle] Executing agent');
 
+    emitProgress({ phase: 'executing_tools', message: 'Starting data source monitoring...', toolIndex: 0, totalTools: estimatedTools });
+
     const response = await agent.generate(monitoringPrompt, {
       // eslint-disable-next-line @typescript-eslint/no-explicit-any -- Mastra agent callback type
       onStepFinish: (step: any) => {
-        // Log tool calls
+        // Log tool calls - Mastra may use 'toolName' or 'name' for the tool identifier
         if (step.toolCalls && step.toolCalls.length > 0) {
           for (const toolCall of step.toolCalls) {
+            const toolName = toolCall.toolName || toolCall.name || 'unknown';
             metrics.toolsExecuted++;
+            currentToolIndex++;
+
+            // Emit progress for each tool
+            emitProgress({
+              phase: 'executing_tools',
+              message: `Executing ${formatToolName(toolName)}...`,
+              tool: toolName,
+              toolIndex: currentToolIndex,
+              totalTools: Math.max(estimatedTools, currentToolIndex),
+            });
+
             cycleLogger.debug(
-              { tool: toolCall.toolName, args: toolCall.arguments },
+              { tool: toolName, args: toolCall.arguments },
               '[Cycle] Tool executed'
             );
           }
@@ -166,6 +217,8 @@ export async function runMonitoringCycle(config: MonitoringConfig): Promise<Cycl
     // Parse agent response
     const result = response.text || '';
     cycleLogger.debug({ result }, '[Cycle] Agent response received');
+
+    emitProgress({ phase: 'processing_events', message: 'Processing detected events...' });
 
     // Extract structured data from response
     // Note: The agent should return JSON, but we need to parse it
@@ -184,6 +237,12 @@ export async function runMonitoringCycle(config: MonitoringConfig): Promise<Cycl
     } catch (parseError) {
       cycleLogger.warn({ error: parseError }, '[Cycle] Failed to parse agent response as JSON');
     }
+
+    emitProgress({
+      phase: 'processing_events',
+      message: `Found ${metrics.eventsDetected} events, storing...`,
+      eventsDetected: metrics.eventsDetected,
+    });
 
     // Process and store detected events
     for (const eventData of detectedEvents) {
@@ -242,7 +301,18 @@ export async function runMonitoringCycle(config: MonitoringConfig): Promise<Cycl
     if (config.observability.enableAuditLog) {
       await logAuditRecord(config.organizationId, metrics);
     }
+
+    emitProgress({
+      phase: 'complete',
+      message: `Cycle complete: ${metrics.eventsPublished} events published`,
+      eventsDetected: metrics.eventsDetected,
+      eventsPublished: metrics.eventsPublished,
+    });
   } catch (error) {
+    emitProgress({
+      phase: 'error',
+      message: (error as Error).message || 'Monitoring cycle failed',
+    });
     cycleLogger.error({ error }, '[Cycle] Monitoring cycle failed');
     throw error;
   } finally {
@@ -409,4 +479,29 @@ Return detected events in JSON format as specified in your instructions.`;
  */
 function sleep(ms: number): Promise<void> {
   return new Promise((resolve) => setTimeout(resolve, ms));
+}
+
+/**
+ * Format tool name for display
+ */
+function formatToolName(toolName: string | undefined): string {
+  if (!toolName) return 'Unknown Tool';
+
+  const toolDisplayNames: Record<string, string> = {
+    'erp-context-tool': 'ERP Context',
+    'incident-lookup-tool': 'Incident Lookup',
+    'organization-lookup-tool': 'Organization Lookup',
+    'weather-disaster-monitor-tool': 'Weather & Disasters',
+    'political-risk-monitor-tool': 'Political Risk',
+    'cybersecurity-monitor-tool': 'Cybersecurity',
+    'economic-financial-monitor-tool': 'Economic & Financial',
+    'news-social-media-monitor-tool': 'News & Social Media',
+    'maritime-logistics-monitor-tool': 'Maritime & Logistics',
+    'labor-social-monitor-tool': 'Labor & Social',
+    'regulatory-trade-monitor-tool': 'Regulatory & Trade',
+    'pandemic-health-monitor-tool': 'Pandemic & Health',
+    'geopolitical-conflict-monitor-tool': 'Geopolitical & Conflict',
+  };
+
+  return toolDisplayNames[toolName] || toolName.replace(/-/g, ' ').replace(/tool$/i, '').trim();
 }

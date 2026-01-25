@@ -31,6 +31,7 @@ async function main() {
         critical_only: true,
         max_results: 10,
       },
+      runtimeContext: {} as never,
     });
 
     console.log(`✓ Found ${suppliersResult.suppliers.length} critical suppliers in Vietnam`);
@@ -58,6 +59,7 @@ async function main() {
         plant_type: 'all',
         max_results: 20,
       },
+      runtimeContext: {} as never,
     });
 
     console.log(`✓ Found ${plantsResult.plants.length} facilities`);
@@ -89,6 +91,7 @@ async function main() {
         plant_id: '1000',
         max_results: 10,
       },
+      runtimeContext: {} as never,
     });
 
     console.log(`✓ Found ${stockResult.stock.length} stock records at plant ${stockResult.plant_id}`);
@@ -123,6 +126,7 @@ async function main() {
         active_only: true,
         max_results: 10,
       },
+      runtimeContext: {} as never,
     });
 
     console.log(`✓ Found ${lanesResult.shipping_lanes.length} active ocean shipping lanes`);

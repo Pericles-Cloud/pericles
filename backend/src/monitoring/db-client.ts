@@ -50,8 +50,12 @@ export async function disconnectPrisma(): Promise<void> {
  */
 export function getPostgresStore(): PostgresStore {
   if (!postgresStore) {
+    const connectionString = process.env.MASTRA_DATABASE_URL;
+    if (!connectionString) {
+      throw new Error('MASTRA_DATABASE_URL environment variable is required');
+    }
     postgresStore = new PostgresStore({
-      connectionString: process.env.MASTRA_DATABASE_URL!,
+      connectionString,
     });
   }
   return postgresStore;

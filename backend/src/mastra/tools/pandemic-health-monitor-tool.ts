@@ -76,43 +76,37 @@ export const pandemicHealthMonitorTool = createTool({
   }),
 
   execute: async ({ context }) => {
-    const { locations, severity_threshold: _severity_threshold, lookback_hours: _lookback_hours, organization_id } = context;
+    const { locations, severity_threshold, lookback_hours, organization_id } = context;
 
-    // Log the input parameters received
     console.log(`[Health Monitor] Tool executed with context:`, JSON.stringify(context, null, 2));
 
-    // CRITICAL: Validate organization_id
     if (!organization_id) {
       throw new Error('organization_id is required for health monitoring');
     }
 
     console.log(`[Health Monitor] Monitoring ${locations.length} locations for organization: ${organization_id}`);
 
-    // PLACEHOLDER: Actual RSS feed parsing to be implemented
-    // RSS Feeds:
-    // - WHO: https://www.who.int/rss-feeds
-    // - CDC: https://tools.cdc.gov/podcasts/rss.asp
-
     try {
-      const healthEvents: Array<z.infer<typeof HealthEventSchema>> = [];
-      const feedsChecked = 0;
-      const outbreakCount = 0;
-      const travelRestrictionCount = 0;
-      const highSeverityCount = 0;
+      const severityThresholdValue = severity_threshold === 'low' ? 0.3 : severity_threshold === 'medium' ? 0.5 : 0.7;
 
-      // TODO: Implement WHO RSS feed parsing
-      // const whoEvents = await fetchWHORSSFeeds(_locations, lookback_hours);
-      // feedsChecked += 1;
+      // Fetch from all health RSS feeds
+      const { events, feedsChecked } = await fetchHealthRSSFeeds(locations, lookback_hours);
 
-      // TODO: Implement CDC RSS feed parsing
-      // const cdcEvents = await fetchCDCRSSFeeds(_locations, lookback_hours);
-      // feedsChecked += 1;
+      // Filter by severity threshold
+      const filteredEvents = events.filter(e => e.severity >= severityThresholdValue);
 
-      // PLACEHOLDER: Return empty array for now
-      console.log(`[Health Monitor] Found ${healthEvents.length} events (${outbreakCount} outbreaks, ${travelRestrictionCount} travel restrictions), checked ${feedsChecked} feeds`);
+      const outbreakCount = filteredEvents.filter(e =>
+        e.event_type === 'outbreak' || e.event_type === 'pandemic'
+      ).length;
+      const travelRestrictionCount = filteredEvents.filter(e =>
+        e.event_type === 'travel_restriction' || e.travel_advisory
+      ).length;
+      const highSeverityCount = filteredEvents.filter(e => e.severity >= 0.7).length;
+
+      console.log(`[Health Monitor] Found ${filteredEvents.length} events (${outbreakCount} outbreaks, ${travelRestrictionCount} travel restrictions), checked ${feedsChecked} feeds`);
 
       return {
-        health_events: healthEvents,
+        health_events: filteredEvents,
         outbreak_count: outbreakCount,
         travel_restriction_count: travelRestrictionCount,
         high_severity_count: highSeverityCount,
@@ -127,176 +121,341 @@ export const pandemicHealthMonitorTool = createTool({
 });
 
 // ============================================================================
-// Helper Functions (to be implemented with actual RSS feed parsing)
+// RSS Feed Integration
 // ============================================================================
 
 /**
  * Health & pandemic RSS feeds to monitor
  */
-const _HEALTH_RSS_FEEDS = [
+const HEALTH_RSS_FEEDS = [
   {
     name: 'WHO Disease Outbreak News',
     url: 'https://www.who.int/feeds/entity/csr/don/en/rss.xml',
+    source: 'WHO',
     priority: 'high'
   },
   {
     name: 'WHO News',
     url: 'https://www.who.int/rss-feeds/news-english.xml',
+    source: 'WHO',
     priority: 'medium'
   },
   {
     name: 'CDC Health Alert Network',
-    url: 'https://tools.cdc.gov/podcasts/feed.asp?feedid=183',
+    url: 'https://tools.cdc.gov/api/v2/resources/media/316422.rss',
+    source: 'CDC',
     priority: 'high'
   },
   {
     name: 'CDC Travelers Health',
-    url: 'https://wwwnc.cdc.gov/travel/notices/rss.xml',
+    url: 'https://wwwnc.cdc.gov/travel/notices.rss',
+    source: 'CDC',
     priority: 'medium'
+  },
+  {
+    name: 'CDC Outbreak Investigations',
+    url: 'https://tools.cdc.gov/api/v2/resources/media/285676.rss',
+    source: 'CDC',
+    priority: 'high'
   }
 ];
 
 /**
- * Fetch and parse WHO RSS feeds
+ * Known diseases for detection
  */
-async function _fetchWHORSSFeeds(
-  _locations: Array<{ country_code: string; country_name: string }>,
-  _lookbackHours: number
-): Promise<Array<z.infer<typeof HealthEventSchema>>> {
-  // TODO: Implement WHO RSS feed parsing
-  //
-  // const events: z.infer<typeof HealthEventSchema>[] = [];
-  // const cutoffDate = new Date(Date.now() - lookbackHours * 60 * 60 * 1000);
-  //
-  // for (const feed of HEALTH_RSS_FEEDS.filter(f => f.name.startsWith('WHO'))) {
-  //   try {
-  //     const response = await fetch(feed.url);
-  //     const xmlText = await response.text();
-  //
-  //     // Parse XML RSS feed
-  //     const parser = new DOMParser(); // or use xml2js library
-  //     const xml = parser.parseFromString(_xmlText, 'text/xml');
-  //
-  //     const items = xml.querySelectorAll('item');
-  //
-  //     for (const item of items) {
-  //       const pubDate = new Date(item.querySelector('pubDate')?.textContent || '');
-  //       if (pubDate < cutoffDate) continue;
-  //
-  //       const title = item.querySelector('title')?.textContent || '';
-  //       const description = item.querySelector('description')?.textContent || '';
-  //       const link = item.querySelector('link')?.textContent || '';
-  //
-  //       // Filter by relevance to monitored locations
-  //       const relevantLocation = extractHealthLocation(_title, description, _locations);
-  //       if (!relevantLocation) continue;
-  //
-  //       // Extract disease name
-  //       const disease = extractDiseaseName(_title, _description);
-  //
-  //       // Classify event type
-  //       const eventType = classifyHealthEventType(_title, _description);
-  //
-  //       // Extract case counts
-  //       const { cases, deaths } = extractCaseCounts(_description);
-  //
-  //       // Calculate severity
-  //       const severity = calculateHealthSeverity(_eventType, cases, deaths, title, _description);
-  //
-  //       events.push({
-  //         event_id: `who-${pubDate.getTime()}`,
-  //         event_type: eventType,
-  //         disease,
-  //         title,
-  //         description,
-  //         severity,
-  //         location: relevantLocation,
-  //         cases_count: cases,
-  //         deaths_count: deaths,
-  //         event_timestamp: pubDate.toISOString(),
-  //         source: 'WHO',
-  //         source_url: link
-  //       });
-  //     }
-  //   } catch (_err) {
-  //     console.error(`[Health Monitor] Error fetching ${feed.name}:`, _err);
-  //     continue;
-  //   }
-  // }
-  //
-  // return events;
+const KNOWN_DISEASES = [
+  'COVID-19', 'SARS-CoV-2', 'Coronavirus',
+  'Ebola', 'Marburg',
+  'H5N1', 'H1N1', 'H7N9', 'Avian Flu', 'Bird Flu', 'Influenza',
+  'MERS', 'SARS',
+  'Zika', 'Dengue', 'Chikungunya',
+  'Malaria', 'Cholera', 'Typhoid',
+  'Mpox', 'Monkeypox',
+  'Measles', 'Polio',
+  'Yellow Fever', 'Lassa Fever',
+  'Tuberculosis', 'TB',
+  'Plague', 'Anthrax',
+  'Nipah', 'Hendra',
+  'Meningitis', 'Hepatitis'
+];
 
-  return [];
+interface RSSItem {
+  title: string;
+  description: string;
+  link: string;
+  pubDate: string;
+  category?: string;
 }
 
 /**
- * Fetch and parse CDC RSS feeds
+ * Fetch and parse all health RSS feeds
  */
-async function _fetchCDCRSSFeeds(
-  _locations: Array<{ country_code: string; country_name: string }>,
-  _lookbackHours: number
-): Promise<Array<z.infer<typeof HealthEventSchema>>> {
-  // TODO: Implement CDC RSS feed parsing
-  //
-  // Similar to WHO feed parsing
-  // Focus on CDC alerts, travel health notices
+async function fetchHealthRSSFeeds(
+  locations: Array<{ country_code: string; country_name: string; city?: string }>,
+  lookbackHours: number
+): Promise<{ events: Array<z.infer<typeof HealthEventSchema>>; feedsChecked: number }> {
+  const events: Array<z.infer<typeof HealthEventSchema>> = [];
+  const seenUrls = new Set<string>();
+  let feedsChecked = 0;
 
-  return [];
+  const cutoffDate = new Date(Date.now() - lookbackHours * 60 * 60 * 1000);
+  const _monitoredCountries = new Set(locations.map(l => l.country_name.toLowerCase()));
+  const _monitoredCountryCodes = new Set(locations.map(l => l.country_code.toUpperCase()));
+
+  for (const feed of HEALTH_RSS_FEEDS) {
+    try {
+      const response = await fetch(feed.url, {
+        headers: {
+          'Accept': 'application/rss+xml, application/xml, text/xml',
+          'User-Agent': 'Pericles-SupplyChainMonitor/1.0'
+        },
+        signal: AbortSignal.timeout(15000)
+      });
+
+      feedsChecked++;
+
+      if (!response.ok) {
+        console.warn(`[Health Monitor] Feed error ${response.status}: ${feed.name}`);
+        continue;
+      }
+
+      const xmlText = await response.text();
+      const items = parseRSSItems(xmlText);
+
+      console.log(`[Health Monitor] Parsed ${items.length} items from ${feed.name}`);
+
+      for (const item of items) {
+        // Skip duplicates
+        if (item.link && seenUrls.has(item.link)) continue;
+        if (item.link) seenUrls.add(item.link);
+
+        // Parse publication date
+        const pubDate = new Date(item.pubDate);
+        if (isNaN(pubDate.getTime()) || pubDate < cutoffDate) continue;
+
+        // Check location relevance
+        const location = extractHealthLocation(item.title, item.description, locations);
+
+        // For WHO/CDC global alerts, include even if location not specifically monitored
+        const isGlobalAlert = isGlobalHealthAlert(item.title, item.description);
+
+        if (!location && !isGlobalAlert) continue;
+
+        // Extract disease name
+        const disease = extractDiseaseName(item.title, item.description);
+
+        // Classify event type
+        const eventType = classifyHealthEventType(item.title, item.description);
+
+        // Extract case counts
+        const { cases, deaths } = extractCaseCounts(`${item.title  } ${  item.description}`);
+
+        // Check for travel advisory
+        const isTravelAdvisory = isTravelRelated(item.title, item.description);
+
+        // Calculate severity
+        const severity = calculateHealthSeverity(eventType, cases, deaths, item.title, item.description, disease);
+
+        // Determine alert level
+        const alertLevel = extractAlertLevel(item.title, item.description);
+
+        events.push({
+          event_id: `health-${feed.source.toLowerCase()}-${hashString(item.link || item.title)}`,
+          event_type: eventType,
+          disease,
+          title: item.title,
+          description: item.description.substring(0, 1000),
+          severity,
+          location: location || {
+            country: 'Global',
+            region: 'Worldwide'
+          },
+          cases_count: cases,
+          deaths_count: deaths,
+          alert_level: alertLevel,
+          travel_advisory: isTravelAdvisory,
+          event_timestamp: pubDate.toISOString(),
+          source: feed.source,
+          source_url: item.link,
+          raw_data: { feed_name: feed.name, category: item.category }
+        });
+      }
+
+      // Rate limiting between feeds
+      await sleep(300);
+
+    } catch (err) {
+      console.error(`[Health Monitor] Error fetching ${feed.name}:`, err);
+    }
+  }
+
+  return { events, feedsChecked };
+}
+
+function parseRSSItems(xmlText: string): RSSItem[] {
+  const items: RSSItem[] = [];
+
+  // Simple regex-based XML parsing for RSS items
+  const itemRegex = /<item>([\s\S]*?)<\/item>/gi;
+  let match;
+
+  while ((match = itemRegex.exec(xmlText)) !== null) {
+    const itemContent = match[1];
+
+    const title = extractXMLTag(itemContent, 'title');
+    const description = extractXMLTag(itemContent, 'description');
+    const link = extractXMLTag(itemContent, 'link');
+    const pubDate = extractXMLTag(itemContent, 'pubDate');
+    const category = extractXMLTag(itemContent, 'category');
+
+    if (title && pubDate) {
+      items.push({
+        title: decodeHTMLEntities(title),
+        description: decodeHTMLEntities(description || ''),
+        link: link || '',
+        pubDate,
+        category: category || undefined
+      });
+    }
+  }
+
+  return items;
+}
+
+function extractXMLTag(content: string, tag: string): string | null {
+  // Handle CDATA sections
+  const cdataRegex = new RegExp(`<${tag}[^>]*><!\\[CDATA\\[([\\s\\S]*?)\\]\\]><\\/${tag}>`, 'i');
+  const cdataMatch = content.match(cdataRegex);
+  if (cdataMatch) return cdataMatch[1].trim();
+
+  // Handle regular tags
+  const regex = new RegExp(`<${tag}[^>]*>([\\s\\S]*?)<\\/${tag}>`, 'i');
+  const match = content.match(regex);
+  return match ? match[1].trim() : null;
+}
+
+function decodeHTMLEntities(text: string): string {
+  return text
+    .replace(/&amp;/g, '&')
+    .replace(/&lt;/g, '<')
+    .replace(/&gt;/g, '>')
+    .replace(/&quot;/g, '"')
+    .replace(/&#39;/g, "'")
+    .replace(/&nbsp;/g, ' ')
+    .replace(/<[^>]+>/g, ''); // Strip HTML tags
 }
 
 /**
  * Extract health event location from article text
  */
-function _extractHealthLocation(
-  _title: string,
-  _description: string,
-  _monitoredLocations: Array<{ country_code: string; country_name: string }>
-): any {
-  // TODO: Implement location extraction
-  //
-  // const text = (title + ' ' + description).toLowerCase();
-  //
-  // for (const location of monitoredLocations) {
-  //   if (text.includes(location.country_name.toLowerCase())) {
-  //     return {
-  //       country: location.country_name,
-  //       country_code: location.country_code
-  //     };
-  //   }
-  // }
-  //
-  // // Check for health event keywords even if location not explicitly monitored
-  // const highPriorityKeywords = ['pandemic', 'outbreak', 'emergency'];
-  // for (const keyword of highPriorityKeywords) {
-  //   if (text.includes(_keyword)) {
-  //     // Extract location using NER
-  //     return extractLocationFromText(_text);
-  //   }
-  // }
+function extractHealthLocation(
+  title: string,
+  description: string,
+  monitoredLocations: Array<{ country_code: string; country_name: string; city?: string }>
+): { country: string; country_code?: string; region?: string; city?: string } | null {
+  const text = (`${title  } ${  description}`).toLowerCase();
+
+  // First, check monitored locations
+  for (const location of monitoredLocations) {
+    if (text.includes(location.country_name.toLowerCase())) {
+      return {
+        country: location.country_name,
+        country_code: location.country_code,
+        city: location.city
+      };
+    }
+  }
+
+  // Check common country names
+  const countryPatterns: Array<{ pattern: RegExp; country: string; code: string }> = [
+    { pattern: /\bchina\b/i, country: 'China', code: 'CN' },
+    { pattern: /\bunited states\b|\busa\b|\bu\.s\./i, country: 'United States', code: 'US' },
+    { pattern: /\bindia\b/i, country: 'India', code: 'IN' },
+    { pattern: /\bbrazil\b/i, country: 'Brazil', code: 'BR' },
+    { pattern: /\brunited kingdom\b|\buk\b|\bbritain\b/i, country: 'United Kingdom', code: 'GB' },
+    { pattern: /\bgermany\b/i, country: 'Germany', code: 'DE' },
+    { pattern: /\bfrance\b/i, country: 'France', code: 'FR' },
+    { pattern: /\bitaly\b/i, country: 'Italy', code: 'IT' },
+    { pattern: /\bjapan\b/i, country: 'Japan', code: 'JP' },
+    { pattern: /\bsouth korea\b|\bkorea\b/i, country: 'South Korea', code: 'KR' },
+    { pattern: /\bmexico\b/i, country: 'Mexico', code: 'MX' },
+    { pattern: /\bcanada\b/i, country: 'Canada', code: 'CA' },
+    { pattern: /\baustralia\b/i, country: 'Australia', code: 'AU' },
+    { pattern: /\bvietnam\b/i, country: 'Vietnam', code: 'VN' },
+    { pattern: /\bthailand\b/i, country: 'Thailand', code: 'TH' },
+    { pattern: /\bindonesia\b/i, country: 'Indonesia', code: 'ID' },
+    { pattern: /\bphilippines\b/i, country: 'Philippines', code: 'PH' },
+    { pattern: /\bmalaysia\b/i, country: 'Malaysia', code: 'MY' },
+    { pattern: /\bsouth africa\b/i, country: 'South Africa', code: 'ZA' },
+    { pattern: /\bnigeria\b/i, country: 'Nigeria', code: 'NG' },
+    { pattern: /\bkenya\b/i, country: 'Kenya', code: 'KE' },
+    { pattern: /\bethiopia\b/i, country: 'Ethiopia', code: 'ET' },
+    { pattern: /\begypt\b/i, country: 'Egypt', code: 'EG' },
+    { pattern: /\bsaudi arabia\b/i, country: 'Saudi Arabia', code: 'SA' },
+    { pattern: /\biran\b/i, country: 'Iran', code: 'IR' },
+    { pattern: /\bturkey\b|\btürkiye\b/i, country: 'Turkey', code: 'TR' },
+    { pattern: /\brussia\b/i, country: 'Russia', code: 'RU' },
+    { pattern: /\bukraine\b/i, country: 'Ukraine', code: 'UA' },
+    { pattern: /\bpoland\b/i, country: 'Poland', code: 'PL' },
+    { pattern: /\bspain\b/i, country: 'Spain', code: 'ES' },
+    { pattern: /\bafrica\b/i, country: 'Africa', code: '' },
+    { pattern: /\basia\b/i, country: 'Asia', code: '' },
+    { pattern: /\beurope\b/i, country: 'Europe', code: '' },
+    { pattern: /\bamericas\b|\bsouth america\b/i, country: 'Americas', code: '' }
+  ];
+
+  for (const { pattern, country, code } of countryPatterns) {
+    if (pattern.test(text)) {
+      return {
+        country,
+        country_code: code || undefined
+      };
+    }
+  }
 
   return null;
 }
 
 /**
+ * Check if this is a global health alert that should be included regardless of location
+ */
+function isGlobalHealthAlert(title: string, description: string): boolean {
+  const text = (`${title  } ${  description}`).toLowerCase();
+  const globalKeywords = [
+    'pandemic', 'global outbreak', 'worldwide', 'international spread',
+    'public health emergency', 'pheic', 'health emergency of international concern',
+    'global health threat', 'novel virus', 'new variant'
+  ];
+
+  return globalKeywords.some(keyword => text.includes(keyword));
+}
+
+/**
  * Extract disease name from article text
  */
-function _extractDiseaseName(_title: string, _description: string): string | undefined {
-  // TODO: Implement disease name extraction
-  //
-  // const text = title + ' ' + description;
-  //
-  // // Known diseases
-  // const diseases = [
-  //   'COVID-19', 'Ebola', 'H5N1', 'H1N1', 'MERS', 'SARS', 'Zika',
-  //   'Dengue', 'Malaria', 'Cholera', 'Mpox', 'Monkeypox', 'Measles',
-  //   'Influenza', 'Tuberculosis', 'Polio', 'Yellow Fever'
-  // ];
-  //
-  // for (const disease of diseases) {
-  //   if (text.toLowerCase().includes(disease.toLowerCase())) {
-  //     return disease;
-  //   }
-  // }
+function extractDiseaseName(title: string, description: string): string | undefined {
+  const text = `${title  } ${  description}`;
+
+  for (const disease of KNOWN_DISEASES) {
+    if (text.toLowerCase().includes(disease.toLowerCase())) {
+      return disease;
+    }
+  }
+
+  // Check for generic disease patterns
+  const diseasePatterns = [
+    /(\w+)\s+virus/i,
+    /(\w+)\s+fever/i,
+    /(\w+)\s+disease/i,
+    /(\w+)\s+syndrome/i
+  ];
+
+  for (const pattern of diseasePatterns) {
+    const match = text.match(pattern);
+    if (match) {
+      return match[0];
+    }
+  }
 
   return undefined;
 }
@@ -304,91 +463,157 @@ function _extractDiseaseName(_title: string, _description: string): string | und
 /**
  * Classify health event type
  */
-function _classifyHealthEventType(_title: string, _description: string): string {
-  // TODO: Implement classification
-  //
-  // const text = (title + ' ' + description).toLowerCase();
-  //
-  // if (text.includes('outbreak') || text.includes('cases')) return 'outbreak';
-  // if (text.includes('pandemic') || text.includes('global')) return 'pandemic';
-  // if (text.includes('travel') && (text.includes('restriction') || text.includes('ban'))) return 'travel_restriction';
-  // if (text.includes('quarantine') || text.includes('isolation')) return 'quarantine';
-  // if (text.includes('mandate') || text.includes('requirement')) return 'mandate';
-  // if (text.includes('emergency') || text.includes('alert')) return 'health_emergency';
+function classifyHealthEventType(title: string, description: string): string {
+  const text = (`${title  } ${  description}`).toLowerCase();
+
+  if (text.includes('pandemic') || text.includes('global outbreak')) return 'pandemic';
+  if (text.includes('emergency') || text.includes('pheic') || text.includes('alert')) return 'health_emergency';
+  if (text.includes('outbreak') || text.includes('cluster') || text.includes('cases reported')) return 'outbreak';
+  if (text.includes('travel') && (text.includes('restriction') || text.includes('ban') || text.includes('notice'))) return 'travel_restriction';
+  if (text.includes('quarantine') || text.includes('isolation') || text.includes('lockdown')) return 'quarantine';
+  if (text.includes('mandate') || text.includes('requirement') || text.includes('guideline')) return 'mandate';
+  if (text.includes('vaccine') || text.includes('vaccination')) return 'vaccination_update';
 
   return 'health_event';
 }
 
 /**
+ * Check if article is travel-related
+ */
+function isTravelRelated(title: string, description: string): boolean {
+  const text = (`${title  } ${  description}`).toLowerCase();
+  const travelKeywords = [
+    'travel', 'traveler', 'flight', 'airport', 'border',
+    'entry', 'visa', 'quarantine requirement', 'testing requirement'
+  ];
+
+  return travelKeywords.some(keyword => text.includes(keyword));
+}
+
+/**
  * Extract case and death counts from text
  */
-function _extractCaseCounts(_text: string): { cases?: number; deaths?: number } {
-  // TODO: Implement count extraction
-  //
-  // Look for patterns like:
-  // - "100 cases"
-  // - "50 confirmed cases"
-  // - "10 deaths"
-  //
-  // const casesMatch = text.match(/(\d+[\d,]*)\s+(cases|confirmed)/i);
-  // const deathsMatch = text.match(/(\d+[\d,]*)\s+deaths?/i);
-  //
-  // return {
-  //   cases: casesMatch ? parseInt(casesMatch[1].replace(/,/g, '')) : undefined,
-  //   deaths: deathsMatch ? parseInt(deathsMatch[1].replace(/,/g, '')) : undefined
-  // };
+function extractCaseCounts(text: string): { cases?: number; deaths?: number } {
+  const result: { cases?: number; deaths?: number } = {};
 
-  return {};
+  // Look for case counts
+  const casesPatterns = [
+    /(\d+[\d,]*)\s+(?:confirmed\s+)?cases/i,
+    /cases[:\s]+(\d+[\d,]*)/i,
+    /(\d+[\d,]*)\s+(?:people\s+)?(?:infected|affected)/i
+  ];
+
+  for (const pattern of casesPatterns) {
+    const match = text.match(pattern);
+    if (match) {
+      result.cases = parseInt(match[1].replace(/,/g, ''));
+      break;
+    }
+  }
+
+  // Look for death counts
+  const deathsPatterns = [
+    /(\d+[\d,]*)\s+deaths?/i,
+    /deaths?[:\s]+(\d+[\d,]*)/i,
+    /(\d+[\d,]*)\s+(?:people\s+)?(?:died|killed)/i,
+    /fatalities[:\s]+(\d+[\d,]*)/i
+  ];
+
+  for (const pattern of deathsPatterns) {
+    const match = text.match(pattern);
+    if (match) {
+      result.deaths = parseInt(match[1].replace(/,/g, ''));
+      break;
+    }
+  }
+
+  return result;
+}
+
+/**
+ * Extract alert level from text
+ */
+function extractAlertLevel(title: string, description: string): string | undefined {
+  const text = (`${title  } ${  description}`).toLowerCase();
+
+  // CDC levels
+  if (text.includes('level 4') || text.includes('do not travel')) return 'Level 4 - Do Not Travel';
+  if (text.includes('level 3') || text.includes('reconsider travel')) return 'Level 3 - Reconsider Travel';
+  if (text.includes('level 2') || text.includes('practice enhanced precautions')) return 'Level 2 - Enhanced Precautions';
+  if (text.includes('level 1') || text.includes('practice usual precautions')) return 'Level 1 - Usual Precautions';
+
+  // WHO levels
+  if (text.includes('pheic') || text.includes('international concern')) return 'PHEIC';
+  if (text.includes('grade 3') || text.includes('high emergency')) return 'WHO Grade 3';
+  if (text.includes('grade 2')) return 'WHO Grade 2';
+  if (text.includes('grade 1')) return 'WHO Grade 1';
+
+  return undefined;
 }
 
 /**
  * Calculate severity for health event
  */
-function _calculateHealthSeverity(
-  _eventType: string,
-  _cases: number | undefined,
-  _deaths: number | undefined,
-  _title: string,
-  _description: string
+function calculateHealthSeverity(
+  eventType: string,
+  cases: number | undefined,
+  deaths: number | undefined,
+  title: string,
+  description: string,
+  disease: string | undefined
 ): number {
-  // TODO: Implement severity calculation
-  //
-  // Base severity by event type
   let severity = 0.5;
 
-  switch (_eventType) {
-    case 'pandemic':
-      severity = 1.0;
-      break;
-    case 'health_emergency':
-      severity = 0.9;
-      break;
-    case 'outbreak':
-      severity = 0.7;
-      break;
-    case 'travel_restriction':
-      severity = 0.6;
-      break;
-    case 'quarantine':
-      severity = 0.7;
-      break;
-    case 'mandate':
-      severity = 0.5;
-      break;
-    default:
-      severity = 0.4;
+  // Base severity by event type
+  switch (eventType) {
+    case 'pandemic': severity = 0.95; break;
+    case 'health_emergency': severity = 0.9; break;
+    case 'outbreak': severity = 0.7; break;
+    case 'quarantine': severity = 0.7; break;
+    case 'travel_restriction': severity = 0.6; break;
+    case 'mandate': severity = 0.5; break;
+    case 'vaccination_update': severity = 0.4; break;
+    default: severity = 0.5;
   }
 
-  // Increase severity based on case/death counts
-  // if (_cases) {
-  //   if (cases > 10000) severity = Math.min(1.0, severity + 0.2);
-  //   else if (cases > 1000) severity = Math.min(1.0, severity + 0.1);
-  // }
-  //
-  // if (_deaths) {
-  //   if (deaths > 100) severity = Math.min(1.0, severity + 0.2);
-  //   else if (deaths > 10) severity = Math.min(1.0, severity + 0.1);
-  // }
+  // Increase for high-fatality diseases
+  const highRiskDiseases = ['Ebola', 'Marburg', 'Nipah', 'Plague', 'Anthrax', 'H5N1', 'MERS'];
+  if (disease && highRiskDiseases.some(d => disease.toLowerCase().includes(d.toLowerCase()))) {
+    severity = Math.min(0.95, severity + 0.15);
+  }
 
-  return severity;
+  // Increase based on case/death counts
+  if (cases) {
+    if (cases > 10000) severity = Math.min(0.95, severity + 0.15);
+    else if (cases > 1000) severity = Math.min(0.9, severity + 0.1);
+    else if (cases > 100) severity = Math.min(0.8, severity + 0.05);
+  }
+
+  if (deaths) {
+    if (deaths > 100) severity = Math.min(0.95, severity + 0.15);
+    else if (deaths > 10) severity = Math.min(0.9, severity + 0.1);
+    else if (deaths > 0) severity = Math.min(0.85, severity + 0.05);
+  }
+
+  // Check for severity keywords
+  const text = (`${title  } ${  description}`).toLowerCase();
+  if (text.includes('critical') || text.includes('severe')) severity = Math.min(0.95, severity + 0.1);
+  if (text.includes('spreading rapidly') || text.includes('surging')) severity = Math.min(0.95, severity + 0.1);
+  if (text.includes('new variant') || text.includes('novel')) severity = Math.min(0.9, severity + 0.1);
+
+  return Math.max(0.3, Math.min(0.99, severity));
+}
+
+function hashString(str: string): string {
+  let hash = 0;
+  for (let i = 0; i < str.length; i++) {
+    const char = str.charCodeAt(i);
+    hash = ((hash << 5) - hash) + char;
+    hash = hash & hash;
+  }
+  return Math.abs(hash).toString(16).substring(0, 12);
+}
+
+function sleep(ms: number): Promise<void> {
+  return new Promise(resolve => setTimeout(resolve, ms));
 }

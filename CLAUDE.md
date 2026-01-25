@@ -6,217 +6,216 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 Pericles is a supply chain risk management platform built on an intelligent AI agent architecture using Mastra. The platform monitors real-time data sources to detect, validate, and assess supply chain disruption events.
 
-### Core Agents (Mastra-based)
-- **Monitoring Agent**: Real-time data source monitoring across 10 risk categories
-- **Validation Agent**: Multi-source event confirmation (planned)
-- **Controller Agent**: Coordinates notifications and agent orchestration (planned)
-- **Impact Assessment Agent**: Calculates financial impact from ERP data (planned)
-- **Summarization Agent**: Maintains event summaries (planned)
-
-### Product Modules (Planned)
-- **Atlas**: Interactive global map showing shipments, suppliers, and incidents
-- **Events**: Incident ingestion, lifecycle management, and response coordination
-- **Insights**: Country and sector risk analytics with trend dashboards
-- **Plans**: Incident response planning, playbooks, and compliance workflows
-
-## Tech Stack
-
-- **Framework**: Mastra AI Agent Framework (`@mastra/core`)
-- **Language**: TypeScript 5.9 (strict mode), ES Modules
-- **Database**: PostgreSQL 16 (Docker local), Neon serverless (production)
-- **ORM**: Prisma 6.12
-- **Build System**: Nx monorepo
-- **AI Provider**: OpenAI GPT-4o (via Mastra model routing)
-- **Logging**: Pino with pino-pretty
-
-## Repository Structure
-
-```
-pericles/
-├── backend/                    # Nx project: Mastra agents and API
-│   ├── src/
-│   │   ├── mastra/
-│   │   │   ├── agents/         # AI agent definitions
-│   │   │   ├── tools/          # 12+ monitoring tools
-│   │   │   └── scorers/        # Agent evaluation scorers
-│   │   ├── integrations/
-│   │   │   └── sap/            # SAP S/4HANA integration
-│   │   └── monitoring/         # Monitoring infrastructure
-│   ├── api/                    # HTTP API endpoints
-│   └── prisma/                 # Database schema and migrations
-├── docker-compose.yml          # Local development services
-└── .cursor/rules/              # Development standards (90+ rule files)
-```
-
 ## Build & Development Commands
 
+All backend commands run from `backend/` directory:
+
 ```bash
-# Docker services (PostgreSQL 16, pgAdmin, Redis, Mastra)
-docker-compose up -d             # Start all services
+# Docker services
+docker-compose up -d             # Start PostgreSQL, pgAdmin, Redis, Mastra
 docker-compose down              # Stop all services
 docker-compose logs -f mastra    # Watch Mastra logs
 
-# Backend development (run from backend/)
-cd backend
-npm install                      # Install dependencies
+# Development
 npm run dev                      # Start Mastra dev server (port 4111)
 npm run build                    # Build Mastra agents
 npm run start                    # Start Mastra production server
 
-# Database (Prisma)
+# Database
 npm run prisma:generate          # Generate Prisma client
 npm run prisma:migrate:dev       # Run migrations (development)
-npm run prisma:migrate:deploy    # Deploy migrations (production)
 npm run prisma:seed              # Seed database with test data
 npm run prisma:studio            # Open Prisma Studio GUI
 
-# Code quality
+# Code quality (MANDATORY after changes)
 npm run lint                     # ESLint check
 npm run lint:fix                 # ESLint auto-fix
-npm run format                   # Prettier format
 npm run type-check               # TypeScript type checking
 
-# Nx commands (from root)
-npx nx run backend:build         # Build backend project
-npx nx run-many -t lint          # Lint all projects
+# Mock data utilities
+npm run mock:create              # Create mock shipment/supplier data
+npm run mock:reset               # Reset mock data
 ```
 
 ## Local Development Setup
 
 1. Copy environment file: `cp backend/.env.example backend/.env`
-2. Start Docker services: `docker-compose up -d`
-3. Wait for PostgreSQL health check to pass
+2. Add required API keys to `.env` (OPENAI_API_KEY required)
+3. Start Docker: `docker-compose up -d`
 4. Run migrations: `cd backend && npm run prisma:migrate:dev`
-5. Start Mastra dev server: `npm run dev`
-6. Access Mastra Studio: http://localhost:4111
+5. Seed data: `npm run prisma:seed`
+6. Start Mastra: `npm run dev`
+7. Access Mastra Studio: http://localhost:4111
 
 ### Service Ports
-- PostgreSQL: 5432
+- PostgreSQL: 5432 (user: `pericles_user`, pass: `pericles_dev_password`, db: `pericles`)
 - pgAdmin: 5050 (admin@pericles.dev / admin)
 - Redis: 6379
 - Mastra Dev: 4111
 - Mastra Server: 3001 (production mode)
 
-## Monitoring Agent Architecture
+## Architecture Overview
 
-The Monitoring Agent scans 10 risk categories using dedicated tools:
+### Agent Architecture (Mastra-based)
 
-1. **Weather & Natural Disasters** - NOAA, OpenWeather
-2. **Political Risk** - GDELT, news APIs
-3. **Cybersecurity** - NVD, security feeds
-4. **Economic & Financial** - Market data, currency risks
-5. **News & Social Media** - TheNewsAPI, Twitter
-6. **Maritime & Logistics** - Port closures, shipping delays
-7. **Labor & Social** - Strikes, protests
-8. **Regulatory & Trade** - Tariffs, sanctions
-9. **Pandemic & Health** - WHO, CDC alerts
-10. **Geopolitical & Conflict** - Armed conflicts, terrorism
+The platform uses a multi-agent architecture orchestrated by Mastra:
 
-### Critical Infrastructure Tools
-- `erpContextTool`: Retrieves organization supply chain context
-- `incidentLookupTool`: Deduplication via content hashing
+```
+backend/src/mastra/
+├── index.ts              # Mastra instance configuration
+├── agents/
+│   └── monitoring-agent.ts   # Main agent: scans 10 risk categories
+├── tools/                # 13 specialized monitoring tools
+│   ├── erp-context-tool.ts          # Retrieves org supply chain context
+│   ├── incident-lookup-tool.ts      # Deduplication via content hashing
+│   ├── organization-lookup-tool.ts  # Org lookup by ID
+│   ├── weather-disaster-monitor-tool.ts   # NOAA, NASA EONET
+│   ├── political-risk-monitor-tool.ts     # GDELT, news APIs
+│   ├── cybersecurity-monitor-tool.ts      # NVD, security feeds
+│   ├── economic-financial-monitor-tool.ts # Market data
+│   ├── news-social-media-monitor-tool.ts  # TheNewsAPI, Twitter
+│   ├── maritime-logistics-monitor-tool.ts # Port closures
+│   ├── labor-social-monitor-tool.ts       # Strikes, protests
+│   ├── regulatory-trade-monitor-tool.ts   # Tariffs, sanctions
+│   ├── pandemic-health-monitor-tool.ts    # WHO, CDC
+│   └── geopolitical-conflict-monitor-tool.ts
+└── scorers/
+    └── monitoring-scorer.ts  # Agent evaluation scorers
+```
+
+### Tool Pattern
+
+All tools follow this pattern using `@mastra/core/tools`:
+
+```typescript
+import { createTool } from '@mastra/core/tools';
+import { z } from 'zod';
+
+export const myTool = createTool({
+  id: 'tool-id',
+  description: 'What this tool does',
+  inputSchema: z.object({
+    organization_id: z.string().uuid().describe('Required for tenant isolation'),
+    // other params...
+  }),
+  outputSchema: z.object({ /* structured output */ }),
+  execute: async ({ context }) => {
+    // CRITICAL: Always validate organization_id
+    if (!context.organization_id) throw new Error('organization_id required');
+    // Implementation with AbortSignal.timeout() for external APIs
+    return { /* matches outputSchema */ };
+  }
+});
+```
 
 ### Event Processing Pipeline
-1. Retrieve org context (plants, warehouses, suppliers, lanes)
+
+1. Retrieve org context via `erpContextTool` (plants, warehouses, suppliers, lanes)
 2. Execute monitoring tools for enabled data sources
-3. Deduplicate using stable content hash (title|source|type|hour)
-4. Filter by geographic proximity (Haversine distance)
-5. Filter by risk type preferences
+3. Deduplicate using stable content hash: `normalize(title)|source|type|truncate_to_hour(timestamp)`
+4. Filter by geographic proximity using Haversine distance
+5. Filter by org's `monitored_risk_types` preferences
 6. Score severity (0.0-1.0) and confidence (0.0-1.0)
 7. Persist validated events to database
 
-## Database Schema (Key Models)
+### Database Schema (Key Models)
 
-- `Organization`: Multi-tenant root entity with supply chain context
-- `Event`: Raw detected events before validation
-- `Incident`: Validated events promoted to trackable incidents
-- `RiskAssessment`: Agent-generated risk analysis
-- `EventHash`: Deduplication tracking with TTL
-- `Supplier`, `Shipment`, `Carrier`: Supply chain entities
+```
+Organization          # Multi-tenant root entity
+├── OrganizationContext  # ERP data: plants, warehouses, suppliers, lanes
+├── Event             # Raw detected events before validation
+├── Incident          # Validated events promoted to incidents (INC-2025-0001)
+├── RiskAssessment    # Agent-generated risk analysis
+├── EventHash         # Deduplication tracking with TTL
+├── Supplier          # Supply chain entities from BOL data
+├── Shipment          # Bill of Lading data
+└── Carrier           # Shipping carriers (SCAC codes)
+```
 
-## Key Architecture Patterns
+### Multi-Tenancy Pattern
 
-### Multi-Tenancy
-- All data strictly isolated by `organization_id`
-- Agent operations MUST validate org context before execution
-- Root organization (`@pericles.cloud` domain) has global access
+All data is strictly isolated by `organization_id`:
+- Every database query MUST filter by `organization_id`
+- Every tool MUST validate `organization_id` before execution
+- Root organization (`is_root: true`, `@pericles.cloud` domain) has global access
 
-### Tool Design
-- All tools use Zod schemas for input validation
-- Tools return structured JSON matching expected schemas
-- Timeouts and error handling required for external API calls
+## Key Implementation Details
 
 ### Mastra Configuration
+
 ```typescript
 // backend/src/mastra/index.ts
 export const mastra = new Mastra({
   agents: { monitoringAgent },
   scorers: { relevanceScorer, severityAccuracyScorer, deduplicationScorer },
-  storage: new PostgresStore({ connectionString: process.env.MASTRA_DATABASE_URL }),
+  storage: getPostgresStore(),
   logger: new PinoLogger({ name: 'Mastra', level: 'info' }),
   observability: { default: { enabled: true } },
 });
 ```
 
-## Git Conventions
+### External API Integration Pattern
 
-Use conventional commit format:
-```
-feat(agent): add typhoon detection tool [TICKET-123]
-fix(tools): handle API timeout in weather monitor [TICKET-124]
-```
-
-Branch naming:
-```
-feature/TICKET-123-description
-fix/TICKET-124-description
+```typescript
+const response = await fetch(apiUrl, {
+  headers: { 'User-Agent': 'Pericles-SupplyChainMonitor/1.0 (contact@pericles.cloud)' },
+  signal: AbortSignal.timeout(10000)  // REQUIRED: timeout for all external calls
+});
 ```
 
-## Security Requirements
+### Geographic Distance (Haversine)
 
-- All agent operations enforce tenant isolation via organization_id
-- API keys stored in environment variables only
-- No sensitive data in logs (PII redaction required)
-- External API calls must have timeouts and abort controllers
+Used for filtering events by proximity to supply chain locations:
+```typescript
+// backend/src/mastra/tools/weather-disaster-monitor-tool.ts:402
+export function calculateDistance(lat1, lon1, lat2, lon2): number // Returns km
+```
+
+## Environment Variables
+
+Required in `backend/.env`:
+
+```bash
+# Database
+DATABASE_URL="postgresql://pericles_user:pericles_dev_password@localhost:5432/pericles"
+
+# AI Provider (required)
+OPENAI_API_KEY=your-key
+
+# Data Source APIs (optional, for monitoring tools)
+THENEWSAPI_API_KEY=
+TWITTERAPIIO_API_KEY=
+OPENWEATHER_API_KEY=
+MARINETRAFFIC_API_KEY=
+
+# Infrastructure
+REDIS_URL=redis://localhost:6379
+MONITORING_DEFAULT_INTERVAL_MS=15000
+```
 
 ## Code Quality Requirements (MANDATORY)
 
-**After every code change or generation, you MUST run these checks:**
+**After every code change, run:**
 
 ```bash
 cd backend
-npm run lint          # Check for ESLint errors
-npm run type-check    # Check for TypeScript errors
+npm run lint          # Fix: npm run lint:fix
+npm run type-check
 ```
 
-- **Do not consider a task complete until both checks pass**
-- Fix any lint errors before moving on (use `npm run lint:fix` for auto-fixable issues)
-- Fix any TypeScript errors before moving on
-- If errors cannot be auto-fixed, resolve them manually before proceeding
+Do not consider a task complete until both checks pass.
 
-## Cursor Rules
+## Git Conventions
 
-The `.cursor/rules/` directory contains 90+ rule files organized by category:
-- `000-core/`: Core project standards and AI assistant behavior
-- `001-application/`: Pericles-specific rules (agents, modules)
-- `200-quality/`: ESLint, Prettier, Git workflow
-- `300-languages/`: TypeScript standards
-- `400-frameworks/`: React, Tailwind (for future frontend)
-- `500-architecture/`: PostgreSQL, Docker, Neon, Vercel
-- `600-tooling/`: Development tools and libraries
-- `700-ai/`: Mastra agent standards
+```
+feat(agent): add typhoon detection tool [TICKET-123]
+fix(tools): handle API timeout in weather monitor
+```
 
+## Cursor Rules Reference
 
-<!-- nx configuration start-->
-<!-- Leave the start & end comments to automatically receive updates. -->
-
-# General Guidelines for working with Nx
-
-- When running tasks (for example build, lint, test, e2e, etc.), always prefer running the task through `nx` (i.e. `nx run`, `nx run-many`, `nx affected`) instead of using the underlying tooling directly
-- You have access to the Nx MCP server and its tools, use them to help the user
-- When answering questions about the repository, use the `nx_workspace` tool first to gain an understanding of the workspace architecture where applicable.
-- When working in individual projects, use the `nx_project_details` mcp tool to analyze and understand the specific project structure and dependencies
-- For questions around nx configuration, best practices or if you're unsure, use the `nx_docs` tool to get relevant, up-to-date docs. Always use this instead of assuming things about nx configuration
-- If the user needs help with an Nx configuration or project graph error, use the `nx_workspace` tool to get any errors
-
-<!-- nx configuration end-->
+The `.cursor/rules/` directory contains detailed standards:
+- `001-application/001-agents/`: Agent implementation rules
+- `700-ai/701-mastra-agent-core-standards-auto.mdc`: Mastra-specific patterns
+- `500-architecture/506-postgresql-core-standards-auto.mdc`: Database patterns
+- `300-languages/307-typescript-core-standards-auto.mdc`: TypeScript standards

@@ -168,9 +168,41 @@ export async function loadMonitoringConfig(
   // Start with defaults
   let config: Partial<MonitoringConfig> = { ...DEFAULT_CONFIG };
 
-  // Merge database configuration
+  // Merge database configuration from OrganizationSettings (new) and OrganizationContext (legacy)
   try {
     const prisma = getPrismaClient();
+
+    // First, try to load from OrganizationSettings (new, preferred)
+    const orgSettings = await prisma.organizationSettings.findUnique({
+      where: { organization_id: organizationId },
+      select: {
+        monitoring_polling_interval_ms: true,
+        monitoring_enabled_sources: true,
+      },
+    });
+
+    if (orgSettings) {
+      config.pollingIntervalMs = orgSettings.monitoring_polling_interval_ms;
+
+      // Parse enabled sources from JSON
+      const enabledSources = orgSettings.monitoring_enabled_sources as Record<string, boolean> | null;
+      if (enabledSources && typeof enabledSources === 'object') {
+        config.enabledSources = {
+          weather: enabledSources.weather ?? true,
+          political: enabledSources.political ?? true,
+          cybersecurity: enabledSources.cybersecurity ?? true,
+          economic: enabledSources.economic ?? true,
+          news: enabledSources.news ?? true,
+          maritime: enabledSources.maritime ?? true,
+          labor: enabledSources.labor ?? true,
+          regulatory: enabledSources.regulatory ?? true,
+          pandemic: enabledSources.pandemic ?? true,
+          geopolitical: enabledSources.geopolitical ?? true,
+        };
+      }
+    }
+
+    // Also load from OrganizationContext for geographic/risk filter settings
     const orgContext = await prisma.organizationContext.findUnique({
       where: { organization_id: organizationId },
       select: {

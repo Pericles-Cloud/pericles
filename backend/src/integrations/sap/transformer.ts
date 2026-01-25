@@ -98,10 +98,12 @@ function transformSuppliersToLocations(
   suppliers: SAPBusinessPartner[]
 ): SupplierLocation[] {
   return suppliers
-    .filter((bp) => bp.to_Supplier) // Only business partners with supplier extension
+    .filter((bp): bp is SAPBusinessPartner & { to_Supplier: NonNullable<SAPBusinessPartner['to_Supplier']> } =>
+      bp.to_Supplier !== undefined && bp.to_Supplier !== null
+    )
     .map((bp) => {
       const address = bp.to_BusinessPartnerAddress?.[0];
-      const supplier = bp.to_Supplier!;
+      const supplier = bp.to_Supplier;
 
       return {
         supplier_id: bp.BusinessPartner,

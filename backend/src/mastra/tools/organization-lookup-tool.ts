@@ -25,8 +25,9 @@ const prisma = getPrismaClient();
 const OrganizationResultSchema = z.object({
   id: z.string().uuid(),
   name: z.string(),
-  email_domain: z.string().nullable(),
+  email_domains: z.array(z.string()),
   is_root: z.boolean(),
+  parent_organization_id: z.string().uuid().nullable(),
   city: z.string().nullable(),
   country: z.string().nullable(),
   customer_type: z.string().nullable()
@@ -107,8 +108,9 @@ ALWAYS use this tool when the user mentions a company by name before calling any
           select: {
             id: true,
             name: true,
-            email_domain: true,
+            email_domains: true,
             is_root: true,
+            parent_organization_id: true,
             city: true,
             country: true,
             customer_type: true
@@ -116,19 +118,19 @@ ALWAYS use this tool when the user mentions a company by name before calling any
         });
 
       } else if (effectiveMatchType === 'domain') {
-        // Domain lookup (exact match, case-insensitive)
+        // Domain lookup - search for domain in email_domains array
         organization = await prisma.organization.findFirst({
           where: {
-            email_domain: {
-              equals: trimmedQuery.toLowerCase(),
-              mode: 'insensitive'
+            email_domains: {
+              has: trimmedQuery.toLowerCase()
             }
           },
           select: {
             id: true,
             name: true,
-            email_domain: true,
+            email_domains: true,
             is_root: true,
+            parent_organization_id: true,
             city: true,
             country: true,
             customer_type: true
@@ -147,8 +149,9 @@ ALWAYS use this tool when the user mentions a company by name before calling any
           select: {
             id: true,
             name: true,
-            email_domain: true,
+            email_domains: true,
             is_root: true,
+            parent_organization_id: true,
             city: true,
             country: true,
             customer_type: true
@@ -167,8 +170,9 @@ ALWAYS use this tool when the user mentions a company by name before calling any
             select: {
               id: true,
               name: true,
-              email_domain: true,
+              email_domains: true,
               is_root: true,
+              parent_organization_id: true,
               city: true,
               country: true,
               customer_type: true

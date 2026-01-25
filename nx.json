@@ -1,9 +1,0 @@
-{
-  "installation": {
-    "version": "22.2.1",
-    "plugins": {
-      "backend": "0.0.0"
-    }
-  },
-  "$schema": "./node_modules/nx/schemas/nx-schema.json"
-}

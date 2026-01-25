@@ -11,9 +11,9 @@ import { z } from 'zod';
  *   API: https://blog.gdeltproject.org/gdelt-doc-2-0-api-debuts/
  *
  * Risk Categories:
- * - Government Changes (_coups, elections, leadership transitions)
+ * - Government Changes (coups, elections, leadership transitions)
  * - Political Protests & Civil Unrest
- * - Policy Changes (_trade, regulatory, _sanctions)
+ * - Policy Changes (trade, regulatory, sanctions)
  * - Political Violence & Instability
  *
  * Organization Isolation: Filters events based on organization's geographic exposure
@@ -23,7 +23,7 @@ const LocationInputSchema = z.object({
   latitude: z.number().min(-90).max(90),
   longitude: z.number().min(-180).max(180),
   name: z.string(),
-  country_code: z.string().length(2).optional()
+  country_code: z.string().length(2).nullable().optional()
 });
 
 const PoliticalEventSchema = z.object({
@@ -63,37 +63,26 @@ export const politicalRiskMonitorTool = createTool({
   }),
 
   execute: async ({ context }) => {
-    const { locations, severity_threshold: _severity_threshold, lookback_hours: _lookback_hours, organization_id } = context;
+    const { locations, severity_threshold, lookback_hours, organization_id } = context;
 
-    // Log the input parameters received
     console.log(`[Political Risk Monitor] Tool executed with context:`, JSON.stringify(context, null, 2));
 
-    // CRITICAL: Validate organization_id
     if (!organization_id) {
       throw new Error('organization_id is required for political risk monitoring');
     }
 
     console.log(`[Political Risk Monitor] Monitoring ${locations.length} locations for organization: ${organization_id}`);
 
-    // PLACEHOLDER: Actual GDELT API integration to be implemented
-    // API Documentation: https://blog.gdeltproject.org/gdelt-doc-2-0-api-debuts/
-    //
-    // Example GDELT Query:
-    // https://api.gdeltproject.org/api/v2/doc/doc?query=protest%20sourcecountry:CN&mode=artlist&maxrecords=250&format=json
-
     try {
-      const politicalEvents: Array<z.infer<typeof PoliticalEventSchema>> = [];
-      const apiCallsMade = 0;
+      const severityThresholdValue = severity_threshold === 'low' ? 0.3 : severity_threshold === 'medium' ? 0.5 : 0.7;
 
-      // TODO: Implement GDELT API integration
-      // const events = await fetchGDELTEvents(_locations, lookback_hours: _lookback_hours, severity_threshold);
-      // apiCallsMade += locations.length;
+      const { events, apiCallsMade } = await fetchGDELTPoliticalEvents(locations, lookback_hours);
+      const filteredEvents = events.filter(e => e.severity >= severityThresholdValue);
 
-      // PLACEHOLDER: Return empty array for now
-      console.log(`[Political Risk Monitor] Found ${politicalEvents.length} events, made ${apiCallsMade} API calls`);
+      console.log(`[Political Risk Monitor] Found ${filteredEvents.length} events (filtered from ${events.length}), made ${apiCallsMade} API calls`);
 
       return {
-        political_events: politicalEvents,
+        political_events: filteredEvents,
         monitored_locations_count: locations.length,
         api_calls_made: apiCallsMade
       };
@@ -106,87 +95,238 @@ export const politicalRiskMonitorTool = createTool({
 });
 
 // ============================================================================
-// Helper Functions (to be implemented with actual API integration)
+// GDELT API Integration
 // ============================================================================
 
-/**
- * Fetch political events from GDELT API
- *
- * GDELT DOC 2.0 API provides real-time event detection from global news
- *
- * Query parameters:
- * - query: Search terms (e.g., "protest", "coup", "sanctions")
- * - sourcecountry: Two-letter country code
- * - timespan: Time range (e.g., "24h", "7d")
- * - mode: artlist (article list) or timeline
- * - format: json
- */
-async function _fetchGDELTEvents(
-  _locations: Array<{ latitude: number; longitude: number; name: string; country_code?: string }>,
-  _lookbackHours: number,
-  _severityThreshold: string
-): Promise<Array<z.infer<typeof PoliticalEventSchema>>> {
-  // TODO: Implement GDELT API calls
-  //
-  // const events: z.infer<typeof PoliticalEventSchema>[] = [];
-  // const timespan = `${lookbackHours}h`;
-  //
-  // for (const location of locations) {
-  //   const queries = [
-  //     'protest', 'coup', 'sanctions', 'strike', 'election',
-  //     'government change', 'policy', 'civil unrest'
-  //   ];
-  //
-  //   for (const query of queries) {
-  //     const url = new URL('https://api.gdeltproject.org/api/v2/doc/doc');
-  //     url.searchParams.set('query', location.country_code
-  //       ? `${query} sourcecountry:${location.country_code}`
-  //       : query
-  //     );
-  //     url.searchParams.set('mode', 'artlist');
-  //     url.searchParams.set('timespan', _timespan);
-  //     url.searchParams.set('format', 'json');
-  //     url.searchParams.set('maxrecords', '100');
-  //
-  //     const response = await fetch(url.toString());
-  //     const data = await response.json();
-  //
-  //     // Parse GDELT articles and extract events
-  //     // Calculate severity from Goldstein scale and tone
-  //     // Filter by proximity to monitored locations
-  //   }
-  // }
-  //
-  // return events;
+// Political event search terms for GDELT queries
+const POLITICAL_SEARCH_TERMS = [
+  'protest government',
+  'coup military',
+  'sanctions trade',
+  'election results',
+  'civil unrest',
+  'policy change',
+  'political violence',
+  'strike workers'
+];
 
-  return [];
+interface GDELTArticle {
+  url: string;
+  url_mobile: string;
+  title: string;
+  seendate: string;
+  socialimage: string;
+  domain: string;
+  language: string;
+  sourcecountry: string;
+  tone?: number;
+}
+
+interface GDELTResponse {
+  articles?: GDELTArticle[];
 }
 
 /**
- * Map GDELT Goldstein scale to normalized severity (0.0-1.0)
- *
- * Goldstein Scale: -10.0 (extreme conflict) to +10.0 (extreme cooperation)
- * We invert this so negative events (_conflict) map to higher severity
+ * Fetch political events from GDELT DOC 2.0 API
+ * API: https://blog.gdeltproject.org/gdelt-doc-2-0-api-debuts/
  */
-function _goldsteinToSeverity(goldsteinScore: number): number {
-  // Invert: -10 → 1.0, 0 → 0.5, +10 → 0.0
-  const normalized = (10 - goldsteinScore) / 20; // Range: 0.0 to 1.0
-  return Math.max(0, Math.min(1, normalized));
+async function fetchGDELTPoliticalEvents(
+  locations: Array<{ latitude: number; longitude: number; name: string; country_code?: string | null }>,
+  lookbackHours: number
+): Promise<{ events: Array<z.infer<typeof PoliticalEventSchema>>; apiCallsMade: number }> {
+  const events: Array<z.infer<typeof PoliticalEventSchema>> = [];
+  const seenUrls = new Set<string>();
+  let apiCallsMade = 0;
+
+  // Get unique country codes from locations
+  const countryCodes = new Set<string>();
+  for (const loc of locations) {
+    if (loc.country_code) {
+      countryCodes.add(loc.country_code.toUpperCase());
+    }
+  }
+
+  // If no country codes, use a broad search
+  const searchCountries = countryCodes.size > 0 ? Array.from(countryCodes) : [''];
+
+  for (const countryCode of searchCountries) {
+    for (const searchTerm of POLITICAL_SEARCH_TERMS) {
+      try {
+        const url = new URL('https://api.gdeltproject.org/api/v2/doc/doc');
+
+        // Build query with optional country filter
+        const query = countryCode
+          ? `${searchTerm} sourcecountry:${countryCode}`
+          : searchTerm;
+
+        url.searchParams.set('query', query);
+        url.searchParams.set('mode', 'artlist');
+        url.searchParams.set('timespan', `${Math.min(lookbackHours, 72)}h`); // GDELT limits to 72h
+        url.searchParams.set('maxrecords', '50');
+        url.searchParams.set('format', 'json');
+
+        const response = await fetch(url.toString(), {
+          headers: { 'Accept': 'application/json' },
+          signal: AbortSignal.timeout(15000)
+        });
+
+        apiCallsMade++;
+
+        if (!response.ok) {
+          console.warn(`[GDELT] API error: ${response.status} for query: ${query}`);
+          continue;
+        }
+
+        const data = await response.json() as GDELTResponse;
+
+        if (!data.articles || !Array.isArray(data.articles)) {
+          continue;
+        }
+
+        for (const article of data.articles) {
+          // Skip duplicates
+          if (seenUrls.has(article.url)) continue;
+          seenUrls.add(article.url);
+
+          const eventType = classifyPoliticalEventType(article.title, searchTerm);
+          const severity = calculatePoliticalSeverity(article, eventType);
+          const eventTimestamp = parseGDELTDate(article.seendate);
+
+          // Find the closest monitored location for this event
+          const location = findLocationForCountry(locations, article.sourcecountry);
+
+          events.push({
+            event_id: `gdelt-pol-${hashString(article.url)}`,
+            event_type: eventType,
+            title: article.title,
+            description: `Political event detected from ${article.domain}: ${article.title}`,
+            severity,
+            location: {
+              name: location?.name || article.sourcecountry || 'Unknown',
+              country: article.sourcecountry || 'Unknown',
+              latitude: location?.latitude || 0,
+              longitude: location?.longitude || 0
+            },
+            event_timestamp: eventTimestamp,
+            tone: article.tone,
+            source_url: article.url,
+            raw_data: { domain: article.domain, language: article.language }
+          });
+        }
+
+        // Small delay to avoid rate limiting
+        await sleep(100);
+
+      } catch (err) {
+        console.error(`[GDELT] Error fetching political events:`, err);
+      }
+    }
+  }
+
+  return { events, apiCallsMade };
 }
 
 /**
- * Classify political event type from GDELT event codes or article content
+ * Classify political event type from article title and search term
  */
-function _classifyPoliticalEventType(_gdeltData: any): string {
-  // TODO: Implement classification logic based on GDELT CAM codes
-  // GDELT uses CAM (Conflict and Mediation Event Observations) codes
-  //
-  // Common event types:
-  // - coup: Military takeover, government overthrow
-  // - protest: Public demonstrations, civil unrest
-  // - policy_change: New laws, regulations, trade policies
-  // - violence: Political violence, riots
-  // - election: Electoral events, leadership transitions
+function classifyPoliticalEventType(title: string, searchTerm: string): string {
+  const titleLower = title.toLowerCase();
 
-  return 'unknown';
+  if (titleLower.includes('coup') || titleLower.includes('military takeover')) return 'coup';
+  if (titleLower.includes('protest') || titleLower.includes('demonstration') || titleLower.includes('rally')) return 'protest';
+  if (titleLower.includes('sanction') || titleLower.includes('trade war') || titleLower.includes('tariff')) return 'sanctions';
+  if (titleLower.includes('election') || titleLower.includes('vote') || titleLower.includes('ballot')) return 'election';
+  if (titleLower.includes('violence') || titleLower.includes('riot') || titleLower.includes('clash')) return 'violence';
+  if (titleLower.includes('policy') || titleLower.includes('regulation') || titleLower.includes('law')) return 'policy_change';
+  if (titleLower.includes('strike') || titleLower.includes('walkout')) return 'strike';
+  if (titleLower.includes('unrest') || titleLower.includes('unrest')) return 'civil_unrest';
+
+  // Fall back to search term classification
+  if (searchTerm.includes('coup')) return 'coup';
+  if (searchTerm.includes('protest')) return 'protest';
+  if (searchTerm.includes('sanction')) return 'sanctions';
+  if (searchTerm.includes('election')) return 'election';
+  if (searchTerm.includes('violence')) return 'violence';
+  if (searchTerm.includes('policy')) return 'policy_change';
+  if (searchTerm.includes('strike')) return 'strike';
+
+  return 'political_risk';
+}
+
+/**
+ * Calculate severity for political events
+ */
+function calculatePoliticalSeverity(article: GDELTArticle, eventType: string): number {
+  let baseSeverity = 0.5;
+
+  // Adjust based on event type
+  switch (eventType) {
+    case 'coup': baseSeverity = 0.95; break;
+    case 'violence': baseSeverity = 0.85; break;
+    case 'sanctions': baseSeverity = 0.75; break;
+    case 'civil_unrest': baseSeverity = 0.7; break;
+    case 'protest': baseSeverity = 0.6; break;
+    case 'strike': baseSeverity = 0.65; break;
+    case 'election': baseSeverity = 0.5; break;
+    case 'policy_change': baseSeverity = 0.55; break;
+  }
+
+  // Adjust based on tone (more negative = higher severity)
+  if (article.tone !== undefined) {
+    // Tone typically ranges from -10 to +10
+    const toneAdjustment = Math.max(-0.2, Math.min(0.2, -article.tone / 50));
+    baseSeverity += toneAdjustment;
+  }
+
+  return Math.max(0.1, Math.min(0.99, baseSeverity));
+}
+
+/**
+ * Parse GDELT date format (YYYYMMDDHHMMSS) to ISO 8601
+ */
+function parseGDELTDate(seendate: string): string {
+  try {
+    // GDELT format: YYYYMMDDHHMMSS
+    const year = seendate.substring(0, 4);
+    const month = seendate.substring(4, 6);
+    const day = seendate.substring(6, 8);
+    const hour = seendate.substring(8, 10);
+    const minute = seendate.substring(10, 12);
+    const second = seendate.substring(12, 14);
+
+    return new Date(`${year}-${month}-${day}T${hour}:${minute}:${second}Z`).toISOString();
+  } catch {
+    return new Date().toISOString();
+  }
+}
+
+/**
+ * Find the monitored location matching a country code
+ */
+function findLocationForCountry(
+  locations: Array<{ latitude: number; longitude: number; name: string; country_code?: string | null }>,
+  countryCode: string
+): { latitude: number; longitude: number; name: string } | undefined {
+  const normalizedCode = countryCode?.toUpperCase();
+  return locations.find(loc => loc.country_code?.toUpperCase() === normalizedCode);
+}
+
+/**
+ * Simple hash function for generating unique IDs
+ */
+function hashString(str: string): string {
+  let hash = 0;
+  for (let i = 0; i < str.length; i++) {
+    const char = str.charCodeAt(i);
+    hash = ((hash << 5) - hash) + char;
+    hash = hash & hash;
+  }
+  return Math.abs(hash).toString(16).substring(0, 12);
+}
+
+/**
+ * Sleep utility for rate limiting
+ */
+function sleep(ms: number): Promise<void> {
+  return new Promise(resolve => setTimeout(resolve, ms));
 }

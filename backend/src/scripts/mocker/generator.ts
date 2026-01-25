@@ -199,7 +199,7 @@ export class MockShipmentGenerator {
         data: {
           id: this.config.organizationId,
           name: 'Levi Strauss & Co.',
-          email_domain: 'levi.com',
+          email_domains: ['levi.com'],
           is_root: false,
           address_line1: '1155 Battery Street',
           city: 'San Francisco',
