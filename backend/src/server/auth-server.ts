@@ -6,9 +6,10 @@
  * Includes WebSocket server for workflow collaboration.
  */
 
-// Load .env file first, overriding any system environment variables
+// Load .env.local from project root, overriding any system environment variables
 import dotenv from 'dotenv';
-dotenv.config({ override: true });
+import path from 'path';
+dotenv.config({ path: path.resolve(__dirname, '../../../.env.local'), override: true });
 
 import express, { type Request, type Response } from 'express';
 import { createServer } from 'http';
@@ -16,7 +17,7 @@ import cors from 'cors';
 import { initializeWorkflowSocket } from './workflow-socket';
 import crypto from 'crypto';
 import { PrismaClient } from '@prisma/client';
-import type { Prisma, ExecutionMode } from '@prisma/client';
+import type { Prisma, ExecutionMode, NodeType } from '@prisma/client';
 import {
   RegisterSchema,
   LoginSchema,
@@ -31,6 +32,7 @@ import {
   authenticateRequest,
 } from '../auth';
 import { OAuth2Client } from 'google-auth-library';
+import { createWorkflowExecutionService, type ExecutionMode as WorkflowExecutionMode } from '../workflow';
 
 const app = express();
 const prisma = new PrismaClient();
@@ -3266,26 +3268,26 @@ app.get('/api/monitoring/trigger-stream', async (req: Request, res: Response) =>
     // Send initial connection event
     res.write(`data: ${JSON.stringify({ type: 'connected', message: 'Stream connected' })}\n\n`);
 
-    // Dynamic import to avoid circular dependencies
-    const { loadMonitoringConfig, getEnvironmentOverrides } = await import('../monitoring/config');
-    const { runMonitoringCycle } = await import('../monitoring/index');
-
-    // Load config
-    const envOverrides = getEnvironmentOverrides();
-    const config = await loadMonitoringConfig(organizationId, envOverrides);
-
-    // Progress callback - generic since type is imported dynamically
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    const onProgress = (update: any) => {
-      try {
-        res.write(`data: ${JSON.stringify({ type: 'progress', ...update })}\n\n`);
-      } catch {
-        // Client may have disconnected
-      }
-    };
-
-    // Run cycle with progress updates
+    // Run cycle with progress updates - all errors handled inside to ensure proper SSE response
     try {
+      // Dynamic import to avoid circular dependencies
+      const { loadMonitoringConfig, getEnvironmentOverrides } = await import('../monitoring/config');
+      const { runMonitoringCycle } = await import('../monitoring/index');
+
+      // Progress callback - generic since type is imported dynamically
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      const onProgress = (update: any) => {
+        try {
+          res.write(`data: ${JSON.stringify({ type: 'progress', ...update })}\n\n`);
+        } catch {
+          // Client may have disconnected
+        }
+      };
+
+      // Load config
+      const envOverrides = getEnvironmentOverrides();
+      const config = await loadMonitoringConfig(organizationId, envOverrides);
+
       const metrics = await runMonitoringCycle(config, onProgress);
 
       // Send final metrics
@@ -3306,6 +3308,7 @@ app.get('/api/monitoring/trigger-stream', async (req: Request, res: Response) =>
         timestamp: new Date().toISOString(),
       })}\n\n`);
     } catch (error) {
+      console.error('Monitoring cycle error:', error);
       res.write(`data: ${JSON.stringify({
         type: 'error',
         message: (error as Error).message || 'Monitoring cycle failed',
@@ -4714,18 +4717,92 @@ app.post('/api/organizations/:orgId/workflows', async (req: Request, res: Respon
       return;
     }
 
-    const workflow = await prisma.workflow.create({
-      data: {
-        organization_id: orgId,
-        name,
-        description: description || null,
-        execution_mode: executionMode as ExecutionMode,
-        created_by: tokenPayload.userId,
-      },
-      include: {
-        _count: { select: { nodes: true, edges: true, executions: true } },
-      },
+    // Create workflow with default nodes and edges in a transaction
+    const workflow = await prisma.$transaction(async (tx) => {
+      // Create the workflow
+      const wf = await tx.workflow.create({
+        data: {
+          organization_id: orgId,
+          name,
+          description: description || null,
+          execution_mode: executionMode as ExecutionMode,
+          created_by: tokenPayload.userId,
+          viewport_x: 0,
+          viewport_y: 0,
+          viewport_zoom: 1,
+        },
+      });
+
+      // Default node configuration matching the visual layout:
+      // Trigger -> Flow1-A -> [Flow1-B (upper)] \
+      //                    -> [Flow1-C -> Flow1-D (lower)] -> Flow1-E -> Resolved
+      // Spread out horizontally for better visibility
+      const defaultNodes = [
+        { clientId: 'trigger-1', type: 'TRIGGER' as NodeType, label: 'Trigger', x: 50, y: 150, data: { subtitle: 'Configure' } },
+        { clientId: 'action-1', type: 'ACTION' as NodeType, label: 'Flow 1', x: 220, y: 150, data: { owner: '', rules: [] } },
+        { clientId: 'action-2', type: 'ACTION' as NodeType, label: 'Flow 1', x: 420, y: 50, data: { owner: '', rules: [] } },
+        { clientId: 'action-3', type: 'ACTION' as NodeType, label: 'Flow 1', x: 420, y: 250, data: { owner: '', rules: [] } },
+        { clientId: 'action-4', type: 'ACTION' as NodeType, label: 'Flow 1', x: 620, y: 250, data: { owner: '', rules: [] } },
+        { clientId: 'action-5', type: 'ACTION' as NodeType, label: 'Flow 1', x: 820, y: 150, data: { owner: '', rules: [] } },
+        { clientId: 'end-1', type: 'END' as NodeType, label: 'Resolved', x: 1020, y: 150, data: {} },
+      ];
+
+      // Create nodes
+      const createdNodes: Array<{ id: string; clientId: string }> = [];
+      for (const node of defaultNodes) {
+        const created = await tx.workflowNode.create({
+          data: {
+            workflow_id: wf.id,
+            client_id: node.clientId,
+            type: node.type,
+            label: node.label,
+            position_x: node.x,
+            position_y: node.y,
+            data: node.data,
+          },
+        });
+        createdNodes.push({ id: created.id, clientId: node.clientId });
+      }
+
+      // Helper to get node ID by client ID
+      const getNodeId = (clientId: string) => createdNodes.find(n => n.clientId === clientId)?.id || '';
+
+      // Default edges connecting the nodes
+      const defaultEdges = [
+        { clientId: 'edge-1', sourceClientId: 'trigger-1', targetClientId: 'action-1' },
+        { clientId: 'edge-2', sourceClientId: 'action-1', targetClientId: 'action-2' },
+        { clientId: 'edge-3', sourceClientId: 'action-1', targetClientId: 'action-3' },
+        { clientId: 'edge-4', sourceClientId: 'action-2', targetClientId: 'action-5' },
+        { clientId: 'edge-5', sourceClientId: 'action-3', targetClientId: 'action-4' },
+        { clientId: 'edge-6', sourceClientId: 'action-4', targetClientId: 'action-5' },
+        { clientId: 'edge-7', sourceClientId: 'action-5', targetClientId: 'end-1' },
+      ];
+
+      // Create edges
+      for (const edge of defaultEdges) {
+        await tx.workflowEdge.create({
+          data: {
+            workflow_id: wf.id,
+            client_id: edge.clientId,
+            source_node_id: getNodeId(edge.sourceClientId),
+            target_node_id: getNodeId(edge.targetClientId),
+          },
+        });
+      }
+
+      // Return workflow with counts
+      return tx.workflow.findUnique({
+        where: { id: wf.id },
+        include: {
+          _count: { select: { nodes: true, edges: true, executions: true } },
+        },
+      });
     });
+
+    if (!workflow) {
+      res.status(500).json({ success: false, error: { code: 'INTERNAL_ERROR', message: 'Failed to create workflow' } });
+      return;
+    }
 
     res.status(201).json({ success: true, data: formatWorkflow(workflow) });
   } catch (error) {
@@ -5073,7 +5150,7 @@ app.post('/api/organizations/:orgId/workflows/:workflowId/archive', async (req: 
   }
 });
 
-// Execute workflow (manual trigger)
+// Execute workflow (manual trigger with mode: 'trial' | 'run')
 app.post('/api/organizations/:orgId/workflows/:workflowId/execute', async (req: Request, res: Response) => {
   try {
     const tokenPayload = authenticateRequest(req);
@@ -5090,47 +5167,51 @@ app.post('/api/organizations/:orgId/workflows/:workflowId/execute', async (req: 
       return;
     }
 
-    const workflow = await prisma.workflow.findFirst({
-      where: { id: workflowId, organization_id: orgId },
-    });
+    // Parse execution mode from request body
+    const { mode = 'run', initialVariables } = req.body as {
+      mode?: 'trial' | 'run';
+      initialVariables?: Record<string, unknown>;
+    };
 
-    if (!workflow) {
-      res.status(404).json({ success: false, error: { code: 'NOT_FOUND', message: 'Workflow not found' } });
-      return;
-    }
-
-    if (workflow.status !== 'PUBLISHED') {
+    // Validate mode
+    if (mode !== 'trial' && mode !== 'run') {
       res.status(400).json({
         success: false,
-        error: { code: 'VALIDATION_ERROR', message: 'Only published workflows can be executed' },
+        error: { code: 'VALIDATION_ERROR', message: 'Mode must be "trial" or "run"' },
       });
       return;
     }
 
-    // Create execution record
-    const execution = await prisma.workflowExecution.create({
-      data: {
-        workflow_id: workflowId,
-        triggered_by: 'manual',
-        status: 'PENDING',
-      },
-    });
+    // Create execution service and execute workflow
+    const executionService = createWorkflowExecutionService(prisma);
 
-    // TODO: Trigger actual workflow execution via Mastra agent
-    // For now, just mark as running
-    await prisma.workflowExecution.update({
-      where: { id: execution.id },
-      data: { status: 'RUNNING', started_at: new Date() },
-    });
+    try {
+      const result = await executionService.execute(workflowId, orgId, {
+        mode: mode as WorkflowExecutionMode,
+        triggeredBy: `user:${tokenPayload.userId}`,
+        initialVariables,
+      });
 
-    res.status(200).json({
-      success: true,
-      data: {
-        executionId: execution.id,
-        status: 'RUNNING',
-        startedAt: new Date().toISOString(),
-      },
-    });
+      res.status(200).json({
+        success: true,
+        data: {
+          id: result.id,
+          status: result.status,
+          executionLog: result.executionLog,
+          error: result.error,
+          startedAt: result.startedAt,
+          completedAt: result.completedAt,
+          durationMs: result.durationMs,
+          mode,
+        },
+      });
+    } catch (execError) {
+      const errorMessage = execError instanceof Error ? execError.message : 'Execution failed';
+      res.status(400).json({
+        success: false,
+        error: { code: 'EXECUTION_ERROR', message: errorMessage },
+      });
+    }
   } catch (error) {
     console.error('Execute workflow error:', error);
     res.status(500).json({ success: false, error: { code: 'INTERNAL_ERROR', message: 'An unexpected error occurred' } });

@@ -12,7 +12,7 @@ All backend commands run from `backend/` directory:
 
 ```bash
 # Docker services
-docker-compose up -d             # Start PostgreSQL, pgAdmin, Redis, Mastra
+docker-compose up -d             # Start PostgreSQL, pgAdmin, Mastra
 docker-compose down              # Stop all services
 docker-compose logs -f mastra    # Watch Mastra logs
 
@@ -39,8 +39,8 @@ npm run mock:reset               # Reset mock data
 
 ## Local Development Setup
 
-1. Copy environment file: `cp backend/.env.example backend/.env`
-2. Add required API keys to `.env` (OPENAI_API_KEY required)
+1. Copy environment file: `cp .env.example .env.local` (in project root)
+2. Add required API keys to `.env.local` (OPENAI_API_KEY required)
 3. Start Docker: `docker-compose up -d`
 4. Run migrations: `cd backend && npm run prisma:migrate:dev`
 5. Seed data: `npm run prisma:seed`
@@ -50,7 +50,6 @@ npm run mock:reset               # Reset mock data
 ### Service Ports
 - PostgreSQL: 5432 (user: `pericles_user`, pass: `pericles_dev_password`, db: `pericles`)
 - pgAdmin: 5050 (admin@pericles.dev / admin)
-- Redis: 6379
 - Mastra Dev: 4111
 - Mastra Server: 3001 (production mode)
 
@@ -173,11 +172,14 @@ export function calculateDistance(lat1, lon1, lat2, lon2): number // Returns km
 
 ## Environment Variables
 
-Required in `backend/.env`:
+All environment variables are defined in a single `.env.local` file in the project root. Both backend and frontend load from this file.
+
+Required in `.env.local` (project root):
 
 ```bash
 # Database
 DATABASE_URL="postgresql://pericles_user:pericles_dev_password@localhost:5432/pericles"
+MASTRA_DATABASE_URL="postgresql://pericles_user:pericles_dev_password@localhost:5432/mastra"
 
 # AI Provider (required)
 OPENAI_API_KEY=your-key
@@ -188,10 +190,15 @@ TWITTERAPIIO_API_KEY=
 OPENWEATHER_API_KEY=
 MARINETRAFFIC_API_KEY=
 
-# Infrastructure
-REDIS_URL=redis://localhost:6379
+# Frontend (required)
+NEXT_PUBLIC_API_URL=http://localhost:4112
+NEXT_PUBLIC_GOOGLE_MAPS_API_KEY=
+
+# Infrastructure (PostgreSQL-based queue/KV store - no Redis required)
 MONITORING_DEFAULT_INTERVAL_MS=15000
 ```
+
+See `.env.example` for the complete list of available variables.
 
 ## Code Quality Requirements (MANDATORY)
 
