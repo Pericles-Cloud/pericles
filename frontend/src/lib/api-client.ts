@@ -1513,6 +1513,25 @@ export interface SaveWorkflowStateData {
   viewportZoom?: number;
 }
 
+export type WorkflowRunMode = 'trial' | 'run';
+
+export type NodeExecutionStatus = 'pending' | 'running' | 'completed' | 'failed' | 'skipped';
+
+export interface ExecutionLog {
+  nodeId: string;
+  nodeClientId: string;
+  nodeType: NodeType;
+  nodeLabel: string;
+  status: NodeExecutionStatus;
+  startedAt?: string;
+  completedAt?: string;
+  durationMs?: number;
+  result?: unknown;
+  error?: string;
+  skippedReason?: string;
+  simulated?: boolean;
+}
+
 export interface WorkflowExecution {
   id: string;
   status: ExecutionStatus;
@@ -1520,8 +1539,10 @@ export interface WorkflowExecution {
   startedAt: string | null;
   completedAt: string | null;
   error: string | null;
-  executionLog: unknown[];
+  executionLog: ExecutionLog[];
   createdAt: string;
+  durationMs?: number;
+  mode?: WorkflowRunMode;
 }
 
 /**
@@ -1622,16 +1643,41 @@ export async function archiveWorkflow(
   });
 }
 
+export interface WorkflowExecutionResult {
+  id: string;
+  status: ExecutionStatus;
+  executionLog: ExecutionLog[];
+  error?: string;
+  startedAt: string;
+  completedAt: string;
+  durationMs: number;
+  mode: WorkflowRunMode;
+}
+
+export interface ExecuteWorkflowOptions {
+  mode?: WorkflowRunMode;
+  initialVariables?: Record<string, unknown>;
+}
+
 /**
  * Execute a workflow manually.
+ *
+ * @param orgId - Organization ID
+ * @param workflowId - Workflow ID
+ * @param options - Execution options (mode: 'trial' | 'run', initialVariables)
  */
 export async function executeWorkflow(
   orgId: string,
-  workflowId: string
-): Promise<ApiResponse<{ executionId: string; status: string; startedAt: string }>> {
-  return apiRequest<{ executionId: string; status: string; startedAt: string }>(
+  workflowId: string,
+  options: ExecuteWorkflowOptions = {}
+): Promise<ApiResponse<WorkflowExecutionResult>> {
+  const { mode = 'run', initialVariables } = options;
+  return apiRequest<WorkflowExecutionResult>(
     `/api/organizations/${orgId}/workflows/${workflowId}/execute`,
-    { method: 'POST' }
+    {
+      method: 'POST',
+      body: { mode, initialVariables },
+    }
   );
 }
 

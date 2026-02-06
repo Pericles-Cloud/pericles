@@ -1,4 +1,5 @@
 import { createTool } from '@mastra/core/tools';
+import { limitEvents, getFilterSummary } from './output-limiter';
 import { z } from 'zod';
 
 /**
@@ -150,10 +151,13 @@ export const laborSocialMonitorTool = createTool({
         return new Date(b.event_timestamp).getTime() - new Date(a.event_timestamp).getTime();
       });
 
-      console.log(`[Labor Monitor] Returning ${filteredEvents.length} events (${strikeCount} strikes, ${protestCount} protests), checked ${feedsChecked} feeds`);
+      // Limit output to prevent context overflow
+      const MAX_EVENTS = 10;
+      const limitedEvents = limitEvents(filteredEvents, MAX_EVENTS);
+      console.log(getFilterSummary(filteredEvents.length, limitedEvents.length, 'Labor Monitor'));
 
       return {
-        labor_events: filteredEvents,
+        labor_events: limitedEvents,
         strike_count: strikeCount,
         protest_count: protestCount,
         high_severity_count: highSeverityCount,
@@ -727,14 +731,11 @@ async function fetchGDELTLaborNews(
   const events: Array<z.infer<typeof LaborEventSchema>> = [];
 
   try {
-    // Build search queries for labor topics
+    // Build search queries for labor topics (reduced for faster execution)
     const laborQueries = [
-      'strike workers',
-      'labor protest',
-      'union walkout',
-      'factory strike',
-      'port strike',
-      'truckers strike'
+      'strike workers union',
+      'labor protest walkout',
+      'port truckers strike'
     ];
 
     // Build location filter if provided
@@ -777,7 +778,15 @@ async function fetchGDELTLaborNews(
           continue;
         }
 
-        const data = await response.json();
+        // Safely parse JSON - GDELT can return text errors even with 200 status
+        const responseText = await response.text();
+        let data: { articles?: Array<{ title?: string; seendate?: string; url?: string; sourcecountry?: string; domain?: string }> };
+        try {
+          data = JSON.parse(responseText);
+        } catch {
+          console.warn(`[Labor Monitor] GDELT returned invalid JSON for query: ${query}`);
+          continue;
+        }
         const articles = data.articles || [];
 
         console.log(`[Labor Monitor] GDELT returned ${articles.length} articles for "${query}"`);

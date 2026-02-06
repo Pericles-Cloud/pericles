@@ -1,5 +1,6 @@
 import { createTool } from '@mastra/core/tools';
 import { z } from 'zod';
+import { limitEvents, getFilterSummary } from './output-limiter';
 
 /**
  * Cybersecurity Monitor Tool
@@ -8,7 +9,7 @@ import { z } from 'zod';
  *
  * Data Sources:
  * - NVD (National Vulnerability Database): CVE vulnerability data
- *   API: https://nvd.nist.gov/developers/vulnerabilities
+ *   API: https://nvd.nist.gov/developers
  * - CISA Advisories: Critical infrastructure alerts (RSS)
  *   Feed: https://www.cisa.gov/cybersecurity-advisories/all.xml
  *
@@ -98,12 +99,16 @@ export const cybersecurityMonitorTool = createTool({
       cybersecurityEvents.push(...cisaEvents);
 
       const criticalCount = cybersecurityEvents.filter(e => e.severity >= 0.9).length;
+      const vulnerabilitiesFound = cybersecurityEvents.filter(e => e.cve_id).length;
 
-      console.log(`[Cybersecurity Monitor] Found ${cybersecurityEvents.length} events (${criticalCount} critical), made ${apiCallsMade} API calls`);
+      // Limit output to prevent context overflow
+      const MAX_EVENTS = 10;
+      const limitedEvents = limitEvents(cybersecurityEvents, MAX_EVENTS);
+      console.log(getFilterSummary(cybersecurityEvents.length, limitedEvents.length, 'Cybersecurity Monitor'));
 
       return {
-        cybersecurity_events: cybersecurityEvents,
-        vulnerabilities_found: cybersecurityEvents.filter(e => e.cve_id).length,
+        cybersecurity_events: limitedEvents,
+        vulnerabilities_found: vulnerabilitiesFound,
         critical_count: criticalCount,
         api_calls_made: apiCallsMade
       };
@@ -170,7 +175,7 @@ interface NVDResponse {
 
 /**
  * Fetch vulnerabilities from NVD API 2.0
- * API Docs: https://nvd.nist.gov/developers/vulnerabilities
+ * API Docs: https://nvd.nist.gov/developers
  */
 async function fetchNVDVulnerabilities(
   technologies: Array<{ vendor?: string | null; product?: string | null; version?: string | null; cpe?: string | null }> | undefined,

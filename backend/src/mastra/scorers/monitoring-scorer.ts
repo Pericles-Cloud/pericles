@@ -31,7 +31,7 @@ export const relevanceScorer = createScorer({
   description: 'Evaluates if detected events are geographically relevant and match organization risk preferences',
   type: 'agent',
   judge: {
-    model: 'openai/gpt-4o',
+    model: 'openai/gpt-4o-mini',
     instructions:
       'You are an expert evaluator of supply chain risk event relevance. ' +
       'Determine whether detected events are relevant to the organization based on: ' +
@@ -117,7 +117,7 @@ export const severityAccuracyScorer = createScorer({
   description: 'Evaluates if severity scores (0.0-1.0) accurately reflect event impact potential',
   type: 'agent',
   judge: {
-    model: 'openai/gpt-4o',
+    model: 'openai/gpt-4o-mini',
     instructions:
       'You are an expert evaluator of supply chain risk severity scoring. ' +
       'Determine whether severity scores are well-calibrated by comparing: ' +
@@ -203,7 +203,7 @@ export const deduplicationScorer = createScorer({
   description: 'Evaluates how well the agent detects and filters duplicate events using content hashing',
   type: 'agent',
   judge: {
-    model: 'openai/gpt-4o',
+    model: 'openai/gpt-4o-mini',
     instructions:
       'You are an expert evaluator of event deduplication systems. ' +
       'Determine whether duplicate events are correctly identified and unique events are not incorrectly flagged. ' +

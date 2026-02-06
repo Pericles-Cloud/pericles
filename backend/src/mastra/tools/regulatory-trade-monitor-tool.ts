@@ -1,4 +1,5 @@
 import { createTool } from '@mastra/core/tools';
+import { limitEvents, getFilterSummary } from './output-limiter';
 import { z } from 'zod';
 
 /**
@@ -102,10 +103,13 @@ export const regulatoryTradeMonitorTool = createTool({
       ).length;
       const highSeverityCount = filteredEvents.filter(e => e.severity >= 0.7).length;
 
-      console.log(`[Regulatory Monitor] Found ${filteredEvents.length} events (${tariffCount} tariffs, ${sanctionCount} sanctions), checked ${sourcesChecked} sources`);
+      // Limit output to prevent context overflow
+      const MAX_EVENTS = 10;
+      const limitedEvents = limitEvents(filteredEvents, MAX_EVENTS);
+      console.log(getFilterSummary(filteredEvents.length, limitedEvents.length, 'Regulatory Monitor'));
 
       return {
-        regulatory_events: filteredEvents,
+        regulatory_events: limitedEvents,
         tariff_count: tariffCount,
         sanction_count: sanctionCount,
         high_severity_count: highSeverityCount,
@@ -153,15 +157,11 @@ const REGULATORY_RSS_FEEDS = [
 /**
  * Trade-related search terms for GDELT
  */
+// Reduced search terms for faster execution (was 8, now 3)
 const TRADE_SEARCH_TERMS = [
-  'tariff trade',
-  'sanctions export',
-  'trade war',
-  'import ban',
-  'export control',
-  'trade agreement',
-  'customs regulation',
-  'embargo sanctions'
+  'tariff trade war',
+  'sanctions embargo export',
+  'import ban regulation'
 ];
 
 interface RSSItem {
@@ -318,7 +318,15 @@ async function fetchGDELTTradeNews(
 
         if (!response.ok) continue;
 
-        const data = await response.json() as GDELTResponse;
+        // Safely parse JSON - GDELT can return text errors even with 200 status
+        const responseText = await response.text();
+        let data: GDELTResponse;
+        try {
+          data = JSON.parse(responseText) as GDELTResponse;
+        } catch {
+          console.warn(`[GDELT Trade] Invalid JSON response for query: ${searchTerm}`);
+          continue;
+        }
 
         if (!data.articles || !Array.isArray(data.articles)) continue;
 

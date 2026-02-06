@@ -9,13 +9,14 @@ import {
   Upload,
   Loader2,
   Users,
+  Zap,
 } from 'lucide-react';
 import { useAuth } from '@/providers/auth-provider';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
-import { WorkflowCanvas, NodePalette, NodeProperties } from '@/components/workflow';
+import { WorkflowCanvas, NodePalette, NodeProperties, ExecutionResultsModal } from '@/components/workflow';
 import { useWorkflowStore } from '@/stores/workflow-store';
-import { publishWorkflow, updateWorkflow, executeWorkflow } from '@/lib/api-client';
+import { publishWorkflow, updateWorkflow, executeWorkflow, type WorkflowExecutionResult, type WorkflowRunMode } from '@/lib/api-client';
 
 export default function WorkflowEditorPage() {
   const params = useParams();
@@ -29,6 +30,9 @@ export default function WorkflowEditorPage() {
   const [actionError, setActionError] = useState<string | null>(null);
   const [isPublishing, setIsPublishing] = useState(false);
   const [isExecuting, setIsExecuting] = useState(false);
+  const [isTrialRunning, setIsTrialRunning] = useState(false);
+  const [executionResult, setExecutionResult] = useState<WorkflowExecutionResult | null>(null);
+  const [isResultsModalOpen, setIsResultsModalOpen] = useState(false);
 
   const {
     workflow,
@@ -100,24 +104,34 @@ export default function WorkflowEditorPage() {
     }
   };
 
-  // Handle execute
-  const handleExecute = async () => {
+  // Handle execute (trial or live)
+  const handleExecute = async (mode: WorkflowRunMode) => {
     if (!workflow || !organization?.id) return;
 
-    setIsExecuting(true);
+    const isTrial = mode === 'trial';
+    if (isTrial) {
+      setIsTrialRunning(true);
+    } else {
+      setIsExecuting(true);
+    }
     setActionError(null);
 
     try {
-      const response = await executeWorkflow(organization.id, workflow.id);
-      if (response.success) {
-        alert('Workflow execution started!');
+      const response = await executeWorkflow(organization.id, workflow.id, { mode });
+      if (response.success && response.data) {
+        setExecutionResult(response.data);
+        setIsResultsModalOpen(true);
       } else {
         setActionError(response.error?.message || 'Failed to execute');
       }
     } catch {
       setActionError('Failed to execute workflow');
     } finally {
-      setIsExecuting(false);
+      if (isTrial) {
+        setIsTrialRunning(false);
+      } else {
+        setIsExecuting(false);
+      }
     }
   };
 
@@ -259,15 +273,36 @@ export default function WorkflowEditorPage() {
             </Button>
           )}
 
-          {/* Execute button */}
+          {/* Trial Run button */}
           {workflow.status === 'PUBLISHED' && (
-            <Button size="sm" onClick={handleExecute} disabled={isExecuting}>
+            <Button
+              variant="outline"
+              size="sm"
+              onClick={() => handleExecute('trial')}
+              disabled={isTrialRunning || isExecuting}
+            >
+              {isTrialRunning ? (
+                <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+              ) : (
+                <Zap className="mr-2 h-4 w-4" />
+              )}
+              Trial Run
+            </Button>
+          )}
+
+          {/* Run button */}
+          {workflow.status === 'PUBLISHED' && (
+            <Button
+              size="sm"
+              onClick={() => handleExecute('run')}
+              disabled={isExecuting || isTrialRunning}
+            >
               {isExecuting ? (
                 <Loader2 className="mr-2 h-4 w-4 animate-spin" />
               ) : (
                 <Play className="mr-2 h-4 w-4" />
               )}
-              Execute
+              Run
             </Button>
           )}
         </div>
@@ -290,6 +325,13 @@ export default function WorkflowEditorPage() {
           <NodeProperties selectedNodeId={selectedNodeId} />
         </div>
       </div>
+
+      {/* Execution Results Modal */}
+      <ExecutionResultsModal
+        isOpen={isResultsModalOpen}
+        onClose={() => setIsResultsModalOpen(false)}
+        result={executionResult}
+      />
     </div>
   );
 }

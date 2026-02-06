@@ -133,6 +133,9 @@ export interface ProgressUpdate {
   eventsDetected?: number;
   eventsPublished?: number;
   timestamp: string;
+  // Tool configuration info (emitted at start)
+  enabledTools?: string[];
+  disabledTools?: string[];
 }
 
 export type ProgressCallback = (update: ProgressUpdate) => void;
@@ -161,8 +164,45 @@ export async function runMonitoringCycle(
     }
   };
 
-  emitProgress({ phase: 'starting', message: 'Initializing monitoring cycle...' });
+  // Map source names to tool IDs for display
+  const sourceToToolId: Record<string, string> = {
+    weather: 'weather-disaster-monitor-tool',
+    political: 'political-risk-monitor-tool',
+    cybersecurity: 'cybersecurity-monitor-tool',
+    economic: 'economic-financial-monitor-tool',
+    news: 'news-social-media-monitor-tool',
+    maritime: 'maritime-logistics-monitor-tool',
+    labor: 'labor-social-monitor-tool',
+    regulatory: 'regulatory-trade-monitor-tool',
+    pandemic: 'pandemic-health-monitor-tool',
+    geopolitical: 'geopolitical-conflict-monitor-tool',
+  };
+
+  // Categorize tools by enabled status
+  const enabledTools: string[] = ['erp-context-tool', 'incident-lookup-tool']; // Always enabled
+  const disabledTools: string[] = [];
+
+  for (const [source, enabled] of Object.entries(config.enabledSources)) {
+    const toolId = sourceToToolId[source];
+    if (toolId) {
+      if (enabled) {
+        enabledTools.push(toolId);
+      } else {
+        disabledTools.push(toolId);
+      }
+    }
+  }
+
+  emitProgress({
+    phase: 'starting',
+    message: 'Initializing monitoring cycle...',
+    enabledTools,
+    disabledTools,
+  });
   cycleLogger.debug('[Cycle] Starting monitoring cycle');
+
+  // Heartbeat interval for progress feedback (declared outside try for cleanup in finally)
+  let heartbeatInterval: NodeJS.Timeout | null = null;
 
   try {
     // Get monitoring agent from Mastra
@@ -172,7 +212,12 @@ export async function runMonitoringCycle(
       throw new Error('Monitoring agent not found in Mastra registry');
     }
 
-    emitProgress({ phase: 'loading_context', message: 'Loading organization context...' });
+    emitProgress({
+      phase: 'loading_context',
+      message: 'Loading organization context...',
+      enabledTools,
+      disabledTools,
+    });
 
     // Count enabled sources to estimate total tools
     const enabledSourceCount = Object.values(config.enabledSources).filter(Boolean).length;
@@ -184,35 +229,100 @@ export async function runMonitoringCycle(
 
     cycleLogger.debug({ prompt: monitoringPrompt }, '[Cycle] Executing agent');
 
-    emitProgress({ phase: 'executing_tools', message: 'Starting data source monitoring...', toolIndex: 0, totalTools: estimatedTools });
+    emitProgress({ phase: 'executing_tools', message: 'Connecting to AI agent...', toolIndex: 0, totalTools: estimatedTools });
 
-    const response = await agent.generate(monitoringPrompt, {
+    // Create a timeout promise for the overall agent execution
+    // Default: 5 minutes (300s) - allows for 10+ tools with 10-30s timeouts each plus LLM inference
+    const AGENT_TIMEOUT_MS = parseInt(process.env.MONITORING_AGENT_TIMEOUT_MS || '300000', 10);
+
+    const timeoutPromise = new Promise<never>((_, reject) => {
+      setTimeout(() => {
+        reject(new Error(`Agent execution timed out after ${AGENT_TIMEOUT_MS / 1000} seconds`));
+      }, AGENT_TIMEOUT_MS);
+    });
+
+    // Emit heartbeat updates every 5 seconds while waiting for first tool
+    let waitingSeconds = 0;
+    heartbeatInterval = setInterval(() => {
+      waitingSeconds += 5;
+      if (currentToolIndex === 0) {
+        emitProgress({
+          phase: 'executing_tools',
+          message: `Waiting for AI response... (${waitingSeconds}s)`,
+          toolIndex: 0,
+          totalTools: estimatedTools,
+        });
+      }
+    }, 5000);
+
+    const agentPromise = agent.generate(monitoringPrompt, {
       // eslint-disable-next-line @typescript-eslint/no-explicit-any -- Mastra agent callback type
       onStepFinish: (step: any) => {
-        // Log tool calls - Mastra may use 'toolName' or 'name' for the tool identifier
-        if (step.toolCalls && step.toolCalls.length > 0) {
-          for (const toolCall of step.toolCalls) {
-            const toolName = toolCall.toolName || toolCall.name || 'unknown';
+        // Log tool calls - try multiple property paths as Mastra/AI SDK may use different structures
+        // Check both toolCalls and toolResults arrays
+        const toolCalls = step?.toolCalls || step?.toolResults || [];
+        if (toolCalls.length > 0) {
+          for (const toolCall of toolCalls) {
+            // Try multiple property paths for tool name (Mastra/Vercel AI SDK variations)
+            // Mastra uses payload.toolName structure for tool call chunks
+            const toolName = toolCall?.payload?.toolName
+              || toolCall?.toolName
+              || toolCall?.name
+              || toolCall?.toolId
+              || toolCall?.id
+              || toolCall?.tool?.name
+              || toolCall?.tool?.id
+              || toolCall?.function?.name
+              || toolCall?.args?.toolName
+              || (typeof toolCall === 'string' ? toolCall : null)
+              || null;
+
             metrics.toolsExecuted++;
             currentToolIndex++;
+
+            // Clear heartbeat interval once we start getting tool calls
+            if (heartbeatInterval && currentToolIndex === 1) {
+              clearInterval(heartbeatInterval);
+              heartbeatInterval = null;
+            }
+
+            // Format display name - if unknown, show tool index
+            const displayName = toolName
+              ? formatToolName(toolName)
+              : `Tool ${currentToolIndex}`;
 
             // Emit progress for each tool
             emitProgress({
               phase: 'executing_tools',
-              message: `Executing ${formatToolName(toolName)}...`,
-              tool: toolName,
+              message: `Executing ${displayName}...`,
+              tool: toolName || `tool-${currentToolIndex}`,
               toolIndex: currentToolIndex,
               totalTools: Math.max(estimatedTools, currentToolIndex),
             });
 
-            cycleLogger.debug(
-              { tool: toolName, args: toolCall.arguments },
-              '[Cycle] Tool executed'
-            );
+            // Log tool execution
+            if (toolName) {
+              cycleLogger.debug({ tool: toolName }, '[Cycle] Tool executed');
+            } else {
+              // Safe logging for unknown tool structure
+              cycleLogger.debug(
+                { toolCallKeys: Object.keys(toolCall || {}) },
+                '[Cycle] Tool executed (name extraction failed)'
+              );
+            }
           }
         }
       },
     });
+
+    // Race between agent execution and timeout
+    const response = await Promise.race([agentPromise, timeoutPromise]);
+
+    // Clear heartbeat interval after agent completes
+    if (heartbeatInterval) {
+      clearInterval(heartbeatInterval);
+      heartbeatInterval = null;
+    }
 
     // Parse agent response
     const result = response.text || '';
@@ -248,11 +358,22 @@ export async function runMonitoringCycle(
     for (const eventData of detectedEvents) {
       try {
         const storedEvent = await storeEvent(config.organizationId, eventData);
+
+        // Check if this was a duplicate (server-side deduplication)
+        if (storedEvent._deduplicated) {
+          metrics.duplicatesFiltered = (metrics.duplicatesFiltered || 0) + 1;
+          cycleLogger.debug(
+            { eventId: storedEvent.id, hash: eventData.event_hash },
+            '[Cycle] Duplicate event skipped (server-side deduplication)'
+          );
+          continue;
+        }
+
         metrics.eventsPublished++;
 
-        // Emit to queue
+        // Emit to queue (fire-and-forget, errors handled internally)
         if (config.observability.enableMetrics) {
-          publishToQueue('events-queue', {
+          void publishToQueue('events-queue', {
             type: 'event',
             payload: storedEvent,
             timestamp: new Date().toISOString(),
@@ -316,6 +437,11 @@ export async function runMonitoringCycle(
     cycleLogger.error({ error }, '[Cycle] Monitoring cycle failed');
     throw error;
   } finally {
+    // Clean up heartbeat interval if still running
+    if (heartbeatInterval) {
+      clearInterval(heartbeatInterval);
+      heartbeatInterval = null;
+    }
     finalizeCycleMetrics(metrics);
     cycleLogger.info({ metrics: getMetricsSummary(metrics) }, '[Cycle] Cycle complete');
   }
@@ -344,6 +470,40 @@ async function storeEvent(organizationId: string, eventData: any): Promise<any> 
   const prisma = getPrismaClient();
 
   return await prisma.$transaction(async (tx) => {
+    // Server-side deduplication check - verify event doesn't already exist
+    // Check both by event_hash AND by content (title + source + type)
+    const existingEvent = await tx.event.findFirst({
+      where: {
+        organization_id: organizationId,
+        OR: [
+          { event_hash: eventData.event_hash },
+          {
+            title: eventData.title,
+            source: eventData.source,
+            type: eventData.type,
+          },
+        ],
+      },
+      select: { id: true, event_hash: true },
+    });
+
+    if (existingEvent) {
+      // Event already exists - update EventHash occurrence count and return existing event
+      await tx.eventHash.updateMany({
+        where: {
+          organization_id: organizationId,
+          hash: existingEvent.event_hash,
+        },
+        data: {
+          last_seen_at: new Date(),
+          occurrence_count: { increment: 1 },
+          expires_at: new Date(Date.now() + 7 * 24 * 60 * 60 * 1000),
+        },
+      });
+
+      return { ...existingEvent, _deduplicated: true };
+    }
+
     // Create Event record
     const event = await tx.event.create({
       data: {

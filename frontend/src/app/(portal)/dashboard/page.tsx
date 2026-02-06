@@ -1,21 +1,224 @@
 'use client';
 
+import { useEffect, useState, useCallback } from 'react';
 import { useAuth } from '@/providers/auth-provider';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
+import { getEvents, getSuppliers, getShipments, Event, Supplier, Shipment } from '@/lib/api-client';
+import Link from 'next/link';
+
+// Severity badge component
+function SeverityBadge({ severity }: { severity: number }) {
+  let color = 'bg-gray-100 text-gray-800';
+  let label = 'Low';
+
+  if (severity >= 0.8) {
+    color = 'bg-red-100 text-red-800';
+    label = 'Critical';
+  } else if (severity >= 0.6) {
+    color = 'bg-orange-100 text-orange-800';
+    label = 'High';
+  } else if (severity >= 0.4) {
+    color = 'bg-yellow-100 text-yellow-800';
+    label = 'Medium';
+  }
+
+  return (
+    <span className={`inline-flex items-center px-2 py-0.5 rounded text-xs font-medium ${color}`}>
+      {label}
+    </span>
+  );
+}
+
+// Event type icon mapping
+function EventTypeIcon({ type }: { type: string }) {
+  const iconClass = "h-4 w-4";
+
+  switch (type.toLowerCase()) {
+    case 'weather':
+    case 'flood':
+    case 'storm':
+    case 'hurricane':
+    case 'typhoon':
+      return (
+        <svg className={`${iconClass} text-blue-500`} fill="none" viewBox="0 0 24 24" strokeWidth="1.5" stroke="currentColor">
+          <path strokeLinecap="round" strokeLinejoin="round" d="M2.25 15a4.5 4.5 0 004.5 4.5H18a3.75 3.75 0 001.332-7.257 3 3 0 00-3.758-3.848 5.25 5.25 0 00-10.233 2.33A4.502 4.502 0 002.25 15z" />
+        </svg>
+      );
+    case 'earthquake':
+    case 'volcano':
+      return (
+        <svg className={`${iconClass} text-orange-500`} fill="none" viewBox="0 0 24 24" strokeWidth="1.5" stroke="currentColor">
+          <path strokeLinecap="round" strokeLinejoin="round" d="M12 9v3.75m-9.303 3.376c-.866 1.5.217 3.374 1.948 3.374h14.71c1.73 0 2.813-1.874 1.948-3.374L13.949 3.378c-.866-1.5-3.032-1.5-3.898 0L2.697 16.126zM12 15.75h.007v.008H12v-.008z" />
+        </svg>
+      );
+    case 'political':
+    case 'geopolitical':
+    case 'conflict':
+      return (
+        <svg className={`${iconClass} text-red-500`} fill="none" viewBox="0 0 24 24" strokeWidth="1.5" stroke="currentColor">
+          <path strokeLinecap="round" strokeLinejoin="round" d="M3 3v1.5M3 21v-6m0 0l2.77-.693a9 9 0 016.208.682l.108.054a9 9 0 006.086.71l3.114-.732a48.524 48.524 0 01-.005-10.499l-3.11.732a9 9 0 01-6.085-.711l-.108-.054a9 9 0 00-6.208-.682L3 4.5M3 15V4.5" />
+        </svg>
+      );
+    case 'cyber':
+    case 'cybersecurity':
+      return (
+        <svg className={`${iconClass} text-purple-500`} fill="none" viewBox="0 0 24 24" strokeWidth="1.5" stroke="currentColor">
+          <path strokeLinecap="round" strokeLinejoin="round" d="M9 17.25v1.007a3 3 0 01-.879 2.122L7.5 21h9l-.621-.621A3 3 0 0115 18.257V17.25m6-12V15a2.25 2.25 0 01-2.25 2.25H5.25A2.25 2.25 0 013 15V5.25m18 0A2.25 2.25 0 0018.75 3H5.25A2.25 2.25 0 003 5.25m18 0V12a2.25 2.25 0 01-2.25 2.25H5.25A2.25 2.25 0 013 12V5.25" />
+        </svg>
+      );
+    case 'maritime':
+    case 'port':
+    case 'shipping':
+      return (
+        <svg className={`${iconClass} text-cyan-500`} fill="none" viewBox="0 0 24 24" strokeWidth="1.5" stroke="currentColor">
+          <path strokeLinecap="round" strokeLinejoin="round" d="M8.25 18.75a1.5 1.5 0 01-3 0m3 0a1.5 1.5 0 00-3 0m3 0h6m-9 0H3.375a1.125 1.125 0 01-1.125-1.125V14.25m17.25 4.5a1.5 1.5 0 01-3 0m3 0a1.5 1.5 0 00-3 0m3 0h1.125c.621 0 1.129-.504 1.09-1.124a17.902 17.902 0 00-3.213-9.193 2.056 2.056 0 00-1.58-.86H14.25M16.5 18.75h-2.25m0-11.177v-.958c0-.568-.422-1.048-.987-1.106a48.554 48.554 0 00-10.026 0 1.106 1.106 0 00-.987 1.106v7.635m12-6.677v6.677m0 4.5v-4.5m0 0h-12" />
+        </svg>
+      );
+    default:
+      return (
+        <svg className={`${iconClass} text-gray-500`} fill="none" viewBox="0 0 24 24" strokeWidth="1.5" stroke="currentColor">
+          <path strokeLinecap="round" strokeLinejoin="round" d="M12 9v3.75m-9.303 3.376c-.866 1.5.217 3.374 1.948 3.374h14.71c1.73 0 2.813-1.874 1.948-3.374L13.949 3.378c-.866-1.5-3.032-1.5-3.898 0L2.697 16.126zM12 15.75h.007v.008H12v-.008z" />
+        </svg>
+      );
+  }
+}
+
+// Calculate overall risk level from events
+function calculateRiskLevel(events: Event[]): { level: string; color: string; score: number } {
+  if (events.length === 0) {
+    return { level: 'Low', color: 'text-green-600', score: 0 };
+  }
+
+  // Calculate weighted average severity
+  const avgSeverity = events.reduce((sum, e) => sum + e.severity, 0) / events.length;
+  const maxSeverity = Math.max(...events.map(e => e.severity));
+
+  // Weight: 60% max severity, 40% average severity
+  const riskScore = (maxSeverity * 0.6) + (avgSeverity * 0.4);
+
+  if (riskScore >= 0.7) {
+    return { level: 'Critical', color: 'text-red-600', score: riskScore };
+  } else if (riskScore >= 0.5) {
+    return { level: 'High', color: 'text-orange-600', score: riskScore };
+  } else if (riskScore >= 0.3) {
+    return { level: 'Medium', color: 'text-yellow-600', score: riskScore };
+  }
+  return { level: 'Low', color: 'text-green-600', score: riskScore };
+}
+
+// Format relative time
+function formatRelativeTime(dateString: string): string {
+  const date = new Date(dateString);
+  const now = new Date();
+  const diffMs = now.getTime() - date.getTime();
+  const diffMins = Math.floor(diffMs / 60000);
+  const diffHours = Math.floor(diffMs / 3600000);
+  const diffDays = Math.floor(diffMs / 86400000);
+
+  if (diffMins < 1) return 'Just now';
+  if (diffMins < 60) return `${diffMins}m ago`;
+  if (diffHours < 24) return `${diffHours}h ago`;
+  if (diffDays < 7) return `${diffDays}d ago`;
+  return date.toLocaleDateString();
+}
+
+interface DashboardData {
+  events: Event[];
+  suppliers: Supplier[];
+  shipments: Shipment[];
+  totalEvents: number;
+}
 
 export default function DashboardPage() {
   const { user, currentOrganization } = useAuth();
+  const [data, setData] = useState<DashboardData | null>(null);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState<string | null>(null);
+
+  const fetchDashboardData = useCallback(async () => {
+    if (!currentOrganization?.id) return;
+
+    setLoading(true);
+    setError(null);
+
+    try {
+      // Fetch events, suppliers, and shipments in parallel
+      const [eventsRes, suppliersRes, shipmentsRes] = await Promise.all([
+        getEvents({ organizationId: currentOrganization.id, limit: 10 }),
+        getSuppliers(),
+        getShipments(currentOrganization.id),
+      ]);
+
+      setData({
+        events: eventsRes.success && eventsRes.data ? eventsRes.data.events : [],
+        suppliers: suppliersRes.success && suppliersRes.data ? suppliersRes.data : [],
+        shipments: shipmentsRes.success && shipmentsRes.data ? shipmentsRes.data : [],
+        totalEvents: eventsRes.success && eventsRes.data ? eventsRes.data.total : 0,
+      });
+    } catch (err) {
+      console.error('Failed to fetch dashboard data:', err);
+      setError('Failed to load dashboard data');
+    } finally {
+      setLoading(false);
+    }
+  }, [currentOrganization?.id]);
+
+  useEffect(() => {
+    fetchDashboardData();
+  }, [fetchDashboardData]);
+
+  // Filter active events (pending or validated, not rejected/duplicate)
+  const activeEvents = data?.events.filter(
+    e => e.validationStatus === 'pending' || e.validationStatus === 'validated'
+  ) || [];
+
+  // Filter suppliers for current org
+  const orgSuppliers = data?.suppliers.filter(
+    s => s.organizationId === currentOrganization?.id
+  ) || [];
+
+  // Calculate risk level
+  const riskLevel = calculateRiskLevel(activeEvents);
+
+  // Get recent events sorted by detection time
+  const recentEvents = [...activeEvents]
+    .sort((a, b) => new Date(b.detectedAt).getTime() - new Date(a.detectedAt).getTime())
+    .slice(0, 5);
 
   return (
     <div className="space-y-6">
-      <div>
-        <h2 className="text-2xl font-bold text-gray-900 dark:text-white">
-          Welcome back, {user?.name || user?.email?.split('@')[0] || 'User'}
-        </h2>
-        <p className="text-gray-600 dark:text-gray-400">
-          Here&apos;s an overview of your supply chain risk status
-        </p>
+      <div className="flex justify-between items-start">
+        <div>
+          <h2 className="text-2xl font-bold text-gray-900 dark:text-white">
+            Welcome back, {user?.name || user?.email?.split('@')[0] || 'User'}
+          </h2>
+          <p className="text-gray-600 dark:text-gray-400">
+            Here&apos;s an overview of your supply chain risk status
+          </p>
+        </div>
+        <button
+          onClick={fetchDashboardData}
+          disabled={loading}
+          className="flex items-center gap-2 px-3 py-2 text-sm bg-white dark:bg-gray-800 border rounded-lg hover:bg-gray-50 dark:hover:bg-gray-700 disabled:opacity-50"
+        >
+          <svg
+            className={`h-4 w-4 ${loading ? 'animate-spin' : ''}`}
+            fill="none"
+            viewBox="0 0 24 24"
+            strokeWidth="1.5"
+            stroke="currentColor"
+          >
+            <path strokeLinecap="round" strokeLinejoin="round" d="M16.023 9.348h4.992v-.001M2.985 19.644v-4.992m0 0h4.992m-4.993 0l3.181 3.183a8.25 8.25 0 0013.803-3.7M4.031 9.865a8.25 8.25 0 0113.803-3.7l3.181 3.182m0-4.991v4.99" />
+          </svg>
+          Refresh
+        </button>
       </div>
+
+      {error && (
+        <div className="bg-red-50 dark:bg-red-900/20 border border-red-200 dark:border-red-800 rounded-lg p-4">
+          <p className="text-sm text-red-700 dark:text-red-400">{error}</p>
+        </div>
+      )}
 
       <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-4">
         <Card>
@@ -36,8 +239,12 @@ export default function DashboardPage() {
             </svg>
           </CardHeader>
           <CardContent>
-            <div className="text-2xl font-bold">0</div>
-            <p className="text-xs text-gray-500">No active events</p>
+            <div className="text-2xl font-bold">
+              {loading ? '...' : activeEvents.length}
+            </div>
+            <p className="text-xs text-gray-500">
+              {activeEvents.length === 0 ? 'No active events' : `${data?.totalEvents || 0} total detected`}
+            </p>
           </CardContent>
         </Card>
 
@@ -59,7 +266,9 @@ export default function DashboardPage() {
             </svg>
           </CardHeader>
           <CardContent>
-            <div className="text-2xl font-bold">0</div>
+            <div className="text-2xl font-bold">
+              {loading ? '...' : orgSuppliers.length}
+            </div>
             <p className="text-xs text-gray-500">Across all regions</p>
           </CardContent>
         </Card>
@@ -68,7 +277,7 @@ export default function DashboardPage() {
           <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
             <CardTitle className="text-sm font-medium">Risk Score</CardTitle>
             <svg
-              className="h-4 w-4 text-green-600"
+              className={`h-4 w-4 ${riskLevel.color}`}
               fill="none"
               viewBox="0 0 24 24"
               strokeWidth="1.5"
@@ -82,8 +291,12 @@ export default function DashboardPage() {
             </svg>
           </CardHeader>
           <CardContent>
-            <div className="text-2xl font-bold text-green-600">Low</div>
-            <p className="text-xs text-gray-500">Overall risk level</p>
+            <div className={`text-2xl font-bold ${riskLevel.color}`}>
+              {loading ? '...' : riskLevel.level}
+            </div>
+            <p className="text-xs text-gray-500">
+              {riskLevel.score > 0 ? `Score: ${(riskLevel.score * 100).toFixed(0)}%` : 'Overall risk level'}
+            </p>
           </CardContent>
         </Card>
 
@@ -105,7 +318,9 @@ export default function DashboardPage() {
             </svg>
           </CardHeader>
           <CardContent>
-            <div className="text-2xl font-bold">0</div>
+            <div className="text-2xl font-bold">
+              {loading ? '...' : (data?.shipments.length || 0)}
+            </div>
             <p className="text-xs text-gray-500">In transit</p>
           </CardContent>
         </Card>
@@ -114,29 +329,78 @@ export default function DashboardPage() {
       <div className="grid gap-4 md:grid-cols-2">
         <Card>
           <CardHeader>
-            <CardTitle>Recent Events</CardTitle>
-            <CardDescription>
-              Latest supply chain events affecting your operations
-            </CardDescription>
+            <div className="flex justify-between items-center">
+              <div>
+                <CardTitle>Recent Events</CardTitle>
+                <CardDescription>
+                  Latest supply chain events affecting your operations
+                </CardDescription>
+              </div>
+              {recentEvents.length > 0 && (
+                <Link
+                  href="/events"
+                  className="text-sm text-blue-600 hover:text-blue-800 dark:text-blue-400"
+                >
+                  View all →
+                </Link>
+              )}
+            </div>
           </CardHeader>
           <CardContent>
-            <div className="text-center py-8 text-gray-500">
-              <svg
-                className="mx-auto h-12 w-12 text-gray-300"
-                fill="none"
-                viewBox="0 0 24 24"
-                strokeWidth="1.5"
-                stroke="currentColor"
-              >
-                <path
-                  strokeLinecap="round"
-                  strokeLinejoin="round"
-                  d="M12 9v3.75m9-.75a9 9 0 11-18 0 9 9 0 0118 0zm-9 3.75h.008v.008H12v-.008z"
-                />
-              </svg>
-              <p className="mt-2">No recent events</p>
-              <p className="text-sm">Events will appear here when detected</p>
-            </div>
+            {loading ? (
+              <div className="space-y-3">
+                {[1, 2, 3].map(i => (
+                  <div key={i} className="animate-pulse flex items-start gap-3 p-3 rounded-lg bg-gray-50 dark:bg-gray-800">
+                    <div className="w-8 h-8 bg-gray-200 dark:bg-gray-700 rounded" />
+                    <div className="flex-1 space-y-2">
+                      <div className="h-4 bg-gray-200 dark:bg-gray-700 rounded w-3/4" />
+                      <div className="h-3 bg-gray-200 dark:bg-gray-700 rounded w-1/2" />
+                    </div>
+                  </div>
+                ))}
+              </div>
+            ) : recentEvents.length === 0 ? (
+              <div className="text-center py-8 text-gray-500">
+                <svg
+                  className="mx-auto h-12 w-12 text-gray-300"
+                  fill="none"
+                  viewBox="0 0 24 24"
+                  strokeWidth="1.5"
+                  stroke="currentColor"
+                >
+                  <path
+                    strokeLinecap="round"
+                    strokeLinejoin="round"
+                    d="M9 12.75L11.25 15 15 9.75M21 12a9 9 0 11-18 0 9 9 0 0118 0z"
+                  />
+                </svg>
+                <p className="mt-2">No active events</p>
+                <p className="text-sm">Your supply chain is operating normally</p>
+              </div>
+            ) : (
+              <div className="space-y-3">
+                {recentEvents.map(event => (
+                  <Link
+                    key={event.id}
+                    href={`/events?selected=${event.id}`}
+                    className="flex items-start gap-3 p-3 rounded-lg hover:bg-gray-50 dark:hover:bg-gray-800 transition-colors border border-transparent hover:border-gray-200 dark:hover:border-gray-700"
+                  >
+                    <div className="mt-0.5">
+                      <EventTypeIcon type={event.type} />
+                    </div>
+                    <div className="flex-1 min-w-0">
+                      <div className="flex items-center gap-2">
+                        <span className="font-medium text-sm truncate">{event.title}</span>
+                        <SeverityBadge severity={event.severity} />
+                      </div>
+                      <p className="text-xs text-gray-500 mt-0.5 truncate">
+                        {event.locationName || event.type} • {formatRelativeTime(event.detectedAt)}
+                      </p>
+                    </div>
+                  </Link>
+                ))}
+              </div>
+            )}
           </CardContent>
         </Card>
 
@@ -148,18 +412,54 @@ export default function DashboardPage() {
             </CardDescription>
           </CardHeader>
           <CardContent className="space-y-3">
-            <button className="w-full text-left p-3 rounded-lg border hover:bg-gray-50 dark:hover:bg-gray-700 transition-colors">
-              <div className="font-medium">Configure Monitoring</div>
-              <div className="text-sm text-gray-500">Set up risk monitoring preferences</div>
-            </button>
-            <button className="w-full text-left p-3 rounded-lg border hover:bg-gray-50 dark:hover:bg-gray-700 transition-colors">
-              <div className="font-medium">Add Suppliers</div>
-              <div className="text-sm text-gray-500">Import or add supplier data</div>
-            </button>
-            <button className="w-full text-left p-3 rounded-lg border hover:bg-gray-50 dark:hover:bg-gray-700 transition-colors">
-              <div className="font-medium">View Reports</div>
-              <div className="text-sm text-gray-500">Access risk analytics and insights</div>
-            </button>
+            <Link
+              href="/events"
+              className="w-full text-left p-3 rounded-lg border hover:bg-gray-50 dark:hover:bg-gray-700 transition-colors flex items-center gap-3"
+            >
+              <svg className="h-5 w-5 text-red-500" fill="none" viewBox="0 0 24 24" strokeWidth="1.5" stroke="currentColor">
+                <path strokeLinecap="round" strokeLinejoin="round" d="M12 9v3.75m-9.303 3.376c-.866 1.5.217 3.374 1.948 3.374h14.71c1.73 0 2.813-1.874 1.948-3.374L13.949 3.378c-.866-1.5-3.032-1.5-3.898 0L2.697 16.126zM12 15.75h.007v.008H12v-.008z" />
+              </svg>
+              <div>
+                <div className="font-medium">View Events</div>
+                <div className="text-sm text-gray-500">Monitor and manage detected events</div>
+              </div>
+            </Link>
+            <Link
+              href="/insights"
+              className="w-full text-left p-3 rounded-lg border hover:bg-gray-50 dark:hover:bg-gray-700 transition-colors flex items-center gap-3"
+            >
+              <svg className="h-5 w-5 text-blue-500" fill="none" viewBox="0 0 24 24" strokeWidth="1.5" stroke="currentColor">
+                <path strokeLinecap="round" strokeLinejoin="round" d="M3 13.125C3 12.504 3.504 12 4.125 12h2.25c.621 0 1.125.504 1.125 1.125v6.75C7.5 20.496 6.996 21 6.375 21h-2.25A1.125 1.125 0 013 19.875v-6.75zM9.75 8.625c0-.621.504-1.125 1.125-1.125h2.25c.621 0 1.125.504 1.125 1.125v11.25c0 .621-.504 1.125-1.125 1.125h-2.25a1.125 1.125 0 01-1.125-1.125V8.625zM16.5 4.125c0-.621.504-1.125 1.125-1.125h2.25C20.496 3 21 3.504 21 4.125v15.75c0 .621-.504 1.125-1.125 1.125h-2.25a1.125 1.125 0 01-1.125-1.125V4.125z" />
+              </svg>
+              <div>
+                <div className="font-medium">View Insights</div>
+                <div className="text-sm text-gray-500">Analytics and risk assessments</div>
+              </div>
+            </Link>
+            <Link
+              href="/suppliers"
+              className="w-full text-left p-3 rounded-lg border hover:bg-gray-50 dark:hover:bg-gray-700 transition-colors flex items-center gap-3"
+            >
+              <svg className="h-5 w-5 text-green-500" fill="none" viewBox="0 0 24 24" strokeWidth="1.5" stroke="currentColor">
+                <path strokeLinecap="round" strokeLinejoin="round" d="M2.25 21h19.5m-18-18v18m10.5-18v18m6-13.5V21M6.75 6.75h.75m-.75 3h.75m-.75 3h.75m3-6h.75m-.75 3h.75m-.75 3h.75M6.75 21v-3.375c0-.621.504-1.125 1.125-1.125h2.25c.621 0 1.125.504 1.125 1.125V21M3 3h12m-.75 4.5H21m-3.75 3.75h.008v.008h-.008v-.008zm0 3h.008v.008h-.008v-.008zm0 3h.008v.008h-.008v-.008z" />
+              </svg>
+              <div>
+                <div className="font-medium">Manage Suppliers</div>
+                <div className="text-sm text-gray-500">View and update supplier data</div>
+              </div>
+            </Link>
+            <Link
+              href="/plans"
+              className="w-full text-left p-3 rounded-lg border hover:bg-gray-50 dark:hover:bg-gray-700 transition-colors flex items-center gap-3"
+            >
+              <svg className="h-5 w-5 text-purple-500" fill="none" viewBox="0 0 24 24" strokeWidth="1.5" stroke="currentColor">
+                <path strokeLinecap="round" strokeLinejoin="round" d="M3.75 6A2.25 2.25 0 016 3.75h2.25A2.25 2.25 0 0110.5 6v2.25a2.25 2.25 0 01-2.25 2.25H6a2.25 2.25 0 01-2.25-2.25V6zM3.75 15.75A2.25 2.25 0 016 13.5h2.25a2.25 2.25 0 012.25 2.25V18a2.25 2.25 0 01-2.25 2.25H6A2.25 2.25 0 013.75 18v-2.25zM13.5 6a2.25 2.25 0 012.25-2.25H18A2.25 2.25 0 0120.25 6v2.25A2.25 2.25 0 0118 10.5h-2.25a2.25 2.25 0 01-2.25-2.25V6zM13.5 15.75a2.25 2.25 0 012.25-2.25H18a2.25 2.25 0 012.25 2.25V18A2.25 2.25 0 0118 20.25h-2.25A2.25 2.25 0 0113.5 18v-2.25z" />
+              </svg>
+              <div>
+                <div className="font-medium">Response Plans</div>
+                <div className="text-sm text-gray-500">Create and manage contingency workflows</div>
+              </div>
+            </Link>
           </CardContent>
         </Card>
       </div>

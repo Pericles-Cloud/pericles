@@ -1,5 +1,6 @@
 import { createTool } from '@mastra/core/tools';
 import { z } from 'zod';
+import { limitEvents, getFilterSummary } from './output-limiter';
 
 /**
  * News & Social Media Monitor Tool
@@ -177,10 +178,14 @@ export const newsSocialMediaMonitorTool = createTool({
         highSeverityCount += filteredTweets.filter(e => e.severity >= 0.7).length;
       }
 
-      console.log(`[News/Social Monitor] Found ${mediaEvents.length} events (${newsCount} news, ${socialCount} social), made ${apiCallsMade} API calls, regions: ${regionsMonitored.length > 0 ? regionsMonitored.join(', ') : 'global'}`);
+      // Limit output to prevent context overflow
+      const MAX_EVENTS = 10;
+      const limitedEvents = limitEvents(mediaEvents, MAX_EVENTS);
+      console.log(getFilterSummary(mediaEvents.length, limitedEvents.length, 'News/Social Monitor'));
+      console.log(`[News/Social Monitor] Details: ${newsCount} news, ${socialCount} social, ${apiCallsMade} API calls, regions: ${regionsMonitored.length > 0 ? regionsMonitored.join(', ') : 'global'}`);
 
       return {
-        media_events: mediaEvents,
+        media_events: limitedEvents,
         news_count: newsCount,
         social_count: socialCount,
         high_severity_count: highSeverityCount,
@@ -355,7 +360,7 @@ async function fetchNewsArticles(
 }
 
 /**
- * Fetch tweets from TwitterAPI.io
+ * Fetch tweets from TwitterAPI.io with retry logic
  * API Docs: https://docs.twitterapi.io/api-reference/endpoint/tweet_advanced_search
  */
 async function fetchTwitterPosts(
@@ -375,24 +380,45 @@ async function fetchTwitterPosts(
   const keywordQuery = keywords.map(k => k.keyword).join(' OR ');
   const searchQuery = `(${keywordQuery}) (supply chain OR logistics OR shipping OR disruption OR delay)`;
 
-  try {
-    const url = new URL('https://api.twitterapi.io/twitter/tweet/advanced_search');
-    url.searchParams.set('query', searchQuery);
-    url.searchParams.set('queryType', 'Latest');
+  // Retry configuration
+  const MAX_RETRIES = 2;
+  const RETRY_DELAY_MS = 2000;
 
-    console.log(`[Twitter Monitor] Searching tweets for: "${searchQuery.substring(0, 100)}..."`);
+  for (let attempt = 0; attempt <= MAX_RETRIES; attempt++) {
+    try {
+      const url = new URL('https://api.twitterapi.io/twitter/tweet/advanced_search');
+      url.searchParams.set('query', searchQuery);
+      url.searchParams.set('queryType', 'Latest');
 
-    const response = await fetch(url.toString(), {
-      headers: {
-        'X-API-Key': TWITTERAPIIO_KEY,
-        'Content-Type': 'application/json'
+      if (attempt === 0) {
+        console.log(`[Twitter Monitor] Searching tweets for: "${searchQuery.substring(0, 100)}..."`);
+      } else {
+        console.log(`[Twitter Monitor] Retry attempt ${attempt}/${MAX_RETRIES}...`);
       }
-    });
 
-    if (!response.ok) {
-      console.error(`[Twitter Monitor] API error: ${response.status} ${response.statusText}`);
-      return [];
-    }
+      const response = await fetch(url.toString(), {
+        headers: {
+          'X-API-Key': TWITTERAPIIO_KEY,
+          'Content-Type': 'application/json'
+        },
+        signal: AbortSignal.timeout(15000) // 15 second timeout
+      });
+
+      if (!response.ok) {
+        const statusCode = response.status;
+        console.error(`[Twitter Monitor] API error: ${statusCode} ${response.statusText}`);
+
+        // Don't retry on client errors (4xx), only server errors (5xx)
+        if (statusCode >= 500 && attempt < MAX_RETRIES) {
+          console.log(`[Twitter Monitor] Server error (${statusCode}), will retry in ${RETRY_DELAY_MS}ms...`);
+          await new Promise(resolve => setTimeout(resolve, RETRY_DELAY_MS * (attempt + 1)));
+          continue;
+        }
+
+        // Log but don't fail - return empty results
+        console.warn(`[Twitter Monitor] TwitterAPI.io unavailable (status ${statusCode}), skipping Twitter results`);
+        return [];
+      }
 
     const data = await response.json() as TwitterAPIResponse;
 
@@ -446,8 +472,26 @@ async function fetchTwitterPosts(
         raw_data: tweet
       });
     }
-  } catch (err) {
-    console.error(`[Twitter Monitor] Error fetching tweets:`, err);
+
+      // Success - break out of retry loop
+      break;
+    } catch (err) {
+      const errorMessage = err instanceof Error ? err.message : 'Unknown error';
+
+      // Check if it's a timeout or network error (worth retrying)
+      const isRetryable = errorMessage.includes('timeout') ||
+                          errorMessage.includes('network') ||
+                          errorMessage.includes('ECONNREFUSED') ||
+                          errorMessage.includes('ENOTFOUND');
+
+      if (isRetryable && attempt < MAX_RETRIES) {
+        console.warn(`[Twitter Monitor] Request failed (${errorMessage}), retrying in ${RETRY_DELAY_MS * (attempt + 1)}ms...`);
+        await new Promise(resolve => setTimeout(resolve, RETRY_DELAY_MS * (attempt + 1)));
+        continue;
+      }
+
+      console.error(`[Twitter Monitor] Error fetching tweets after ${attempt + 1} attempts:`, errorMessage);
+    }
   }
 
   return events;

@@ -1,4 +1,5 @@
 import { createTool } from '@mastra/core/tools';
+import { limitEvents, getFilterSummary } from './output-limiter';
 import { z } from 'zod';
 
 /**
@@ -103,10 +104,13 @@ export const pandemicHealthMonitorTool = createTool({
       ).length;
       const highSeverityCount = filteredEvents.filter(e => e.severity >= 0.7).length;
 
-      console.log(`[Health Monitor] Found ${filteredEvents.length} events (${outbreakCount} outbreaks, ${travelRestrictionCount} travel restrictions), checked ${feedsChecked} feeds`);
+      // Limit output to prevent context overflow
+      const MAX_EVENTS = 10;
+      const limitedEvents = limitEvents(filteredEvents, MAX_EVENTS);
+      console.log(getFilterSummary(filteredEvents.length, limitedEvents.length, 'Health Monitor'));
 
       return {
-        health_events: filteredEvents,
+        health_events: limitedEvents,
         outbreak_count: outbreakCount,
         travel_restriction_count: travelRestrictionCount,
         high_severity_count: highSeverityCount,

@@ -1,4 +1,5 @@
 import { createTool } from '@mastra/core/tools';
+import { limitEvents, getFilterSummary } from './output-limiter';
 import { z } from 'zod';
 
 /**
@@ -83,10 +84,13 @@ export const economicFinancialMonitorTool = createTool({
         severity_threshold
       );
 
-      console.log(`[Economic Monitor] Found ${events.length} events, made ${apiCallsMade} API calls`);
+      // Limit output to prevent context overflow
+      const MAX_EVENTS = 10;
+      const limitedEvents = limitEvents(events, MAX_EVENTS);
+      console.log(getFilterSummary(events.length, limitedEvents.length, 'Economic Monitor'));
 
       return {
-        economic_events: events,
+        economic_events: limitedEvents,
         monitored_countries_count: countries.length,
         indicators_checked: indicatorsChecked,
         api_calls_made: apiCallsMade

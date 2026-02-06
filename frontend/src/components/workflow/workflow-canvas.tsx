@@ -187,11 +187,11 @@ function WorkflowCanvasInner({ onNodeSelect }: WorkflowCanvasProps) {
           className="!bottom-4 !right-4"
           nodeColor={(node) => {
             const typeColors: Record<string, string> = {
-              trigger: '#f59e0b',
-              action: '#3b82f6',
-              condition: '#a855f7',
-              notification: '#14b8a6',
-              end: '#374151',
+              trigger: '#ef4444',  // red-500
+              action: '#3b82f6',   // blue-500
+              condition: '#a855f7', // purple-500
+              notification: '#14b8a6', // teal-500
+              end: '#374151',      // gray-700
             };
             return typeColors[node.type || 'action'] || '#6b7280';
           }}

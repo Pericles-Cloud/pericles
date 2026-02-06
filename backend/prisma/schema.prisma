@@ -226,6 +226,7 @@ model Event {
   updated_at        DateTime @updatedAt
 
   @@unique([organization_id, event_hash])
+  @@unique([organization_id, title, source, type]) // Prevent content duplicates
   @@index([organization_id, validation_status])
   @@index([organization_id, event_timestamp])
   @@index([event_hash])
@@ -762,4 +763,66 @@ enum ExecutionStatus {
   COMPLETED
   FAILED
   CANCELLED
+}
+
+// ============================================================================
+// KEY-VALUE STORE (PostgreSQL-based replacement for Redis)
+// ============================================================================
+model KeyValueStore {
+  id              String    @id @default(uuid())
+  organization_id String?   // Nullable for global/system keys
+
+  key             String
+  value           Json      // Flexible JSON value storage
+
+  // Optional metadata
+  namespace       String    @default("default") // Logical grouping: "cache", "queue", "session", etc.
+
+  // TTL support
+  expires_at      DateTime?
+
+  created_at      DateTime  @default(now())
+  updated_at      DateTime  @updatedAt
+
+  @@unique([organization_id, namespace, key])
+  @@index([organization_id, namespace])
+  @@index([namespace, key])
+  @@index([expires_at])
+}
+
+// ============================================================================
+// MESSAGE QUEUE (PostgreSQL-based pub/sub replacement for Redis)
+// ============================================================================
+model MessageQueue {
+  id              String    @id @default(uuid())
+  organization_id String?
+
+  queue_name      String    // e.g., "events-queue", "validation-queue"
+  message_type    String    // e.g., "event", "incident", "notification"
+  payload         Json
+
+  // Processing state
+  status          MessageStatus @default(PENDING)
+  attempts        Int       @default(0)
+  max_attempts    Int       @default(3)
+
+  // Timestamps
+  scheduled_at    DateTime  @default(now())
+  processed_at    DateTime?
+  failed_at       DateTime?
+  error_message   String?   @db.Text
+
+  created_at      DateTime  @default(now())
+
+  @@index([queue_name, status])
+  @@index([organization_id, queue_name])
+  @@index([status, scheduled_at])
+}
+
+enum MessageStatus {
+  PENDING
+  PROCESSING
+  COMPLETED
+  FAILED
+  DEAD_LETTER
 }

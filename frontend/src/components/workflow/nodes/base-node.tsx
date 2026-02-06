@@ -6,7 +6,7 @@ import { cn } from '@/lib/utils';
 import { WorkflowNodeData } from '@/stores/workflow-store';
 
 interface BaseNodeProps extends NodeProps<WorkflowNodeData> {
-  icon: ReactNode;
+  typeName: string;
   className?: string;
   headerClassName?: string;
   showSourceHandle?: boolean;
@@ -19,7 +19,7 @@ interface BaseNodeProps extends NodeProps<WorkflowNodeData> {
 export const BaseNode = memo(function BaseNode({
   data,
   selected,
-  icon,
+  typeName,
   className,
   headerClassName,
   showSourceHandle = true,
@@ -31,17 +31,17 @@ export const BaseNode = memo(function BaseNode({
   return (
     <div
       className={cn(
-        'min-w-[180px] rounded-lg border-2 bg-white shadow-md transition-shadow',
-        selected ? 'border-blue-500 shadow-lg ring-2 ring-blue-200' : 'border-gray-200',
+        'min-w-[80px] rounded border bg-white shadow-sm transition-shadow overflow-hidden',
+        selected ? 'border-blue-500 shadow-md ring-2 ring-blue-200' : 'border-gray-300',
         className
       )}
     >
-      {/* Default target handle */}
+      {/* Default target handle - centered */}
       {showTargetHandle && !targetHandles && (
         <Handle
           type="target"
-          position={Position.Top}
-          className="!h-3 !w-3 !border-2 !border-white !bg-gray-400"
+          position={Position.Left}
+          className="!h-2 !w-2 !border !border-white !bg-gray-400 !top-1/2 !-translate-y-1/2"
         />
       )}
 
@@ -52,34 +52,38 @@ export const BaseNode = memo(function BaseNode({
           type="target"
           position={handle.position}
           id={handle.id}
-          className={cn('!h-3 !w-3 !border-2 !border-white !bg-gray-400', handle.className)}
+          className={cn('!h-2 !w-2 !border !border-white !bg-gray-400', handle.className)}
         />
       ))}
 
-      {/* Header */}
+      {/* Header with type name */}
       <div
         className={cn(
-          'flex items-center gap-2 rounded-t-md px-3 py-2',
+          'px-2 py-1 text-[10px] font-medium text-white text-center',
           headerClassName
         )}
       >
-        <span className="flex-shrink-0">{icon}</span>
-        <span className="truncate text-sm font-medium text-white">{data.label}</span>
+        {typeName}
       </div>
 
-      {/* Content */}
+      {/* Body with label */}
+      <div className="px-3 py-2 text-xs text-gray-800 text-center font-medium">
+        {data.label}
+      </div>
+
+      {/* Additional content */}
       {children && (
-        <div className="border-t border-gray-100 px-3 py-2 text-xs text-gray-600">
+        <div className="border-t border-gray-100 px-2 py-1 text-[10px] text-gray-600">
           {children}
         </div>
       )}
 
-      {/* Default source handle */}
+      {/* Default source handle - centered */}
       {showSourceHandle && !sourceHandles && (
         <Handle
           type="source"
-          position={Position.Bottom}
-          className="!h-3 !w-3 !border-2 !border-white !bg-gray-400"
+          position={Position.Right}
+          className="!h-2 !w-2 !border !border-white !bg-gray-400 !top-1/2 !-translate-y-1/2"
         />
       )}
 
@@ -90,7 +94,7 @@ export const BaseNode = memo(function BaseNode({
           type="source"
           position={handle.position}
           id={handle.id}
-          className={cn('!h-3 !w-3 !border-2 !border-white !bg-gray-400', handle.className)}
+          className={cn('!h-2 !w-2 !border !border-white !bg-gray-400', handle.className)}
         />
       ))}
     </div>

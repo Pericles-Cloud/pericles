@@ -549,9 +549,14 @@ export const useWorkflowStore = create<WorkflowState>((set, get) => ({
     });
 
     // Error handling
-    socket.on('error', (data: { message: string }) => {
-      console.error('[WS] Error:', data.message);
-      set({ error: data.message });
+    socket.on('error', (data: { message?: string } | string | unknown) => {
+      const errorMessage = typeof data === 'string'
+        ? data
+        : (data && typeof data === 'object' && 'message' in data && typeof data.message === 'string')
+          ? data.message
+          : 'WebSocket error occurred';
+      console.error('[WS] Error:', errorMessage);
+      set({ error: errorMessage });
     });
 
     set({ socket });

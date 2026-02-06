@@ -40,22 +40,6 @@ services:
       postgres:
         condition: service_healthy
 
-  # Redis - Message Queue and Caching
-  redis:
-    image: redis:7-alpine
-    container_name: pericles-redis
-    restart: unless-stopped
-    ports:
-      - "6379:6379"
-    volumes:
-      - redis_data:/data
-    command: redis-server --appendonly yes
-    healthcheck:
-      test: ["CMD", "redis-cli", "ping"]
-      interval: 10s
-      timeout: 5s
-      retries: 5
-
   # Mastra Studio - AI Agent Development UI
   mastra:
     image: node:20-alpine
@@ -87,8 +71,6 @@ services:
     command: sh scripts/start-mastra-dev.sh
     depends_on:
       postgres:
-        condition: service_healthy
-      redis:
         condition: service_healthy
     healthcheck:
       test: ["CMD-SHELL", "wget -q --spider http://localhost:4111/api || exit 1"]
@@ -129,8 +111,6 @@ services:
     depends_on:
       postgres:
         condition: service_healthy
-      redis:
-        condition: service_healthy
     healthcheck:
       test: ["CMD-SHELL", "wget -q --spider http://localhost:4111/api || exit 1"]
       interval: 30s
@@ -144,8 +124,6 @@ volumes:
   postgres_data:
     driver: local
   pgadmin_data:
-    driver: local
-  redis_data:
     driver: local
   mastra_node_modules:
     driver: local

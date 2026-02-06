@@ -1,5 +1,6 @@
 import { createTool } from '@mastra/core/tools';
 import { z } from 'zod';
+import { limitEvents, getFilterSummary } from './output-limiter';
 
 /**
  * Political Risk Monitor Tool
@@ -79,10 +80,13 @@ export const politicalRiskMonitorTool = createTool({
       const { events, apiCallsMade } = await fetchGDELTPoliticalEvents(locations, lookback_hours);
       const filteredEvents = events.filter(e => e.severity >= severityThresholdValue);
 
-      console.log(`[Political Risk Monitor] Found ${filteredEvents.length} events (filtered from ${events.length}), made ${apiCallsMade} API calls`);
+      // Limit output to prevent context overflow
+      const MAX_EVENTS = 10;
+      const limitedEvents = limitEvents(filteredEvents, MAX_EVENTS);
+      console.log(getFilterSummary(filteredEvents.length, limitedEvents.length, 'Political Risk Monitor'));
 
       return {
-        political_events: filteredEvents,
+        political_events: limitedEvents,
         monitored_locations_count: locations.length,
         api_calls_made: apiCallsMade
       };
@@ -99,15 +103,11 @@ export const politicalRiskMonitorTool = createTool({
 // ============================================================================
 
 // Political event search terms for GDELT queries
+// Reduced search terms for faster execution (was 8, now 3)
 const POLITICAL_SEARCH_TERMS = [
-  'protest government',
-  'coup military',
-  'sanctions trade',
-  'election results',
-  'civil unrest',
-  'policy change',
-  'political violence',
-  'strike workers'
+  'protest government unrest',
+  'sanctions trade policy',
+  'coup political violence'
 ];
 
 interface GDELTArticle {
@@ -177,7 +177,15 @@ async function fetchGDELTPoliticalEvents(
           continue;
         }
 
-        const data = await response.json() as GDELTResponse;
+        // Safely parse JSON - GDELT can return text errors even with 200 status
+        const responseText = await response.text();
+        let data: GDELTResponse;
+        try {
+          data = JSON.parse(responseText) as GDELTResponse;
+        } catch {
+          console.warn(`[GDELT] Invalid JSON response for query: ${query}`);
+          continue;
+        }
 
         if (!data.articles || !Array.isArray(data.articles)) {
           continue;

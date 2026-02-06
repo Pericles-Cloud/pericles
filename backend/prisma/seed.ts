@@ -59,7 +59,7 @@ async function createRootOrganizationAndAdmin() {
       name: 'Pericles, Inc.',
       email_domains: ['pericles.cloud', 'pericles.ai'],
       is_root: true,
-      address_line1: '1406 Broadway',
+      address_line1: '1460 Broadway',
       city: 'New York',
       state: 'NY',
       zip_code: '10018',

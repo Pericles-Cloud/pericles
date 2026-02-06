@@ -1,5 +1,6 @@
 import { createTool } from '@mastra/core/tools';
 import { z } from 'zod';
+import { limitEvents, getFilterSummary } from './output-limiter';
 
 /**
  * Weather & Natural Disaster Monitor Tool
@@ -93,10 +94,13 @@ export const weatherDisasterMonitorTool = createTool({
       apiCallsMade += 1;
       weatherEvents.push(...eonetEvents.filter(e => e.severity >= severityThresholdValue));
 
-      console.log(`[Weather Monitor] Found ${weatherEvents.length} events, made ${apiCallsMade} API calls`);
+      // Limit output to prevent context overflow
+      const MAX_EVENTS = 10;
+      const limitedEvents = limitEvents(weatherEvents, MAX_EVENTS);
+      console.log(getFilterSummary(weatherEvents.length, limitedEvents.length, 'Weather Monitor'));
 
       return {
-        weather_events: weatherEvents,
+        weather_events: limitedEvents,
         monitored_locations_count: locations.length,
         api_calls_made: apiCallsMade
       };

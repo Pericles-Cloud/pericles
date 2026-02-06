@@ -235,7 +235,9 @@ export const monitoringAgent = new Agent({
 
     Begin monitoring when given an organization_id or company name.
   `,
-  model: 'openai/gpt-4o',
+  // Using gpt-4o-mini for higher rate limits and faster execution
+  // The monitoring agent primarily orchestrates tool calls, so mini is sufficient
+  model: 'openai/gpt-4o-mini',
   tools: {
     // Critical infrastructure tools
     organizationLookupTool,

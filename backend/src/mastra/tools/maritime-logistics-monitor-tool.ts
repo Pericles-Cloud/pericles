@@ -1,4 +1,5 @@
 import { createTool } from '@mastra/core/tools';
+import { limitEvents, getFilterSummary } from './output-limiter';
 import { z } from 'zod';
 
 /**
@@ -113,10 +114,13 @@ export const maritimeLogisticsMonitorTool = createTool({
       ).length;
       const highSeverityCount = filteredEvents.filter(e => e.severity >= 0.7).length;
 
-      console.log(`[Maritime Monitor] Found ${filteredEvents.length} events, checked ${feedsChecked} feeds`);
+      // Limit output to prevent context overflow
+      const MAX_EVENTS = 10;
+      const limitedEvents = limitEvents(filteredEvents, MAX_EVENTS);
+      console.log(getFilterSummary(filteredEvents.length, limitedEvents.length, 'Maritime Monitor'));
 
       return {
-        maritime_events: filteredEvents,
+        maritime_events: limitedEvents,
         port_events_count: portEventsCount,
         route_events_count: routeEventsCount,
         high_severity_count: highSeverityCount,
@@ -161,15 +165,11 @@ const MARITIME_RSS_FEEDS = [
 /**
  * Maritime-related search terms for GDELT
  */
+// Reduced search terms for faster execution (was 8, now 3)
 const MARITIME_SEARCH_TERMS = [
-  'port closure',
-  'shipping delay',
-  'container shortage',
-  'port congestion',
-  'canal blocked',
-  'maritime accident',
-  'ship collision',
-  'piracy attack'
+  'port closure congestion',
+  'shipping delay shortage',
+  'maritime accident piracy'
 ];
 
 /**
@@ -333,7 +333,15 @@ async function fetchGDELTMaritimeNews(
 
       if (!response.ok) continue;
 
-      const data = await response.json() as GDELTResponse;
+      // Safely parse JSON - GDELT can return text errors even with 200 status
+      const responseText = await response.text();
+      let data: GDELTResponse;
+      try {
+        data = JSON.parse(responseText) as GDELTResponse;
+      } catch {
+        console.warn(`[GDELT Maritime] Invalid JSON response for search term: ${searchTerm}`);
+        continue;
+      }
 
       if (!data.articles || !Array.isArray(data.articles)) continue;
 
