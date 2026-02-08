@@ -11,18 +11,26 @@ function AuthCallbackContent() {
   const { refreshUser } = useAuth();
 
   useEffect(() => {
-    const accessToken = searchParams.get('accessToken');
-    const refreshToken = searchParams.get('refreshToken');
-    const redirect = searchParams.get('redirect') || '/dashboard';
+    const handleCallback = async () => {
+      const accessToken = searchParams.get('accessToken');
+      const refreshToken = searchParams.get('refreshToken');
+      const redirect = searchParams.get('redirect') || '/dashboard';
 
-    if (accessToken) {
-      storeTokens(accessToken, refreshToken || undefined);
-      refreshUser().then(() => {
-        router.push(redirect);
-      });
-    } else {
-      router.push('/login?error=oauth_failed');
-    }
+      if (accessToken) {
+        try {
+          storeTokens(accessToken, refreshToken || undefined);
+          await refreshUser();
+          router.replace(redirect);
+        } catch (error) {
+          console.error('Auth callback error:', error);
+          router.replace('/login?error=oauth_failed');
+        }
+      } else {
+        router.replace('/login?error=oauth_failed');
+      }
+    };
+
+    void handleCallback();
   }, [searchParams, router, refreshUser]);
 
   return (
