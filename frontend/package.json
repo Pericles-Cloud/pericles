@@ -1,6 +1,7 @@
 {
   "name": "frontend",
-  "version": "0.1.0",
+  "version": "0.0.1",
+  "description": "Pericles Supply Chain Risk Management Platform",
   "private": true,
   "scripts": {
     "dev": "next dev",

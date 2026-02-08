@@ -1,7 +1,7 @@
 import { createTool } from '@mastra/core/tools';
 import { z } from 'zod';
-import { getPrismaClient } from '../../monitoring/db-client';
-import { toolLoggers } from './tool-logger';
+import { getPrismaClient } from '../../monitoring/db-client.js';
+import { toolLoggers } from './tool-logger.js';
 
 const prisma = getPrismaClient();
 const logger = toolLoggers.erpContext;

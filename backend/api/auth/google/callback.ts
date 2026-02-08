@@ -17,7 +17,7 @@ import {
   logAuthEvent,
   extractIpAddress,
   extractUserAgent,
-} from '../../../src/auth';
+} from '../../../src/auth/index.js';
 
 const prisma = new PrismaClient();
 

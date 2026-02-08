@@ -6,8 +6,8 @@
  */
 
 import type { WorkflowEdge } from '@prisma/client';
-import type { ExecutionContext, NodeExecutionResult, WorkflowForExecution, WorkflowNodeWithData } from './types';
-import { getHandler, hasHandler } from './handlers';
+import type { ExecutionContext, NodeExecutionResult, WorkflowForExecution, WorkflowNodeWithData } from './types.js';
+import { getHandler, hasHandler } from './handlers/index.js';
 
 /**
  * Workflow Engine class

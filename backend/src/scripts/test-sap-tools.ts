@@ -13,7 +13,7 @@ import {
   sapGetPlantsT,
   sapGetMaterialStockTool,
   sapGetShippingLanesTool,
-} from '../mastra/tools/sap-erp-data-tool';
+} from '../mastra/tools/sap-erp-data-tool.js';
 
 async function main() {
   console.log('🧪 Testing SAP S/4HANA Cloud ERP Data Tools\n');

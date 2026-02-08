@@ -1,5 +1,5 @@
 import type { VercelRequest, VercelResponse } from '@vercel/node';
-import { verifyAccessToken, type AccessTokenPayload } from './jwt';
+import { verifyAccessToken, type AccessTokenPayload } from './jwt.js';
 
 /**
  * Minimal request interface for authentication.

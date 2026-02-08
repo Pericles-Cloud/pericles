@@ -1,7 +1,7 @@
 import { createTool } from '@mastra/core/tools';
-import { limitEvents, getFilterSummary } from './output-limiter';
+import { limitEvents, getFilterSummary } from './output-limiter.js';
 import { z } from 'zod';
-import { toolLoggers } from './tool-logger';
+import { toolLoggers } from './tool-logger.js';
 
 const logger = toolLoggers.maritimeLogistics;
 

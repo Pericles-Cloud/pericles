@@ -10,24 +10,24 @@
  * 4. Repeat (with error handling and backoff)
  */
 
-import { mastra } from '../mastra';
-import { type MonitoringConfig } from './config';
-import { getPrismaClient } from './db-client';
-import { logger, createLogger } from './logger';
+import { mastra } from '../mastra/index.js';
+import { type MonitoringConfig } from './config.js';
+import { getPrismaClient } from './db-client.js';
+import { logger, createLogger } from './logger.js';
 import {
   type CycleMetrics,
   initializeCycleMetrics,
   finalizeCycleMetrics,
   getMetricsSummary,
-} from './metrics';
+} from './metrics.js';
 import {
   classifyError,
   reportError,
   calculateBackoff,
   ErrorSeverity,
-} from './error-reporter';
-import { requestValidation } from './validation-client';
-import { publishToQueue } from './queue-client';
+} from './error-reporter.js';
+import { requestValidation } from './validation-client.js';
+import { publishToQueue } from './queue-client.js';
 
 // ============================================================================
 // Global State

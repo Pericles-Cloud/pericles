@@ -1,4 +1,13 @@
 {
+  "buildCommand": "prisma generate",
+  "outputDirectory": "public",
+  "functions": {
+    "api/**/*.ts": {
+      "memory": 1024,
+      "maxDuration": 60,
+      "includeFiles": "src/**/*"
+    }
+  },
   "crons": [
     {
       "path": "/api/monitoring/trigger",

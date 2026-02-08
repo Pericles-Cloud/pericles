@@ -1,6 +1,6 @@
 import { createTool } from '@mastra/core/tools';
-import { limitEvents, getFilterSummary } from './output-limiter';
-import { toolLoggers } from './tool-logger';
+import { limitEvents, getFilterSummary } from './output-limiter.js';
+import { toolLoggers } from './tool-logger.js';
 import { z } from 'zod';
 
 const logger = toolLoggers.regulatoryTrade;

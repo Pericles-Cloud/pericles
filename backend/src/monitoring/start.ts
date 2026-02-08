@@ -14,9 +14,9 @@
  *   LOG_LEVEL - Logging level: debug|info|warn|error (default: info)
  */
 
-import { loadMonitoringConfig, getEnvironmentOverrides } from './config';
-import { startMonitoring, stopMonitoring } from './index';
-import { logger } from './logger';
+import { loadMonitoringConfig, getEnvironmentOverrides } from './config.js';
+import { startMonitoring, stopMonitoring } from './index.js';
+import { logger } from './logger.js';
 
 // ============================================================================
 // Parse Command Line Arguments

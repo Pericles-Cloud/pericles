@@ -14,8 +14,8 @@ import type {
   WorkflowExecutionResult,
   WorkflowForExecution,
   WorkflowNodeWithData,
-} from './types';
-import { type WorkflowEngine, createWorkflowEngine } from './workflow-engine';
+} from './types.js';
+import { type WorkflowEngine, createWorkflowEngine } from './workflow-engine.js';
 
 /**
  * Options for workflow execution

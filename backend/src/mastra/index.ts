@@ -1,9 +1,9 @@
 
 import { Mastra } from '@mastra/core/mastra';
 import { PinoLogger } from '@mastra/loggers';
-import { monitoringAgent } from './agents/monitoring-agent';
-import { relevanceScorer, severityAccuracyScorer, deduplicationScorer } from './scorers/monitoring-scorer';
-import { getPostgresStore } from '../monitoring/db-client';
+import { monitoringAgent } from './agents/monitoring-agent.js';
+import { relevanceScorer, severityAccuracyScorer, deduplicationScorer } from './scorers/monitoring-scorer.js';
+import { getPostgresStore } from '../monitoring/db-client.js';
 
 export const mastra = new Mastra({
   agents: { monitoringAgent },

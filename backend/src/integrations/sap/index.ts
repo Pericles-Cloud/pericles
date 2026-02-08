@@ -10,7 +10,7 @@
  * - All SAP types
  */
 
-export * from './types';
-export * from './client';
-export * from './mock-api';
-export { transformSAPDataToOrganizationContext } from './transformer';
+export * from './types.js';
+export * from './client.js';
+export * from './mock-api.js';
+export { transformSAPDataToOrganizationContext } from './transformer.js';

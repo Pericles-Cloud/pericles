@@ -16,7 +16,7 @@ import type {
   SAPODataResponse,
   SAPODataSingleResponse,
   SAPQueryOptions,
-} from './types';
+} from './types.js';
 
 /**
  * Mock Levi Strauss Suppliers (matching CSV data)

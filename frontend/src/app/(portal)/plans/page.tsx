@@ -51,13 +51,13 @@ export default function PlansPage() {
     const orgId = organization?.id;
     if (!orgId) return;
 
-    async function loadWorkflows() {
+    async function loadWorkflows(organizationId: string) {
       setIsLoading(true);
       setError(null);
 
       try {
         const response = await getWorkflows(
-          orgId,
+          organizationId,
           statusFilter === 'all' ? undefined : statusFilter
         );
 
@@ -73,7 +73,7 @@ export default function PlansPage() {
       }
     }
 
-    loadWorkflows();
+    loadWorkflows(orgId);
   }, [organization?.id, statusFilter]);
 
   // Handle create workflow

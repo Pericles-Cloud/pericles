@@ -1,7 +1,7 @@
 import { createTool } from '@mastra/core/tools';
 import { z } from 'zod';
-import { limitEvents, getFilterSummary } from './output-limiter';
-import { toolLoggers } from './tool-logger';
+import { limitEvents, getFilterSummary } from './output-limiter.js';
+import { toolLoggers } from './tool-logger.js';
 
 const logger = toolLoggers.weatherDisaster;
 

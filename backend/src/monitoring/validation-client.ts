@@ -5,7 +5,7 @@
  * This is a placeholder - actual implementation will depend on Validation Agent design.
  */
 
-import { logger } from './logger';
+import { logger } from './logger.js';
 
 export interface ValidationRequest {
   eventId: string;

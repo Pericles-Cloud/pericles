@@ -54,8 +54,14 @@ export function getPostgresStore(): PostgresStore {
     if (!connectionString) {
       throw new Error('MASTRA_DATABASE_URL environment variable is required');
     }
+
+    // Enable SSL for production (Neon, Vercel, etc.)
+    // In development, SSL is typically not required for local PostgreSQL
+    const isProduction = process.env.NODE_ENV === 'production' || process.env.VERCEL === '1';
+
     postgresStore = new PostgresStore({
       connectionString,
+      ssl: isProduction ? { rejectUnauthorized: false } : undefined,
     });
   }
   return postgresStore;

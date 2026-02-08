@@ -6,8 +6,8 @@
  */
 
 import { NodeType } from '@prisma/client';
-import type { ExecutionContext, NodeExecutionResult, EndNodeData, WorkflowNodeWithData } from '../types';
-import { BaseNodeHandler } from './base-handler';
+import type { ExecutionContext, NodeExecutionResult, EndNodeData, WorkflowNodeWithData } from '../types.js';
+import { BaseNodeHandler } from './base-handler.js';
 
 export class EndHandler extends BaseNodeHandler {
   protected readonly supportedTypes: NodeType[] = [NodeType.END];

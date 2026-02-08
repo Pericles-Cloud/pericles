@@ -9,7 +9,7 @@
 
 import type { VercelRequest, VercelResponse } from '@vercel/node';
 import { PrismaClient } from '@prisma/client';
-import { authenticateRequest } from '../../src/auth';
+import { authenticateRequest } from '../../src/auth/index.js';
 import { z } from 'zod';
 
 const prisma = new PrismaClient();

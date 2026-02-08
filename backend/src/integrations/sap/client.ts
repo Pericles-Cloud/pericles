@@ -24,8 +24,8 @@ import type {
   SAPODataSingleResponse,
   SAPQueryOptions,
   SAPErrorResponse,
-} from './types';
-import { mockSAPAPI } from './mock-api';
+} from './types.js';
+import { mockSAPAPI } from './mock-api.js';
 
 /**
  * SAP S/4HANA Cloud Client

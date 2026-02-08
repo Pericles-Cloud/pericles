@@ -7,8 +7,8 @@
  */
 
 import { NodeType } from '@prisma/client';
-import type { ExecutionContext, NodeExecutionResult, TriggerNodeData, WorkflowNodeWithData } from '../types';
-import { BaseNodeHandler } from './base-handler';
+import type { ExecutionContext, NodeExecutionResult, TriggerNodeData, WorkflowNodeWithData } from '../types.js';
+import { BaseNodeHandler } from './base-handler.js';
 
 export class TriggerHandler extends BaseNodeHandler {
   protected readonly supportedTypes: NodeType[] = [NodeType.TRIGGER];

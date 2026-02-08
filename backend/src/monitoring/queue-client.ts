@@ -10,8 +10,8 @@
  * - Inter-agent communication
  */
 
-import { logger } from './logger';
-import { getPrismaClient } from './db-client';
+import { logger } from './logger.js';
+import { getPrismaClient } from './db-client.js';
 
 export interface QueueMessage {
   type: 'event' | 'incident' | 'notification';
@@ -213,16 +213,20 @@ export async function kvSet(
 
   const expiresAt = ttlSeconds ? new Date(Date.now() + ttlSeconds * 1000) : null;
 
+  // Use type assertion for compound unique key where Prisma expects string
+  // but we need to pass null for global keys
+  const orgId = (organizationId ?? null)!;
+
   await prisma.keyValueStore.upsert({
     where: {
       organization_id_namespace_key: {
-        organization_id: organizationId || null,
+        organization_id: orgId,
         namespace,
         key,
       },
     },
     create: {
-      organization_id: organizationId || null,
+      organization_id: orgId,
       namespace,
       key,
       value: value as object,
@@ -244,11 +248,13 @@ export async function kvGet<T = unknown>(
 ): Promise<T | null> {
   const { namespace = 'default', organizationId } = options;
   const prisma = getPrismaClient();
+  // Use type assertion for compound unique key where Prisma expects string
+  const orgId = (organizationId ?? null)!;
 
   const record = await prisma.keyValueStore.findUnique({
     where: {
       organization_id_namespace_key: {
-        organization_id: organizationId || null,
+        organization_id: orgId,
         namespace,
         key,
       },
@@ -276,12 +282,14 @@ export async function kvDelete(
 ): Promise<boolean> {
   const { namespace = 'default', organizationId } = options;
   const prisma = getPrismaClient();
+  // Use type assertion for compound unique key where Prisma expects string
+  const orgId = (organizationId ?? null)!;
 
   try {
     await prisma.keyValueStore.delete({
       where: {
         organization_id_namespace_key: {
-          organization_id: organizationId || null,
+          organization_id: orgId,
           namespace,
           key,
         },

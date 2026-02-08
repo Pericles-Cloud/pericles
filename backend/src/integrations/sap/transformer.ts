@@ -10,7 +10,7 @@ import type {
   SAPPlant,
   SAPShippingLane,
   SAPODataResponse,
-} from './types';
+} from './types.js';
 
 /**
  * OrganizationContext types (matching Prisma schema)

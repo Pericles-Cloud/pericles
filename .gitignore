@@ -36,3 +36,5 @@ coverage/
 *.tgz
 .turbo
 .vercel
+
+backups/

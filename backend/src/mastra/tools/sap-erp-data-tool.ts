@@ -30,14 +30,14 @@
 
 import { createTool } from '@mastra/core/tools';
 import { z } from 'zod';
-import { sapClient } from '../../integrations/sap/client';
+import { sapClient } from '../../integrations/sap/client.js';
 import type {
   SAPBusinessPartner,
   SAPPlant,
   SAPMaterialStock,
   SAPShippingLane,
-} from '../../integrations/sap/types';
-import { toolLoggers } from './tool-logger';
+} from '../../integrations/sap/types.js';
+import { toolLoggers } from './tool-logger.js';
 
 const logger = toolLoggers.sapErpData;
 

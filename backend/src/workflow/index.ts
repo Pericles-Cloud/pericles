@@ -22,13 +22,13 @@ export type {
   WorkflowForExecution,
   WorkflowExecutionResult,
   NodeHandler,
-} from './types';
+} from './types.js';
 
 // Re-export Prisma enums for convenience
 export { NodeType, ExecutionStatus } from '@prisma/client';
 
 // Expression evaluator
-export { evaluateCondition, validateExpression } from './expression-evaluator';
+export { evaluateCondition, validateExpression } from './expression-evaluator.js';
 
 // Node handlers
 export {
@@ -41,14 +41,14 @@ export {
   getHandler,
   getAllHandlers,
   hasHandler,
-} from './handlers';
+} from './handlers/index.js';
 
 // Workflow engine
-export { WorkflowEngine, createWorkflowEngine } from './workflow-engine';
+export { WorkflowEngine, createWorkflowEngine } from './workflow-engine.js';
 
 // Workflow execution service
-export type { ExecuteWorkflowOptions } from './workflow-execution-service';
+export type { ExecuteWorkflowOptions } from './workflow-execution-service.js';
 export {
   WorkflowExecutionService,
   createWorkflowExecutionService,
-} from './workflow-execution-service';
+} from './workflow-execution-service.js';

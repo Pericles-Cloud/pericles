@@ -17,9 +17,9 @@
  *   npx tsx src/scripts/mocker/index.ts status
  */
 
-import { MockShipmentGenerator } from './generator';
-import type { RiskScenario, MockerConfig } from './types';
-import { DEFAULT_MOCKER_CONFIG } from './types';
+import { MockShipmentGenerator } from './generator.js';
+import type { RiskScenario, MockerConfig } from './types.js';
+import { DEFAULT_MOCKER_CONFIG } from './types.js';
 
 // ============================================================================
 // CLI ARGUMENT PARSING

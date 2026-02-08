@@ -1,5 +1,5 @@
 import { z } from 'zod';
-import { getPrismaClient } from './db-client';
+import { getPrismaClient } from './db-client.js';
 
 /**
  * Monitoring Configuration Management

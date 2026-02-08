@@ -12,7 +12,7 @@ import type {
   NodeExecutionResult,
   NodeHandler,
   WorkflowNodeWithData,
-} from '../types';
+} from '../types.js';
 
 /**
  * Abstract base handler that all node handlers extend.

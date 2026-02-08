@@ -9,9 +9,9 @@
  */
 
 import { NodeType } from '@prisma/client';
-import type { ExecutionContext, NodeExecutionResult, ConditionNodeData, WorkflowNodeWithData } from '../types';
-import { BaseNodeHandler } from './base-handler';
-import { evaluateCondition } from '../expression-evaluator';
+import type { ExecutionContext, NodeExecutionResult, ConditionNodeData, WorkflowNodeWithData } from '../types.js';
+import { BaseNodeHandler } from './base-handler.js';
+import { evaluateCondition } from '../expression-evaluator.js';
 
 export class ConditionHandler extends BaseNodeHandler {
   protected readonly supportedTypes: NodeType[] = [NodeType.CONDITION];

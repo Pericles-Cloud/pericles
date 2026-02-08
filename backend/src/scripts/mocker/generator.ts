@@ -6,8 +6,8 @@
  */
 
 import { PrismaClient } from '@prisma/client';
-import type { MockerConfig, MockerResult, ShipmentStatus } from './types';
-import { DEFAULT_MOCKER_CONFIG } from './types';
+import type { MockerConfig, MockerResult, ShipmentStatus } from './types.js';
+import { DEFAULT_MOCKER_CONFIG } from './types.js';
 import {
   MOCK_CARRIERS,
   MOCK_PRODUCTS,
@@ -17,7 +17,7 @@ import {
   randomBetween,
   generateBolNumber,
   generateContainerId,
-} from './data';
+} from './data.js';
 
 const prisma = new PrismaClient();
 

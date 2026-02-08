@@ -15,9 +15,9 @@
  */
 
 import { PrismaClient, type Prisma } from '@prisma/client';
-import { sapClient } from './client';
-import { transformSAPDataToOrganizationContext, validateOrganizationContext } from './transformer';
-import type { OrganizationContextData } from './transformer';
+import { sapClient } from './client.js';
+import { transformSAPDataToOrganizationContext, validateOrganizationContext } from './transformer.js';
+import type { OrganizationContextData } from './transformer.js';
 
 const prisma = new PrismaClient();
 

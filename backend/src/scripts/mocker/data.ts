@@ -5,7 +5,7 @@
  * designed to trigger various risk scenarios for testing the Monitoring Agent.
  */
 
-import type { MockSupplier, MockCarrier, MockPort, MockRoute, RiskScenario } from './types';
+import type { MockSupplier, MockCarrier, MockPort, MockRoute, RiskScenario } from './types.js';
 
 // ============================================================================
 // HIGH-RISK PORTS

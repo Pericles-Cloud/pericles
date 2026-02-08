@@ -18,7 +18,7 @@ dotenv.config({ path: path.resolve(__dirname, '../../../.env.local'), override: 
 import express, { type Request, type Response } from 'express';
 import { createServer } from 'http';
 import cors from 'cors';
-import { initializeWorkflowSocket } from './workflow-socket';
+import { initializeWorkflowSocket } from './workflow-socket.js';
 import crypto from 'crypto';
 import { PrismaClient } from '@prisma/client';
 import type { Prisma, ExecutionMode, NodeType } from '@prisma/client';
@@ -34,9 +34,9 @@ import {
   getRefreshTokenExpiry,
   logAuthEvent,
   authenticateRequest,
-} from '../auth';
+} from '../auth/index.js';
 import { OAuth2Client } from 'google-auth-library';
-import { createWorkflowExecutionService, type ExecutionMode as WorkflowExecutionMode } from '../workflow';
+import { createWorkflowExecutionService, type ExecutionMode as WorkflowExecutionMode } from '../workflow/index.js';
 
 const app = express();
 const prisma = new PrismaClient();
@@ -3771,7 +3771,7 @@ import {
   getDefaultToolConfig,
   validateToolConfig,
   type DataSourceCategory,
-} from '../monitoring/tool-configs';
+} from '../monitoring/tool-configs.js';
 
 // Format tool config for API response
 function formatToolConfig(config: {

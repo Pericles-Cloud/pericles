@@ -15,9 +15,9 @@
  */
 
 import type { VercelRequest, VercelResponse } from '@vercel/node';
-import { loadMonitoringConfig, getEnvironmentOverrides } from '../../src/monitoring/config';
-import { runMonitoringCycle } from '../../src/monitoring/index';
-import { logger } from '../../src/monitoring/logger';
+import { loadMonitoringConfig, getEnvironmentOverrides } from '../../src/monitoring/config.js';
+import { runMonitoringCycle } from '../../src/monitoring/index.js';
+import { logger } from '../../src/monitoring/logger.js';
 
 /**
  * Authenticate request using Bearer token

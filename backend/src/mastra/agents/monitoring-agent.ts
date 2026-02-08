@@ -25,10 +25,10 @@ import {
   regulatoryTradeMonitorTool,
   pandemicHealthMonitorTool,
   geopoliticalConflictMonitorTool,
-} from '../tools';
+} from '../tools/index.js';
 
 // Import scorers
-import { monitoringScorers } from '../scorers/monitoring-scorer';
+import { monitoringScorers } from '../scorers/monitoring-scorer.js';
 
 /**
  * Monitoring Agent

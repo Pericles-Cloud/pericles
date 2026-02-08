@@ -5,20 +5,20 @@
  */
 
 import type { NodeType } from '@prisma/client';
-import type { NodeHandler } from '../types';
-import { TriggerHandler } from './trigger-handler';
-import { ActionHandler } from './action-handler';
-import { ConditionHandler } from './condition-handler';
-import { NotificationHandler } from './notification-handler';
-import { EndHandler } from './end-handler';
+import type { NodeHandler } from '../types.js';
+import { TriggerHandler } from './trigger-handler.js';
+import { ActionHandler } from './action-handler.js';
+import { ConditionHandler } from './condition-handler.js';
+import { NotificationHandler } from './notification-handler.js';
+import { EndHandler } from './end-handler.js';
 
 // Export individual handlers
-export { BaseNodeHandler } from './base-handler';
-export { TriggerHandler } from './trigger-handler';
-export { ActionHandler } from './action-handler';
-export { ConditionHandler } from './condition-handler';
-export { NotificationHandler } from './notification-handler';
-export { EndHandler } from './end-handler';
+export { BaseNodeHandler } from './base-handler.js';
+export { TriggerHandler } from './trigger-handler.js';
+export { ActionHandler } from './action-handler.js';
+export { ConditionHandler } from './condition-handler.js';
+export { NotificationHandler } from './notification-handler.js';
+export { EndHandler } from './end-handler.js';
 
 /**
  * Registry of all available node handlers

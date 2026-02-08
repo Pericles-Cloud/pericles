@@ -29,7 +29,7 @@ import {
   syncSAPDataForOrganization,
   syncSAPDataForAllOrganizations,
   testSAPConnection,
-} from '../integrations/sap/sync-service';
+} from '../integrations/sap/sync-service.js';
 
 // Parse command line arguments
 const args = process.argv.slice(2);
