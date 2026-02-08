@@ -371,13 +371,19 @@ export async function runMonitoringCycle(
 
         metrics.eventsPublished++;
 
-        // Emit to queue (fire-and-forget, errors handled internally)
+        // Emit to queue with error logging
         if (config.observability.enableMetrics) {
-          void publishToQueue('events-queue', {
+          publishToQueue('events-queue', {
             type: 'event',
             payload: storedEvent,
             timestamp: new Date().toISOString(),
             organizationId: config.organizationId,
+          }).catch((queueError: unknown) => {
+            // Log queue publishing failure but don't fail the overall cycle
+            cycleLogger.warn(
+              { error: queueError, eventId: storedEvent.id },
+              '[Cycle] Failed to publish event to queue - event was stored but may not trigger downstream processing'
+            );
           });
         }
 

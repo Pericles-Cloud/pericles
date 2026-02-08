@@ -37,6 +37,9 @@ import type {
   SAPMaterialStock,
   SAPShippingLane,
 } from '../../integrations/sap/types';
+import { toolLoggers } from './tool-logger';
+
+const logger = toolLoggers.sapErpData;
 
 /**
  * Zod Schemas for SAP Data Structures
@@ -228,17 +231,13 @@ export const sapGetSuppliersT = createTool({
   execute: async ({ context }) => {
     const { country_filter, critical_only, max_results } = context;
 
-    console.log('[SAP Tool] Fetching suppliers from SAP S/4HANA Cloud', {
-      country_filter,
-      critical_only,
-      max_results,
-    });
+    logger.info({ country_filter, critical_only, max_results }, 'Fetching suppliers from SAP S/4HANA Cloud');
 
     // Set timeout for SAP API call (30 seconds max)
     const controller = new AbortController();
     const _timeout = setTimeout(() => {
       controller.abort();
-      console.error('[SAP Tool] Request timeout after 30 seconds');
+      logger.error('Request timeout after 30 seconds');
     }, 30000);
 
     try {
@@ -269,7 +268,7 @@ export const sapGetSuppliersT = createTool({
       // Determine data source
       const dataSource: 'sap_production' | 'sap_mock' = process.env.SAP_S4HANA_USE_MOCK === 'false' ? 'sap_production' : 'sap_mock';
 
-      console.log(`[SAP Tool] Retrieved ${suppliers.length} suppliers from ${dataSource}`);
+      logger.info({ count: suppliers.length, dataSource }, 'Retrieved suppliers');
 
       return {
         suppliers,
@@ -279,7 +278,7 @@ export const sapGetSuppliersT = createTool({
       };
     } catch (error) {
       clearTimeout(_timeout);
-      console.error('[SAP Tool] Failed to fetch suppliers:', error);
+      logger.error({ err: error }, 'Failed to fetch suppliers');
       throw new Error(
         `SAP API error: ${error instanceof Error ? error.message : 'Unknown error'}`
       );
@@ -328,11 +327,7 @@ export const sapGetPlantsT = createTool({
   execute: async ({ context }) => {
     const { plant_type, country_filter, max_results } = context;
 
-    console.log('[SAP Tool] Fetching plants from SAP S/4HANA Cloud', {
-      plant_type,
-      country_filter,
-      max_results,
-    });
+    logger.info({ plant_type, country_filter, max_results }, 'Fetching plants from SAP S/4HANA Cloud');
 
     const controller = new AbortController();
     const _timeout = setTimeout(() => { controller.abort(); }, 30000);
@@ -361,7 +356,7 @@ export const sapGetPlantsT = createTool({
 
       const dataSource: 'sap_production' | 'sap_mock' = process.env.SAP_S4HANA_USE_MOCK === 'false' ? 'sap_production' : 'sap_mock';
 
-      console.log(`[SAP Tool] Retrieved ${plants.length} plants from ${dataSource}`);
+      logger.info({ count: plants.length, dataSource }, 'Retrieved plants');
 
       return {
         plants,
@@ -371,7 +366,7 @@ export const sapGetPlantsT = createTool({
       };
     } catch (error) {
       clearTimeout(_timeout);
-      console.error('[SAP Tool] Failed to fetch plants:', error);
+      logger.error({ err: error }, 'Failed to fetch plants');
       throw new Error(
         `SAP API error: ${error instanceof Error ? error.message : 'Unknown error'}`
       );
@@ -406,11 +401,7 @@ export const sapGetMaterialStockTool = createTool({
   execute: async ({ context }) => {
     const { plant_id, material_filter, max_results } = context;
 
-    console.log('[SAP Tool] Fetching material stock from SAP', {
-      plant_id,
-      material_filter,
-      max_results,
-    });
+    logger.info({ plant_id, material_filter, max_results }, 'Fetching material stock from SAP');
 
     const controller = new AbortController();
     const _timeout = setTimeout(() => { controller.abort(); }, 30000);
@@ -430,7 +421,7 @@ export const sapGetMaterialStockTool = createTool({
 
       const dataSource: 'sap_production' | 'sap_mock' = process.env.SAP_S4HANA_USE_MOCK === 'false' ? 'sap_production' : 'sap_mock';
 
-      console.log(`[SAP Tool] Retrieved ${stock.length} stock records from ${dataSource}`);
+      logger.info({ count: stock.length, dataSource }, 'Retrieved stock records');
 
       return {
         stock,
@@ -441,7 +432,7 @@ export const sapGetMaterialStockTool = createTool({
       };
     } catch (error) {
       clearTimeout(_timeout);
-      console.error('[SAP Tool] Failed to fetch material stock:', error);
+      logger.error({ err: error }, 'Failed to fetch material stock');
       throw new Error(
         `SAP API error: ${error instanceof Error ? error.message : 'Unknown error'}`
       );
@@ -481,13 +472,7 @@ export const sapGetShippingLanesTool = createTool({
   execute: async ({ context }) => {
     const { origin_plant, destination_plant, mode, active_only, max_results } = context;
 
-    console.log('[SAP Tool] Fetching shipping lanes from SAP', {
-      origin_plant,
-      destination_plant,
-      mode,
-      active_only,
-      max_results,
-    });
+    logger.info({ origin_plant, destination_plant, mode, active_only, max_results }, 'Fetching shipping lanes from SAP');
 
     const controller = new AbortController();
     const timeout = setTimeout(() => { controller.abort(); }, 30000);
@@ -527,7 +512,7 @@ export const sapGetShippingLanesTool = createTool({
 
       const dataSource: 'sap_production' | 'sap_mock' = process.env.SAP_S4HANA_USE_MOCK === 'false' ? 'sap_production' : 'sap_mock';
 
-      console.log(`[SAP Tool] Retrieved ${shippingLanes.length} shipping lanes from ${dataSource}`);
+      logger.info({ count: shippingLanes.length, dataSource }, 'Retrieved shipping lanes');
 
       return {
         shipping_lanes: shippingLanes,
@@ -537,7 +522,7 @@ export const sapGetShippingLanesTool = createTool({
       };
     } catch (error) {
       clearTimeout(timeout);
-      console.error('[SAP Tool] Failed to fetch shipping lanes:', error);
+      logger.error({ err: error }, 'Failed to fetch shipping lanes');
       throw new Error(
         `SAP API error: ${error instanceof Error ? error.message : 'Unknown error'}`
       );

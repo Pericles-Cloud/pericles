@@ -1,6 +1,9 @@
 import { createTool } from '@mastra/core/tools';
 import { limitEvents, getFilterSummary } from './output-limiter';
 import { z } from 'zod';
+import { toolLoggers } from './tool-logger';
+
+const logger = toolLoggers.maritimeLogistics;
 
 /**
  * Maritime & Logistics Monitor Tool
@@ -85,13 +88,13 @@ export const maritimeLogisticsMonitorTool = createTool({
   execute: async ({ context }) => {
     const { ports, shipping_lanes, severity_threshold, lookback_hours, organization_id } = context;
 
-    console.log(`[Maritime Monitor] Tool executed with context:`, JSON.stringify(context, null, 2));
+    logger.debug({ context }, 'Tool executed');
 
     if (!organization_id) {
       throw new Error('organization_id is required for maritime monitoring');
     }
 
-    console.log(`[Maritime Monitor] Monitoring for organization: ${organization_id}`);
+    logger.info({ organization_id }, 'Monitoring for organization');
 
     try {
       const severityThresholdValue = severity_threshold === 'low' ? 0.3 : severity_threshold === 'medium' ? 0.5 : 0.7;
@@ -117,7 +120,7 @@ export const maritimeLogisticsMonitorTool = createTool({
       // Limit output to prevent context overflow
       const MAX_EVENTS = 10;
       const limitedEvents = limitEvents(filteredEvents, MAX_EVENTS);
-      console.log(getFilterSummary(filteredEvents.length, limitedEvents.length, 'Maritime Monitor'));
+      logger.info({ totalEvents: filteredEvents.length, limitedEvents: limitedEvents.length }, getFilterSummary(filteredEvents.length, limitedEvents.length, 'Maritime Monitor'));
 
       return {
         maritime_events: limitedEvents,
@@ -128,7 +131,7 @@ export const maritimeLogisticsMonitorTool = createTool({
       };
 
     } catch (error) {
-      console.error(`[Maritime Monitor] Failed to fetch maritime data:`, error);
+      logger.error({ err: error }, 'Failed to fetch maritime data');
       throw new Error(`Maritime monitoring failed: ${error instanceof Error ? error.message : 'Unknown error'}`);
     }
   }
@@ -243,14 +246,14 @@ async function fetchMaritimeData(
       feedsChecked++;
 
       if (!response.ok) {
-        console.warn(`[Maritime Monitor] Feed error ${response.status}: ${feed.name}`);
+        logger.warn({ feedName: feed.name, statusCode: response.status }, 'Feed error');
         continue;
       }
 
       const xmlText = await response.text();
       const items = parseRSSItems(xmlText);
 
-      console.log(`[Maritime Monitor] Parsed ${items.length} items from ${feed.name}`);
+      logger.debug({ feedName: feed.name, itemCount: items.length }, 'Parsed RSS items');
 
       for (const item of items) {
         if (item.link && seenUrls.has(item.link)) continue;
@@ -289,7 +292,7 @@ async function fetchMaritimeData(
       await sleep(300);
 
     } catch (err) {
-      console.error(`[Maritime Monitor] Error fetching ${feed.name}:`, err);
+      logger.error({ err, feedName: feed.name }, 'Error fetching RSS feed');
     }
   }
 
@@ -298,9 +301,9 @@ async function fetchMaritimeData(
     const gdeltEvents = await fetchGDELTMaritimeNews(lookbackHours, seenUrls, ports);
     events.push(...gdeltEvents);
     feedsChecked++;
-    console.log(`[Maritime Monitor] Added ${gdeltEvents.length} events from GDELT`);
+    logger.info({ eventCount: gdeltEvents.length }, 'Added events from GDELT');
   } catch (err) {
-    console.error(`[Maritime Monitor] Error fetching GDELT maritime news:`, err);
+    logger.error({ err }, 'Error fetching GDELT maritime news');
   }
 
   return { events, feedsChecked };
@@ -339,7 +342,7 @@ async function fetchGDELTMaritimeNews(
       try {
         data = JSON.parse(responseText) as GDELTResponse;
       } catch {
-        console.warn(`[GDELT Maritime] Invalid JSON response for search term: ${searchTerm}`);
+        logger.warn({ searchTerm }, 'GDELT returned invalid JSON response');
         continue;
       }
 
@@ -373,7 +376,7 @@ async function fetchGDELTMaritimeNews(
       await sleep(100);
 
     } catch (err) {
-      console.error(`[GDELT Maritime] Error:`, err);
+      logger.error({ err, searchTerm }, 'GDELT search error');
     }
   }
 

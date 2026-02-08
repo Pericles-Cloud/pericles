@@ -2,8 +2,10 @@ import { createTool } from '@mastra/core/tools';
 import { z } from 'zod';
 import { createHash } from 'crypto';
 import { getPrismaClient } from '../../monitoring/db-client';
+import { toolLoggers } from './tool-logger';
 
 const prisma = getPrismaClient();
+const logger = toolLoggers.incidentLookup;
 
 /**
  * Incident Lookup Tool
@@ -81,7 +83,7 @@ export const incidentLookupTool = createTool({
     const { title, source, type, timestamp, organization_id } = context;
 
     // Log the input parameters received
-    console.log(`[Incident Lookup] Tool executed with context:`, JSON.stringify(context, null, 2));
+    logger.debug({ title, source, type, organizationId: organization_id }, 'Tool executed');
 
     // CRITICAL: Validate organization_id is present
     if (!organization_id) {
@@ -91,7 +93,7 @@ export const incidentLookupTool = createTool({
     // Generate stable content hash
     const eventHash = generateEventHash(title, source, type, timestamp);
 
-    console.log(`[Incident Lookup] Checking hash: ${eventHash} for organization: ${organization_id}`);
+    logger.info({ hash: eventHash, organizationId: organization_id }, 'Checking for duplicate');
 
     try {
       // Query EventHash table with organization isolation
@@ -114,14 +116,14 @@ export const incidentLookupTool = createTool({
         // Check if hash has expired (7-day TTL)
         const now = new Date();
         if (now > existingHash.expires_at) {
-          console.log(`[Incident Lookup] Hash expired, treating as new event`);
+          logger.debug({ hash: eventHash }, 'Hash expired, treating as new event');
           return {
             event_hash: eventHash,
             is_duplicate: false
           };
         }
 
-        console.log(`[Incident Lookup] Duplicate found, last seen: ${existingHash.last_seen_at.toISOString()}`);
+        logger.info({ hash: eventHash, lastSeen: existingHash.last_seen_at.toISOString() }, 'Duplicate found');
 
         return {
           event_hash: eventHash,
@@ -133,7 +135,7 @@ export const incidentLookupTool = createTool({
       }
 
       // No duplicate found
-      console.log(`[Incident Lookup] No duplicate found, new event`);
+      logger.debug({ hash: eventHash }, 'No duplicate found, new event');
 
       return {
         event_hash: eventHash,
@@ -141,7 +143,7 @@ export const incidentLookupTool = createTool({
       };
 
     } catch (error) {
-      console.error(`[Incident Lookup] Database query failed:`, error);
+      logger.error({ error, hash: eventHash }, 'Database query failed');
       throw new Error(`Failed to lookup incident: ${error instanceof Error ? error.message : 'Unknown error'}`);
     }
   }

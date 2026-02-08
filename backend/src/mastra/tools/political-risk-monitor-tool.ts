@@ -1,6 +1,9 @@
 import { createTool } from '@mastra/core/tools';
 import { z } from 'zod';
 import { limitEvents, getFilterSummary } from './output-limiter';
+import { toolLoggers } from './tool-logger';
+
+const logger = toolLoggers.politicalRisk;
 
 /**
  * Political Risk Monitor Tool
@@ -66,13 +69,13 @@ export const politicalRiskMonitorTool = createTool({
   execute: async ({ context }) => {
     const { locations, severity_threshold, lookback_hours, organization_id } = context;
 
-    console.log(`[Political Risk Monitor] Tool executed with context:`, JSON.stringify(context, null, 2));
+    logger.debug({ context }, 'Tool executed');
 
     if (!organization_id) {
       throw new Error('organization_id is required for political risk monitoring');
     }
 
-    console.log(`[Political Risk Monitor] Monitoring ${locations.length} locations for organization: ${organization_id}`);
+    logger.info({ locationCount: locations.length, organization_id }, 'Monitoring locations');
 
     try {
       const severityThresholdValue = severity_threshold === 'low' ? 0.3 : severity_threshold === 'medium' ? 0.5 : 0.7;
@@ -83,7 +86,7 @@ export const politicalRiskMonitorTool = createTool({
       // Limit output to prevent context overflow
       const MAX_EVENTS = 10;
       const limitedEvents = limitEvents(filteredEvents, MAX_EVENTS);
-      console.log(getFilterSummary(filteredEvents.length, limitedEvents.length, 'Political Risk Monitor'));
+      logger.info({ totalEvents: filteredEvents.length, returnedEvents: limitedEvents.length }, getFilterSummary(filteredEvents.length, limitedEvents.length, 'Political Risk Monitor'));
 
       return {
         political_events: limitedEvents,
@@ -92,7 +95,7 @@ export const politicalRiskMonitorTool = createTool({
       };
 
     } catch (error) {
-      console.error(`[Political Risk Monitor] Failed to fetch GDELT data:`, error);
+      logger.error({ err: error }, 'Failed to fetch GDELT data');
       throw new Error(`Political risk monitoring failed: ${error instanceof Error ? error.message : 'Unknown error'}`);
     }
   }
@@ -173,7 +176,7 @@ async function fetchGDELTPoliticalEvents(
         apiCallsMade++;
 
         if (!response.ok) {
-          console.warn(`[GDELT] API error: ${response.status} for query: ${query}`);
+          logger.warn({ status: response.status, query }, 'GDELT API error');
           continue;
         }
 
@@ -183,7 +186,7 @@ async function fetchGDELTPoliticalEvents(
         try {
           data = JSON.parse(responseText) as GDELTResponse;
         } catch {
-          console.warn(`[GDELT] Invalid JSON response for query: ${query}`);
+          logger.warn({ query }, 'GDELT invalid JSON response');
           continue;
         }
 
@@ -226,7 +229,7 @@ async function fetchGDELTPoliticalEvents(
         await sleep(100);
 
       } catch (err) {
-        console.error(`[GDELT] Error fetching political events:`, err);
+        logger.error({ err }, 'Error fetching political events');
       }
     }
   }

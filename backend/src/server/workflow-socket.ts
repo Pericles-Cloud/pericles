@@ -12,6 +12,7 @@ import type { Server as HttpServer } from 'http';
 import { Server as SocketIOServer, type Socket } from 'socket.io';
 import { PrismaClient, type Prisma } from '@prisma/client';
 import jwt from 'jsonwebtoken';
+import { z } from 'zod';
 
 const prisma = new PrismaClient();
 
@@ -51,36 +52,87 @@ interface AuthenticatedSocket extends Socket {
 // Room participants tracking
 const roomParticipants = new Map<string, Map<string, { socketId: string; user: TokenPayload; joinedAt: Date }>>();
 
-// Event types
-interface NodeData {
-  clientId: string;
-  type: 'TRIGGER' | 'ACTION' | 'CONDITION' | 'NOTIFICATION' | 'END';
-  label?: string;
-  positionX: number;
-  positionY: number;
-  data?: Record<string, unknown>;
-}
-
-interface EdgeData {
-  clientId: string;
-  sourceNodeClientId: string;
-  targetNodeClientId: string;
-  sourceHandle?: string;
-  targetHandle?: string;
-  label?: string;
-  data?: Record<string, unknown>;
-}
-
-interface ViewportData {
+// ViewportData interface (used for type documentation)
+interface _ViewportData {
   x: number;
   y: number;
   zoom: number;
 }
 
+// =============================================================================
+// WebSocket Message Validation Schemas
+// Prevents malformed/malicious message injection
+// =============================================================================
+
+const JoinWorkflowSchema = z.object({
+  workflowId: z.string().uuid(),
+  orgId: z.string().uuid(),
+});
+
+const NodeDataSchema = z.object({
+  clientId: z.string().min(1).max(100),
+  type: z.enum(['TRIGGER', 'ACTION', 'CONDITION', 'NOTIFICATION', 'END']),
+  label: z.string().max(200).optional(),
+  positionX: z.number().finite(),
+  positionY: z.number().finite(),
+  data: z.record(z.string(), z.unknown()).optional(),
+});
+
+const NodeUpdateSchema = z.object({
+  clientId: z.string().min(1).max(100),
+  updates: z.object({
+    label: z.string().max(200).optional().nullable(),
+    positionX: z.number().finite().optional(),
+    positionY: z.number().finite().optional(),
+    data: z.record(z.string(), z.unknown()).optional(),
+  }),
+});
+
+const EdgeDataSchema = z.object({
+  clientId: z.string().min(1).max(100),
+  sourceNodeClientId: z.string().min(1).max(100),
+  targetNodeClientId: z.string().min(1).max(100),
+  sourceHandle: z.string().max(50).optional().nullable(),
+  targetHandle: z.string().max(50).optional().nullable(),
+  label: z.string().max(200).optional(),
+  data: z.record(z.string(), z.unknown()).optional(),
+});
+
+const DeleteNodesSchema = z.array(z.string().min(1).max(100)).max(100);
+
+const CursorMoveSchema = z.object({
+  x: z.number().finite(),
+  y: z.number().finite(),
+});
+
+/**
+ * Validate WebSocket message data with a Zod schema
+ * Returns validated data or emits error to socket
+ */
+function validateMessage<T>(
+  socket: AuthenticatedSocket,
+  schema: z.ZodType<T>,
+  data: unknown,
+  eventName: string
+): T | null {
+  const result = schema.safeParse(data);
+  if (!result.success) {
+    console.warn(`[WS] Invalid ${eventName} message from ${socket.user?.email}:`, result.error.issues);
+    socket.emit('error', { message: `Invalid ${eventName} data` });
+    return null;
+  }
+  return result.data;
+}
+
+// Parse CORS origins from environment variable (comma-separated)
+const CORS_ORIGINS = process.env.CORS_ORIGINS
+  ? process.env.CORS_ORIGINS.split(',').map(origin => origin.trim())
+  : ['http://localhost:3000', 'http://localhost:4111'];
+
 export function initializeWorkflowSocket(httpServer: HttpServer): SocketIOServer {
   const io = new SocketIOServer(httpServer, {
     cors: {
-      origin: ['http://localhost:3000', 'http://localhost:4111'],
+      origin: CORS_ORIGINS,
       credentials: true,
     },
     path: '/ws/workflow',
@@ -119,9 +171,11 @@ export function initializeWorkflowSocket(httpServer: HttpServer): SocketIOServer
     console.log(`[WS] User connected: ${socket.user?.email} (${socket.id})`);
 
     // Join workflow room
-    socket.on('join_workflow', async (data: { workflowId: string; orgId: string }) => {
+    socket.on('join_workflow', async (data: unknown) => {
       try {
-        const { workflowId, orgId } = data;
+        const validated = validateMessage(socket, JoinWorkflowSchema, data, 'join_workflow');
+        if (!validated) return;
+        const { workflowId, orgId } = validated;
 
         // Verify user has access to the organization
         if (!socket.user) {
@@ -199,8 +253,10 @@ export function initializeWorkflowSocket(httpServer: HttpServer): SocketIOServer
     });
 
     // Add node
-    socket.on('add_node', async (node: NodeData) => {
+    socket.on('add_node', async (data: unknown) => {
       if (!socket.workflowId || !socket.orgId || !socket.user) return;
+      const node = validateMessage(socket, NodeDataSchema, data, 'add_node');
+      if (!node) return;
 
       try {
         const room = `workflow:${socket.workflowId}`;
@@ -250,8 +306,10 @@ export function initializeWorkflowSocket(httpServer: HttpServer): SocketIOServer
     });
 
     // Update node
-    socket.on('update_node', async (data: { clientId: string; updates: Partial<NodeData> }) => {
+    socket.on('update_node', async (rawData: unknown) => {
       if (!socket.workflowId || !socket.orgId || !socket.user) return;
+      const data = validateMessage(socket, NodeUpdateSchema, rawData, 'update_node');
+      if (!data) return;
 
       try {
         const room = `workflow:${socket.workflowId}`;
@@ -304,7 +362,9 @@ export function initializeWorkflowSocket(httpServer: HttpServer): SocketIOServer
     });
 
     // Delete nodes
-    socket.on('delete_nodes', async (clientIds: string[]) => {
+    socket.on('delete_nodes', async (rawData: unknown) => {
+      const clientIds = validateMessage(socket, DeleteNodesSchema, rawData, 'delete_nodes');
+      if (!clientIds) return;
       if (!socket.workflowId || !socket.orgId || !socket.user) return;
 
       try {
@@ -345,7 +405,9 @@ export function initializeWorkflowSocket(httpServer: HttpServer): SocketIOServer
     });
 
     // Connect nodes (create edge)
-    socket.on('connect_nodes', async (edge: EdgeData) => {
+    socket.on('connect_nodes', async (rawData: unknown) => {
+      const edge = validateMessage(socket, EdgeDataSchema, rawData, 'connect_nodes');
+      if (!edge) return;
       if (!socket.workflowId || !socket.orgId || !socket.user) return;
 
       try {
@@ -423,8 +485,10 @@ export function initializeWorkflowSocket(httpServer: HttpServer): SocketIOServer
     });
 
     // Delete edge
-    socket.on('delete_edge', async (clientId: string) => {
+    socket.on('delete_edge', async (rawData: unknown) => {
       if (!socket.workflowId || !socket.orgId || !socket.user) return;
+      const clientId = validateMessage(socket, z.string().min(1).max(100), rawData, 'delete_edge');
+      if (!clientId) return;
 
       try {
         const room = `workflow:${socket.workflowId}`;
@@ -479,7 +543,9 @@ export function initializeWorkflowSocket(httpServer: HttpServer): SocketIOServer
     });
 
     // Cursor position for collaboration awareness
-    socket.on('cursor_move', (position: { x: number; y: number }) => {
+    socket.on('cursor_move', (rawData: unknown) => {
+      const position = validateMessage(socket, CursorMoveSchema, rawData, 'cursor_move');
+      if (!position) return;
       if (!socket.workflowId || !socket.user) return;
 
       const room = `workflow:${socket.workflowId}`;

@@ -1,6 +1,9 @@
 import { createTool } from '@mastra/core/tools';
 import { z } from 'zod';
 import { limitEvents, getFilterSummary } from './output-limiter';
+import { toolLoggers } from './tool-logger';
+
+const logger = toolLoggers.weatherDisaster;
 
 /**
  * Weather & Natural Disaster Monitor Tool
@@ -69,14 +72,14 @@ export const weatherDisasterMonitorTool = createTool({
     const { locations, severity_threshold, lookback_hours, organization_id } = context;
 
     // Log the input parameters received
-    console.log(`[Weather Monitor] Tool executed with context:`, JSON.stringify(context, null, 2));
+    logger.debug({ context }, 'Tool executed with context');
 
     // CRITICAL: Validate organization_id
     if (!organization_id) {
       throw new Error('organization_id is required for weather monitoring');
     }
 
-    console.log(`[Weather Monitor] Monitoring ${locations.length} locations for organization: ${organization_id}`);
+    logger.info({ locationCount: locations.length, organizationId: organization_id }, 'Monitoring locations');
 
     try {
       const weatherEvents: Array<z.infer<typeof WeatherEventSchema>> = [];
@@ -97,7 +100,7 @@ export const weatherDisasterMonitorTool = createTool({
       // Limit output to prevent context overflow
       const MAX_EVENTS = 10;
       const limitedEvents = limitEvents(weatherEvents, MAX_EVENTS);
-      console.log(getFilterSummary(weatherEvents.length, limitedEvents.length, 'Weather Monitor'));
+      logger.info({ totalEvents: weatherEvents.length, limitedEvents: limitedEvents.length }, getFilterSummary(weatherEvents.length, limitedEvents.length, 'Weather Monitor'));
 
       return {
         weather_events: limitedEvents,
@@ -106,7 +109,7 @@ export const weatherDisasterMonitorTool = createTool({
       };
 
     } catch (error) {
-      console.error(`[Weather Monitor] Failed to fetch weather data:`, error);
+      logger.error({ err: error }, 'Failed to fetch weather data');
       throw new Error(`Weather monitoring failed: ${error instanceof Error ? error.message : 'Unknown error'}`);
     }
   }
@@ -154,7 +157,7 @@ async function fetchNOAAAlerts(
     // NOAA only works for US locations (roughly lat 24-50, lon -125 to -66)
     if (location.latitude < 24 || location.latitude > 50 ||
         location.longitude < -125 || location.longitude > -66) {
-      console.log(`[NOAA] Skipping non-US location: ${location.name}`);
+      logger.debug({ location: location.name }, 'Skipping non-US location');
       continue;
     }
 
@@ -171,7 +174,7 @@ async function fetchNOAAAlerts(
       );
 
       if (!response.ok) {
-        console.warn(`[NOAA] API error for ${location.name}: ${response.status}`);
+        logger.warn({ location: location.name, status: response.status }, 'NOAA API error');
         continue;
       }
 
@@ -208,9 +211,9 @@ async function fetchNOAAAlerts(
         });
       }
 
-      console.log(`[NOAA] Found ${data.features.length} alerts for ${location.name}`);
+      logger.info({ alertCount: data.features.length, location: location.name }, 'NOAA alerts found');
     } catch (err) {
-      console.error(`[NOAA] Error fetching alerts for ${location.name}:`, err);
+      logger.error({ err, location: location.name }, 'Error fetching NOAA alerts');
     }
   }
 
@@ -288,7 +291,7 @@ async function fetchEONETEvents(
     );
 
     if (!response.ok) {
-      console.warn(`[EONET] API error: ${response.status}`);
+      logger.warn({ status: response.status }, 'EONET API error');
       return events;
     }
 
@@ -298,7 +301,7 @@ async function fetchEONETEvents(
       return events;
     }
 
-    console.log(`[EONET] Fetched ${data.events.length} global events`);
+    logger.info({ eventCount: data.events.length }, 'EONET global events fetched');
 
     // Filter events by proximity to monitored locations
     const proximityRadiusKm = 500; // Events within 500km of monitored locations
@@ -346,9 +349,9 @@ async function fetchEONETEvents(
       });
     }
 
-    console.log(`[EONET] ${events.length} events within range of monitored locations`);
+    logger.info({ eventsInRange: events.length }, 'EONET events within range of monitored locations');
   } catch (err) {
-    console.error(`[EONET] Error fetching events:`, err);
+    logger.error({ err }, 'Error fetching EONET events');
   }
 
   return events;

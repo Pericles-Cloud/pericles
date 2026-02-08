@@ -1,6 +1,9 @@
 import { createTool } from '@mastra/core/tools';
 import { limitEvents, getFilterSummary } from './output-limiter';
+import { toolLoggers } from './tool-logger';
 import { z } from 'zod';
+
+const logger = toolLoggers.geopoliticalConflict;
 
 /**
  * Geopolitical & Conflict Monitor Tool
@@ -73,13 +76,13 @@ export const geopoliticalConflictMonitorTool = createTool({
   execute: async ({ context }) => {
     const { locations, severity_threshold, lookback_hours, organization_id } = context;
 
-    console.log(`[Geopolitical Monitor] Tool executed with context:`, JSON.stringify(context, null, 2));
+    logger.debug({ context }, 'Tool executed with context');
 
     if (!organization_id) {
       throw new Error('organization_id is required for geopolitical monitoring');
     }
 
-    console.log(`[Geopolitical Monitor] Monitoring ${locations.length} locations for organization: ${organization_id}`);
+    logger.info({ locationCount: locations.length, organization_id }, 'Monitoring locations for organization');
 
     try {
       const severityThresholdValue = severity_threshold === 'low' ? 0.3 : severity_threshold === 'medium' ? 0.5 : 0.7;
@@ -98,7 +101,7 @@ export const geopoliticalConflictMonitorTool = createTool({
       // Limit output to prevent context overflow
       const MAX_EVENTS = 10;
       const limitedEvents = limitEvents(filteredEvents, MAX_EVENTS);
-      console.log(getFilterSummary(filteredEvents.length, limitedEvents.length, 'Geopolitical Monitor'));
+      logger.info({ total: filteredEvents.length, limited: limitedEvents.length }, getFilterSummary(filteredEvents.length, limitedEvents.length, 'Geopolitical Monitor'));
 
       return {
         conflict_events: limitedEvents,
@@ -109,7 +112,7 @@ export const geopoliticalConflictMonitorTool = createTool({
       };
 
     } catch (error) {
-      console.error(`[Geopolitical Monitor] Failed to fetch GDELT data:`, error);
+      logger.error({ err: error }, 'Failed to fetch GDELT data');
       throw new Error(`Geopolitical monitoring failed: ${error instanceof Error ? error.message : 'Unknown error'}`);
     }
   }
@@ -185,7 +188,7 @@ async function fetchGDELTConflictEvents(
         apiCallsMade++;
 
         if (!response.ok) {
-          console.warn(`[GDELT Conflict] API error: ${response.status} for query: ${query}`);
+          logger.warn({ status: response.status, query }, 'GDELT API error');
           continue;
         }
 
@@ -195,7 +198,7 @@ async function fetchGDELTConflictEvents(
         try {
           data = JSON.parse(responseText) as GDELTResponse;
         } catch {
-          console.warn(`[GDELT Conflict] Invalid JSON response for query: ${query}`);
+          logger.warn({ query }, 'Invalid JSON response from GDELT');
           continue;
         }
 
@@ -237,7 +240,7 @@ async function fetchGDELTConflictEvents(
         await sleep(100);
 
       } catch (err) {
-        console.error(`[GDELT Conflict] Error fetching events:`, err);
+        logger.error({ err }, 'Error fetching GDELT conflict events');
       }
     }
   }

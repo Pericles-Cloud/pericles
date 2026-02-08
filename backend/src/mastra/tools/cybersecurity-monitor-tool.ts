@@ -1,6 +1,9 @@
 import { createTool } from '@mastra/core/tools';
 import { z } from 'zod';
 import { limitEvents, getFilterSummary } from './output-limiter';
+import { toolLoggers } from './tool-logger';
+
+const logger = toolLoggers.cybersecurity;
 
 /**
  * Cybersecurity Monitor Tool
@@ -69,13 +72,13 @@ export const cybersecurityMonitorTool = createTool({
   execute: async ({ context }) => {
     const { technologies, severity_threshold, lookback_hours, organization_id } = context;
 
-    console.log(`[Cybersecurity Monitor] Tool executed with context:`, JSON.stringify(context, null, 2));
+    logger.debug({ context }, 'Tool executed');
 
     if (!organization_id) {
       throw new Error('organization_id is required for cybersecurity monitoring');
     }
 
-    console.log(`[Cybersecurity Monitor] Monitoring for organization: ${organization_id}`);
+    logger.info({ organization_id }, 'Monitoring for organization');
 
     try {
       const cybersecurityEvents: Array<z.infer<typeof CybersecurityEventSchema>> = [];
@@ -104,7 +107,7 @@ export const cybersecurityMonitorTool = createTool({
       // Limit output to prevent context overflow
       const MAX_EVENTS = 10;
       const limitedEvents = limitEvents(cybersecurityEvents, MAX_EVENTS);
-      console.log(getFilterSummary(cybersecurityEvents.length, limitedEvents.length, 'Cybersecurity Monitor'));
+      logger.info({ totalEvents: cybersecurityEvents.length, limitedEvents: limitedEvents.length }, getFilterSummary(cybersecurityEvents.length, limitedEvents.length, 'Cybersecurity Monitor'));
 
       return {
         cybersecurity_events: limitedEvents,
@@ -114,7 +117,7 @@ export const cybersecurityMonitorTool = createTool({
       };
 
     } catch (error) {
-      console.error(`[Cybersecurity Monitor] Failed to fetch cybersecurity data:`, error);
+      logger.error({ err: error }, 'Failed to fetch cybersecurity data');
       throw new Error(`Cybersecurity monitoring failed: ${error instanceof Error ? error.message : 'Unknown error'}`);
     }
   }
@@ -227,7 +230,7 @@ async function fetchNVDVulnerabilities(
         apiCalls++;
 
         if (!response.ok) {
-          console.warn(`[NVD] API error: ${response.status} for tech: ${tech.product || tech.vendor}`);
+          logger.warn({ status: response.status, tech: tech.product || tech.vendor }, 'API error for technology');
           continue;
         }
 
@@ -266,13 +269,13 @@ async function fetchNVDVulnerabilities(
         const data = await response.json() as NVDResponse;
         const parsedEvents = parseNVDResponse(data, severityThreshold);
         events.push(...parsedEvents);
-        console.log(`[NVD] Fetched ${data.totalResults} total CVEs, ${parsedEvents.length} match threshold`);
+        logger.info({ totalCVEs: data.totalResults, matchedCVEs: parsedEvents.length }, 'Fetched CVEs from NVD');
       } else {
-        console.warn(`[NVD] API error: ${response.status}`);
+        logger.warn({ status: response.status }, 'NVD API error');
       }
     }
   } catch (err) {
-    console.error(`[NVD] Error fetching vulnerabilities:`, err);
+    logger.error({ err }, 'Error fetching vulnerabilities from NVD');
   }
 
   return { events, apiCalls };
@@ -405,7 +408,7 @@ async function fetchCISAAdvisories(
     apiCalls++;
 
     if (!response.ok) {
-      console.warn(`[CISA] RSS feed error: ${response.status}`);
+      logger.warn({ status: response.status }, 'CISA RSS feed error');
       return { events, apiCalls };
     }
 
@@ -414,7 +417,7 @@ async function fetchCISAAdvisories(
     // Parse RSS XML manually (no DOM parser in Node.js)
     const items = parseRSSItems(xmlText);
 
-    console.log(`[CISA] Parsed ${items.length} items from RSS feed`);
+    logger.info({ itemCount: items.length }, 'Parsed items from CISA RSS feed');
 
     for (const item of items) {
       const pubDate = new Date(item.pubDate);
@@ -447,10 +450,10 @@ async function fetchCISAAdvisories(
       });
     }
 
-    console.log(`[CISA] ${events.length} advisories within lookback period`);
+    logger.info({ advisoryCount: events.length }, 'CISA advisories within lookback period');
 
   } catch (err) {
-    console.error(`[CISA] Error fetching advisories:`, err);
+    logger.error({ err }, 'Error fetching CISA advisories');
   }
 
   return { events, apiCalls };

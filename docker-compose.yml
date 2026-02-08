@@ -50,7 +50,7 @@ services:
       - "4111:4111"
     volumes:
       - ./backend:/app/backend
-      - ./backend/.env.docker:/app/backend/.env:ro
+      - ./.env.docker:/app/backend/.env:ro
       - mastra_node_modules:/app/backend/node_modules
       - npm_cache:/root/.npm
     environment:
@@ -89,7 +89,7 @@ services:
       - "3001:4111"
     volumes:
       - ./backend:/app/backend
-      - ./backend/.env.docker:/app/backend/.env:ro
+      - ./.env.docker:/app/backend/.env:ro
       - mastra_server_node_modules:/app/backend/node_modules
       - npm_cache:/root/.npm
     environment:

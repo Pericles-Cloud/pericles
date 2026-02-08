@@ -9,6 +9,10 @@
 // Load .env.local from project root, overriding any system environment variables
 import dotenv from 'dotenv';
 import path from 'path';
+import { fileURLToPath } from 'url';
+
+const __filename = fileURLToPath(import.meta.url);
+const __dirname = path.dirname(__filename);
 dotenv.config({ path: path.resolve(__dirname, '../../../.env.local'), override: true });
 
 import express, { type Request, type Response } from 'express';
@@ -38,9 +42,14 @@ const app = express();
 const prisma = new PrismaClient();
 const PORT = process.env.AUTH_PORT || 4112;
 
+// Parse CORS origins from environment variable (comma-separated)
+const CORS_ORIGINS = process.env.CORS_ORIGINS
+  ? process.env.CORS_ORIGINS.split(',').map(origin => origin.trim())
+  : ['http://localhost:3000', 'http://localhost:4111'];
+
 // Middleware
 app.use(cors({
-  origin: ['http://localhost:3000', 'http://localhost:4111'],
+  origin: CORS_ORIGINS,
   credentials: true,
 }));
 app.use(express.json());
@@ -48,6 +57,80 @@ app.use(express.json());
 // Constants
 const MAX_LOGIN_ATTEMPTS = 5;
 const LOCKOUT_DURATION_MS = 15 * 60 * 1000; // 15 minutes
+
+// =============================================================================
+// Rate Limiting (In-Memory)
+// For production, consider using Redis-backed rate limiting
+// =============================================================================
+interface RateLimitEntry {
+  count: number;
+  firstRequest: number;
+}
+
+const rateLimitStore = new Map<string, RateLimitEntry>();
+const RATE_LIMIT_WINDOW_MS = 60 * 1000; // 1 minute window
+const RATE_LIMIT_MAX_REQUESTS = 20; // 20 requests per window for auth endpoints
+const RATE_LIMIT_STRICT_MAX = 5; // 5 requests per window for login/register
+
+// Clean up old entries every 5 minutes
+setInterval(() => {
+  const now = Date.now();
+  for (const [key, entry] of rateLimitStore.entries()) {
+    if (now - entry.firstRequest > RATE_LIMIT_WINDOW_MS * 2) {
+      rateLimitStore.delete(key);
+    }
+  }
+}, 5 * 60 * 1000);
+
+function getRateLimitKey(req: Request): string {
+  const forwarded = req.headers['x-forwarded-for'];
+  const ip = forwarded
+    ? (Array.isArray(forwarded) ? forwarded[0] : forwarded.split(',')[0]).trim()
+    : req.ip || 'unknown';
+  return `rate:${ip}:${req.path}`;
+}
+
+function checkRateLimit(req: Request, res: Response, maxRequests: number): boolean {
+  const key = getRateLimitKey(req);
+  const now = Date.now();
+  const entry = rateLimitStore.get(key);
+
+  if (!entry || now - entry.firstRequest > RATE_LIMIT_WINDOW_MS) {
+    // Start new window
+    rateLimitStore.set(key, { count: 1, firstRequest: now });
+    return true;
+  }
+
+  if (entry.count >= maxRequests) {
+    const retryAfter = Math.ceil((RATE_LIMIT_WINDOW_MS - (now - entry.firstRequest)) / 1000);
+    res.setHeader('Retry-After', String(retryAfter));
+    res.status(429).json({
+      success: false,
+      error: {
+        code: 'RATE_LIMITED',
+        message: `Too many requests. Please try again in ${retryAfter} seconds.`,
+      },
+    });
+    return false;
+  }
+
+  entry.count++;
+  return true;
+}
+
+// Rate limit middleware for strict endpoints (login, register)
+function strictRateLimit(req: Request, res: Response, next: () => void): void {
+  if (checkRateLimit(req, res, RATE_LIMIT_STRICT_MAX)) {
+    next();
+  }
+}
+
+// Rate limit middleware for general auth endpoints
+function authRateLimit(req: Request, res: Response, next: () => void): void {
+  if (checkRateLimit(req, res, RATE_LIMIT_MAX_REQUESTS)) {
+    next();
+  }
+}
 
 // Google OAuth config
 const GOOGLE_CLIENT_ID = process.env.GOOGLE_CLIENT_ID;
@@ -70,13 +153,59 @@ function getRequestInfo(req: Request) {
   return { ipAddress, userAgent };
 }
 
+// =============================================================================
+// CSRF Protection Middleware
+// Validates Origin/Referer header for state-changing requests
+// =============================================================================
+function csrfProtection(req: Request, res: Response, next: () => void): void {
+  // Skip CSRF check for safe methods
+  if (['GET', 'HEAD', 'OPTIONS'].includes(req.method)) {
+    next();
+    return;
+  }
+
+  const origin = req.headers.origin;
+  const referer = req.headers.referer;
+
+  // Check if origin or referer is from an allowed domain
+  const checkOrigin = origin || (referer ? new URL(referer).origin : null);
+
+  if (!checkOrigin) {
+    // For API clients without browser origin, require Authorization header
+    if (req.headers.authorization) {
+      next();
+      return;
+    }
+    res.status(403).json({
+      success: false,
+      error: { code: 'CSRF_VALIDATION_FAILED', message: 'Missing origin header' },
+    });
+    return;
+  }
+
+  // Verify origin is in our allowed list
+  if (!CORS_ORIGINS.includes(checkOrigin)) {
+    console.warn(`[CSRF] Blocked request from unauthorized origin: ${checkOrigin}`);
+    res.status(403).json({
+      success: false,
+      error: { code: 'CSRF_VALIDATION_FAILED', message: 'Invalid origin' },
+    });
+    return;
+  }
+
+  next();
+}
+
+// Apply CSRF protection to all routes
+app.use(csrfProtection);
+
 // Health check
 app.get('/health', (_req: Request, res: Response) => {
   res.json({ status: 'ok', service: 'auth-server' });
 });
 
-// Register
-app.post('/api/auth/register', async (req: Request, res: Response) => {
+// Register (with strict rate limiting)
+app.post('/api/auth/register', strictRateLimit, async (req: Request, res: Response) => {
   const { ipAddress, userAgent } = getRequestInfo(req);
 
   try {
@@ -174,8 +303,8 @@ app.post('/api/auth/register', async (req: Request, res: Response) => {
   }
 });
 
-// Login
-app.post('/api/auth/login', async (req: Request, res: Response) => {
+// Login (with strict rate limiting)
+app.post('/api/auth/login', strictRateLimit, async (req: Request, res: Response) => {
   const { ipAddress, userAgent } = getRequestInfo(req);
 
   try {
@@ -428,8 +557,8 @@ app.post('/api/auth/logout', async (req: Request, res: Response) => {
   }
 });
 
-// Refresh token
-app.post('/api/auth/refresh', async (req: Request, res: Response) => {
+// Refresh token (with auth rate limiting)
+app.post('/api/auth/refresh', authRateLimit, async (req: Request, res: Response) => {
   const { ipAddress, userAgent } = getRequestInfo(req);
 
   try {
@@ -692,7 +821,14 @@ app.get('/api/auth/google/callback', async (req: Request, res: Response) => {
     if (state) {
       try {
         const stateData = JSON.parse(Buffer.from(state, 'base64url').toString());
-        redirectPath = stateData.redirect || '/dashboard';
+        const requestedPath = stateData.redirect || '/dashboard';
+        // SECURITY: Validate redirect is a relative path only (prevent open redirect)
+        if (typeof requestedPath === 'string' &&
+            requestedPath.startsWith('/') &&
+            !requestedPath.startsWith('//') &&
+            !requestedPath.includes('://')) {
+          redirectPath = requestedPath;
+        }
       } catch {
         // Invalid state, use default redirect
       }

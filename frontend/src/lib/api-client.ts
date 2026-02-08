@@ -57,7 +57,14 @@ interface RequestOptions {
   method?: string;
   body?: object;
   headers?: Record<string, string>;
+  /** Internal: retry attempt counter to prevent infinite refresh loops */
+  _retryCount?: number;
 }
+
+// Maximum number of retry attempts for token refresh
+const MAX_AUTH_RETRIES = 3;
+// Request timeout in milliseconds
+const REQUEST_TIMEOUT_MS = 30000;
 
 /**
  * Make an API request to the backend.
@@ -66,7 +73,7 @@ export async function apiRequest<T>(
   endpoint: string,
   options: RequestOptions = {}
 ): Promise<ApiResponse<T>> {
-  const { method = 'GET', body, headers = {} } = options;
+  const { method = 'GET', body, headers = {}, _retryCount = 0 } = options;
 
   const accessToken = getAccessToken();
 
@@ -84,17 +91,30 @@ export async function apiRequest<T>(
       method,
       headers: requestHeaders,
       body: body ? JSON.stringify(body) : undefined,
+      signal: AbortSignal.timeout(REQUEST_TIMEOUT_MS),
     });
 
     const data = await response.json();
 
-    // Handle token expiration
+    // Handle token expiration with retry limit
     if (response.status === 401) {
       if (data.error?.code === 'INVALID_TOKEN' || data.error?.code === 'TOKEN_EXPIRED') {
+        // Prevent infinite refresh loop
+        if (_retryCount >= MAX_AUTH_RETRIES) {
+          handleSessionExpired();
+          return {
+            success: false,
+            error: {
+              code: 'SESSION_EXPIRED',
+              message: 'Your session has expired. Please log in again.',
+            },
+          };
+        }
+
         const refreshed = await refreshAccessToken();
         if (refreshed) {
-          // Retry the request with new token
-          return apiRequest<T>(endpoint, options);
+          // Retry the request with new token (increment retry counter)
+          return apiRequest<T>(endpoint, { ...options, _retryCount: _retryCount + 1 });
         } else {
           // Refresh failed - session expired
           handleSessionExpired();
@@ -121,6 +141,17 @@ export async function apiRequest<T>(
 
     return data;
   } catch (error) {
+    // Handle timeout errors specifically
+    if (error instanceof Error && error.name === 'TimeoutError') {
+      console.error('API request timed out:', endpoint);
+      return {
+        success: false,
+        error: {
+          code: 'TIMEOUT_ERROR',
+          message: 'Request timed out. Please try again.',
+        },
+      };
+    }
     console.error('API request error:', error);
     return {
       success: false,
@@ -180,6 +211,7 @@ async function refreshAccessToken(): Promise<boolean> {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ refreshToken }),
+      signal: AbortSignal.timeout(REQUEST_TIMEOUT_MS),
     });
 
     const data = await response.json();

@@ -200,43 +200,48 @@ export class WorkflowExecutionService {
 
   /**
    * Get execution history for a workflow
+   * Uses a single query with include to avoid N+1
    */
   async getExecutionHistory(workflowId: string, organizationId: string, limit = 50) {
-    // Verify workflow belongs to organization
+    // Single query: verify workflow belongs to organization AND fetch executions
     const workflow = await this.prisma.workflow.findFirst({
       where: { id: workflowId, organization_id: organizationId },
+      include: {
+        executions: {
+          orderBy: { created_at: 'desc' },
+          take: limit,
+        },
+      },
     });
 
     if (!workflow) {
       throw new Error('Workflow not found');
     }
 
-    return this.prisma.workflowExecution.findMany({
-      where: { workflow_id: workflowId },
-      orderBy: { created_at: 'desc' },
-      take: limit,
-    });
+    return workflow.executions;
   }
 
   /**
    * Get a specific execution
+   * Uses a single query with proper filtering
    */
   async getExecution(executionId: string, workflowId: string, organizationId: string) {
-    // Verify workflow belongs to organization
-    const workflow = await this.prisma.workflow.findFirst({
-      where: { id: workflowId, organization_id: organizationId },
-    });
-
-    if (!workflow) {
-      throw new Error('Workflow not found');
-    }
-
-    return this.prisma.workflowExecution.findFirst({
+    // Single query: find execution with workflow organization verification
+    const execution = await this.prisma.workflowExecution.findFirst({
       where: {
         id: executionId,
         workflow_id: workflowId,
+        workflow: {
+          organization_id: organizationId,
+        },
       },
     });
+
+    if (!execution) {
+      throw new Error('Execution not found');
+    }
+
+    return execution;
   }
 
   /**

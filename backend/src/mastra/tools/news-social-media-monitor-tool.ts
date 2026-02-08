@@ -1,6 +1,9 @@
 import { createTool } from '@mastra/core/tools';
 import { z } from 'zod';
 import { limitEvents, getFilterSummary } from './output-limiter';
+import { toolLoggers } from './tool-logger';
+
+const logger = toolLoggers.newsSocialMedia;
 
 /**
  * News & Social Media Monitor Tool
@@ -120,7 +123,7 @@ export const newsSocialMediaMonitorTool = createTool({
     } = context;
 
     // Log the input parameters received
-    console.log(`[News/Social Monitor] Tool executed with context:`, JSON.stringify(context, null, 2));
+    logger.debug({ context }, 'Tool executed with context');
 
     // CRITICAL: Validate organization_id
     if (!organization_id) {
@@ -136,18 +139,18 @@ export const newsSocialMediaMonitorTool = createTool({
       // Use monitoring plan regions (highest priority)
       regionsMonitored = extractCountryCodesFromPlan(monitoring_plan.regions);
       regionSource = 'monitoring_plan';
-      console.log(`[News/Social Monitor] Using monitoring plan "${monitoring_plan.plan_name || monitoring_plan.plan_id}" with regions: ${regionsMonitored.join(', ')}`);
+      logger.info({ planName: monitoring_plan.plan_name, planId: monitoring_plan.plan_id, regions: regionsMonitored }, 'Using monitoring plan with regions');
     } else if (supply_chain_locations && supply_chain_locations.length > 0) {
       // Fallback to supply chain locations
       regionsMonitored = extractCountryCodesFromLocations(supply_chain_locations);
       regionSource = 'supply_chain_locations';
-      console.log(`[News/Social Monitor] Using supply chain locations with regions: ${regionsMonitored.join(', ')}`);
+      logger.info({ regions: regionsMonitored }, 'Using supply chain locations with regions');
     } else {
       // No geographic filter - monitor globally
-      console.log(`[News/Social Monitor] No geographic regions specified, monitoring globally`);
+      logger.info('No geographic regions specified, monitoring globally');
     }
 
-    console.log(`[News/Social Monitor] Monitoring ${keywords.length} keywords for organization: ${organization_id}, regions: ${regionsMonitored.length > 0 ? regionsMonitored.join(', ') : 'global'}`);
+    logger.info({ keywordCount: keywords.length, organizationId: organization_id, regions: regionsMonitored.length > 0 ? regionsMonitored : ['global'] }, 'Starting monitoring');
 
     try {
       const mediaEvents: Array<z.infer<typeof MediaEventSchema>> = [];
@@ -181,8 +184,8 @@ export const newsSocialMediaMonitorTool = createTool({
       // Limit output to prevent context overflow
       const MAX_EVENTS = 10;
       const limitedEvents = limitEvents(mediaEvents, MAX_EVENTS);
-      console.log(getFilterSummary(mediaEvents.length, limitedEvents.length, 'News/Social Monitor'));
-      console.log(`[News/Social Monitor] Details: ${newsCount} news, ${socialCount} social, ${apiCallsMade} API calls, regions: ${regionsMonitored.length > 0 ? regionsMonitored.join(', ') : 'global'}`);
+      logger.info({ totalEvents: mediaEvents.length, limitedEvents: limitedEvents.length }, getFilterSummary(mediaEvents.length, limitedEvents.length, 'News/Social Monitor'));
+      logger.info({ newsCount, socialCount, apiCallsMade, regions: regionsMonitored.length > 0 ? regionsMonitored : ['global'] }, 'Monitoring completed');
 
       return {
         media_events: limitedEvents,
@@ -195,7 +198,7 @@ export const newsSocialMediaMonitorTool = createTool({
       };
 
     } catch (error) {
-      console.error(`[News/Social Monitor] Failed to fetch media data:`, error);
+      logger.error({ err: error }, 'Failed to fetch media data');
       throw new Error(`News/social media monitoring failed: ${error instanceof Error ? error.message : 'Unknown error'}`);
     }
   }
@@ -269,7 +272,7 @@ async function fetchNewsArticles(
   regions: string[] = []
 ): Promise<Array<z.infer<typeof MediaEventSchema>>> {
   if (!THENEWSAPI_KEY) {
-    console.warn('[News Monitor] THENEWSAPI_API_KEY not set, skipping news check');
+    logger.warn('THENEWSAPI_API_KEY not set, skipping news check');
     return [];
   }
 
@@ -297,26 +300,28 @@ async function fetchNewsArticles(
       // Convert country codes to lowercase as TheNewsAPI expects lowercase locale codes
       const locales = regions.map(r => r.toLowerCase()).join(',');
       url.searchParams.set('locale', locales);
-      console.log(`[News Monitor] Fetching news for: "${searchQuery}" in regions: ${locales}`);
+      logger.info({ searchQuery, locales }, 'Fetching news with region filter');
     } else {
-      console.log(`[News Monitor] Fetching news for: "${searchQuery}" (global, no region filter)`);
+      logger.info({ searchQuery }, 'Fetching news globally (no region filter)');
     }
 
-    const response = await fetch(url.toString());
+    const response = await fetch(url.toString(), {
+      signal: AbortSignal.timeout(15000), // 15 second timeout
+    });
 
     if (!response.ok) {
-      console.error(`[News Monitor] API error: ${response.status} ${response.statusText}`);
+      logger.error({ status: response.status, statusText: response.statusText }, 'TheNewsAPI error');
       return [];
     }
 
     const data = await response.json() as TheNewsAPIResponse;
 
     if (!data.data || !Array.isArray(data.data)) {
-      console.warn('[News Monitor] No articles returned from TheNewsAPI');
+      logger.warn('No articles returned from TheNewsAPI');
       return [];
     }
 
-    console.log(`[News Monitor] Found ${data.data.length} articles from TheNewsAPI`);
+    logger.info({ articleCount: data.data.length }, 'Found articles from TheNewsAPI');
 
     for (const article of data.data) {
       // Perform sentiment analysis on title + description
@@ -353,7 +358,7 @@ async function fetchNewsArticles(
       });
     }
   } catch (err) {
-    console.error(`[News Monitor] Error fetching news:`, err);
+    logger.error({ err }, 'Error fetching news');
   }
 
   return events;
@@ -369,7 +374,7 @@ async function fetchTwitterPosts(
   sentimentThreshold: number
 ): Promise<Array<z.infer<typeof MediaEventSchema>>> {
   if (!TWITTERAPIIO_KEY) {
-    console.warn('[Twitter Monitor] TWITTERAPIIO_API_KEY not set, skipping Twitter check');
+    logger.warn('TWITTERAPIIO_API_KEY not set, skipping Twitter check');
     return [];
   }
 
@@ -391,9 +396,9 @@ async function fetchTwitterPosts(
       url.searchParams.set('queryType', 'Latest');
 
       if (attempt === 0) {
-        console.log(`[Twitter Monitor] Searching tweets for: "${searchQuery.substring(0, 100)}..."`);
+        logger.info({ searchQuery: searchQuery.substring(0, 100) }, 'Searching tweets');
       } else {
-        console.log(`[Twitter Monitor] Retry attempt ${attempt}/${MAX_RETRIES}...`);
+        logger.info({ attempt, maxRetries: MAX_RETRIES }, 'Retry attempt');
       }
 
       const response = await fetch(url.toString(), {
@@ -406,28 +411,28 @@ async function fetchTwitterPosts(
 
       if (!response.ok) {
         const statusCode = response.status;
-        console.error(`[Twitter Monitor] API error: ${statusCode} ${response.statusText}`);
+        logger.error({ status: statusCode, statusText: response.statusText }, 'TwitterAPI.io error');
 
         // Don't retry on client errors (4xx), only server errors (5xx)
         if (statusCode >= 500 && attempt < MAX_RETRIES) {
-          console.log(`[Twitter Monitor] Server error (${statusCode}), will retry in ${RETRY_DELAY_MS}ms...`);
+          logger.info({ statusCode, retryDelayMs: RETRY_DELAY_MS * (attempt + 1) }, 'Server error, will retry');
           await new Promise(resolve => setTimeout(resolve, RETRY_DELAY_MS * (attempt + 1)));
           continue;
         }
 
         // Log but don't fail - return empty results
-        console.warn(`[Twitter Monitor] TwitterAPI.io unavailable (status ${statusCode}), skipping Twitter results`);
+        logger.warn({ statusCode }, 'TwitterAPI.io unavailable, skipping Twitter results');
         return [];
       }
 
     const data = await response.json() as TwitterAPIResponse;
 
     if (!data.tweets || !Array.isArray(data.tweets)) {
-      console.warn('[Twitter Monitor] No tweets returned from TwitterAPI.io');
+      logger.warn('No tweets returned from TwitterAPI.io');
       return [];
     }
 
-    console.log(`[Twitter Monitor] Found ${data.tweets.length} tweets from TwitterAPI.io`);
+    logger.info({ tweetCount: data.tweets.length }, 'Found tweets from TwitterAPI.io');
 
     // Filter by lookback period
     const cutoffDate = new Date(Date.now() - lookbackHours * 60 * 60 * 1000);
@@ -485,12 +490,12 @@ async function fetchTwitterPosts(
                           errorMessage.includes('ENOTFOUND');
 
       if (isRetryable && attempt < MAX_RETRIES) {
-        console.warn(`[Twitter Monitor] Request failed (${errorMessage}), retrying in ${RETRY_DELAY_MS * (attempt + 1)}ms...`);
+        logger.warn({ errorMessage, retryDelayMs: RETRY_DELAY_MS * (attempt + 1) }, 'Request failed, retrying');
         await new Promise(resolve => setTimeout(resolve, RETRY_DELAY_MS * (attempt + 1)));
         continue;
       }
 
-      console.error(`[Twitter Monitor] Error fetching tweets after ${attempt + 1} attempts:`, errorMessage);
+      logger.error({ attempts: attempt + 1, errorMessage }, 'Error fetching tweets after retries');
     }
   }
 
@@ -720,7 +725,7 @@ function extractCountryCodesFromPlan(
       if (code) {
         codes.add(code);
       } else {
-        console.warn(`[News/Social Monitor] Could not map country "${region.country}" to code`);
+        logger.warn({ country: region.country }, 'Could not map country to code');
       }
     }
   }
@@ -750,7 +755,7 @@ function extractCountryCodesFromLocations(
       if (code) {
         codes.add(code);
       } else {
-        console.warn(`[News/Social Monitor] Could not map country "${location.country}" to code, location: ${location.name}`);
+        logger.warn({ country: location.country, locationName: location.name }, 'Could not map country to code');
       }
     }
   }

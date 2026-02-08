@@ -390,7 +390,14 @@ export const useWorkflowStore = create<WorkflowState>((set, get) => ({
     const { workflow, organizationId, socket: existingSocket } = get();
 
     if (!workflow || !organizationId) return;
-    if (existingSocket?.connected) return;
+
+    // Clean up existing socket if present (prevents memory leaks on reconnection)
+    if (existingSocket) {
+      existingSocket.removeAllListeners();
+      if (existingSocket.connected) {
+        existingSocket.disconnect();
+      }
+    }
 
     set({ connectionStatus: 'connecting' });
 
@@ -566,8 +573,10 @@ export const useWorkflowStore = create<WorkflowState>((set, get) => ({
   disconnect: () => {
     const { socket } = get();
     if (socket) {
+      // Remove all listeners to prevent memory leaks
+      socket.removeAllListeners();
       socket.disconnect();
-      set({ socket: null, connectionStatus: 'disconnected', participants: [] });
+      set({ socket: null, connectionStatus: 'disconnected', participants: [], cursors: new Map() });
     }
   },
 

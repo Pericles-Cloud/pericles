@@ -1,8 +1,10 @@
 import { createTool } from '@mastra/core/tools';
 import { z } from 'zod';
 import { getPrismaClient } from '../../monitoring/db-client';
+import { toolLoggers } from './tool-logger';
 
 const prisma = getPrismaClient();
+const logger = toolLoggers.erpContext;
 
 /**
  * ERP Context Tool
@@ -85,14 +87,14 @@ export const erpContextTool = createTool({
     const { organization_id } = context;
 
     // Log the input parameters received
-    console.log(`[ERP Context] Tool executed with context:`, JSON.stringify(context, null, 2));
+    logger.debug({ organizationId: organization_id }, 'Tool executed');
 
     // CRITICAL: Validate organization_id is present
     if (!organization_id) {
       throw new Error('organization_id is required for ERP context retrieval');
     }
 
-    console.log(`[ERP Context] Retrieving context for organization: ${organization_id}`);
+    logger.info({ organizationId: organization_id }, 'Retrieving organization context');
 
     try {
       // Query OrganizationContext with organization isolation
@@ -114,7 +116,7 @@ export const erpContextTool = createTool({
       });
 
       if (!organizationContext) {
-        console.warn(`[ERP Context] No context found for organization: ${organization_id}, returning defaults`);
+        logger.warn({ organizationId: organization_id }, 'No context found, returning defaults');
 
         // Return defaults for organizations without ERP data
         return {
@@ -149,7 +151,7 @@ export const erpContextTool = createTool({
 
       const strategic_documents = organizationContext.strategic_documents as Record<string, unknown> | undefined;
 
-      console.log(`[ERP Context] Retrieved ${plants.length} plants, ${warehouses.length} warehouses, ${suppliers.length} suppliers`);
+      logger.info({ plants: plants.length, warehouses: warehouses.length, suppliers: suppliers.length }, 'Retrieved context');
 
       return {
         plants,
@@ -166,7 +168,7 @@ export const erpContextTool = createTool({
       };
 
     } catch (error) {
-      console.error(`[ERP Context] Database query failed:`, error);
+      logger.error({ error, organizationId: organization_id }, 'Database query failed');
       throw new Error(`Failed to retrieve ERP context: ${error instanceof Error ? error.message : 'Unknown error'}`);
     }
   }

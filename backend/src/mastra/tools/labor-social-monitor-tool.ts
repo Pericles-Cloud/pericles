@@ -1,6 +1,9 @@
 import { createTool } from '@mastra/core/tools';
-import { limitEvents, getFilterSummary } from './output-limiter';
+import { limitEvents } from './output-limiter';
+import { toolLoggers } from './tool-logger';
 import { z } from 'zod';
+
+const logger = toolLoggers.laborSocial;
 
 /**
  * Labor & Social Monitor Tool
@@ -85,14 +88,14 @@ export const laborSocialMonitorTool = createTool({
     const { locations, industries, severity_threshold, lookback_hours, organization_id } = context;
 
     // Log the input parameters received
-    console.log(`[Labor Monitor] Tool executed with context:`, JSON.stringify(context, null, 2));
+    logger.debug({ context }, 'Tool executed');
 
     // CRITICAL: Validate organization_id
     if (!organization_id) {
       throw new Error('organization_id is required for labor monitoring');
     }
 
-    console.log(`[Labor Monitor] Monitoring for organization: ${organization_id}`);
+    logger.info({ organization_id }, 'Monitoring for organization');
 
     // Map severity threshold to numeric value
     const severityThresholdValue = {
@@ -107,7 +110,7 @@ export const laborSocialMonitorTool = createTool({
       let feedsChecked = 0;
 
       // Fetch from RSS feeds
-      console.log(`[Labor Monitor] Fetching from RSS feeds...`);
+      logger.info('Fetching from RSS feeds');
       const rssEvents = await fetchLaborRSSFeeds(locations ?? undefined, industries ?? undefined, lookback_hours ?? 24);
       feedsChecked = LABOR_RSS_FEEDS.length;
 
@@ -118,10 +121,10 @@ export const laborSocialMonitorTool = createTool({
           allEvents.push(event);
         }
       }
-      console.log(`[Labor Monitor] Found ${rssEvents.length} events from RSS feeds`);
+      logger.info({ eventCount: rssEvents.length }, 'Found events from RSS feeds');
 
       // Fetch from GDELT for additional labor news coverage
-      console.log(`[Labor Monitor] Fetching from GDELT...`);
+      logger.info('Fetching from GDELT');
       const gdeltEvents = await fetchGDELTLaborNews(locations ?? undefined, industries ?? undefined, lookback_hours ?? 24);
 
       for (const event of gdeltEvents) {
@@ -131,7 +134,7 @@ export const laborSocialMonitorTool = createTool({
           allEvents.push(event);
         }
       }
-      console.log(`[Labor Monitor] Found ${gdeltEvents.length} events from GDELT`);
+      logger.info({ eventCount: gdeltEvents.length }, 'Found events from GDELT');
 
       // Filter by severity threshold
       const filteredEvents = allEvents.filter(e => e.severity >= severityThresholdValue);
@@ -154,7 +157,7 @@ export const laborSocialMonitorTool = createTool({
       // Limit output to prevent context overflow
       const MAX_EVENTS = 10;
       const limitedEvents = limitEvents(filteredEvents, MAX_EVENTS);
-      console.log(getFilterSummary(filteredEvents.length, limitedEvents.length, 'Labor Monitor'));
+      logger.info({ total: filteredEvents.length, limited: limitedEvents.length }, 'Filtered events for output');
 
       return {
         labor_events: limitedEvents,
@@ -165,7 +168,7 @@ export const laborSocialMonitorTool = createTool({
       };
 
     } catch (error) {
-      console.error(`[Labor Monitor] Failed to fetch labor data:`, error);
+      logger.error({ err: error }, 'Failed to fetch labor data');
       throw new Error(`Labor monitoring failed: ${error instanceof Error ? error.message : 'Unknown error'}`);
     }
   }
@@ -340,7 +343,7 @@ async function fetchLaborRSSFeeds(
 
   for (const feed of LABOR_RSS_FEEDS) {
     try {
-      console.log(`[Labor Monitor] Fetching RSS feed: ${feed.name}`);
+      logger.debug({ feedName: feed.name }, 'Fetching RSS feed');
 
       const controller = new AbortController();
       const timeoutId = setTimeout(() => { controller.abort(); }, 15000);
@@ -356,14 +359,14 @@ async function fetchLaborRSSFeeds(
       clearTimeout(timeoutId);
 
       if (!response.ok) {
-        console.log(`[Labor Monitor] Feed ${feed.name} returned ${response.status}`);
+        logger.warn({ feedName: feed.name, status: response.status }, 'Feed returned non-OK status');
         continue;
       }
 
       const xmlText = await response.text();
       const items = parseRSSItems(xmlText);
 
-      console.log(`[Labor Monitor] Parsed ${items.length} items from ${feed.name}`);
+      logger.debug({ feedName: feed.name, itemCount: items.length }, 'Parsed items from feed');
 
       for (const item of items) {
         // Check if within lookback period
@@ -434,9 +437,9 @@ async function fetchLaborRSSFeeds(
 
     } catch (error) {
       if (error instanceof Error && error.name === 'AbortError') {
-        console.log(`[Labor Monitor] Timeout fetching ${feed.name}`);
+        logger.warn({ feedName: feed.name }, 'Timeout fetching feed');
       } else {
-        console.error(`[Labor Monitor] Error fetching ${feed.name}:`, error);
+        logger.error({ feedName: feed.name, err: error }, 'Error fetching feed');
       }
       continue;
     }
@@ -759,7 +762,7 @@ async function fetchGDELTLaborNews(
         const encodedQuery = encodeURIComponent(`${query}${locationFilter}`);
         const url = `https://api.gdeltproject.org/api/v2/doc/doc?query=${encodedQuery}&mode=artlist&format=json&maxrecords=25&startdatetime=${startDateStr}000000&sort=DateDesc`;
 
-        console.log(`[Labor Monitor] GDELT query: ${query}`);
+        logger.debug({ query }, 'GDELT query');
 
         const controller = new AbortController();
         const timeoutId = setTimeout(() => { controller.abort(); }, 15000);
@@ -774,7 +777,7 @@ async function fetchGDELTLaborNews(
         clearTimeout(timeoutId);
 
         if (!response.ok) {
-          console.log(`[Labor Monitor] GDELT returned ${response.status}`);
+          logger.warn({ status: response.status }, 'GDELT returned non-OK status');
           continue;
         }
 
@@ -784,12 +787,12 @@ async function fetchGDELTLaborNews(
         try {
           data = JSON.parse(responseText);
         } catch {
-          console.warn(`[Labor Monitor] GDELT returned invalid JSON for query: ${query}`);
+          logger.warn({ query }, 'GDELT returned invalid JSON');
           continue;
         }
         const articles = data.articles || [];
 
-        console.log(`[Labor Monitor] GDELT returned ${articles.length} articles for "${query}"`);
+        logger.debug({ query, articleCount: articles.length }, 'GDELT returned articles');
 
         for (const article of articles) {
           const title = article.title || '';
@@ -851,15 +854,15 @@ async function fetchGDELTLaborNews(
 
       } catch (error) {
         if (error instanceof Error && error.name === 'AbortError') {
-          console.log(`[Labor Monitor] GDELT timeout for query: ${query}`);
+          logger.warn({ query }, 'GDELT timeout');
         } else {
-          console.error(`[Labor Monitor] GDELT error for query ${query}:`, error);
+          logger.error({ query, err: error }, 'GDELT error');
         }
       }
     }
 
   } catch (error) {
-    console.error(`[Labor Monitor] GDELT fetch error:`, error);
+    logger.error({ err: error }, 'GDELT fetch error');
   }
 
   return events;

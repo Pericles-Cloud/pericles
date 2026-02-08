@@ -1,8 +1,10 @@
 import { createTool } from '@mastra/core/tools';
 import { z } from 'zod';
 import { getPrismaClient } from '../../monitoring/db-client';
+import { toolLoggers } from './tool-logger';
 
 const prisma = getPrismaClient();
+const logger = toolLoggers.organizationLookup;
 
 /**
  * Organization Lookup Tool
@@ -62,7 +64,7 @@ ALWAYS use this tool when the user mentions a company by name before calling any
     const effectiveMatchTypeParam = match_type ?? 'auto';
 
     // Log the input parameters received
-    console.log(`[Org Lookup] Tool executed with context:`, JSON.stringify(context, null, 2));
+    logger.debug({ context }, 'Tool executed');
 
     if (!query || query.trim().length === 0) {
       return {
@@ -75,7 +77,7 @@ ALWAYS use this tool when the user mentions a company by name before calling any
     }
 
     const trimmedQuery = query.trim();
-    console.log(`[Org Lookup] Searching for: "${trimmedQuery}" with match_type: ${effectiveMatchTypeParam}`);
+    logger.info({ query: trimmedQuery, matchType: effectiveMatchTypeParam }, 'Searching for organization');
 
     try {
       // Determine match type if auto
@@ -96,7 +98,7 @@ ALWAYS use this tool when the user mentions a company by name before calling any
         }
       }
 
-      console.log(`[Org Lookup] Using match type: ${effectiveMatchType}`);
+      logger.debug({ effectiveMatchType }, 'Using match type');
 
       let organization = null;
       let alternatives: Array<z.infer<typeof OrganizationResultSchema>> = [];
@@ -198,7 +200,7 @@ ALWAYS use this tool when the user mentions a company by name before calling any
           ? `Found "${organization.name}" (and ${alternatives.length} other potential matches)`
           : `Found organization: "${organization.name}"`;
 
-        console.log(`[Org Lookup] ${message}`);
+        logger.info({ organizationId: organization.id, organizationName: organization.name, alternativeCount: alternatives.length }, message);
 
         return {
           found: true,
@@ -210,7 +212,7 @@ ALWAYS use this tool when the user mentions a company by name before calling any
       }
 
       // No match found
-      console.log(`[Org Lookup] No organization found for query: "${trimmedQuery}"`);
+      logger.info({ query: trimmedQuery }, 'No organization found');
 
       return {
         found: false,
@@ -221,7 +223,7 @@ ALWAYS use this tool when the user mentions a company by name before calling any
       };
 
     } catch (error) {
-      console.error(`[Org Lookup] Database query failed:`, error);
+      logger.error({ err: error }, 'Database query failed');
       throw new Error(`Failed to look up organization: ${error instanceof Error ? error.message : 'Unknown error'}`);
     }
   }

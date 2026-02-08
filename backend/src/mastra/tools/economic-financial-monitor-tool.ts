@@ -1,6 +1,9 @@
 import { createTool } from '@mastra/core/tools';
 import { limitEvents, getFilterSummary } from './output-limiter';
+import { toolLoggers } from './tool-logger';
 import { z } from 'zod';
+
+const logger = toolLoggers.economicFinancial;
 
 /**
  * Economic & Financial Monitor Tool
@@ -68,13 +71,13 @@ export const economicFinancialMonitorTool = createTool({
   execute: async ({ context }) => {
     const { countries, indicators, severity_threshold, lookback_days, organization_id } = context;
 
-    console.log(`[Economic Monitor] Tool executed with context:`, JSON.stringify(context, null, 2));
+    logger.debug({ context }, 'Tool executed');
 
     if (!organization_id) {
       throw new Error('organization_id is required for economic monitoring');
     }
 
-    console.log(`[Economic Monitor] Monitoring ${countries.length} countries for organization: ${organization_id}`);
+    logger.info({ countryCount: countries.length, organizationId: organization_id }, 'Monitoring countries');
 
     try {
       const { events, apiCallsMade, indicatorsChecked } = await fetchFREDIndicators(
@@ -87,7 +90,7 @@ export const economicFinancialMonitorTool = createTool({
       // Limit output to prevent context overflow
       const MAX_EVENTS = 10;
       const limitedEvents = limitEvents(events, MAX_EVENTS);
-      console.log(getFilterSummary(events.length, limitedEvents.length, 'Economic Monitor'));
+      logger.info({ originalCount: events.length, limitedCount: limitedEvents.length }, getFilterSummary(events.length, limitedEvents.length, 'Economic Monitor'));
 
       return {
         economic_events: limitedEvents,
@@ -97,7 +100,7 @@ export const economicFinancialMonitorTool = createTool({
       };
 
     } catch (error) {
-      console.error(`[Economic Monitor] Failed to fetch FRED data:`, error);
+      logger.error({ err: error }, 'Failed to fetch FRED data');
       throw new Error(`Economic monitoring failed: ${error instanceof Error ? error.message : 'Unknown error'}`);
     }
   }
@@ -209,7 +212,7 @@ async function fetchFREDIndicators(
 
   const apiKey = process.env.FRED_API_KEY;
   if (!apiKey) {
-    console.warn('[Economic Monitor] FRED_API_KEY not set, skipping economic monitoring');
+    logger.warn('FRED_API_KEY not set, skipping economic monitoring');
     return { events, apiCallsMade, indicatorsChecked };
   }
 
@@ -257,7 +260,7 @@ async function fetchFREDIndicators(
         indicatorsChecked++;
 
         if (!obsResponse.ok) {
-          console.warn(`[FRED] API error: ${obsResponse.status} for series: ${seriesId}`);
+          logger.warn({ statusCode: obsResponse.status, seriesId }, 'FRED API error');
           continue;
         }
 
@@ -316,7 +319,7 @@ async function fetchFREDIndicators(
         await sleep(500);
 
       } catch (err) {
-        console.error(`[FRED] Error fetching ${seriesId}:`, err);
+        logger.error({ err, seriesId }, 'Error fetching FRED series');
       }
     }
   }

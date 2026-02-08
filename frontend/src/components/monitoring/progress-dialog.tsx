@@ -89,7 +89,7 @@ export function MonitoringProgressDialog({
   const [error, setError] = useState<string | null>(null);
   const [finalMetrics, setFinalMetrics] = useState<ProgressUpdate['metrics'] | null>(null);
   const [enabledTools, setEnabledTools] = useState<string[]>([]);
-  const [disabledTools, setDisabledTools] = useState<string[]>([]);
+  const [, setDisabledTools] = useState<string[]>([]);
   const [startTime, setStartTime] = useState<number | null>(null);
   const [elapsedTime, setElapsedTime] = useState(0);
   const eventSourceRef = useRef<EventSource | null>(null);
@@ -164,7 +164,8 @@ export function MonitoringProgressDialog({
     setElapsedTime(0);
 
     const token = getAccessToken();
-    const url = `${API_URL}/api/monitoring/trigger-stream?organizationId=${encodeURIComponent(organizationId)}&token=${encodeURIComponent(token || '')}`;
+    // SECURITY: Token sent only via Authorization header, not in URL query string
+    const url = `${API_URL}/api/monitoring/trigger-stream?organizationId=${encodeURIComponent(organizationId)}`;
 
     // Use fetch with streaming for better auth support
     const abortController = new AbortController();

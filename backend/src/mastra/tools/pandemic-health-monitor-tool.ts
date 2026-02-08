@@ -1,6 +1,9 @@
 import { createTool } from '@mastra/core/tools';
 import { limitEvents, getFilterSummary } from './output-limiter';
 import { z } from 'zod';
+import { toolLoggers } from './tool-logger';
+
+const logger = toolLoggers.pandemicHealth;
 
 /**
  * Pandemic & Health Monitor Tool
@@ -79,13 +82,13 @@ export const pandemicHealthMonitorTool = createTool({
   execute: async ({ context }) => {
     const { locations, severity_threshold, lookback_hours, organization_id } = context;
 
-    console.log(`[Health Monitor] Tool executed with context:`, JSON.stringify(context, null, 2));
+    logger.debug({ context }, 'Tool executed');
 
     if (!organization_id) {
       throw new Error('organization_id is required for health monitoring');
     }
 
-    console.log(`[Health Monitor] Monitoring ${locations.length} locations for organization: ${organization_id}`);
+    logger.info({ locationCount: locations.length, organizationId: organization_id }, 'Monitoring locations');
 
     try {
       const severityThresholdValue = severity_threshold === 'low' ? 0.3 : severity_threshold === 'medium' ? 0.5 : 0.7;
@@ -107,7 +110,7 @@ export const pandemicHealthMonitorTool = createTool({
       // Limit output to prevent context overflow
       const MAX_EVENTS = 10;
       const limitedEvents = limitEvents(filteredEvents, MAX_EVENTS);
-      console.log(getFilterSummary(filteredEvents.length, limitedEvents.length, 'Health Monitor'));
+      logger.info({ total: filteredEvents.length, limited: limitedEvents.length }, getFilterSummary(filteredEvents.length, limitedEvents.length, 'Health Monitor'));
 
       return {
         health_events: limitedEvents,
@@ -118,7 +121,7 @@ export const pandemicHealthMonitorTool = createTool({
       };
 
     } catch (error) {
-      console.error(`[Health Monitor] Failed to fetch health data:`, error);
+      logger.error({ err: error }, 'Failed to fetch health data');
       throw new Error(`Health monitoring failed: ${error instanceof Error ? error.message : 'Unknown error'}`);
     }
   }
@@ -219,14 +222,14 @@ async function fetchHealthRSSFeeds(
       feedsChecked++;
 
       if (!response.ok) {
-        console.warn(`[Health Monitor] Feed error ${response.status}: ${feed.name}`);
+        logger.warn({ status: response.status, feedName: feed.name }, 'Feed error');
         continue;
       }
 
       const xmlText = await response.text();
       const items = parseRSSItems(xmlText);
 
-      console.log(`[Health Monitor] Parsed ${items.length} items from ${feed.name}`);
+      logger.debug({ itemCount: items.length, feedName: feed.name }, 'Parsed items from feed');
 
       for (const item of items) {
         // Skip duplicates
@@ -289,7 +292,7 @@ async function fetchHealthRSSFeeds(
       await sleep(300);
 
     } catch (err) {
-      console.error(`[Health Monitor] Error fetching ${feed.name}:`, err);
+      logger.error({ err, feedName: feed.name }, 'Error fetching feed');
     }
   }
 

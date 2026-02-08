@@ -1,6 +1,9 @@
 import { createTool } from '@mastra/core/tools';
 import { limitEvents, getFilterSummary } from './output-limiter';
+import { toolLoggers } from './tool-logger';
 import { z } from 'zod';
+
+const logger = toolLoggers.regulatoryTrade;
 
 /**
  * Regulatory & Trade Monitor Tool
@@ -74,13 +77,13 @@ export const regulatoryTradeMonitorTool = createTool({
   execute: async ({ context }) => {
     const { countries, products, severity_threshold, lookback_days, organization_id } = context;
 
-    console.log(`[Regulatory Monitor] Tool executed with context:`, JSON.stringify(context, null, 2));
+    logger.debug({ context }, 'Tool executed');
 
     if (!organization_id) {
       throw new Error('organization_id is required for regulatory monitoring');
     }
 
-    console.log(`[Regulatory Monitor] Monitoring ${countries.length} countries for organization: ${organization_id}`);
+    logger.info({ countryCount: countries.length, organizationId: organization_id }, 'Monitoring countries');
 
     try {
       const severityThresholdValue = severity_threshold === 'low' ? 0.3 : severity_threshold === 'medium' ? 0.5 : 0.7;
@@ -106,7 +109,7 @@ export const regulatoryTradeMonitorTool = createTool({
       // Limit output to prevent context overflow
       const MAX_EVENTS = 10;
       const limitedEvents = limitEvents(filteredEvents, MAX_EVENTS);
-      console.log(getFilterSummary(filteredEvents.length, limitedEvents.length, 'Regulatory Monitor'));
+      logger.info({ total: filteredEvents.length, limited: limitedEvents.length }, getFilterSummary(filteredEvents.length, limitedEvents.length, 'Regulatory Monitor'));
 
       return {
         regulatory_events: limitedEvents,
@@ -117,7 +120,7 @@ export const regulatoryTradeMonitorTool = createTool({
       };
 
     } catch (error) {
-      console.error(`[Regulatory Monitor] Failed to fetch regulatory data:`, error);
+      logger.error({ err: error }, 'Failed to fetch regulatory data');
       throw new Error(`Regulatory monitoring failed: ${error instanceof Error ? error.message : 'Unknown error'}`);
     }
   }
@@ -214,14 +217,14 @@ async function fetchRegulatoryData(
       sourcesChecked++;
 
       if (!response.ok) {
-        console.warn(`[Regulatory Monitor] Feed error ${response.status}: ${feed.name}`);
+        logger.warn({ status: response.status, feedName: feed.name }, 'Feed error');
         continue;
       }
 
       const xmlText = await response.text();
       const items = parseRSSItems(xmlText);
 
-      console.log(`[Regulatory Monitor] Parsed ${items.length} items from ${feed.name}`);
+      logger.debug({ itemCount: items.length, feedName: feed.name }, 'Parsed items from feed');
 
       for (const item of items) {
         if (item.link && seenUrls.has(item.link)) continue;
@@ -265,7 +268,7 @@ async function fetchRegulatoryData(
       await sleep(300);
 
     } catch (err) {
-      console.error(`[Regulatory Monitor] Error fetching ${feed.name}:`, err);
+      logger.error({ err, feedName: feed.name }, 'Error fetching feed');
     }
   }
 
@@ -274,9 +277,9 @@ async function fetchRegulatoryData(
     const gdeltEvents = await fetchGDELTTradeNews(countries, lookbackHours, seenUrls);
     events.push(...gdeltEvents);
     sourcesChecked++;
-    console.log(`[Regulatory Monitor] Added ${gdeltEvents.length} events from GDELT`);
+    logger.info({ eventCount: gdeltEvents.length }, 'Added events from GDELT');
   } catch (err) {
-    console.error(`[Regulatory Monitor] Error fetching GDELT trade news:`, err);
+    logger.error({ err }, 'Error fetching GDELT trade news');
   }
 
   return { events, sourcesChecked };
@@ -324,7 +327,7 @@ async function fetchGDELTTradeNews(
         try {
           data = JSON.parse(responseText) as GDELTResponse;
         } catch {
-          console.warn(`[GDELT Trade] Invalid JSON response for query: ${searchTerm}`);
+          logger.warn({ searchTerm }, 'Invalid JSON response from GDELT');
           continue;
         }
 
@@ -360,7 +363,7 @@ async function fetchGDELTTradeNews(
         await sleep(100);
 
       } catch (err) {
-        console.error(`[GDELT Trade] Error:`, err);
+        logger.error({ err }, 'GDELT trade query error');
       }
     }
   }

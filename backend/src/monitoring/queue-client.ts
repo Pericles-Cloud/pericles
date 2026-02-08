@@ -109,12 +109,12 @@ export async function publishBatchToQueue(queueName: string, messages: QueueMess
  * @param handler - Message handler function
  * @param options - Consumer options
  */
-export async function consumeFromQueue(
+export function consumeFromQueue(
   queueName: string,
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any -- Handler receives dynamic payload
+   
   handler: (message: QueueMessage) => Promise<void>,
   options: { batchSize?: number; pollIntervalMs?: number } = {}
-): Promise<{ stop: () => void }> {
+): { stop: () => void } {
   const { batchSize = 10, pollIntervalMs = 1000 } = options;
   const prisma = getPrismaClient();
   let running = true;
@@ -187,7 +187,7 @@ export async function consumeFromQueue(
   };
 
   // Start polling in background
-  poll();
+  void poll();
 
   return {
     stop: () => {
@@ -256,7 +256,7 @@ export async function kvGet<T = unknown>(
   });
 
   // Check if expired
-  if (record && record.expires_at && record.expires_at < new Date()) {
+  if (record?.expires_at && record.expires_at < new Date()) {
     // Delete expired record
     await prisma.keyValueStore.delete({
       where: { id: record.id },
