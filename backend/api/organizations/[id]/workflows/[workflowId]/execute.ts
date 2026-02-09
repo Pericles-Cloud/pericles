@@ -7,6 +7,8 @@
  * Body:
  * - mode: 'trial' | 'run' (default: 'run')
  * - initialVariables: Record<string, unknown> (optional)
+ *
+ * @vercel-function
  */
 
 import type { VercelRequest, VercelResponse } from '@vercel/node';
