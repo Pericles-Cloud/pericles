@@ -12,6 +12,11 @@
       "maxDuration": 300,
       "includeFiles": "src/**/*"
     },
+    "api/organizations/[id]/workflows/[workflowId]/run.ts": {
+      "memory": 1024,
+      "maxDuration": 60,
+      "includeFiles": "src/**/*"
+    },
     "api/**/*.ts": {
       "memory": 1024,
       "maxDuration": 60,
