@@ -1,5 +1,5 @@
 {
-  "buildCommand": "prisma generate",
+  "buildCommand": "prisma migrate deploy && prisma generate",
   "outputDirectory": "public",
   "functions": {
     "api/monitoring/trigger-stream.ts": {

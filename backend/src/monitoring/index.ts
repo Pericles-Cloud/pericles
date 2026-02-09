@@ -270,7 +270,7 @@ export async function runMonitoringCycle(
     }, 10000);
 
     // Track tool execution for logging
-    const toolsProcessed: Set<string> = new Set();
+    const toolsProcessed = new Set<string>();
     let lastStepTime = Date.now();
 
     const agentPromise = agent.generate(monitoringPrompt, {
