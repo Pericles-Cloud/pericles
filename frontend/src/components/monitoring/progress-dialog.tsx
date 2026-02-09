@@ -40,7 +40,7 @@ function formatElapsedTime(ms: number): string {
 }
 
 // Progress update types matching backend
-type ProgressPhase = 'starting' | 'loading_context' | 'executing_tools' | 'processing_events' | 'complete' | 'error';
+type ProgressPhase = 'starting' | 'loading_context' | 'executing_tools' | 'processing_events' | 'complete' | 'error' | 'stopped';
 
 interface ProgressUpdate {
   type: 'connected' | 'progress' | 'complete' | 'error';
@@ -55,6 +55,8 @@ interface ProgressUpdate {
   // Tool configuration info
   enabledTools?: string[];
   disabledTools?: string[];
+  // Heartbeat messages (keep-alive) should not be displayed in activity log
+  isHeartbeat?: boolean;
   metrics?: {
     durationMs: number;
     eventsDetected: number;
@@ -92,20 +94,40 @@ export function MonitoringProgressDialog({
   const [, setDisabledTools] = useState<string[]>([]);
   const [startTime, setStartTime] = useState<number | null>(null);
   const [elapsedTime, setElapsedTime] = useState(0);
-  const eventSourceRef = useRef<EventSource | null>(null);
+  const workerRef = useRef<Worker | null>(null);
   const scrollRef = useRef<HTMLDivElement>(null);
   const hasStartedRef = useRef(false);
   const isRunningRef = useRef(false);
 
   // Update elapsed time every second while running
+  // Also handle visibility changes to catch up when tab regains focus
   useEffect(() => {
     if (!isRunning || !startTime) return;
 
-    const interval = setInterval(() => {
+    // Update elapsed time immediately and every second
+    const updateElapsed = () => {
       setElapsedTime(Date.now() - startTime);
-    }, 1000);
+    };
 
-    return () => clearInterval(interval);
+    // Initial update
+    updateElapsed();
+
+    const interval = setInterval(updateElapsed, 1000);
+
+    // Handle visibility change - browsers throttle intervals when tab is hidden
+    // When tab becomes visible again, immediately update the elapsed time
+    const handleVisibilityChange = () => {
+      if (document.visibilityState === 'visible') {
+        updateElapsed();
+      }
+    };
+
+    document.addEventListener('visibilitychange', handleVisibilityChange);
+
+    return () => {
+      clearInterval(interval);
+      document.removeEventListener('visibilitychange', handleVisibilityChange);
+    };
   }, [isRunning, startTime]);
 
   // Handle progress update - defined with useCallback for use in startMonitoring
@@ -147,9 +169,19 @@ export function MonitoringProgressDialog({
     }
   }, [onComplete]);
 
+  // Track if we've completed to prevent restarts
+  const hasCompletedRef = useRef(false);
+
   const startMonitoring = useCallback(() => {
-    // Use ref for guard to avoid recreating this callback
-    if (isRunningRef.current || !organizationId) return;
+    // Multiple guards to prevent restarts:
+    // 1. Check if already running via ref
+    // 2. Check if worker already exists
+    // 3. Check if organization ID is present
+    // 4. Check if already completed this session
+    if (isRunningRef.current) return;
+    if (workerRef.current) return;
+    if (!organizationId) return;
+    if (hasCompletedRef.current) return;
 
     isRunningRef.current = true;
     setIsRunning(true);
@@ -167,71 +199,149 @@ export function MonitoringProgressDialog({
     // SECURITY: Token sent only via Authorization header, not in URL query string
     const url = `${API_URL}/api/monitoring/trigger-stream?organizationId=${encodeURIComponent(organizationId)}`;
 
-    // Use fetch with streaming for better auth support
-    const abortController = new AbortController();
+    // Use Web Worker for fetch streaming - workers aren't throttled when tab loses focus
+    // This ensures the monitoring continues even when the user switches tabs/windows
+    // Create worker from Blob to avoid bundler compatibility issues
+    const workerCode = `
+      let abortController = null;
 
-    fetch(url, {
-      headers: {
-        'Authorization': `Bearer ${token}`,
-      },
-      signal: abortController.signal,
-    }).then(async (response) => {
-      if (!response.ok) {
-        const errorData = await response.json();
-        throw new Error(errorData.error?.message || 'Failed to start monitoring');
-      }
+      self.onmessage = async (event) => {
+        const message = event.data;
 
-      const reader = response.body?.getReader();
-      if (!reader) throw new Error('No response body');
+        if (message.type === 'stop') {
+          if (abortController) {
+            abortController.abort();
+            abortController = null;
+          }
+          return;
+        }
 
-      const decoder = new TextDecoder();
-      let buffer = '';
+        if (message.type === 'start') {
+          const { url, token } = message;
 
-      let receivedCompletion = false;
+          if (abortController) {
+            abortController.abort();
+          }
 
-      while (true) {
-        const { done, value } = await reader.read();
-        if (done) break;
+          abortController = new AbortController();
 
-        buffer += decoder.decode(value, { stream: true });
-        const lines = buffer.split('\n');
-        buffer = lines.pop() || '';
+          try {
+            const response = await fetch(url, {
+              headers: { 'Authorization': 'Bearer ' + token },
+              signal: abortController.signal,
+            });
 
-        for (const line of lines) {
-          if (line.startsWith('data: ')) {
-            try {
-              const data = JSON.parse(line.slice(6)) as ProgressUpdate;
-              handleProgressUpdate(data);
-              // Track if we received a terminal state
-              if (data.type === 'complete' || data.type === 'error') {
-                receivedCompletion = true;
-              }
-            } catch {
-              // Ignore parse errors
+            if (!response.ok) {
+              let errorMessage = 'Failed to start monitoring';
+              try {
+                const errorData = await response.json();
+                errorMessage = errorData.error?.message || errorMessage;
+              } catch {}
+              self.postMessage({ type: 'error', message: errorMessage });
+              return;
             }
+
+            const reader = response.body?.getReader();
+            if (!reader) {
+              self.postMessage({ type: 'error', message: 'No response body' });
+              return;
+            }
+
+            const decoder = new TextDecoder();
+            let buffer = '';
+            let receivedCompletion = false;
+
+            while (true) {
+              const { done, value } = await reader.read();
+              if (done) break;
+
+              buffer += decoder.decode(value, { stream: true });
+              const lines = buffer.split('\\n');
+              buffer = lines.pop() || '';
+
+              for (const line of lines) {
+                if (line.startsWith('data: ')) {
+                  try {
+                    const data = JSON.parse(line.slice(6));
+                    self.postMessage({ type: 'progress', data });
+                    if (data.type === 'complete' || data.type === 'error') {
+                      receivedCompletion = true;
+                    }
+                  } catch {}
+                }
+              }
+            }
+
+            self.postMessage({ type: 'done', receivedCompletion });
+          } catch (err) {
+            if (err.name !== 'AbortError') {
+              self.postMessage({ type: 'error', message: err.message || 'Connection failed' });
+            }
+          } finally {
+            abortController = null;
           }
         }
+      };
+    `;
+
+    const blob = new Blob([workerCode], { type: 'application/javascript' });
+    const workerUrl = URL.createObjectURL(blob);
+    const worker = new Worker(workerUrl);
+    URL.revokeObjectURL(workerUrl); // Clean up the URL after worker is created
+
+    worker.onmessage = (event: MessageEvent) => {
+      const message = event.data;
+
+      // Ignore messages if we've already completed (prevents race conditions)
+      if (hasCompletedRef.current && message.type !== 'progress') {
+        return;
       }
 
-      // Handle case where stream ended without complete/error event
-      if (!receivedCompletion) {
-        setError('Connection lost - monitoring cycle may not have completed');
-        setCurrentPhase('error');
+      if (message.type === 'progress') {
+        // Only process progress if we're still running
+        if (!hasCompletedRef.current) {
+          handleProgressUpdate(message.data as ProgressUpdate);
+        }
+      } else if (message.type === 'error') {
+        if (!hasCompletedRef.current) {
+          setError(message.message || 'Connection failed');
+          setCurrentPhase('error');
+          hasCompletedRef.current = true;
+          isRunningRef.current = false;
+          setIsRunning(false);
+        }
+        worker.terminate();
+        workerRef.current = null;
+      } else if (message.type === 'done') {
+        if (!hasCompletedRef.current) {
+          // Handle case where stream ended without complete/error event
+          if (!message.receivedCompletion) {
+            setError('Connection lost - monitoring cycle may not have completed');
+            setCurrentPhase('error');
+          }
+          hasCompletedRef.current = true;
+          isRunningRef.current = false;
+          setIsRunning(false);
+        }
+        worker.terminate();
+        workerRef.current = null;
       }
+    };
 
+    worker.onerror = (err) => {
+      console.error('Worker error:', err);
+      setError('Worker error - monitoring failed');
+      setCurrentPhase('error');
+      hasCompletedRef.current = true;
       isRunningRef.current = false;
       setIsRunning(false);
-    }).catch((err) => {
-      if (err.name !== 'AbortError') {
-        setError(err.message || 'Connection failed');
-        setCurrentPhase('error');
-        isRunningRef.current = false;
-        setIsRunning(false);
-      }
-    });
+      worker.terminate();
+      workerRef.current = null;
+    };
 
-    // Store abort controller for cleanup
-    eventSourceRef.current = { close: () => abortController.abort() } as unknown as EventSource;
+    // Start the worker
+    worker.postMessage({ type: 'start', url, token });
+    workerRef.current = worker;
   }, [organizationId, handleProgressUpdate]); // Removed isRunning - using ref instead
 
   // Auto-scroll to bottom of updates
@@ -241,33 +351,93 @@ export function MonitoringProgressDialog({
     }
   }, [updates]);
 
-  // Start monitoring when dialog opens
+  // Force scroll update when tab becomes visible (in case updates arrived while hidden)
   useEffect(() => {
-    if (isOpen && !hasStartedRef.current) {
-      hasStartedRef.current = true;
-      // Defer to next tick to avoid synchronous setState in effect
-      const timeoutId = setTimeout(() => {
+    const handleVisibilityChange = () => {
+      if (document.visibilityState === 'visible' && scrollRef.current) {
+        scrollRef.current.scrollTop = scrollRef.current.scrollHeight;
+      }
+    };
+
+    document.addEventListener('visibilitychange', handleVisibilityChange);
+    return () => document.removeEventListener('visibilitychange', handleVisibilityChange);
+  }, []);
+
+  // Start monitoring when dialog opens - only once per dialog open
+  useEffect(() => {
+    // Guard: only start if dialog is open and we haven't started yet
+    if (!isOpen) return;
+    if (hasStartedRef.current) return;
+    if (isRunningRef.current) return;
+    if (workerRef.current) return;
+
+    hasStartedRef.current = true;
+
+    // Defer to next tick to avoid synchronous setState in effect
+    // Also handle React Strict Mode double-invocation
+    let cancelled = false;
+    const timeoutId = setTimeout(() => {
+      if (!cancelled) {
         startMonitoring();
-      }, 0);
-      return () => clearTimeout(timeoutId);
-    }
-    // Reset refs when dialog closes
-    if (!isOpen) {
+      }
+    }, 0);
+
+    return () => {
+      cancelled = true;
+      clearTimeout(timeoutId);
+    };
+  }, [isOpen]); // eslint-disable-line react-hooks/exhaustive-deps -- startMonitoring is stable via refs
+
+  // Reset refs only when dialog actually closes (and worker is not running)
+  useEffect(() => {
+    if (!isOpen && !workerRef.current) {
       hasStartedRef.current = false;
+      hasCompletedRef.current = false;
       isRunningRef.current = false;
     }
-  }, [isOpen, startMonitoring]);
+  }, [isOpen]);
 
   // Cleanup on unmount
   useEffect(() => {
     return () => {
-      eventSourceRef.current?.close();
+      if (workerRef.current) {
+        workerRef.current.postMessage({ type: 'stop' });
+        workerRef.current.terminate();
+        workerRef.current = null;
+      }
     };
   }, []);
 
   const handleClose = () => {
-    eventSourceRef.current?.close();
+    if (workerRef.current) {
+      workerRef.current.postMessage({ type: 'stop' });
+      workerRef.current.terminate();
+      workerRef.current = null;
+    }
     onClose();
+  };
+
+  const handleStop = () => {
+    // Stop the worker
+    if (workerRef.current) {
+      workerRef.current.postMessage({ type: 'stop' });
+      workerRef.current.terminate();
+      workerRef.current = null;
+    }
+
+    // Update state to show stopped
+    setCurrentPhase('stopped');
+    hasCompletedRef.current = true;
+    isRunningRef.current = false;
+    setIsRunning(false);
+
+    // Add a stopped message to updates
+    setUpdates((prev) => [...prev, {
+      type: 'error',
+      phase: 'stopped',
+      message: 'Monitoring cycle stopped by user',
+      timestamp: new Date().toISOString(),
+    }]);
   };
 
   const getPhaseLabel = (phase: ProgressPhase): string => {
@@ -278,6 +448,7 @@ export function MonitoringProgressDialog({
       processing_events: 'Processing Events',
       complete: 'Complete',
       error: 'Error',
+      stopped: 'Stopped',
     };
     return labels[phase];
   };
@@ -318,12 +489,17 @@ export function MonitoringProgressDialog({
             <div className="flex items-center gap-3">
               <div className={`size-10 rounded-full flex items-center justify-center ${
                 currentPhase === 'error' ? 'bg-red-100 dark:bg-red-900/30' :
+                currentPhase === 'stopped' ? 'bg-orange-100 dark:bg-orange-900/30' :
                 currentPhase === 'complete' ? 'bg-green-100 dark:bg-green-900/30' :
                 'bg-blue-100 dark:bg-blue-900/30'
               }`}>
                 {currentPhase === 'error' ? (
                   <svg className="size-5 text-red-600 dark:text-red-400" fill="none" viewBox="0 0 24 24" strokeWidth="1.5" stroke="currentColor">
                     <path strokeLinecap="round" strokeLinejoin="round" d="M12 9v3.75m9-.75a9 9 0 1 1-18 0 9 9 0 0 1 18 0Zm-9 3.75h.008v.008H12v-.008Z" />
+                  </svg>
+                ) : currentPhase === 'stopped' ? (
+                  <svg className="size-5 text-orange-600 dark:text-orange-400" fill="none" viewBox="0 0 24 24" strokeWidth="1.5" stroke="currentColor">
+                    <path strokeLinecap="round" strokeLinejoin="round" d="M5.25 7.5A2.25 2.25 0 0 1 7.5 5.25h9a2.25 2.25 0 0 1 2.25 2.25v9a2.25 2.25 0 0 1-2.25 2.25h-9a2.25 2.25 0 0 1-2.25-2.25v-9Z" />
                   </svg>
                 ) : currentPhase === 'complete' ? (
                   <svg className="size-5 text-green-600 dark:text-green-400" fill="none" viewBox="0 0 24 24" strokeWidth="1.5" stroke="currentColor">
@@ -342,6 +518,7 @@ export function MonitoringProgressDialog({
                 </h3>
                 <p className={`text-sm ${
                   currentPhase === 'error' ? 'text-red-600 dark:text-red-400' :
+                  currentPhase === 'stopped' ? 'text-orange-600 dark:text-orange-400' :
                   currentPhase === 'complete' ? 'text-green-600 dark:text-green-400' :
                   'text-gray-500 dark:text-gray-400'
                 }`}>
@@ -359,7 +536,7 @@ export function MonitoringProgressDialog({
                   }
                 </span>
               </div>
-              {(currentPhase === 'complete' || currentPhase === 'error') && (
+              {(currentPhase === 'complete' || currentPhase === 'error' || currentPhase === 'stopped') && (
                 <button
                   onClick={handleClose}
                   className="p-1 rounded-full text-gray-400 hover:text-gray-600 dark:hover:text-gray-300 hover:bg-gray-100 dark:hover:bg-gray-700 transition-colors"
@@ -378,6 +555,7 @@ export function MonitoringProgressDialog({
               <div
                 className={`h-full transition-all duration-300 ease-out ${
                   currentPhase === 'error' ? 'bg-red-500' :
+                  currentPhase === 'stopped' ? 'bg-orange-500' :
                   currentPhase === 'complete' ? 'bg-green-500' :
                   'bg-blue-500'
                 }`}
@@ -421,7 +599,7 @@ export function MonitoringProgressDialog({
             ref={scrollRef}
             className="h-56 overflow-y-auto bg-gray-50 dark:bg-gray-900 rounded-lg p-3 mb-4 font-mono text-xs"
           >
-            {updates.filter(u => u.type === 'progress' && u.message).map((update, idx) => {
+            {updates.filter(u => u.type === 'progress' && u.message && !u.isHeartbeat).map((update, idx) => {
               const cleanMessage = getCleanMessage(update);
               return (
                 <div
@@ -500,14 +678,21 @@ export function MonitoringProgressDialog({
           )}
 
           {/* Actions */}
-          <div className="flex justify-end">
-            {currentPhase === 'complete' || currentPhase === 'error' ? (
+          <div className="flex justify-end gap-2">
+            {currentPhase === 'complete' || currentPhase === 'error' || currentPhase === 'stopped' ? (
               <Button onClick={handleClose}>
                 Close
               </Button>
             ) : (
-              <Button variant="outline" onClick={handleClose} disabled={isRunning}>
-                Cancel
+              <Button
+                variant="destructive"
+                onClick={handleStop}
+                className="bg-red-600 hover:bg-red-700 text-white"
+              >
+                <svg className="size-4 mr-2" fill="none" viewBox="0 0 24 24" strokeWidth="2" stroke="currentColor">
+                  <path strokeLinecap="round" strokeLinejoin="round" d="M5.25 7.5A2.25 2.25 0 0 1 7.5 5.25h9a2.25 2.25 0 0 1 2.25 2.25v9a2.25 2.25 0 0 1-2.25 2.25h-9a2.25 2.25 0 0 1-2.25-2.25v-9Z" />
+                </svg>
+                Stop
               </Button>
             )}
           </div>
