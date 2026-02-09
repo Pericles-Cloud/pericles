@@ -1705,7 +1705,7 @@ export async function executeWorkflow(
 ): Promise<ApiResponse<WorkflowExecutionResult>> {
   const { mode = 'run', initialVariables } = options;
   return apiRequest<WorkflowExecutionResult>(
-    `/api/organizations/${orgId}/workflows/${workflowId}/run`,
+    `/api/organizations/${orgId}/workflows/${workflowId}/trial`,
     {
       method: 'POST',
       body: { mode, initialVariables },
