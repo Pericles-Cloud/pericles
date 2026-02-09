@@ -166,6 +166,41 @@ export default async function handler(
         });
       }
 
+      // If user has no active memberships, try to assign to matching organization
+      if (user.memberships.length === 0 && googleUser.hd) {
+        const matchingOrg = await prisma.organization.findFirst({
+          where: {
+            email_domains: { has: googleUser.hd },
+          },
+        });
+
+        if (matchingOrg) {
+          await prisma.userOrganization.create({
+            data: {
+              user_id: user.id,
+              organization_id: matchingOrg.id,
+              role: 'MEMBER',
+              status: 'active',
+            },
+          });
+
+          // Refetch user with new membership
+          user = await prisma.user.findUnique({
+            where: { id: user.id },
+            include: {
+              memberships: {
+                where: { status: 'active' },
+                include: { organization: true },
+              },
+            },
+          });
+
+          if (!user) {
+            throw new Error('User not found after membership creation');
+          }
+        }
+      }
+
       await logAuthEvent({
         userId: user.id,
         organizationId: user.memberships[0]?.organization_id,
@@ -193,8 +228,44 @@ export default async function handler(
         },
       });
 
+      // Auto-assign new user to organization matching their email domain
+      if (googleUser.hd) {
+        const matchingOrg = await prisma.organization.findFirst({
+          where: {
+            email_domains: { has: googleUser.hd },
+          },
+        });
+
+        if (matchingOrg) {
+          await prisma.userOrganization.create({
+            data: {
+              user_id: user.id,
+              organization_id: matchingOrg.id,
+              role: 'MEMBER',
+              status: 'active',
+            },
+          });
+
+          // Refetch user with new membership
+          user = await prisma.user.findUnique({
+            where: { id: user.id },
+            include: {
+              memberships: {
+                where: { status: 'active' },
+                include: { organization: true },
+              },
+            },
+          });
+
+          if (!user) {
+            throw new Error('User not found after membership creation');
+          }
+        }
+      }
+
       await logAuthEvent({
         userId: user.id,
+        organizationId: user.memberships[0]?.organization_id,
         eventType: 'REGISTER',
         eventStatus: 'SUCCESS',
         ipAddress,
@@ -204,6 +275,7 @@ export default async function handler(
 
       await logAuthEvent({
         userId: user.id,
+        organizationId: user.memberships[0]?.organization_id,
         eventType: 'GOOGLE_SSO_LOGIN',
         eventStatus: 'SUCCESS',
         ipAddress,

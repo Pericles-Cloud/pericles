@@ -136,6 +136,8 @@ export interface ProgressUpdate {
   // Tool configuration info (emitted at start)
   enabledTools?: string[];
   disabledTools?: string[];
+  // Heartbeat flag - frontend should not display these in activity log
+  isHeartbeat?: boolean;
 }
 
 export type ProgressCallback = (update: ProgressUpdate) => void;
@@ -231,9 +233,15 @@ export async function runMonitoringCycle(
 
     emitProgress({ phase: 'executing_tools', message: 'Connecting to AI agent...', toolIndex: 0, totalTools: estimatedTools });
 
+    const agentStartTime = Date.now();
+    cycleLogger.info({ prompt: monitoringPrompt.substring(0, 200) + '...' }, '[Cycle] Starting agent execution');
+
     // Create a timeout promise for the overall agent execution
-    // Default: 5 minutes (300s) - allows for 10+ tools with 10-30s timeouts each plus LLM inference
-    const AGENT_TIMEOUT_MS = parseInt(process.env.MONITORING_AGENT_TIMEOUT_MS || '300000', 10);
+    // In Vercel serverless (VERCEL=1), default to 280s to fit within 300s streaming function limit
+    // In other environments, default to 5 minutes (300s) for full monitoring cycles
+    const isVercelServerless = process.env.VERCEL === '1';
+    const defaultTimeoutMs = isVercelServerless ? 280000 : 300000;
+    const AGENT_TIMEOUT_MS = parseInt(process.env.MONITORING_AGENT_TIMEOUT_MS || String(defaultTimeoutMs), 10);
 
     const timeoutPromise = new Promise<never>((_, reject) => {
       setTimeout(() => {
@@ -241,30 +249,56 @@ export async function runMonitoringCycle(
       }, AGENT_TIMEOUT_MS);
     });
 
-    // Emit heartbeat updates every 5 seconds while waiting for first tool
+    // Emit heartbeat updates every 10 seconds to keep SSE connection alive
+    // This is critical for Vercel streaming - connections drop without periodic data
+    // Marked as heartbeat so frontend can filter from display
     let waitingSeconds = 0;
     heartbeatInterval = setInterval(() => {
-      waitingSeconds += 5;
-      if (currentToolIndex === 0) {
-        emitProgress({
+      waitingSeconds += 10;
+      if (onProgress) {
+        onProgress({
           phase: 'executing_tools',
-          message: `Waiting for AI response... (${waitingSeconds}s)`,
-          toolIndex: 0,
-          totalTools: estimatedTools,
+          message: currentToolIndex === 0
+            ? `Waiting for AI response... (${waitingSeconds}s)`
+            : `Processing tools... (${waitingSeconds}s elapsed)`,
+          toolIndex: currentToolIndex,
+          totalTools: Math.max(estimatedTools, currentToolIndex),
+          timestamp: new Date().toISOString(),
+          isHeartbeat: true, // Mark as heartbeat for frontend filtering
         });
       }
-    }, 5000);
+    }, 10000);
+
+    // Track tool execution for logging
+    const toolsProcessed: Set<string> = new Set();
+    let lastStepTime = Date.now();
 
     const agentPromise = agent.generate(monitoringPrompt, {
+      // Called when a step (which may include tool calls) finishes
       // eslint-disable-next-line @typescript-eslint/no-explicit-any -- Mastra agent callback type
       onStepFinish: (step: any) => {
-        // Log tool calls - try multiple property paths as Mastra/AI SDK may use different structures
-        // Check both toolCalls and toolResults arrays
+        const stepDuration = Date.now() - lastStepTime;
+        lastStepTime = Date.now();
+
+        // Log the full step structure for debugging
+        cycleLogger.info(
+          {
+            stepType: step?.type,
+            stepDurationMs: stepDuration,
+            hasToolCalls: !!step?.toolCalls?.length,
+            hasToolResults: !!step?.toolResults?.length,
+            toolCallCount: step?.toolCalls?.length || 0,
+            toolResultCount: step?.toolResults?.length || 0,
+            stepKeys: Object.keys(step || {}),
+          },
+          '[Cycle] Step finished'
+        );
+
+        // Process tool calls from this step
         const toolCalls = step?.toolCalls || step?.toolResults || [];
         if (toolCalls.length > 0) {
           for (const toolCall of toolCalls) {
-            // Try multiple property paths for tool name (Mastra/Vercel AI SDK variations)
-            // Mastra uses payload.toolName structure for tool call chunks
+            // Try multiple property paths for tool name
             const toolName = toolCall?.payload?.toolName
               || toolCall?.toolName
               || toolCall?.name
@@ -273,44 +307,50 @@ export async function runMonitoringCycle(
               || toolCall?.tool?.name
               || toolCall?.tool?.id
               || toolCall?.function?.name
-              || toolCall?.args?.toolName
               || (typeof toolCall === 'string' ? toolCall : null)
               || null;
 
-            metrics.toolsExecuted++;
-            currentToolIndex++;
+            // Generate a unique key for this tool call
+            const toolKey = toolName || `unknown-${currentToolIndex}`;
 
-            // Clear heartbeat interval once we start getting tool calls
-            if (heartbeatInterval && currentToolIndex === 1) {
-              clearInterval(heartbeatInterval);
-              heartbeatInterval = null;
-            }
+            // Only process if we haven't seen this tool yet
+            if (!toolsProcessed.has(toolKey)) {
+              toolsProcessed.add(toolKey);
+              metrics.toolsExecuted++;
+              currentToolIndex++;
 
-            // Format display name - if unknown, show tool index
-            const displayName = toolName
-              ? formatToolName(toolName)
-              : `Tool ${currentToolIndex}`;
+              const displayName = formatToolName(toolName || 'Unknown');
+              const durationSec = (stepDuration / 1000).toFixed(1);
 
-            // Emit progress for each tool
-            emitProgress({
-              phase: 'executing_tools',
-              message: `Executing ${displayName}...`,
-              tool: toolName || `tool-${currentToolIndex}`,
-              toolIndex: currentToolIndex,
-              totalTools: Math.max(estimatedTools, currentToolIndex),
-            });
-
-            // Log tool execution
-            if (toolName) {
-              cycleLogger.debug({ tool: toolName }, '[Cycle] Tool executed');
-            } else {
-              // Safe logging for unknown tool structure
-              cycleLogger.debug(
-                { toolCallKeys: Object.keys(toolCall || {}) },
-                '[Cycle] Tool executed (name extraction failed)'
+              // Log detailed tool info
+              cycleLogger.info(
+                {
+                  tool: toolName,
+                  toolIndex: currentToolIndex,
+                  stepDurationMs: stepDuration,
+                  toolCallKeys: Object.keys(toolCall || {}),
+                  hasResult: !!toolCall?.result,
+                  hasError: !!toolCall?.error,
+                },
+                `[Cycle] Tool completed: ${displayName}`
               );
+
+              // Emit progress with timing
+              emitProgress({
+                phase: 'executing_tools',
+                message: `${displayName} completed (${durationSec}s)`,
+                tool: toolName || `tool-${currentToolIndex}`,
+                toolIndex: currentToolIndex,
+                totalTools: Math.max(estimatedTools, currentToolIndex),
+              });
             }
           }
+        } else {
+          // No tool calls in this step - might be an LLM thinking step
+          cycleLogger.debug(
+            { stepDurationMs: stepDuration },
+            '[Cycle] Non-tool step completed (LLM processing)'
+          );
         }
       },
     });
@@ -326,7 +366,16 @@ export async function runMonitoringCycle(
 
     // Parse agent response
     const result = response.text || '';
-    cycleLogger.debug({ result }, '[Cycle] Agent response received');
+    const agentDuration = Date.now() - agentStartTime;
+    cycleLogger.info(
+      { durationMs: agentDuration, toolsExecuted: metrics.toolsExecuted, responseLength: result.length },
+      '[Cycle] Agent execution completed'
+    );
+
+    emitProgress({
+      phase: 'processing_events',
+      message: `Agent completed in ${(agentDuration / 1000).toFixed(1)}s, processing results...`,
+    });
 
     emitProgress({ phase: 'processing_events', message: 'Processing detected events...' });
 

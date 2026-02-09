@@ -19,6 +19,7 @@ import {
   extractIpAddress,
   extractUserAgent,
 } from '../../src/auth/index.js';
+import { handleCorsPreflightAndSetHeaders } from '../_cors.js';
 
 const prisma = new PrismaClient();
 
@@ -26,6 +27,9 @@ export default async function handler(
   req: VercelRequest,
   res: VercelResponse
 ): Promise<void> {
+  // Handle CORS
+  if (handleCorsPreflightAndSetHeaders(req, res)) return;
+
   // Only accept POST
   if (req.method !== 'POST') {
     res.status(405).json({

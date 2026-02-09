@@ -18,6 +18,7 @@ import type { VercelRequest, VercelResponse } from '@vercel/node';
 import { loadMonitoringConfig, getEnvironmentOverrides } from '../../src/monitoring/config.js';
 import { runMonitoringCycle } from '../../src/monitoring/index.js';
 import { logger } from '../../src/monitoring/logger.js';
+import { handleCorsPreflightAndSetHeaders } from '../_cors.js';
 
 /**
  * Authenticate request using Bearer token
@@ -46,11 +47,8 @@ export default async function handler(
   req: VercelRequest,
   res: VercelResponse
 ): Promise<void> {
-  // Handle CORS preflight
-  if (req.method === 'OPTIONS') {
-    res.status(200).json({});
-    return;
-  }
+  // Handle CORS
+  if (handleCorsPreflightAndSetHeaders(req, res)) return;
 
   // Only accept POST
   if (req.method !== 'POST') {

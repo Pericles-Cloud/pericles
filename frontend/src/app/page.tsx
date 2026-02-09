@@ -1,19 +1,22 @@
 'use client';
 
-import { useEffect } from 'react';
+import { useEffect, useRef } from 'react';
 import { useRouter } from 'next/navigation';
 import { useAuth } from '@/providers/auth-provider';
 
 export default function HomePage() {
   const router = useRouter();
   const { isLoading, isAuthenticated } = useAuth();
+  const hasNavigated = useRef(false);
 
   useEffect(() => {
-    if (!isLoading) {
+    if (!isLoading && !hasNavigated.current) {
+      hasNavigated.current = true;
+      // Use replace to avoid back-button issues with auth redirects
       if (isAuthenticated) {
-        router.push('/dashboard');
+        router.replace('/dashboard');
       } else {
-        router.push('/login');
+        router.replace('/login');
       }
     }
   }, [isLoading, isAuthenticated, router]);

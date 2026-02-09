@@ -437,7 +437,7 @@ export default function DashboardPage() {
               </div>
             </Link>
             <Link
-              href="/suppliers"
+              href="/manage/suppliers"
               className="w-full text-left p-3 rounded-lg border hover:bg-gray-50 dark:hover:bg-gray-700 transition-colors flex items-center gap-3"
             >
               <svg className="h-5 w-5 text-green-500" fill="none" viewBox="0 0 24 24" strokeWidth="1.5" stroke="currentColor">

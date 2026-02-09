@@ -10,6 +10,7 @@
 import type { VercelRequest, VercelResponse } from '@vercel/node';
 import { PrismaClient } from '@prisma/client';
 import { authenticateRequest } from '../../src/auth/index.js';
+import { handleCorsPreflightAndSetHeaders } from '../_cors.js';
 
 const prisma = new PrismaClient();
 
@@ -17,6 +18,9 @@ export default async function handler(
   req: VercelRequest,
   res: VercelResponse
 ): Promise<void> {
+  // Handle CORS
+  if (handleCorsPreflightAndSetHeaders(req, res)) return;
+
   // Only accept GET
   if (req.method !== 'GET') {
     res.status(405).json({

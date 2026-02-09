@@ -2,6 +2,16 @@
   "buildCommand": "prisma generate",
   "outputDirectory": "public",
   "functions": {
+    "api/monitoring/trigger-stream.ts": {
+      "memory": 1024,
+      "maxDuration": 300,
+      "includeFiles": "src/**/*"
+    },
+    "api/monitoring/trigger.ts": {
+      "memory": 1024,
+      "maxDuration": 300,
+      "includeFiles": "src/**/*"
+    },
     "api/**/*.ts": {
       "memory": 1024,
       "maxDuration": 60,

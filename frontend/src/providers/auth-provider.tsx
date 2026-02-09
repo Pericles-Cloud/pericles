@@ -37,6 +37,36 @@ interface AuthContextValue extends AuthState {
 const AuthContext = createContext<AuthContextValue | undefined>(undefined);
 
 const PUBLIC_PATHS = ['/login', '/register', '/auth/callback'];
+const SELECTED_ORG_KEY = 'pericles_selected_org_id';
+
+// Helper to get/set selected organization from localStorage
+function getSavedOrganizationId(): string | null {
+  if (typeof window === 'undefined') return null;
+  return localStorage.getItem(SELECTED_ORG_KEY);
+}
+
+function saveOrganizationId(orgId: string): void {
+  if (typeof window === 'undefined') return;
+  localStorage.setItem(SELECTED_ORG_KEY, orgId);
+}
+
+function clearSavedOrganizationId(): void {
+  if (typeof window === 'undefined') return;
+  localStorage.removeItem(SELECTED_ORG_KEY);
+}
+
+// Find organization by saved ID, or return first one as default
+function getDefaultOrganization(organizations: Organization[]): Organization | null {
+  if (organizations.length === 0) return null;
+
+  const savedOrgId = getSavedOrganizationId();
+  if (savedOrgId) {
+    const savedOrg = organizations.find(org => org.id === savedOrgId);
+    if (savedOrg) return savedOrg;
+  }
+
+  return organizations[0];
+}
 
 export function AuthProvider({ children }: { children: React.ReactNode }) {
   const router = useRouter();
@@ -72,12 +102,13 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
         setState({
           user,
           organizations,
-          currentOrganization: organizations[0] || null,
+          currentOrganization: getDefaultOrganization(organizations),
           isLoading: false,
           isAuthenticated: true,
         });
       } else {
         clearTokens();
+        clearSavedOrganizationId();
         setState({
           user: null,
           organizations: [],
@@ -89,6 +120,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     } catch (error) {
       console.error('Failed to refresh user:', error);
       clearTokens();
+      clearSavedOrganizationId();
       setState({
         user: null,
         organizations: [],
@@ -125,12 +157,13 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
           setState({
             user,
             organizations,
-            currentOrganization: organizations[0] || null,
+            currentOrganization: getDefaultOrganization(organizations),
             isLoading: false,
             isAuthenticated: true,
           });
         } else {
           clearTokens();
+          clearSavedOrganizationId();
           setState({
             user: null,
             organizations: [],
@@ -142,6 +175,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       } catch (error) {
         console.error('Failed to initialize auth:', error);
         clearTokens();
+        clearSavedOrganizationId();
         setState({
           user: null,
           organizations: [],
@@ -155,16 +189,16 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     initAuth();
   }, []);
 
-  // Redirect logic
+  // Redirect logic - use replace to avoid back-button issues with auth redirects
   useEffect(() => {
     if (state.isLoading) return;
 
     const isPublicPath = PUBLIC_PATHS.some(path => pathname.startsWith(path));
 
     if (!state.isAuthenticated && !isPublicPath) {
-      router.push('/login');
+      router.replace('/login');
     } else if (state.isAuthenticated && (pathname === '/login' || pathname === '/register')) {
-      router.push('/dashboard');
+      router.replace('/dashboard');
     }
   }, [state.isLoading, state.isAuthenticated, pathname, router]);
 
@@ -219,6 +253,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
 
     // Clear all cached data
     clearTokens();
+    clearSavedOrganizationId();
     if (typeof window !== 'undefined') {
       sessionStorage.clear();
     }
@@ -231,13 +266,14 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       isAuthenticated: false,
     });
 
-    router.push('/login');
+    router.replace('/login');
   }, [router]);
 
   // Handle session expiration (called from api-client when token refresh fails)
   const handleSessionExpired = useCallback(() => {
     // Clear all cached data
     clearTokens();
+    clearSavedOrganizationId();
     if (typeof window !== 'undefined') {
       sessionStorage.clear();
     }
@@ -251,7 +287,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     });
 
     // Redirect to login with session expired message
-    router.push('/login?error=session_expired');
+    router.replace('/login?error=session_expired');
   }, [router]);
 
   // Set up session expired callback on mount
@@ -267,6 +303,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   }, []);
 
   const setCurrentOrganization = useCallback((org: Organization) => {
+    saveOrganizationId(org.id);
     setState(prev => ({ ...prev, currentOrganization: org }));
   }, []);
 

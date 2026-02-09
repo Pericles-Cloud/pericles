@@ -30,7 +30,8 @@ import {
   getAccessToken,
 } from '@/lib/api-client';
 
-const WS_URL = process.env.NEXT_PUBLIC_WS_URL || 'http://localhost:4112';
+// Use API URL for WebSocket connection (Socket.IO handles ws:// upgrade internally)
+const WS_URL = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:4112';
 
 // Custom node data structure
 export interface WorkflowNodeData {
@@ -385,11 +386,24 @@ export const useWorkflowStore = create<WorkflowState>((set, get) => ({
     }
   },
 
-  // Initialize WebSocket connection
+  // Initialize WebSocket connection (optional - for real-time collaboration)
+  // Note: WebSocket is not supported on Vercel serverless, so this will fail gracefully in production
   initSocket: () => {
     const { workflow, organizationId, socket: existingSocket } = get();
 
     if (!workflow || !organizationId) return;
+
+    // Skip WebSocket in production (Vercel serverless doesn't support it)
+    // Real-time collaboration is only available in local development
+    const isProduction = typeof window !== 'undefined' &&
+      !window.location.hostname.includes('localhost') &&
+      !window.location.hostname.includes('127.0.0.1');
+
+    if (isProduction) {
+      console.log('[WS] WebSocket disabled in production (serverless environment)');
+      set({ connectionStatus: 'disconnected' });
+      return;
+    }
 
     // Clean up existing socket if present (prevents memory leaks on reconnection)
     if (existingSocket) {
@@ -403,7 +417,7 @@ export const useWorkflowStore = create<WorkflowState>((set, get) => ({
 
     const token = getAccessToken();
     if (!token) {
-      set({ connectionStatus: 'error', error: 'No authentication token' });
+      set({ connectionStatus: 'disconnected' });
       return;
     }
 
@@ -411,6 +425,8 @@ export const useWorkflowStore = create<WorkflowState>((set, get) => ({
       path: '/ws/workflow',
       auth: { token },
       transports: ['websocket', 'polling'],
+      reconnectionAttempts: 3,
+      timeout: 5000,
     });
 
     socket.on('connect', () => {
@@ -428,8 +444,8 @@ export const useWorkflowStore = create<WorkflowState>((set, get) => ({
     });
 
     socket.on('connect_error', (error) => {
-      console.error('[WS] Connection error:', error);
-      set({ connectionStatus: 'error', error: error.message });
+      console.warn('[WS] Connection error (real-time collaboration unavailable):', error.message);
+      set({ connectionStatus: 'disconnected' });
     });
 
     // Room events
