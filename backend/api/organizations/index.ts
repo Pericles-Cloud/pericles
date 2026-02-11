@@ -84,7 +84,34 @@ export default async function handler(
     }
 
     if (req.method === 'GET') {
-      // List user's organizations with full details
+      // Check if user is a member of the root organization (pericles.cloud users)
+      const rootMembership = await prisma.userOrganization.findFirst({
+        where: {
+          user_id: tokenPayload.userId,
+          status: 'active',
+          organization: { is_root: true },
+        },
+      });
+
+      // Root org users can see and switch to ALL organizations
+      if (rootMembership) {
+        const allOrganizations = await prisma.organization.findMany({
+          include: { _count: { select: { users: { where: { status: 'active' } } } } },
+          orderBy: [{ is_root: 'desc' }, { name: 'asc' }],
+        });
+
+        const organizations = allOrganizations.map((org) =>
+          formatOrganization(org, rootMembership.role as 'OWNER' | 'ADMIN' | 'MEMBER' | 'GUEST')
+        );
+
+        res.status(200).json({
+          success: true,
+          data: organizations,
+        });
+        return;
+      }
+
+      // Regular users only see their own memberships
       const memberships = await prisma.userOrganization.findMany({
         where: {
           user_id: tokenPayload.userId,

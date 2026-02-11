@@ -4,7 +4,13 @@
  * Runs a single monitoring cycle for Levi Strauss organization
  */
 
-import 'dotenv/config';
+import dotenv from 'dotenv';
+import path from 'path';
+import { fileURLToPath } from 'url';
+
+const __filename = fileURLToPath(import.meta.url);
+const __dirname = path.dirname(__filename);
+dotenv.config({ path: path.resolve(__dirname, '../../.env.local') });
 import { loadMonitoringConfig } from '../src/monitoring/config';
 import { runMonitoringCycle } from '../src/monitoring/index';
 import { logger } from '../src/monitoring/logger';

@@ -15,7 +15,7 @@ import { z } from 'zod';
 const prisma = new PrismaClient();
 
 const UpdateMemberSchema = z.object({
-  role: z.enum(['ADMIN', 'MEMBER', 'GUEST']),
+  role: z.enum(['OWNER', 'ADMIN', 'MEMBER', 'GUEST']),
 });
 
 export default async function handler(
@@ -97,8 +97,14 @@ export default async function handler(
       return;
     }
 
-    // Cannot modify OWNER
-    if (targetMember.role === 'OWNER') {
+    // Fetch organization to check if it's the root org (pericles.cloud)
+    const organization = await prisma.organization.findUnique({
+      where: { id: orgId },
+      select: { is_root: true },
+    });
+
+    // In non-root orgs, cannot modify existing OWNER
+    if (targetMember.role === 'OWNER' && !organization?.is_root) {
       res.status(403).json({
         success: false,
         error: { code: 'FORBIDDEN', message: 'Cannot modify organization owner' },
@@ -123,6 +129,24 @@ export default async function handler(
           error: { code: 'VALIDATION_ERROR', message: parseResult.error.errors[0].message },
         });
         return;
+      }
+
+      // Only OWNER can promote to OWNER, and only in root org (pericles.cloud)
+      if (parseResult.data.role === 'OWNER') {
+        if (userMembership.role !== 'OWNER') {
+          res.status(403).json({
+            success: false,
+            error: { code: 'FORBIDDEN', message: 'Only owners can promote to owner' },
+          });
+          return;
+        }
+        if (!organization?.is_root) {
+          res.status(403).json({
+            success: false,
+            error: { code: 'FORBIDDEN', message: 'Owner promotion only allowed in root organization' },
+          });
+          return;
+        }
       }
 
       // ADMIN cannot promote to ADMIN
@@ -158,7 +182,7 @@ export default async function handler(
             email: updatedMember.user.email,
             name: updatedMember.user.name,
           },
-          role: updatedMember.role as 'ADMIN' | 'MEMBER' | 'GUEST',
+          role: updatedMember.role as 'OWNER' | 'ADMIN' | 'MEMBER' | 'GUEST',
           joinedAt: (updatedMember.accepted_at || updatedMember.created_at).toISOString(),
         },
       });

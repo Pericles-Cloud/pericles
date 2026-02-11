@@ -924,6 +924,7 @@ app.get('/api/auth/google/callback', async (req: Request, res: Response) => {
       }
 
       // Auto-assign pericles domain users to root organization if not already a member
+      // Pericles domain users get OWNER role for full platform access
       if (isPericlesDomain && user.memberships.length === 0) {
         const rootOrg = await prisma.organization.findFirst({
           where: { is_root: true },
@@ -933,7 +934,7 @@ app.get('/api/auth/google/callback', async (req: Request, res: Response) => {
             data: {
               user_id: user.id,
               organization_id: rootOrg.id,
-              role: 'MEMBER',
+              role: 'OWNER',
               status: 'active',
               accepted_at: new Date(),
             },
@@ -982,6 +983,7 @@ app.get('/api/auth/google/callback', async (req: Request, res: Response) => {
       });
 
       // Auto-assign pericles domain users to root organization
+      // Pericles domain users get OWNER role for full platform access
       if (isPericlesDomain) {
         const rootOrg = await prisma.organization.findFirst({
           where: { is_root: true },
@@ -991,7 +993,7 @@ app.get('/api/auth/google/callback', async (req: Request, res: Response) => {
             data: {
               user_id: user.id,
               organization_id: rootOrg.id,
-              role: 'MEMBER',
+              role: 'OWNER',
               status: 'active',
               accepted_at: new Date(),
             },
@@ -1177,6 +1179,31 @@ app.get('/api/organizations', async (req: Request, res: Response) => {
       return;
     }
 
+    // Check if user is a member of the root organization (pericles.cloud users)
+    const rootMembership = await prisma.userOrganization.findFirst({
+      where: {
+        user_id: tokenPayload.userId,
+        status: 'active',
+        organization: { is_root: true },
+      },
+    });
+
+    // Root org users can see and switch to ALL organizations
+    if (rootMembership) {
+      const allOrganizations = await prisma.organization.findMany({
+        include: { _count: { select: { users: { where: { status: 'active' } } } } },
+        orderBy: [{ is_root: 'desc' }, { name: 'asc' }],
+      });
+
+      const organizations = allOrganizations.map((org) =>
+        formatOrganization(org, rootMembership.role as 'OWNER' | 'ADMIN' | 'MEMBER' | 'GUEST')
+      );
+
+      res.status(200).json({ success: true, data: organizations });
+      return;
+    }
+
+    // Regular users only see their own memberships
     const memberships = await prisma.userOrganization.findMany({
       where: { user_id: tokenPayload.userId, status: 'active' },
       include: {

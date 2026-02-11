@@ -167,6 +167,7 @@ export default async function handler(
       }
 
       // If user has no active memberships, try to assign to matching organization
+      // Pericles domain users get OWNER role for full platform access
       if (user.memberships.length === 0 && googleUser.hd) {
         const matchingOrg = await prisma.organization.findFirst({
           where: {
@@ -179,7 +180,7 @@ export default async function handler(
             data: {
               user_id: user.id,
               organization_id: matchingOrg.id,
-              role: 'MEMBER',
+              role: 'OWNER',
               status: 'active',
             },
           });
@@ -229,6 +230,7 @@ export default async function handler(
       });
 
       // Auto-assign new user to organization matching their email domain
+      // Pericles domain users get OWNER role for full platform access
       if (googleUser.hd) {
         const matchingOrg = await prisma.organization.findFirst({
           where: {
@@ -241,7 +243,7 @@ export default async function handler(
             data: {
               user_id: user.id,
               organization_id: matchingOrg.id,
-              role: 'MEMBER',
+              role: 'OWNER',
               status: 'active',
             },
           });
