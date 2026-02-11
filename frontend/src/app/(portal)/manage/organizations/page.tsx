@@ -222,7 +222,7 @@ export default function OrganizationsPage() {
     }
   };
 
-  const handleUpdateRole = async (memberId: string, newRole: 'ADMIN' | 'MEMBER' | 'GUEST') => {
+  const handleUpdateRole = async (memberId: string, newRole: 'OWNER' | 'ADMIN' | 'MEMBER' | 'GUEST') => {
     if (!selectedOrg) return;
 
     const response = await updateMemberRole(selectedOrg.id, memberId, newRole);
@@ -437,9 +437,10 @@ export default function OrganizationsPage() {
                           {canManageOrg && member.role !== 'OWNER' ? (
                             <select
                               value={member.role}
-                              onChange={(e) => handleUpdateRole(member.id, e.target.value as 'ADMIN' | 'MEMBER' | 'GUEST')}
+                              onChange={(e) => handleUpdateRole(member.id, e.target.value as 'OWNER' | 'ADMIN' | 'MEMBER' | 'GUEST')}
                               className="text-sm border rounded-md px-2 py-1 bg-white dark:bg-gray-700 dark:border-gray-600"
                             >
+                              {isOwner && <option value="OWNER">Owner</option>}
                               <option value="ADMIN">Admin</option>
                               <option value="MEMBER">Member</option>
                               <option value="GUEST">Guest</option>

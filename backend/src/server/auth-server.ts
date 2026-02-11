@@ -1115,7 +1115,7 @@ const UpdateOrgSchema = z.object({
 });
 
 const UpdateMemberSchema = z.object({
-  role: z.enum(['ADMIN', 'MEMBER', 'GUEST']),
+  role: z.enum(['OWNER', 'ADMIN', 'MEMBER', 'GUEST']),
 });
 
 const CreateInviteSchema = z.object({
@@ -1434,7 +1434,14 @@ app.patch('/api/organizations/:id/members/:memberId', async (req: Request, res: 
       return;
     }
 
-    if (targetMember.role === 'OWNER') {
+    // Fetch organization to check if it's the root org (pericles.cloud)
+    const organization = await prisma.organization.findUnique({
+      where: { id: getParam(req.params.id) },
+      select: { is_root: true },
+    });
+
+    // In non-root orgs, cannot modify existing OWNER
+    if (targetMember.role === 'OWNER' && !organization?.is_root) {
       res.status(403).json({ success: false, error: { code: 'FORBIDDEN', message: 'Cannot modify organization owner' } });
       return;
     }
@@ -1443,6 +1450,18 @@ app.patch('/api/organizations/:id/members/:memberId', async (req: Request, res: 
     if (!parseResult.success) {
       res.status(400).json({ success: false, error: { code: 'VALIDATION_ERROR', message: parseResult.error.errors[0].message } });
       return;
+    }
+
+    // Only OWNER can promote to OWNER, and only in root org (pericles.cloud)
+    if (parseResult.data.role === 'OWNER') {
+      if (userMembership.role !== 'OWNER') {
+        res.status(403).json({ success: false, error: { code: 'FORBIDDEN', message: 'Only owners can promote to owner' } });
+        return;
+      }
+      if (!organization?.is_root) {
+        res.status(403).json({ success: false, error: { code: 'FORBIDDEN', message: 'Owner promotion only allowed in root organization' } });
+        return;
+      }
     }
 
     if (userMembership.role === 'ADMIN' && parseResult.data.role === 'ADMIN') {
@@ -1462,7 +1481,7 @@ app.patch('/api/organizations/:id/members/:memberId', async (req: Request, res: 
         id: updatedMember.id,
         userId: updatedMember.user_id,
         user: { id: updatedMember.user.id, email: updatedMember.user.email, name: updatedMember.user.name },
-        role: updatedMember.role as 'ADMIN' | 'MEMBER' | 'GUEST',
+        role: updatedMember.role as 'OWNER' | 'ADMIN' | 'MEMBER' | 'GUEST',
         joinedAt: (updatedMember.accepted_at || updatedMember.created_at).toISOString(),
       },
     });

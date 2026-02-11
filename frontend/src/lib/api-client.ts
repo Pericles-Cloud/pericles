@@ -472,7 +472,7 @@ export async function getOrganizationMembers(
 export async function updateMemberRole(
   orgId: string,
   memberId: string,
-  role: 'ADMIN' | 'MEMBER' | 'GUEST'
+  role: 'OWNER' | 'ADMIN' | 'MEMBER' | 'GUEST'
 ): Promise<ApiResponse<OrganizationMember>> {
   return apiRequest<OrganizationMember>(`/api/organizations/${orgId}/members/${memberId}`, {
     method: 'PATCH',
