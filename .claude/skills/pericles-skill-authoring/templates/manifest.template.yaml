@@ -1,0 +1,43 @@
+# templates/manifest.template.yaml
+# A Pericles Skill manifest. See pericles-skill-authoring. Registry loader is pending
+# (pericles-skill-registry) — keep this format stable so the lift stays code-free.
+
+id: topical/weather-disaster            # <category>/<name>; category: functional|topical|regional|industry|pack|custom/<slug>
+version: 2026.05.0                       # calendar YYYY.MM.N — never reuse
+description: >
+  One precise paragraph the registry and other Skills read. State what this Skill
+  establishes/returns.
+lifecycle: published                     # draft | poc | published | deprecated | retired
+
+# Functional Skills MUST declare data_access; Topical/Regional/Industry declare knowledge_sources.
+data_access:
+  pattern: pre_validation                # pre_validation | post_validation | cross_pipeline
+  gateway_path: false                    # true only for cross_pipeline Skills that compose Topicals via the audited path
+
+runtime_ref:
+  mastra_tool_ref: backend/src/mastra/tools/weather-disaster-monitor-tool.ts#weatherDisasterMonitorTool
+  # or: mastra_agent_ref: backend/src/mastra/agents/monitoring-agent.ts#monitoringAgent
+
+dependencies: []                         # Skill IDs composed; keep minimal
+
+knowledge_sources:                       # declared data reached; new sources via MCP (§5)
+  - { type: external_api, name: NOAA, status: grandfathered_inline }
+  - { type: external_api, name: NASA-EONET, status: grandfathered_inline }
+
+eval_criteria:                           # REQUIRED to reach `published`
+  suite: registry/evals/weather-disaster.suite.json
+  scorers:
+    - { name: relevanceScorer, threshold: 0.7 }
+    - { name: severityAccuracyScorer, threshold: 0.7 }
+    - { name: deduplicationScorer, threshold: 0.7 }
+  max_regression_pct: 5
+
+governance:
+  visibility: platform                   # platform | tenant
+  audit_retention_days: 365              # 365–2555
+
+provenance:
+  author: <name>
+  architecture_review: <link>            # REQUIRED for new Functional Skills
+  created: 2026-05-28
+  updated: 2026-05-28

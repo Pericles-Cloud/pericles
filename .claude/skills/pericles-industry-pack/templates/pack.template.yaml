@@ -1,0 +1,46 @@
+# templates/pack.template.yaml — Pericles Industry Pack manifest.
+# A Pack REFERENCES versions; it never embeds or forks Skills/templates/adapters.
+# See pericles-industry-pack + the Industry Pack Spec.
+
+id: packs/industrial-manufacturing@2026.05.0
+display_name: Pericles for Industrial Manufacturing
+target_segment:
+  revenue_range: [300M, 2B]
+  primary_buyer: vp-supply-chain
+
+industry_skill: industry/industrial-manufacturing@2026.05.0
+
+default_topical_skills:                 # sector-weighted; reference shared Topicals
+  - topical/commodities@2026.05.0
+  - topical/maritime-logistics@2026.05.0
+  - topical/regulatory-trade@2026.04.0
+  - topical/labor-social@2026.04.0
+  - topical/economic-financial@2026.04.0
+
+default_regional_skills:
+  policy: footprint-derived             # derived from the customer's ERP footprint
+
+plan_templates:
+  - templates/plans/tier-1-supplier-disruption@2026.04.0
+  - templates/plans/port-strike-response@2026.04.0
+  - templates/plans/raw-material-shortage@2026.04.0
+  - templates/plans/regulatory-compliance-change@2026.04.0
+
+assessment_types:
+  - assessments/supplier-portfolio-risk@2026.05.0
+  - assessments/regional-concentration@2026.05.0
+  - assessments/raw-material-exposure@2026.05.0
+
+atlas_defaults:
+  filter_preset: industrial-mfg-default
+  severity_rules: severity/industrial-mfg-v2
+
+erp_adapters:
+  - adapters/sap-s4hana@2026.04.0
+  - adapters/microsoft-dynamics-365@2026.04.0
+  - adapters/epicor-kinetic@2026.04.0
+  - adapters/infor-cloudsuite@2026.04.0
+
+reference_data:
+  - data/industrial-mfg-supplier-tier-norms@2026.04.0
+  - data/industrial-mfg-lead-time-benchmarks@2026.04.0
