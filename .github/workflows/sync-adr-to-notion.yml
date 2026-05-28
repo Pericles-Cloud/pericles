@@ -1,0 +1,26 @@
+name: Sync ADRs to Notion
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - '.claude/adr/*.md'
+
+jobs:
+  sync:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+
+      - name: Install dependencies
+        run: npm install @notionhq/client gray-matter
+
+      - name: Sync ADRs to Notion
+        env:
+          NOTION_TOKEN: ${{ secrets.NOTION_TOKEN }}
+          NOTION_ADR_PAGE_ID: '35c91406-3001-81fb-9f5e-c166b0eff7a0'
+        run: node .github/scripts/sync-adr-to-notion.mjs

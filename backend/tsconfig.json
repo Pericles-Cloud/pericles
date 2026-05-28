@@ -14,7 +14,9 @@
     "src/**/*",
     "api/**/*",
     "scripts/**/*",
-    "prisma/**/*"
+    "prisma/**/*",
+    "test/**/*",
+    "vitest.config.ts"
   ],
   "exclude": [
     "node_modules",

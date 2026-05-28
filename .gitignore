@@ -20,7 +20,7 @@ out/
 .vscode/
 
 # OS
-.DS_Store
+**/.DS_Store
 Thumbs.db
 
 # Logs
@@ -31,6 +31,10 @@ yarn-error.log*
 
 # Testing
 coverage/
+test-results.xml
+
+# Archives
+*.zip
 
 # Misc
 *.tgz
