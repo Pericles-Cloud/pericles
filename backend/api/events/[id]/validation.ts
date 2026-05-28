@@ -7,7 +7,7 @@
 
 import type { VercelRequest, VercelResponse } from '@vercel/node';
 import { PrismaClient } from '@prisma/client';
-import { authenticateRequest } from '../../../src/auth/index.js';
+import { authenticateRequest, checkOrganizationAccess } from '../../../src/auth/index.js';
 import { handleCorsPreflightAndSetHeaders } from '../../_cors.js';
 
 const prisma = new PrismaClient();
@@ -108,16 +108,9 @@ export default async function handler(
     }
 
     // Verify user has write access
-    const membership = await prisma.userOrganization.findUnique({
-      where: {
-        user_id_organization_id: {
-          user_id: tokenPayload.userId,
-          organization_id: event.organization_id,
-        },
-      },
-    });
+    const accessResult = await checkOrganizationAccess(tokenPayload.userId, event.organization_id);
 
-    if (membership?.status !== 'active' || !['OWNER', 'ADMIN'].includes(membership.role)) {
+    if (!accessResult.hasAccess || !['OWNER', 'ADMIN'].includes(accessResult.membership.role)) {
       res.status(403).json({
         success: false,
         error: { code: 'FORBIDDEN', message: 'Insufficient permissions' },

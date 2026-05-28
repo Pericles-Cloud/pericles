@@ -9,7 +9,7 @@
 
 import type { VercelRequest, VercelResponse } from '@vercel/node';
 import { PrismaClient } from '@prisma/client';
-import { authenticateRequest } from '../../src/auth/index.js';
+import { authenticateRequest, checkOrganizationAccess } from '../../src/auth/index.js';
 import { handleCorsPreflightAndSetHeaders } from '../_cors.js';
 
 const prisma = new PrismaClient();
@@ -105,16 +105,9 @@ export default async function handler(
     }
 
     // Verify user has access to this organization
-    const membership = await prisma.userOrganization.findUnique({
-      where: {
-        user_id_organization_id: {
-          user_id: tokenPayload.userId,
-          organization_id: shipment.organization_id,
-        },
-      },
-    });
+    const accessResult = await checkOrganizationAccess(tokenPayload.userId, shipment.organization_id);
 
-    if (membership?.status !== 'active') {
+    if (!accessResult.hasAccess) {
       res.status(404).json({
         success: false,
         error: { code: 'NOT_FOUND', message: 'Shipment not found' },
@@ -131,7 +124,7 @@ export default async function handler(
     }
 
     // Write operations require OWNER or ADMIN
-    if (!['OWNER', 'ADMIN'].includes(membership.role)) {
+    if (!['OWNER', 'ADMIN'].includes(accessResult.membership.role)) {
       res.status(403).json({
         success: false,
         error: { code: 'FORBIDDEN', message: 'Insufficient permissions' },

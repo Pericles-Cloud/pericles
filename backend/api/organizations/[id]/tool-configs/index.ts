@@ -7,7 +7,7 @@
 
 import type { VercelRequest, VercelResponse } from '@vercel/node';
 import { PrismaClient } from '@prisma/client';
-import { authenticateRequest } from '../../../../src/auth/index.js';
+import { authenticateRequest, checkOrganizationAccess } from '../../../../src/auth/index.js';
 import { handleCorsPreflightAndSetHeaders } from '../../../_cors.js';
 
 const prisma = new PrismaClient();
@@ -73,16 +73,10 @@ export default async function handler(
       return;
     }
 
-    const membership = await prisma.userOrganization.findUnique({
-      where: {
-        user_id_organization_id: {
-          user_id: tokenPayload.userId,
-          organization_id: orgId,
-        },
-      },
-    });
+    // Check user has access to this organization (direct membership or root org member)
+    const accessResult = await checkOrganizationAccess(tokenPayload.userId, orgId);
 
-    if (membership?.status !== 'active') {
+    if (!accessResult.hasAccess) {
       res.status(404).json({
         success: false,
         error: { code: 'NOT_FOUND', message: 'Organization not found' },

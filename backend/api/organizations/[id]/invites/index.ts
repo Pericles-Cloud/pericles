@@ -8,7 +8,7 @@
 
 import type { VercelRequest, VercelResponse } from '@vercel/node';
 import { PrismaClient } from '@prisma/client';
-import { authenticateRequest } from '../../../../src/auth/index.js';
+import { authenticateRequest, checkOrganizationAccess } from '../../../../src/auth/index.js';
 import { handleCorsPreflightAndSetHeaders } from '../../../_cors.js';
 import { z } from 'zod';
 
@@ -48,17 +48,10 @@ export default async function handler(
       return;
     }
 
-    // Check user membership and role
-    const userMembership = await prisma.userOrganization.findUnique({
-      where: {
-        user_id_organization_id: {
-          user_id: tokenPayload.userId,
-          organization_id: orgId,
-        },
-      },
-    });
+    // Check user has access to this organization (direct membership or root org member)
+    const accessResult = await checkOrganizationAccess(tokenPayload.userId, orgId);
 
-    if (userMembership?.status !== 'active') {
+    if (!accessResult.hasAccess) {
       res.status(404).json({
         success: false,
         error: { code: 'NOT_FOUND', message: 'Organization not found' },
@@ -66,8 +59,10 @@ export default async function handler(
       return;
     }
 
+    const userRole = accessResult.membership.role;
+
     // Only OWNER and ADMIN can manage invites
-    if (!['OWNER', 'ADMIN'].includes(userMembership.role)) {
+    if (!['OWNER', 'ADMIN'].includes(userRole)) {
       res.status(403).json({
         success: false,
         error: { code: 'FORBIDDEN', message: 'Insufficient permissions' },
@@ -121,7 +116,7 @@ export default async function handler(
       const { email, role } = parseResult.data;
 
       // ADMIN cannot create ADMIN invites
-      if (userMembership.role === 'ADMIN' && role === 'ADMIN') {
+      if (userRole === 'ADMIN' && role === 'ADMIN') {
         res.status(403).json({
           success: false,
           error: { code: 'FORBIDDEN', message: 'Only owners can invite admins' },

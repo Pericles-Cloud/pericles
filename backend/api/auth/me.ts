@@ -69,6 +69,32 @@ export default async function handler(
       return;
     }
 
+    // Check if user is a member of the root organization (pericles.cloud users)
+    const rootMembership = user.memberships.find((m) => m.organization.is_root);
+
+    // Root org users can see and switch to ALL organizations
+    let organizations: Array<{ id: string; name: string; role: 'OWNER' | 'ADMIN' | 'MEMBER' | 'GUEST' }>;
+
+    if (rootMembership) {
+      const allOrganizations = await prisma.organization.findMany({
+        orderBy: [{ is_root: 'desc' }, { name: 'asc' }],
+      });
+
+      // Root org users get their root org role for all organizations they can access
+      organizations = allOrganizations.map((org) => ({
+        id: org.id,
+        name: org.name,
+        role: rootMembership.role as 'OWNER' | 'ADMIN' | 'MEMBER' | 'GUEST',
+      }));
+    } else {
+      // Regular users only see their own memberships
+      organizations = user.memberships.map((m) => ({
+        id: m.organization_id,
+        name: m.organization.name,
+        role: m.role as 'OWNER' | 'ADMIN' | 'MEMBER' | 'GUEST',
+      }));
+    }
+
     res.status(200).json({
       success: true,
       data: {
@@ -79,11 +105,7 @@ export default async function handler(
           avatarUrl: user.avatar_url || user.google_avatar_url,
           emailVerified: user.email_verified,
         },
-        organizations: user.memberships.map((m) => ({
-          id: m.organization_id,
-          name: m.organization.name,
-          role: m.role as 'OWNER' | 'ADMIN' | 'MEMBER' | 'GUEST',
-        })),
+        organizations,
       },
     });
   } catch (error) {

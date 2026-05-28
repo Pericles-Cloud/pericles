@@ -7,7 +7,7 @@
 
 import type { VercelRequest, VercelResponse } from '@vercel/node';
 import { PrismaClient } from '@prisma/client';
-import { authenticateRequest } from '../../../src/auth/index.js';
+import { authenticateRequest, checkOrganizationAccess } from '../../../src/auth/index.js';
 import { handleCorsPreflightAndSetHeaders } from '../../_cors.js';
 
 const prisma = new PrismaClient();
@@ -49,8 +49,19 @@ export default async function handler(
       return;
     }
 
-    // Check user membership
-    const membership = await prisma.userOrganization.findUnique({
+    // Check user has access to this organization (for proper error messages)
+    const accessResult = await checkOrganizationAccess(tokenPayload.userId, orgId);
+
+    if (!accessResult.hasAccess) {
+      res.status(404).json({
+        success: false,
+        error: { code: 'NOT_FOUND', message: 'Organization not found' },
+      });
+      return;
+    }
+
+    // Check for direct membership (you can only leave an org you're actually a member of)
+    const directMembership = await prisma.userOrganization.findUnique({
       where: {
         user_id_organization_id: {
           user_id: tokenPayload.userId,
@@ -59,16 +70,16 @@ export default async function handler(
       },
     });
 
-    if (membership?.status !== 'active') {
-      res.status(404).json({
+    if (directMembership?.status !== 'active') {
+      res.status(400).json({
         success: false,
-        error: { code: 'NOT_FOUND', message: 'Organization not found or you are not a member' },
+        error: { code: 'BAD_REQUEST', message: 'You are not a direct member of this organization' },
       });
       return;
     }
 
     // Owners cannot leave - they must transfer ownership or delete the org
-    if (membership.role === 'OWNER') {
+    if (directMembership.role === 'OWNER') {
       res.status(403).json({
         success: false,
         error: { code: 'FORBIDDEN', message: 'Owners cannot leave. Transfer ownership or delete the organization.' },

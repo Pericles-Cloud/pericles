@@ -8,7 +8,7 @@
 
 import type { VercelRequest, VercelResponse } from '@vercel/node';
 import { PrismaClient } from '@prisma/client';
-import { authenticateRequest } from '../../src/auth/index.js';
+import { authenticateRequest, checkOrganizationAccess } from '../../src/auth/index.js';
 import { handleCorsPreflightAndSetHeaders } from '../_cors.js';
 
 const prisma = new PrismaClient();
@@ -88,17 +88,10 @@ export default async function handler(
         return;
       }
 
-      // Verify user has access to this organization
-      const membership = await prisma.userOrganization.findUnique({
-        where: {
-          user_id_organization_id: {
-            user_id: tokenPayload.userId,
-            organization_id: organizationId,
-          },
-        },
-      });
+      // Verify user has access to this organization (direct membership or root org member)
+      const accessResult = await checkOrganizationAccess(tokenPayload.userId, organizationId);
 
-      if (membership?.status !== 'active') {
+      if (!accessResult.hasAccess) {
         res.status(403).json({
           success: false,
           error: { code: 'FORBIDDEN', message: 'Access denied to this organization' },
@@ -164,17 +157,10 @@ export default async function handler(
         return;
       }
 
-      // Verify user has write access
-      const membership = await prisma.userOrganization.findUnique({
-        where: {
-          user_id_organization_id: {
-            user_id: tokenPayload.userId,
-            organization_id: organizationId,
-          },
-        },
-      });
+      // Verify user has write access (direct membership or root org member)
+      const accessResult = await checkOrganizationAccess(tokenPayload.userId, organizationId);
 
-      if (membership?.status !== 'active' || !['OWNER', 'ADMIN'].includes(membership.role)) {
+      if (!accessResult.hasAccess || !['OWNER', 'ADMIN'].includes(accessResult.membership.role)) {
         res.status(403).json({
           success: false,
           error: { code: 'FORBIDDEN', message: 'Insufficient permissions' },

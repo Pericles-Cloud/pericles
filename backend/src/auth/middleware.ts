@@ -1,5 +1,8 @@
 import type { VercelRequest, VercelResponse } from '@vercel/node';
 import { verifyAccessToken, type AccessTokenPayload } from './jwt.js';
+import { PrismaClient } from '@prisma/client';
+
+const prisma = new PrismaClient();
 
 /**
  * Minimal request interface for authentication.
@@ -89,4 +92,91 @@ export function requireRole(
       await handler(req, res, user);
     });
   };
+}
+
+/**
+ * Result of organization access check.
+ */
+export interface OrganizationAccess {
+  hasAccess: true;
+  membership: {
+    role: 'OWNER' | 'ADMIN' | 'MEMBER' | 'GUEST';
+    isRootOrgMember: boolean;
+  };
+}
+
+export interface OrganizationAccessDenied {
+  hasAccess: false;
+  reason: 'not_found' | 'not_member';
+}
+
+export type OrganizationAccessResult = OrganizationAccess | OrganizationAccessDenied;
+
+/**
+ * Check if a user has access to an organization.
+ * Returns access if:
+ * 1. User has a direct active membership to the organization, OR
+ * 2. User is a member of the root organization (pericles.cloud users can access all orgs)
+ *
+ * For root org members accessing other orgs, the role returned is their root org role.
+ */
+export async function checkOrganizationAccess(
+  userId: string,
+  organizationId: string
+): Promise<OrganizationAccessResult> {
+  // First check for direct membership
+  const directMembership = await prisma.userOrganization.findUnique({
+    where: {
+      user_id_organization_id: {
+        user_id: userId,
+        organization_id: organizationId,
+      },
+    },
+    include: {
+      organization: {
+        select: { is_root: true },
+      },
+    },
+  });
+
+  if (directMembership?.status === 'active') {
+    return {
+      hasAccess: true,
+      membership: {
+        role: directMembership.role as 'OWNER' | 'ADMIN' | 'MEMBER' | 'GUEST',
+        isRootOrgMember: directMembership.organization.is_root,
+      },
+    };
+  }
+
+  // Check if user is a member of the root organization
+  const rootMembership = await prisma.userOrganization.findFirst({
+    where: {
+      user_id: userId,
+      status: 'active',
+      organization: { is_root: true },
+    },
+  });
+
+  if (rootMembership) {
+    // Verify the target organization exists
+    const targetOrg = await prisma.organization.findUnique({
+      where: { id: organizationId },
+    });
+
+    if (!targetOrg) {
+      return { hasAccess: false, reason: 'not_found' };
+    }
+
+    // Root org members can access any organization with their root org role
+    return {
+      hasAccess: true,
+      membership: {
+        role: rootMembership.role as 'OWNER' | 'ADMIN' | 'MEMBER' | 'GUEST',
+        isRootOrgMember: true,
+      },
+    };
+  }
+
+  return { hasAccess: false, reason: 'not_member' };
 }

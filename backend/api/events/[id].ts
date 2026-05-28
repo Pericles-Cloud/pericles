@@ -7,7 +7,7 @@
 
 import type { VercelRequest, VercelResponse } from '@vercel/node';
 import { PrismaClient } from '@prisma/client';
-import { authenticateRequest } from '../../src/auth/index.js';
+import { authenticateRequest, checkOrganizationAccess } from '../../src/auth/index.js';
 import { handleCorsPreflightAndSetHeaders } from '../_cors.js';
 
 const prisma = new PrismaClient();
@@ -100,16 +100,9 @@ export default async function handler(
     }
 
     // Verify membership
-    const membership = await prisma.userOrganization.findUnique({
-      where: {
-        user_id_organization_id: {
-          user_id: tokenPayload.userId,
-          organization_id: event.organization_id,
-        },
-      },
-    });
+    const accessResult = await checkOrganizationAccess(tokenPayload.userId, event.organization_id);
 
-    if (membership?.status !== 'active') {
+    if (!accessResult.hasAccess) {
       res.status(403).json({
         success: false,
         error: { code: 'FORBIDDEN', message: 'Access denied to this event' },
