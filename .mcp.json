@@ -1,3 +1,11 @@
 {
-  "mcpServers": {}
+  "mcpServers": {
+    "apify-importyeti": {
+      "command": "npx",
+      "args": ["-y", "@apify/actors-mcp-server", "--tools", "silentflow/importyeti-scraper"],
+      "env": {
+        "APIFY_TOKEN": "${APIFY_TOKEN}"
+      }
+    }
+  }
 }
