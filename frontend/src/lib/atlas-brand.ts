@@ -6,9 +6,10 @@
  * literal color strings (they can't consume CSS variables), so the Atlas map
  * layer references these constants directly.
  *
- * NOTE: these brand colors are not yet wired into the global design tokens
- * (globals.css :root still ships the default shadcn palette). Wiring
- * --primary/--accent to these values is a separate, app-wide change.
+ * These values are kept in sync with the global design tokens in globals.css
+ * (--brand-purple / --brand-gold / --brand-slate and --primary). UI chrome
+ * should prefer the Tailwind utilities (bg-primary, bg-brand-gold, …); these
+ * constants are for the canvas/map layer that needs raw hex.
  */
 
 export const PERICLES = {
