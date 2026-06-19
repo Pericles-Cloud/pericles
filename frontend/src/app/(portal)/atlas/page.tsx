@@ -276,7 +276,6 @@ export default function AtlasPage() {
               size="sm"
               variant={timeliness === f ? 'default' : 'outline'}
               onClick={() => setTimeliness(f)}
-              style={timeliness === f ? { backgroundColor: PERICLES.purple } : undefined}
             >
               {f === 'all' ? 'All' : f === 'active' ? 'In Transit' : 'Arrived'}
             </Button>
@@ -291,9 +290,10 @@ export default function AtlasPage() {
               onClick={() => setMapType(t)}
               className={cn(
                 'px-3 py-1.5 text-sm transition-colors',
-                mapType === t ? 'text-white' : 'text-muted-foreground hover:bg-muted',
+                mapType === t
+                  ? 'bg-primary text-primary-foreground'
+                  : 'text-muted-foreground hover:bg-muted',
               )}
-              style={mapType === t ? { backgroundColor: PERICLES.purple } : undefined}
             >
               {t === 'roadmap' ? 'Map' : 'Satellite'}
             </button>
