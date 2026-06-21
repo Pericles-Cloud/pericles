@@ -53,7 +53,7 @@ interface AuthenticatedSocket extends Socket {
 const roomParticipants = new Map<string, Map<string, { socketId: string; user: TokenPayload; joinedAt: Date }>>();
 
 // ViewportData interface (used for type documentation)
-interface _ViewportData {
+interface ViewportData {
   x: number;
   y: number;
   zoom: number;
