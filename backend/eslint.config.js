@@ -141,6 +141,7 @@ export default tseslint.config(
       '**/*.config.mjs',
       'eslint.config.js',
       '.lintstagedrc.js',
+      'scripts/**',
       'coverage/**',
       '.next/**',
       '.vercel/**',
