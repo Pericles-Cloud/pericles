@@ -30,8 +30,11 @@
     "lint:strict": "eslint . --ext ts,tsx --max-warnings 0",
     "format": "prettier --write .",
     "format:check": "prettier --check .",
+    "pretype-check": "node scripts/fix-mastra-provider-types.mjs",
     "type-check": "tsc --noEmit",
+    "fix:mastra-provider-types": "node scripts/fix-mastra-provider-types.mjs",
     "lint-staged": "lint-staged",
+    "postinstall": "node scripts/fix-mastra-provider-types.mjs",
     "prepare": "node -e \"try { require('husky') } catch (e) { process.exit(0) }\" && husky install || true"
   },
   "keywords": [],
