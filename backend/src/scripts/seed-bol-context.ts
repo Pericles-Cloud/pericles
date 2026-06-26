@@ -9,8 +9,8 @@
  *   # Live pull via Apify (needs APIFY_TOKEN; GOOGLE_MAPS_API_KEY for geocoding)
  *   npm run bol:seed -- --org-id=<uuid> --company=allient --verbose
  *
- *   # Free-text actor query instead of a company slug
- *   npm run bol:seed -- --org-id=<uuid> --query="solar inverters" --verbose
+ *   # Multiple importer slugs (comma-separated)
+ *   npm run bol:seed -- --org-id=<uuid> --company=sun-hydraulics,faster --verbose
  *
  *   # Fully offline: rows from a JSON fixture + the built-in gazetteer geocoder
  *   npm run bol:seed -- --org-id=<uuid> --fixture=./fixtures/bol-sample.json --stub
@@ -44,8 +44,8 @@ Usage:
   npm run bol:seed -- --org-id=<uuid> [source] [options]
 
 Source (choose one):
-  --company=<slug>      Pull BOLs for an importer slug (actor input: companySlugs)
-  --query=<text>        Pull BOLs for a free-text query (actor input: searchQueries)
+  --company=<slugs>     Importer slug(s), comma-separated (actor input: companies)
+  --supplier=<slugs>    Foreign supplier slug(s), comma-separated (input: suppliers)
   --input-file=<path>   Raw JSON passed straight to the Apify actor
   --fixture=<path>      Load normalized BolRow[] from a JSON file (no network)
 
@@ -61,13 +61,17 @@ Examples:
 `);
 }
 
+function csv(v: string | undefined): string[] {
+  return (v ?? '').split(',').map((s) => s.trim()).filter(Boolean);
+}
+
 function buildInput(): Record<string, unknown> | undefined {
-  const company = getArg('company');
-  const query = getArg('query');
+  const companies = csv(getArg('company'));
+  const suppliers = csv(getArg('supplier'));
   const inputFile = getArg('input-file');
   if (inputFile) return JSON.parse(readFileSync(inputFile, 'utf8')) as Record<string, unknown>;
-  if (company) return { companySlugs: [company] };
-  if (query) return { searchQueries: [query] };
+  // Default ImportYeti actor input shape: { companies, suppliers } (slugs).
+  if (companies.length || suppliers.length) return { companies, suppliers };
   return undefined;
 }
 
@@ -102,7 +106,7 @@ async function main(): Promise<void> {
   const rows = fixture ? loadFixtureRows(fixture) : undefined;
   const input = rows ? undefined : buildInput();
   if (!rows && !input) {
-    console.error('Error: provide a source (--company, --query, --input-file, or --fixture)\n');
+    console.error('Error: provide a source (--company, --supplier, --input-file, or --fixture)\n');
     printUsage();
     process.exit(1);
   }
