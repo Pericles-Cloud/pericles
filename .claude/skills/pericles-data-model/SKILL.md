@@ -1,15 +1,16 @@
 ---
 name: pericles-data-model
-version: 2026.05.1
+version: 2026.06.2
 description: >
   How to model data in Pericles with Prisma + PostgreSQL. Use this WHENEVER you add
   or change a table, a query, or a migration. Encodes the real schema: organization_id
   on every tenant table, the Event(validation_status) → Incident lifecycle, EventHash
   TTL dedup, the MonitoringAuditLog/AuthAuditLog audit tables, the MessageQueue +
-  KeyValueStore infrastructure tables, and UserOrganization RBAC — no Kafka, no Redis.
+  KeyValueStore infrastructure tables, UserOrganization RBAC, and the Organization
+  hierarchy where branded subsidiaries are child orgs — no Kafka, no Redis.
 doctrine_refs: [§2, §9; Security §2; Ops §1–§2]
 depends_on: [pericles-mastra-tool, pericles-tenant-isolation]
-last_reconciled: 2026-05-28
+last_reconciled: 2026-06-26
 ---
 
 # Pericles Data Model (build skill)
@@ -75,13 +76,50 @@ Do not add Kafka or Redis. The infrastructure tables are present:
 Use these via the existing clients (`pericles-postgres-queue`); do not introduce
 parallel job/cache tables.
 
-## Rule 5 — RBAC and org hierarchy
+## Rule 5 — RBAC and org hierarchy (incl. branded subsidiaries)
 
 - **`UserOrganization`** — user↔org with `role` (OWNER/ADMIN/MEMBER/GUEST) and status;
   unique `[user_id, organization_id]`. This is the RBAC substrate.
-- **`Organization`** — `is_root` (global-access root) and `parent_organization_id`
-  hierarchy. **`DataSourceToolConfig`** — per-org enablement of monitoring tools
+- **`Organization`** — `is_root` (global-access root); the self-relation
+  `parent_organization_id` → `child_organizations` (`"OrganizationHierarchy"`); plus
+  per-company brand identity (`name`, `website`, `email_domains`,
+  `address_line1`/`city`/`state`/`zip_code`/`country`, `customer_type`).
+  **`DataSourceToolConfig`** — per-org enablement of monitoring tools
   (`[organization_id, data_source, tool_id]`, `enabled`).
+
+### Branded subsidiaries are child Organizations, not a column
+
+A customer is frequently a **parent holding company whose operating units are
+separately-branded companies**, each with its own supply chain. Public customs (BOL)
+data makes this concrete: one parent maps to several distinct importers, each with its
+own ImportYeti slug, US address, and supplier base —
+
+- **Helios Technologies** → Sun Hydraulics, Faster, Enovation Controls, Balboa Water
+  Group, Daman Products
+- **Standex International** → Standex Electronics, Standex Meder, Renco Electronics,
+  Bakers Pride, Nor-Lake
+
+Model each subsidiary as **its own `Organization` row**, with `parent_organization_id`
+set to the holding company, its own brand fields above, and its own **per-brand**
+`OrganizationContext` (suppliers/plants/lanes), `OrganizationSettings`, events,
+incidents, and `Supplier`/`Shipment` rows. The parent is a **rollup node**, not the
+owner of the children's tenant data: every subsidiary is a full tenant, and every query
+stays scoped to a single `organization_id` (`pericles-tenant-isolation`). A parent
+"group view" is the **union across child `organization_id`s**, never a relaxation of the
+per-row filter.
+
+**Access traverses the hierarchy ancestor → descendant.** `checkOrganizationAccess`
+(`backend/src/auth/middleware.ts`) grants access on **direct `UserOrganization`
+membership**, **root-org global access**, OR an **active membership in any ancestor
+org** (parent rollup — a holding-company member reaches its subsidiaries). Flow is
+ancestor → descendant ONLY: a child- or sibling-org member never reaches a parent or
+sibling, and the ancestor walk is bounded (cycle-guarded). See `pericles-tenant-isolation`.
+
+**Adapter implication.** An ERP/BOL adapter seeds context **per subsidiary** (one
+`OrganizationContext` per child org), because each brand has a distinct footprint.
+Flattening several brands' suppliers into one org's context erases the brand boundary
+and the per-tenant scope — seed one child org per brand and roll up at the parent
+(`pericles-erp-adapter`).
 
 ## Rule 6 — cross-customer signal is per-tenant + privacy-preserving (§9)
 
@@ -92,7 +130,10 @@ budgets; aggregation never via direct cross-tenant query (`pericles-org-memory`)
 
 A tenant table without `organization_id` + index; reading `organization_id` from an
 unauthenticated source; mutable audit rows; cross-tenant aggregation without §9 infra;
-introducing Kafka/Redis or parallel queue/KV tables alongside MessageQueue/KeyValueStore.
+introducing Kafka/Redis or parallel queue/KV tables alongside MessageQueue/KeyValueStore;
+collapsing multiple branded subsidiaries into one `Organization`/`OrganizationContext`
+(model each brand as a child org); granting a child- or sibling-org member access to a
+parent or sibling (access flows ancestor → descendant only).
 
 ## Verification
 
@@ -113,6 +154,15 @@ audit tables; reuse of MessageQueue/KeyValueStore; no Kafka/Redis. `npm run type
 
 ## Changelog
 
+- 2026.06.2 — `checkOrganizationAccess` now traverses the hierarchy ancestor → descendant
+  (parent rollup): an active membership in any ancestor org reaches its descendant
+  subsidiaries; child/sibling members never reach a parent or sibling. Updated Rule 5 and
+  the forbids list accordingly.
+- 2026.06.1 — Rule 5 expanded for **branded subsidiaries**: model each separately-branded
+  operating unit as a child `Organization` (`parent_organization_id`) with its own
+  per-brand `OrganizationContext`; parent is a rollup node (union across child org_ids),
+  not the owner of children's data. Adapters seed context per subsidiary. Grounded in
+  observed ImportYeti BOL data (Helios, Standex).
 - 2026.05.1 — Reconciled against schema.prisma: real models (Event/validation_status,
   Incident, EventHash TTL, MonitoringAuditLog/AuthAuditLog, MessageQueue, KeyValueStore,
   UserOrganization, DataSourceToolConfig, org hierarchy/is_root). Replaced the assumed

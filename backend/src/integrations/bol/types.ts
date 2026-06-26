@@ -27,8 +27,14 @@ export interface BolRow {
   supplier_city?: string;
   supplier_country?: string;
 
-  /** US importer / consignee (the trial company). */
+  /** US importer / consignee (the trial company / branded subsidiary). */
   consignee_name: string;
+  /**
+   * Stable slug for the importer entity (ImportYeti `target_slug`), when present.
+   * The reliable grouping key for splitting rows per branded subsidiary —
+   * `consignee_name` can vary in spelling across rows. See pericles-data-model.
+   */
+  consignee_slug?: string;
   /** US destination — typically port of unlading; sometimes inland city. */
   destination_city?: string;
   destination_state?: string;

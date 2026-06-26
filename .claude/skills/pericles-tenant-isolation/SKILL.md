@@ -1,6 +1,6 @@
 ---
 name: pericles-tenant-isolation
-version: 2026.05.1
+version: 2026.05.2
 description: >
   The non-negotiable multi-tenancy rules for Pericles. Use this WHENEVER code
   touches customer data, sets or reads organization_id, resolves a Skill, reads
@@ -62,6 +62,20 @@ access** by design. Root may read **aggregated, anonymized** cross-tenant data �
 never raw tenant data outside the §9 path. Treat root access as privileged and
 audited; never widen it.
 
+## Org hierarchy: parent rollup access
+
+A customer may be a **parent holding company with branded subsidiaries** modeled as
+**child `Organization`s** (`parent_organization_id`) — each subsidiary is its own
+tenant with its own `organization_id` and data (`pericles-data-model`). Access is
+hierarchy-aware: `checkOrganizationAccess` (`backend/src/auth/middleware.ts`) grants a
+user access when they have a **direct active `UserOrganization` membership**, **root-org
+global access**, OR an **active membership in any ancestor org** (parent rollup). Access
+flows **ancestor → descendant ONLY**: a parent-org member reaches its subsidiaries, but a
+child- or sibling-org member never reaches a parent or sibling (the ancestor walk is
+bounded + cycle-guarded). This does **not** relax Guarantee 1 — every query is still
+filtered by a single `organization_id`; a parent "group view" is the **union across child
+`organization_id`s**, each row still tenant-scoped, never a wildcard read.
+
 ## Registry namespace resolution
 
 `resolve(skillId)` := `tenant/<active>` first, else `platform`. A platform-visibility
@@ -105,13 +119,18 @@ to aggregated/anonymized reads; the only cross-tenant code path is the §9 pipel
 
 ## Open questions
 
-- Exact auth-layer binding point (auth-server middleware) that maps session →
-  permitted `organization_id`s — cite the function once confirmed.
+- The session → permitted-org binding point is `checkOrganizationAccess`
+  (`backend/src/auth/middleware.ts`); it is the canonical helper but is not yet adopted
+  by every endpoint (some still inline a `UserOrganization` membership check). Track
+  endpoint adoption so the hierarchy rule applies uniformly.
 - Differential-privacy budget mechanism specifics (per-tenant epsilon) — define with
   the platform team (Ops Spec §8).
 
 ## Changelog
 
+- 2026.05.2 — Documented hierarchy-aware access: `checkOrganizationAccess` grants
+  ancestor → descendant (parent rollup), child/sibling never reach a parent or sibling;
+  branded subsidiaries are child orgs (`pericles-data-model`). Cited the binding helper.
 - 2026.05.1 — Reconciled: organization_id is a validated input bound by the auth
   layer via UserOrganization (not omitted from inputs); added root-org global access
   and the OWNER/ADMIN/MEMBER/GUEST → tier mapping.
