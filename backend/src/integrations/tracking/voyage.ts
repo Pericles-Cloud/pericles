@@ -74,7 +74,7 @@ export function buildVoyagePlan(
 ): VoyagePlan | null {
   const lat = shipment.supplier?.latitude;
   const lng = shipment.supplier?.longitude;
-  if (lat == null || lng == null) return null;
+  if (typeof lat !== 'number' || typeof lng !== 'number') return null;
   const origin: LatLng = { lat, lng };
 
   const dest = resolvePort(shipment.destination_port);

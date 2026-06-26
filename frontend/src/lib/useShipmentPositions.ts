@@ -34,16 +34,14 @@ export function useShipmentPositions(
   const timer = useRef<ReturnType<typeof setInterval> | null>(null);
 
   useEffect(() => {
-    if (!organizationId) {
-      setPositions([]);
-      setSource(null);
-      return;
-    }
+    // Idle when there's no tenant — derive the empty result below instead of
+    // resetting state in the effect body (react-hooks/set-state-in-effect).
+    if (!organizationId) return;
 
     let active = true;
-    setIsLoading(true);
 
     const poll = async () => {
+      setIsLoading(true);
       const res = await getShipmentPositions(organizationId);
       if (!active) return;
       if (res.success && res.data) {
@@ -62,5 +60,9 @@ export function useShipmentPositions(
     };
   }, [organizationId, intervalMs]);
 
+  // Derive the idle state so no tenant → empty, without a setState-in-effect.
+  if (!organizationId) {
+    return { positions: [], source: null, isLoading: false };
+  }
   return { positions, source, isLoading };
 }

@@ -80,7 +80,10 @@ const WP = {
 const isEastAsia = (p: LatLng) => p.lng >= 100 || p.lng <= -160;
 const isSouthAsia = (p: LatLng) => p.lng >= 60 && p.lng < 100 && p.lat < 30;
 const isMedOrEurope = (p: LatLng) => p.lng >= -10 && p.lng < 45 && p.lat > 30;
-const isMediterranean = (p: LatLng) => p.lng >= -5 && p.lng < 36 && p.lat >= 30 && p.lat <= 45;
+// Upper bound 46° so northern-Italy / Adriatic origins (e.g. Milan 45.46, whose
+// goods sail from Ligurian/Adriatic ports) are still treated as Mediterranean and
+// routed out through Gibraltar.
+const isMediterranean = (p: LatLng) => p.lng >= -5 && p.lng < 36 && p.lat >= 30 && p.lat <= 46;
 const isUsWestCoast = (p: LatLng) => p.lng <= -115 && p.lat >= 30 && p.lat <= 49;
 const isUsEastOrGulf = (p: LatLng) => p.lng > -100 && p.lng <= -64 && p.lat >= 24 && p.lat <= 47;
 

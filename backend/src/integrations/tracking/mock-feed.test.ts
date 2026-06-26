@@ -73,7 +73,10 @@ describe('MockPositionFeed', () => {
   });
 
   it('advances along the route as time passes', async () => {
-    const feed = new MockPositionFeed(config);
+    // Non-looping config: at timeCompression 1000 a 1h gap is ~42 simulated days,
+    // which would lap the ~26-day voyage and wrap covered_km back under `loop`.
+    // Disabling loop makes progress monotonic so the advance is unambiguous.
+    const feed = new MockPositionFeed({ ...config, loop: false });
     const t0 = Date.parse('2026-06-05T00:00:00Z');
     const [p0] = await feed.getPositions([shanghaiShipment], t0);
     const [p1] = await feed.getPositions([shanghaiShipment], t0 + 60 * 60 * 1000); // +1h
