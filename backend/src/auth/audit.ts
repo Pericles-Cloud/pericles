@@ -13,7 +13,10 @@ export type AuthEventType =
   | 'ACCOUNT_LOCKED'
   | 'ACCOUNT_UNLOCKED'
   | 'GOOGLE_SSO_LOGIN'
-  | 'GOOGLE_SSO_LINK';
+  | 'GOOGLE_SSO_LINK'
+  | 'PROFILE_UPDATE'
+  | 'PASSWORD_CHANGE'
+  | 'ACCOUNT_DELETED';
 
 export type AuthEventStatus = 'SUCCESS' | 'FAILURE';
 

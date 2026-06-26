@@ -70,6 +70,36 @@ export const PasswordResetCompleteSchema = z.object({
 export type PasswordResetCompleteInput = z.infer<typeof PasswordResetCompleteSchema>;
 
 /**
+ * Update profile request schema (PATCH /api/auth/profile).
+ * At least one updatable field must be provided.
+ */
+export const UpdateProfileSchema = z
+  .object({
+    name: z.string().min(1, 'Name cannot be empty').max(100).optional(),
+    avatarUrl: z.string().url('Invalid avatar URL').max(2048).optional(),
+  })
+  .refine((data) => data.name !== undefined || data.avatarUrl !== undefined, {
+    message: 'At least one field (name or avatarUrl) must be provided',
+  });
+
+export type UpdateProfileInput = z.infer<typeof UpdateProfileSchema>;
+
+/**
+ * Update password request schema (POST /api/auth/password).
+ * Authenticated change: requires the current password. Follows the same
+ * NIST length policy as registration (min 8, max 72; no composition rules).
+ */
+export const UpdatePasswordSchema = z.object({
+  currentPassword: z.string().min(1, 'Current password is required'),
+  newPassword: z
+    .string()
+    .min(8, 'Password must be at least 8 characters')
+    .max(72, 'Password exceeds maximum length'),
+});
+
+export type UpdatePasswordInput = z.infer<typeof UpdatePasswordSchema>;
+
+/**
  * User role enum.
  */
 export const UserRoleSchema = z.enum(['OWNER', 'ADMIN', 'MEMBER', 'GUEST']);
