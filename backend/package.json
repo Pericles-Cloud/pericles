@@ -25,6 +25,7 @@
     "mock:status": "dotenv -e ../.env.local -- tsx src/scripts/mocker/index.ts status",
     "mock:help": "dotenv -e ../.env.local -- tsx src/scripts/mocker/index.ts help",
     "jobs:cleanup": "dotenv -e ../.env.local -- tsx src/jobs/data-retention-cleanup.ts",
+    "bol:seed": "dotenv -e ../.env.local -- tsx src/scripts/seed-bol-context.ts",
     "lint": "eslint . --ext ts,tsx",
     "lint:fix": "eslint . --ext ts,tsx --fix",
     "lint:strict": "eslint . --ext ts,tsx --max-warnings 0",
