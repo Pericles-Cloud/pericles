@@ -7,11 +7,12 @@
  *   import { createGoogleGeocoder } from './geocode.js';
  *   import { transformBolDataToOrganizationContext } from './transformer.js';
  *
- *   const rows = await fetchBolRows({ companySlugs: ['allient'] });
- *   const geocode = createGoogleGeocoder({ kv });          // cached
- *   const context = await transformBolDataToOrganizationContext(rows, geocode);
- *   // → OrganizationContextData, identical shape to the SAP adapter output.
- *   //   Persist as the trial tenant's OrganizationContext and Atlas renders it.
+ *   // One call ties it together and persists the trial tenant's context:
+ *   import { syncBolContextForOrganization } from './sync-service.js';
+ *   await syncBolContextForOrganization(orgId, { input: { companySlugs: ['allient'] } });
+ *   // → upserts OrganizationContext (same shape as SAP); Atlas then renders it.
+ *
+ *   // CLI: npm run bol:seed -- --org-id=<uuid> --company=allient --verbose
  */
 
 export type {
@@ -23,3 +24,8 @@ export type {
 export { fetchBolRows, normalizeRecord } from './client.js';
 export { createGoogleGeocoder, createStubGeocoder } from './geocode.js';
 export { transformBolDataToOrganizationContext } from './transformer.js';
+export {
+  syncBolContextForOrganization,
+  type SyncBolOptions,
+  type SyncBolResult,
+} from './sync-service.js';
