@@ -50,6 +50,8 @@ Source (choose one):
   --fixture=<path>      Load normalized BolRow[] from a JSON file (no network)
 
 Options:
+  --max-items=<n>       Cap total actor records (default 1000; 0 = no cap). The
+                        actor's own default is 50, so set this to pull more.
   --stub                Use the offline gazetteer-only geocoder (no Google calls)
   --dry-run             Compute context but do not write to the database
   --verbose, -v         Verbose logging
@@ -71,7 +73,11 @@ function buildInput(): Record<string, unknown> | undefined {
   const inputFile = getArg('input-file');
   if (inputFile) return JSON.parse(readFileSync(inputFile, 'utf8')) as Record<string, unknown>;
   // Default ImportYeti actor input shape: { companies, suppliers } (slugs).
-  if (companies.length || suppliers.length) return { companies, suppliers };
+  // maxItems lifts the actor's 50-record default (0 = no cap).
+  if (companies.length || suppliers.length) {
+    const maxItems = Number(getArg('max-items') ?? 1000);
+    return { companies, suppliers, maxItems };
+  }
   return undefined;
 }
 
