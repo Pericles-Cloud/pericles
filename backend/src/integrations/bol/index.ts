@@ -33,3 +33,10 @@ export {
   type SyncBolSubsidiaryResult,
   type SyncBolGroupResult,
 } from './sync-service.js';
+export { seedShipmentTables, type SeedTablesResult } from './seed-tables.js';
+export {
+  onboardCustomerFromBol,
+  type OnboardCustomerOptions,
+  type OnboardCustomerResult,
+  type CustomerBusinessInfo,
+} from './onboard.js';
