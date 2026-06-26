@@ -2,21 +2,21 @@
 /**
  * BOL Trial Context Seed Script
  *
- * Seeds a tenant's OrganizationContext from public bill-of-lading data so Atlas
- * renders without a live ERP. Mirrors sync-sap-erp.ts.
+ * Seeds a parent organization from public bill-of-lading data so Atlas renders
+ * without a live ERP. Each branded subsidiary (importer) becomes its own child
+ * Organization with its own OrganizationContext — see pericles-data-model.
+ * Mirrors sync-sap-erp.ts.
  *
  * Usage:
- *   # Live pull via Apify (needs APIFY_TOKEN; GOOGLE_MAPS_API_KEY for geocoding)
- *   npm run bol:seed -- --org-id=<uuid> --company=allient --verbose
- *
- *   # Multiple importer slugs (comma-separated)
- *   npm run bol:seed -- --org-id=<uuid> --company=sun-hydraulics,faster --verbose
+ *   # Live pull via Apify (needs APIFY_TOKEN; GOOGLE_MAPS_API_KEY for geocoding).
+ *   # Each importer slug becomes a child org under --org-id.
+ *   npm run bol:seed -- --org-id=<parent-uuid> --company=sun-hydraulics,faster --verbose
  *
  *   # Fully offline: rows from a JSON fixture + the built-in gazetteer geocoder
- *   npm run bol:seed -- --org-id=<uuid> --fixture=./fixtures/bol-sample.json --stub
+ *   npm run bol:seed -- --org-id=<parent-uuid> --fixture=./fixtures/bol-sample.json --stub
  *
  *   # Preview without writing
- *   npm run bol:seed -- --org-id=<uuid> --company=allient --dry-run --verbose
+ *   npm run bol:seed -- --org-id=<parent-uuid> --company=sun-hydraulics --dry-run --verbose
  *
  * Environment Variables:
  *   APIFY_TOKEN           Apify token (required for live pulls; not for --fixture)
@@ -25,7 +25,7 @@
  */
 
 import { readFileSync } from 'node:fs';
-import { syncBolContextForOrganization } from '../integrations/bol/sync-service.js';
+import { syncBolContextForSubsidiaries } from '../integrations/bol/sync-service.js';
 import { createStubGeocoder } from '../integrations/bol/geocode.js';
 import type { BolRow } from '../integrations/bol/types.js';
 
@@ -41,12 +41,13 @@ function printUsage(): void {
 BOL Trial Context Seed Script
 
 Usage:
-  npm run bol:seed -- --org-id=<uuid> [source] [options]
+  npm run bol:seed -- --org-id=<parent-uuid> [source] [options]
+
+  --org-id is the PARENT org; one child org is created per branded subsidiary.
 
 Source (choose one):
   --company=<slugs>     Importer slug(s), comma-separated (actor input: companies)
   --supplier=<slugs>    Foreign supplier slug(s), comma-separated (input: suppliers)
-  --input-file=<path>   Raw JSON passed straight to the Apify actor
   --fixture=<path>      Load normalized BolRow[] from a JSON file (no network)
 
 Options:
@@ -58,27 +59,13 @@ Options:
   --help, -h            Show this help
 
 Examples:
-  npm run bol:seed -- --org-id=00000000-0000-0000-0000-000000000001 --company=allient -v
-  npm run bol:seed -- --org-id=<uuid> --fixture=./fixtures/bol-sample.json --stub --dry-run
+  npm run bol:seed -- --org-id=<parent-uuid> --company=sun-hydraulics,faster -v
+  npm run bol:seed -- --org-id=<parent-uuid> --fixture=./fixtures/bol-sample.json --stub --dry-run
 `);
 }
 
 function csv(v: string | undefined): string[] {
   return (v ?? '').split(',').map((s) => s.trim()).filter(Boolean);
-}
-
-function buildInput(): Record<string, unknown> | undefined {
-  const companies = csv(getArg('company'));
-  const suppliers = csv(getArg('supplier'));
-  const inputFile = getArg('input-file');
-  if (inputFile) return JSON.parse(readFileSync(inputFile, 'utf8')) as Record<string, unknown>;
-  // Default ImportYeti actor input shape: { companies, suppliers } (slugs).
-  // maxItems lifts the actor's 50-record default (0 = no cap).
-  if (companies.length || suppliers.length) {
-    const maxItems = Number(getArg('max-items') ?? 1000);
-    return { companies, suppliers, maxItems };
-  }
-  return undefined;
 }
 
 function loadFixtureRows(path: string): BolRow[] {
@@ -98,9 +85,9 @@ async function main(): Promise<void> {
     process.exit(hasFlag('help') || hasFlag('-h') ? 0 : 1);
   }
 
-  const orgId = getArg('org-id');
-  if (!orgId) {
-    console.error('Error: --org-id=<uuid> is required\n');
+  const parentOrgId = getArg('org-id');
+  if (!parentOrgId) {
+    console.error('Error: --org-id=<uuid> (parent organization) is required\n');
     printUsage();
     process.exit(1);
   }
@@ -110,21 +97,26 @@ async function main(): Promise<void> {
   const fixture = getArg('fixture');
 
   const rows = fixture ? loadFixtureRows(fixture) : undefined;
-  const input = rows ? undefined : buildInput();
-  if (!rows && !input) {
-    console.error('Error: provide a source (--company, --supplier, --input-file, or --fixture)\n');
+  const companies = csv(getArg('company'));
+  const suppliers = csv(getArg('supplier'));
+  if (!rows && !companies.length && !suppliers.length) {
+    console.error('Error: provide a source (--company, --supplier, or --fixture)\n');
     printUsage();
     process.exit(1);
   }
 
   // --stub forces the offline gazetteer geocoder (no table, just built-ins).
   const geocoder = hasFlag('stub') ? createStubGeocoder({}) : undefined;
+  const maxItems = Number(getArg('max-items') ?? 1000);
 
-  console.log(`Seeding BOL context for organization: ${orgId}`);
+  console.log(`Seeding BOL context under parent organization: ${parentOrgId}`);
+  console.log('(one child organization is created per branded subsidiary)');
   if (dryRun) console.log('(DRY RUN — no database changes will be made)');
 
-  const result = await syncBolContextForOrganization(orgId, {
-    input,
+  const result = await syncBolContextForSubsidiaries(parentOrgId, {
+    companies,
+    suppliers,
+    maxItems,
     rows,
     geocoder,
     dryRun,
@@ -133,12 +125,17 @@ async function main(): Promise<void> {
 
   console.log('\nSeed Result:');
   console.log(`  Success:        ${result.success ? '✓' : '✗'}`);
-  console.log(`  Organization:   ${result.organization_id}`);
+  console.log(`  Parent org:     ${result.parent_organization_id}`);
   console.log(`  Rows fetched:   ${result.rows_fetched}`);
-  console.log(`  Plants:         ${result.records_synced.plants}`);
-  console.log(`  Warehouses:     ${result.records_synced.warehouses}`);
-  console.log(`  Suppliers:      ${result.records_synced.suppliers}`);
-  console.log(`  Shipping Lanes: ${result.records_synced.shipping_lanes}`);
+  console.log(`  Subsidiaries:   ${result.subsidiaries.length}`);
+  for (const s of result.subsidiaries) {
+    const tag = dryRun ? '(dry-run)' : s.created ? '(created)' : '(updated)';
+    console.log(
+      `    - ${s.subsidiary} ${tag}: ` +
+        `${s.records_synced.suppliers} suppliers, ${s.records_synced.plants} plants, ` +
+        `${s.records_synced.shipping_lanes} lanes (${s.rows} rows)`
+    );
+  }
   console.log(`  Timestamp:      ${result.sync_timestamp}`);
   if (result.errors?.length) {
     console.log('\n  Errors / warnings:');

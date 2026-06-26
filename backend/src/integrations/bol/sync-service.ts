@@ -208,3 +208,217 @@ async function persistContext(
     update: data,
   });
 }
+
+// ============================================================================
+// Per-subsidiary seeding (branded child organizations)
+// ============================================================================
+// A customer is often a parent holding company whose operating units are
+// separately-branded importers (e.g. Helios Technologies → Sun Hydraulics,
+// Faster, ...). Each brand is its OWN tenant: a child Organization with its own
+// OrganizationContext. We therefore split BOL rows per importer (consignee) and
+// seed one child org per brand under the parent. See pericles-data-model.
+
+export interface SyncBolSubsidiariesOptions {
+  /** Importer (consignee) slugs to fetch — the actor's `companies` input. */
+  companies?: string[];
+  /** Foreign supplier slugs — the actor's `suppliers` input. */
+  suppliers?: string[];
+  /** Lift the actor's 50-record default (0 = no cap). */
+  maxItems?: number;
+  clientConfig?: ApifyBolClientConfig;
+  /** Pre-fetched rows — bypasses the network (offline fixtures, tests). */
+  rows?: BolRow[];
+  geocoder?: Geocoder;
+  transformOptions?: BolTransformOptions;
+  dryRun?: boolean;
+  verbose?: boolean;
+  prisma?: PrismaClient;
+}
+
+export interface SyncBolSubsidiaryResult {
+  /** Brand / importer name used as the child org name. */
+  subsidiary: string;
+  /** Child organization id ('' on a dry run, where no org is created). */
+  organization_id: string;
+  /** True when this run created the child org (vs. reused an existing one). */
+  created: boolean;
+  records_synced: {
+    plants: number;
+    warehouses: number;
+    suppliers: number;
+    shipping_lanes: number;
+  };
+  rows: number;
+}
+
+export interface SyncBolGroupResult {
+  success: boolean;
+  parent_organization_id: string;
+  subsidiaries: SyncBolSubsidiaryResult[];
+  rows_fetched: number;
+  sync_timestamp: string;
+  errors?: string[];
+}
+
+/**
+ * Seed BOL context for a parent organization by splitting rows per branded
+ * subsidiary (importer) and upserting one child Organization + OrganizationContext
+ * per brand. The parent is a rollup node and is never written with a child's data.
+ */
+export async function syncBolContextForSubsidiaries(
+  parentOrganizationId: string,
+  options: SyncBolSubsidiariesOptions = {}
+): Promise<SyncBolGroupResult> {
+  const {
+    companies,
+    suppliers,
+    maxItems,
+    clientConfig,
+    rows: providedRows,
+    geocoder,
+    transformOptions,
+    dryRun = false,
+    verbose = false,
+    prisma = defaultPrisma,
+  } = options;
+
+  const log = (msg: string): void => {
+    if (verbose) console.log(`[BOL Sync] ${msg}`);
+  };
+
+  try {
+    if (!parentOrganizationId) {
+      throw new Error('parentOrganizationId is required');
+    }
+
+    // 1. Verify the parent exists (children are created under it).
+    const parent = await prisma.organization.findUnique({
+      where: { id: parentOrganizationId },
+      select: { id: true, name: true },
+    });
+    if (!parent) {
+      throw new Error(`Parent organization ${parentOrganizationId} not found`);
+    }
+    log(`Parent organization: ${parent.name}`);
+
+    // 2. Obtain rows — injected (offline/tests) or pulled from Apify.
+    let rows = providedRows;
+    if (!rows) {
+      if (!companies?.length && !suppliers?.length) {
+        throw new Error('Either `rows` or `companies`/`suppliers` must be provided');
+      }
+      const input: Record<string, unknown> = {
+        companies: companies ?? [],
+        suppliers: suppliers ?? [],
+      };
+      if (maxItems !== undefined) input.maxItems = maxItems;
+      log('Fetching BOL rows from Apify...');
+      rows = await fetchBolRows(input, clientConfig);
+    }
+    log(`Rows: ${rows.length}`);
+
+    // 3. Split rows per branded subsidiary (importer). Prefer the stable slug;
+    //    fall back to the consignee name.
+    const groups = new Map<string, BolRow[]>();
+    for (const row of rows) {
+      const key = (row.consignee_slug ?? row.consignee_name ?? 'unknown').trim().toLowerCase();
+      const bucket = groups.get(key) ?? groups.set(key, []).get(key)!;
+      bucket.push(row);
+    }
+    log(`Subsidiaries detected: ${groups.size}`);
+
+    // 4. Seed one child org + context per brand. Geocode cache is shared under
+    //    the parent (place coordinates are not tenant-sensitive).
+    const geocode = geocoder ?? buildDefaultGeocoder(parentOrganizationId);
+    const subsidiaries: SyncBolSubsidiaryResult[] = [];
+
+    for (const [, groupRows] of groups) {
+      const brand = groupRows[0].consignee_name || 'Unknown Subsidiary';
+      const contextData = await transformBolDataToOrganizationContext(
+        groupRows,
+        geocode,
+        transformOptions
+      );
+      const counts = {
+        plants: contextData.plants.length,
+        warehouses: contextData.warehouses.length,
+        suppliers: contextData.suppliers.length,
+        shipping_lanes: contextData.shipping_lanes.length,
+      };
+
+      let organizationId = '';
+      let created = false;
+      if (!dryRun) {
+        const child = await resolveChildOrganization(
+          prisma,
+          parentOrganizationId,
+          brand,
+          groupRows[0]
+        );
+        organizationId = child.id;
+        created = child.created;
+        await persistContext(prisma, organizationId, contextData);
+        log(`${created ? 'Created' : 'Updated'} subsidiary "${brand}" (${organizationId})`);
+      } else {
+        log(`DRY RUN — would seed "${brand}": ${JSON.stringify(counts)}`);
+      }
+
+      subsidiaries.push({
+        subsidiary: brand,
+        organization_id: organizationId,
+        created,
+        records_synced: counts,
+        rows: groupRows.length,
+      });
+    }
+
+    return {
+      success: true,
+      parent_organization_id: parentOrganizationId,
+      subsidiaries,
+      rows_fetched: rows.length,
+      sync_timestamp: new Date().toISOString(),
+    };
+  } catch (error) {
+    console.error(`[BOL Sync] Subsidiary sync failed for parent ${parentOrganizationId}:`, error);
+    return {
+      success: false,
+      parent_organization_id: parentOrganizationId,
+      subsidiaries: [],
+      rows_fetched: 0,
+      sync_timestamp: new Date().toISOString(),
+      errors: [error instanceof Error ? error.message : 'Unknown error'],
+    };
+  }
+}
+
+/**
+ * Find or create the child Organization for a brand under the parent. Matched by
+ * `(parent_organization_id, name)` so re-running the sync is idempotent (updates
+ * the same child rather than duplicating it).
+ */
+async function resolveChildOrganization(
+  prisma: PrismaClient,
+  parentOrganizationId: string,
+  brand: string,
+  sample: BolRow
+): Promise<{ id: string; created: boolean }> {
+  const existing = await prisma.organization.findFirst({
+    where: { parent_organization_id: parentOrganizationId, name: brand },
+    select: { id: true },
+  });
+  if (existing) return { id: existing.id, created: false };
+
+  const child = await prisma.organization.create({
+    data: {
+      name: brand,
+      parent_organization_id: parentOrganizationId,
+      city: sample.destination_city ?? null,
+      state: sample.destination_state ?? null,
+      country: sample.destination_country ?? 'US',
+      customer_type: 'subsidiary',
+    },
+    select: { id: true },
+  });
+  return { id: child.id, created: true };
+}

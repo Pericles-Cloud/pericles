@@ -84,6 +84,7 @@ export function normalizeRecord(r: RawRecord): BolRow | null {
       str(r.counterparty_country) ?? str(r.supplierCountry) ?? str(r.shipperCountry) ?? str(r.country),
     consignee_name:
       str(r.target_name) ?? str(r.consigneeName) ?? str(r.importer) ?? str(r.usConsignee) ?? 'Unknown Consignee',
+    consignee_slug: str(r.target_slug) ?? str(r.consigneeSlug),
     destination_city: dest.city ?? str(r.destinationCity) ?? str(r.portOfUnlading) ?? str(r.usPort),
     destination_state: dest.state ?? str(r.destinationState) ?? str(r.state),
     destination_country: str(r.destinationCountry) ?? 'US',

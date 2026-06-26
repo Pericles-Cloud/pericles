@@ -26,6 +26,10 @@ export { createGoogleGeocoder, createStubGeocoder } from './geocode.js';
 export { transformBolDataToOrganizationContext } from './transformer.js';
 export {
   syncBolContextForOrganization,
+  syncBolContextForSubsidiaries,
   type SyncBolOptions,
   type SyncBolResult,
+  type SyncBolSubsidiariesOptions,
+  type SyncBolSubsidiaryResult,
+  type SyncBolGroupResult,
 } from './sync-service.js';

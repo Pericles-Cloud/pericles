@@ -48,6 +48,7 @@ describe('normalizeRecord (ImportYeti actor schema)', () => {
       supplier_city: 'Jishi',
       supplier_country: 'China',
       consignee_name: 'Sun Hydraulics',
+      consignee_slug: 'sun-hydraulics',
       destination_country: 'US',
       carrier_scac: 'COSU',
       weight_kg: 3173,
