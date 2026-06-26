@@ -1,6 +1,6 @@
 ---
 name: pericles-data-model
-version: 2026.06.1
+version: 2026.06.2
 description: >
   How to model data in Pericles with Prisma + PostgreSQL. Use this WHENEVER you add
   or change a table, a query, or a migration. Encodes the real schema: organization_id
@@ -108,11 +108,12 @@ stays scoped to a single `organization_id` (`pericles-tenant-isolation`). A pare
 "group view" is the **union across child `organization_id`s**, never a relaxation of the
 per-row filter.
 
-**Access does NOT yet traverse the hierarchy.** `checkOrganizationAccess`
+**Access traverses the hierarchy ancestor → descendant.** `checkOrganizationAccess`
 (`backend/src/auth/middleware.ts`) grants access on **direct `UserOrganization`
-membership** or **root-org global access** only — a parent-org user is *not*
-auto-granted access to child orgs. Parent rollup / group reporting therefore needs
-explicit membership or a deliberate hierarchy-aware access rule; do not assume it exists.
+membership**, **root-org global access**, OR an **active membership in any ancestor
+org** (parent rollup — a holding-company member reaches its subsidiaries). Flow is
+ancestor → descendant ONLY: a child- or sibling-org member never reaches a parent or
+sibling, and the ancestor walk is bounded (cycle-guarded). See `pericles-tenant-isolation`.
 
 **Adapter implication.** An ERP/BOL adapter seeds context **per subsidiary** (one
 `OrganizationContext` per child org), because each brand has a distinct footprint.
@@ -131,7 +132,8 @@ A tenant table without `organization_id` + index; reading `organization_id` from
 unauthenticated source; mutable audit rows; cross-tenant aggregation without §9 infra;
 introducing Kafka/Redis or parallel queue/KV tables alongside MessageQueue/KeyValueStore;
 collapsing multiple branded subsidiaries into one `Organization`/`OrganizationContext`
-(model each brand as a child org); assuming a parent-org user inherits child-org access.
+(model each brand as a child org); granting a child- or sibling-org member access to a
+parent or sibling (access flows ancestor → descendant only).
 
 ## Verification
 
@@ -152,12 +154,15 @@ audit tables; reuse of MessageQueue/KeyValueStore; no Kafka/Redis. `npm run type
 
 ## Changelog
 
+- 2026.06.2 — `checkOrganizationAccess` now traverses the hierarchy ancestor → descendant
+  (parent rollup): an active membership in any ancestor org reaches its descendant
+  subsidiaries; child/sibling members never reach a parent or sibling. Updated Rule 5 and
+  the forbids list accordingly.
 - 2026.06.1 — Rule 5 expanded for **branded subsidiaries**: model each separately-branded
   operating unit as a child `Organization` (`parent_organization_id`) with its own
   per-brand `OrganizationContext`; parent is a rollup node (union across child org_ids),
-  not the owner of children's data. Documented that `checkOrganizationAccess` does not
-  traverse the hierarchy (direct membership / root-org only), and that adapters seed
-  context per subsidiary. Grounded in observed ImportYeti BOL data (Helios, Standex).
+  not the owner of children's data. Adapters seed context per subsidiary. Grounded in
+  observed ImportYeti BOL data (Helios, Standex).
 - 2026.05.1 — Reconciled against schema.prisma: real models (Event/validation_status,
   Incident, EventHash TTL, MonitoringAuditLog/AuthAuditLog, MessageQueue, KeyValueStore,
   UserOrganization, DataSourceToolConfig, org hierarchy/is_root). Replaced the assumed
