@@ -23,6 +23,7 @@ import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { cn } from '@/lib/utils';
+import { useShipmentPositions } from '@/lib/useShipmentPositions';
 
 const GOOGLE_MAPS_API_KEY = process.env.NEXT_PUBLIC_GOOGLE_MAPS_API_KEY || '';
 
@@ -77,6 +78,11 @@ export default function AtlasPage() {
   const mapRef = useRef<google.maps.Map | null>(null);
 
   const { isLoaded, loadError } = useJsApiLoader({ googleMapsApiKey: GOOGLE_MAPS_API_KEY });
+
+  // Live vessel positions: mock-simulated motion over real BOL lanes today;
+  // swaps to Terminal49 + AISstream when TRACKING_MODE=live, no UI change.
+  // See backend/src/integrations/tracking + build skill pericles-atlas-mocker.
+  const { positions: vesselPositions } = useShipmentPositions(currentOrganization?.id);
 
   // Fetch data (BOL-shaped Supplier[] + Shipment[] + Event[]), tenant-scoped.
   useEffect(() => {
@@ -378,6 +384,39 @@ export default function AtlasPage() {
                   />
                 ),
             )}
+
+            {/* Live vessel layer: sea-route arcs (canal-accurate) + moving dots.
+                Driven by the mock position feed; real data swaps in unchanged. */}
+            {vesselPositions.map((v) => (
+              <Polyline
+                key={`sea-${v.shipmentId}`}
+                path={v.polyline}
+                options={{
+                  strokeColor: PERICLES.slate,
+                  strokeOpacity: 0.45,
+                  strokeWeight: 1.5,
+                  geodesic: false,
+                  clickable: false,
+                }}
+              />
+            ))}
+            {vesselPositions.map((v) => (
+              <Marker
+                key={`vessel-${v.shipmentId}`}
+                position={v.position}
+                zIndex={999}
+                title={v.vesselName ?? undefined}
+                icon={{
+                  path: google.maps.SymbolPath.FORWARD_CLOSED_ARROW,
+                  scale: 4.5,
+                  rotation: v.bearing,
+                  fillColor: PERICLES.gold,
+                  fillOpacity: 1,
+                  strokeColor: PERICLES.white,
+                  strokeWeight: 1.5,
+                }}
+              />
+            ))}
 
             {mapPins.map((pin) => (
               <Marker

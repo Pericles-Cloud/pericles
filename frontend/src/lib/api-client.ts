@@ -828,6 +828,37 @@ export async function getShipments(organizationId: string): Promise<ApiResponse<
 }
 
 /**
+ * A live shipment position from the tracking feed (mock today; Terminal49 +
+ * AISstream when TRACKING_MODE=live). Feed-agnostic — the shape is identical
+ * for mock and real data. See backend/src/integrations/tracking.
+ */
+export interface ShipmentPosition {
+  shipmentId: string;
+  position: { lat: number; lng: number };
+  bearing: number;
+  status: 'departing' | 'in_transit' | 'arriving' | 'arrived';
+  percent: number;
+  covered_km: number;
+  remaining_km: number;
+  eta: string;
+  vesselName: string | null;
+  polyline: Array<{ lat: number; lng: number }>;
+  source: 'mock' | 'live';
+}
+
+/**
+ * Get current vessel positions for an organization's shipments. Polled by Atlas
+ * to animate moving dots along their sea-routes.
+ */
+export async function getShipmentPositions(
+  organizationId: string,
+): Promise<ApiResponse<ShipmentPosition[]>> {
+  return apiRequest<ShipmentPosition[]>(
+    `/api/shipments/positions?organizationId=${encodeURIComponent(organizationId)}`,
+  );
+}
+
+/**
  * Get a single shipment by ID.
  */
 export async function getShipment(id: string): Promise<ApiResponse<Shipment>> {
