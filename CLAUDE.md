@@ -11,13 +11,15 @@ Pericles is a supply chain risk management platform built on an intelligent AI a
 All backend commands run from `backend/` directory:
 
 ```bash
-# Docker services
-docker-compose up -d             # Start PostgreSQL, pgAdmin, Mastra
+# Docker services (PostgreSQL + pgAdmin only)
+docker-compose up -d             # Start PostgreSQL, pgAdmin
 docker-compose down              # Stop all services
-docker-compose logs -f mastra    # Watch Mastra logs
+docker-compose logs -f postgres  # Watch PostgreSQL logs
 
-# Development
-npm run dev                      # Start Mastra dev server (port 4111)
+# Development (Mastra + auth server run on the host, not in Docker)
+npm run dev:all                  # Start Mastra (4111) + auth server (4112) together
+npm run dev                      # Start Mastra dev server only (port 4111)
+npm run dev:auth                 # Start auth server only (port 4112)
 npm run build                    # Build Mastra agents
 npm run start                    # Start Mastra production server
 
@@ -41,17 +43,18 @@ npm run mock:reset               # Reset mock data
 
 1. Copy environment file: `cp .env.example .env.local` (in project root)
 2. Add required API keys to `.env.local` (OPENAI_API_KEY required)
-3. Start Docker: `docker-compose up -d`
+3. Start Docker (PostgreSQL + pgAdmin only): `docker-compose up -d`
 4. Run migrations: `cd backend && npm run prisma:migrate:dev`
 5. Seed data: `npm run prisma:seed`
-6. Start Mastra: `npm run dev`
-7. Access Mastra Studio: http://localhost:4111
+6. Start the backend (Mastra + auth server): `npm run dev:all`
+7. Access Mastra Studio: http://localhost:4111 (auth/API server: http://localhost:4112)
 
 ### Service Ports
-- PostgreSQL: 5432 (user: `pericles_user`, pass: `pericles_dev_password`, db: `pericles`)
-- pgAdmin: 5050 (admin@pericles.dev / admin)
-- Mastra Dev: 4111
-- Mastra Server: 3001 (production mode)
+- PostgreSQL: 5432 (user: `pericles_user`, pass: `pericles_dev_password`, db: `pericles`) — Docker
+- pgAdmin: 5050 (admin@pericles.dev / admin) — Docker
+- Mastra Dev: 4111 — host (`npm run dev:all` / `npm run dev`)
+- Auth/API server: 4112 — host (`npm run dev:all` / `npm run dev:auth`)
+- Mastra Server: 3001 (production mode, host-only via `npm run start`; not in docker-compose)
 
 ## Architecture Overview
 
