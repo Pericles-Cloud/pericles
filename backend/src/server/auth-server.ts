@@ -36,7 +36,9 @@ import {
   getRefreshTokenExpiry,
   logAuthEvent,
   authenticateRequest,
+  checkOrganizationAccess,
 } from '../auth/index.js';
+import { getPositionFeed } from '../integrations/tracking/index.js';
 import { OAuth2Client } from 'google-auth-library';
 import { createWorkflowExecutionService, type ExecutionMode as WorkflowExecutionMode } from '../workflow/index.js';
 
@@ -2689,6 +2691,53 @@ app.get('/api/shipments', async (req: Request, res: Response) => {
   } catch (error) {
     console.error('List shipments error:', error);
     res.status(500).json({ success: false, error: { code: 'INTERNAL_ERROR', message: 'An unexpected error occurred' } });
+  }
+});
+
+// Live vessel positions for the org's shipments (Atlas live layer). Registered
+// BEFORE '/api/shipments/:id' so the literal path isn't captured as :id.
+// Mirrors the Vercel handler at backend/api/shipments/positions.ts.
+app.get('/api/shipments/positions', async (req: Request, res: Response) => {
+  try {
+    const tokenPayload = authenticateRequest(req);
+    if (!tokenPayload) {
+      res.status(401).json({ success: false, error: { code: 'UNAUTHORIZED', message: 'Authentication required' } });
+      return;
+    }
+
+    const organizationId = (req.query.organizationId as string | undefined) ?? '';
+    if (!organizationId) {
+      res.status(400).json({ success: false, error: { code: 'VALIDATION_ERROR', message: 'organizationId query parameter is required' } });
+      return;
+    }
+
+    const access = await checkOrganizationAccess(tokenPayload.userId, organizationId);
+    if (!access.hasAccess) {
+      res.status(403).json({ success: false, error: { code: 'FORBIDDEN', message: 'Access denied to this organization' } });
+      return;
+    }
+
+    // Real BOL-seeded shipments + their supplier origin coordinates.
+    const shipments = await prisma.shipment.findMany({
+      where: { organization_id: organizationId },
+      select: {
+        id: true,
+        vessel_name: true,
+        departure_port: true,
+        destination_port: true,
+        arrival_date: true,
+        estimated_arrival_date: true,
+        supplier: { select: { name: true, latitude: true, longitude: true } },
+      },
+    });
+
+    const feed = getPositionFeed();
+    const positions = await feed.getPositions(shipments);
+
+    res.status(200).json({ success: true, data: positions, meta: { source: feed.source, count: positions.length } });
+  } catch (error) {
+    console.error('Get shipment positions error:', error);
+    res.status(500).json({ success: false, error: { code: 'INTERNAL_ERROR', message: 'Failed to compute positions' } });
   }
 });
 
