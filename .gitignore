@@ -42,3 +42,6 @@ test-results.xml
 .vercel
 
 backups/
+# Python
+__pycache__/
+*.pyc
