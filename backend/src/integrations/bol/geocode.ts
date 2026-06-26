@@ -82,7 +82,9 @@ export function createGoogleGeocoder(opts?: {
     // 2. Offline gazetteer (covers common lanes; lets a trial run keyless).
     const local = gazetteerLookup(key);
     if (local) {
-      if (kv) await kv.set(key, JSON.stringify(local), 'geocode').catch(() => {});
+      if (kv) await kv.set(key, JSON.stringify(local), 'geocode').catch(() => {
+        /* best-effort cache write; ignore failures */
+      });
       return local;
     }
 
@@ -111,7 +113,9 @@ export function createGoogleGeocoder(opts?: {
         latitude: top.geometry.location.lat,
         longitude: top.geometry.location.lng,
       };
-      if (kv) await kv.set(key, JSON.stringify(point), 'geocode').catch(() => {});
+      if (kv) await kv.set(key, JSON.stringify(point), 'geocode').catch(() => {
+        /* best-effort cache write; ignore failures */
+      });
       return point;
     } catch {
       // Graceful degradation — a geocode miss skips the row, never crashes.

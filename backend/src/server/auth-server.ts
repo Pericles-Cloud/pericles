@@ -26,6 +26,8 @@ import {
   RegisterSchema,
   LoginSchema,
   RefreshTokenSchema,
+  UpdateProfileSchema,
+  UpdatePasswordSchema,
   hashPassword,
   verifyPassword,
   generateTokenPair,
@@ -775,6 +777,305 @@ app.get('/api/auth/me', async (req: Request, res: Response) => {
     });
   } catch (error) {
     console.error('Get current user error:', error);
+    res.status(500).json({
+      success: false,
+      error: { code: 'INTERNAL_ERROR', message: 'An unexpected error occurred' },
+    });
+  }
+});
+
+// Update profile (name / avatar URL)
+app.patch('/api/auth/profile', async (req: Request, res: Response) => {
+  const { ipAddress, userAgent } = getRequestInfo(req);
+
+  try {
+    const tokenPayload = authenticateRequest(req);
+    if (!tokenPayload) {
+      res.status(401).json({
+        success: false,
+        error: { code: 'UNAUTHORIZED', message: 'Authentication required' },
+      });
+      return;
+    }
+
+    const validationResult = UpdateProfileSchema.safeParse(req.body);
+    if (!validationResult.success) {
+      res.status(400).json({
+        success: false,
+        error: {
+          code: 'VALIDATION_ERROR',
+          message: validationResult.error.errors[0]?.message || 'Invalid input',
+        },
+      });
+      return;
+    }
+
+    const { name, avatarUrl } = validationResult.data;
+
+    const existing = await prisma.user.findUnique({
+      where: { id: tokenPayload.userId },
+    });
+    if (!existing) {
+      res.status(404).json({
+        success: false,
+        error: { code: 'USER_NOT_FOUND', message: 'User not found' },
+      });
+      return;
+    }
+    if (existing.status !== 'active') {
+      res.status(403).json({
+        success: false,
+        error: { code: 'USER_INACTIVE', message: 'User account is not active' },
+      });
+      return;
+    }
+
+    const updateData: Prisma.UserUpdateInput = {};
+    if (name !== undefined) updateData.name = name;
+    if (avatarUrl !== undefined) updateData.avatar_url = avatarUrl;
+
+    const user = await prisma.user.update({
+      where: { id: tokenPayload.userId },
+      data: updateData,
+    });
+
+    await logAuthEvent({
+      userId: user.id,
+      organizationId: tokenPayload.organizationId || undefined,
+      eventType: 'PROFILE_UPDATE',
+      eventStatus: 'SUCCESS',
+      ipAddress,
+      userAgent,
+      metadata: { fields: Object.keys(updateData) },
+    });
+
+    res.status(200).json({
+      success: true,
+      data: {
+        id: user.id,
+        email: user.email,
+        name: user.name,
+        avatarUrl: user.avatar_url || user.google_avatar_url,
+        emailVerified: user.email_verified,
+      },
+    });
+  } catch (error) {
+    console.error('Update profile error:', error);
+    res.status(500).json({
+      success: false,
+      error: { code: 'INTERNAL_ERROR', message: 'An unexpected error occurred' },
+    });
+  }
+});
+
+// Update password (authenticated change - requires current password)
+app.post('/api/auth/password', async (req: Request, res: Response) => {
+  const { ipAddress, userAgent } = getRequestInfo(req);
+
+  try {
+    const tokenPayload = authenticateRequest(req);
+    if (!tokenPayload) {
+      res.status(401).json({
+        success: false,
+        error: { code: 'UNAUTHORIZED', message: 'Authentication required' },
+      });
+      return;
+    }
+
+    const validationResult = UpdatePasswordSchema.safeParse(req.body);
+    if (!validationResult.success) {
+      res.status(400).json({
+        success: false,
+        error: {
+          code: 'VALIDATION_ERROR',
+          message: validationResult.error.errors[0]?.message || 'Invalid input',
+        },
+      });
+      return;
+    }
+
+    const { currentPassword, newPassword } = validationResult.data;
+
+    const user = await prisma.user.findUnique({
+      where: { id: tokenPayload.userId },
+    });
+    if (!user) {
+      res.status(404).json({
+        success: false,
+        error: { code: 'USER_NOT_FOUND', message: 'User not found' },
+      });
+      return;
+    }
+    if (user.status !== 'active') {
+      res.status(403).json({
+        success: false,
+        error: { code: 'USER_INACTIVE', message: 'User account is not active' },
+      });
+      return;
+    }
+
+    // OAuth-only accounts have no password to change
+    if (!user.password_hash) {
+      res.status(400).json({
+        success: false,
+        error: {
+          code: 'NO_PASSWORD_SET',
+          message: 'Password change is not available for accounts without a password (e.g. Google sign-in)',
+        },
+      });
+      return;
+    }
+
+    const valid = await verifyPassword(currentPassword, user.password_hash);
+    if (!valid) {
+      await logAuthEvent({
+        userId: user.id,
+        organizationId: tokenPayload.organizationId || undefined,
+        eventType: 'PASSWORD_CHANGE',
+        eventStatus: 'FAILURE',
+        ipAddress,
+        userAgent,
+        errorMessage: 'Incorrect current password',
+      });
+      res.status(401).json({
+        success: false,
+        error: { code: 'INVALID_CREDENTIALS', message: 'Current password is incorrect' },
+      });
+      return;
+    }
+
+    if (currentPassword === newPassword) {
+      res.status(400).json({
+        success: false,
+        error: {
+          code: 'SAME_PASSWORD',
+          message: 'New password must be different from the current password',
+        },
+      });
+      return;
+    }
+
+    const newHash = await hashPassword(newPassword);
+
+    // Update the hash and revoke all refresh tokens so every session must re-authenticate.
+    await prisma.$transaction([
+      prisma.user.update({
+        where: { id: user.id },
+        data: { password_hash: newHash },
+      }),
+      prisma.refreshToken.updateMany({
+        where: { user_id: user.id, revoked_at: null },
+        data: { revoked_at: new Date(), revoked_reason: 'password_change' },
+      }),
+    ]);
+
+    await logAuthEvent({
+      userId: user.id,
+      organizationId: tokenPayload.organizationId || undefined,
+      eventType: 'PASSWORD_CHANGE',
+      eventStatus: 'SUCCESS',
+      ipAddress,
+      userAgent,
+    });
+
+    res.status(200).json({
+      success: true,
+      data: { message: 'Password updated successfully' },
+    });
+  } catch (error) {
+    console.error('Update password error:', error);
+    res.status(500).json({
+      success: false,
+      error: { code: 'INTERNAL_ERROR', message: 'An unexpected error occurred' },
+    });
+  }
+});
+
+// Delete account (soft delete - preserves audit trail)
+app.delete('/api/auth/account', async (req: Request, res: Response) => {
+  const { ipAddress, userAgent } = getRequestInfo(req);
+
+  try {
+    const tokenPayload = authenticateRequest(req);
+    if (!tokenPayload) {
+      res.status(401).json({
+        success: false,
+        error: { code: 'UNAUTHORIZED', message: 'Authentication required' },
+      });
+      return;
+    }
+
+    const user = await prisma.user.findUnique({
+      where: { id: tokenPayload.userId },
+      include: {
+        memberships: { where: { status: 'active', role: 'OWNER' } },
+      },
+    });
+
+    if (!user || user.status === 'deleted') {
+      res.status(404).json({
+        success: false,
+        error: { code: 'USER_NOT_FOUND', message: 'User not found' },
+      });
+      return;
+    }
+
+    // Fail secure: block deletion if the user is the sole active OWNER of any
+    // organization, which would otherwise orphan that tenant.
+    for (const membership of user.memberships) {
+      const otherOwners = await prisma.userOrganization.count({
+        where: {
+          organization_id: membership.organization_id,
+          role: 'OWNER',
+          status: 'active',
+          user_id: { not: user.id },
+        },
+      });
+      if (otherOwners === 0) {
+        res.status(409).json({
+          success: false,
+          error: {
+            code: 'SOLE_OWNER',
+            message:
+              'You are the sole owner of one or more organizations. Transfer ownership before deleting your account.',
+          },
+        });
+        return;
+      }
+    }
+
+    // Soft delete: mark the user deleted, suspend memberships, and revoke all
+    // refresh tokens. The User row is retained so the audit trail stays intact.
+    await prisma.$transaction([
+      prisma.user.update({
+        where: { id: user.id },
+        data: { status: 'deleted' },
+      }),
+      prisma.userOrganization.updateMany({
+        where: { user_id: user.id, status: 'active' },
+        data: { status: 'suspended' },
+      }),
+      prisma.refreshToken.updateMany({
+        where: { user_id: user.id, revoked_at: null },
+        data: { revoked_at: new Date(), revoked_reason: 'account_deleted' },
+      }),
+    ]);
+
+    await logAuthEvent({
+      userId: user.id,
+      organizationId: tokenPayload.organizationId || undefined,
+      eventType: 'ACCOUNT_DELETED',
+      eventStatus: 'SUCCESS',
+      ipAddress,
+      userAgent,
+    });
+
+    res.status(200).json({
+      success: true,
+      data: { message: 'Account deleted successfully' },
+    });
+  } catch (error) {
+    console.error('Delete account error:', error);
     res.status(500).json({
       success: false,
       error: { code: 'INTERNAL_ERROR', message: 'An unexpected error occurred' },
