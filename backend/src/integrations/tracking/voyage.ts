@@ -77,7 +77,14 @@ export function buildVoyagePlan(
   if (typeof lat !== 'number' || typeof lng !== 'number') return null;
   const origin: LatLng = { lat, lng };
 
-  const dest = resolvePort(shipment.destination_port);
+  // Prefer geocoded destination coords (resolve any importer city, port or
+  // inland); fall back to the port-name gazetteer for legacy/seeded data.
+  const dLat = shipment.destination_latitude;
+  const dLng = shipment.destination_longitude;
+  const dest: LatLng | null =
+    typeof dLat === 'number' && typeof dLng === 'number'
+      ? { lat: dLat, lng: dLng }
+      : resolvePort(shipment.destination_port);
   if (!dest) return null;
 
   const polyline = planSeaRoute(origin, dest);

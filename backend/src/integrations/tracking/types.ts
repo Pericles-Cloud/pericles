@@ -94,6 +94,10 @@ export interface TrackableShipment {
   vessel_name?: string | null;
   departure_port?: string | null;
   destination_port?: string | null;
+  /** Geocoded destination coordinates = the voyage end. Preferred over the
+   *  port-name gazetteer so inland importer cities resolve too. */
+  destination_latitude?: number | null;
+  destination_longitude?: number | null;
   /** Anchor for voyage timing when present (real arrival from the BOL row). */
   arrival_date?: Date | string | null;
   estimated_arrival_date?: Date | string | null;

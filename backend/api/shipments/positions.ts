@@ -65,6 +65,8 @@ export default async function handler(req: VercelRequest, res: VercelResponse): 
         vessel_name: true,
         departure_port: true,
         destination_port: true,
+        destination_latitude: true,
+        destination_longitude: true,
         arrival_date: true,
         estimated_arrival_date: true,
         supplier: { select: { name: true, latitude: true, longitude: true } },

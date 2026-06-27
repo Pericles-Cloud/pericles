@@ -2725,6 +2725,8 @@ app.get('/api/shipments/positions', async (req: Request, res: Response) => {
         vessel_name: true,
         departure_port: true,
         destination_port: true,
+        destination_latitude: true,
+        destination_longitude: true,
         arrival_date: true,
         estimated_arrival_date: true,
         supplier: { select: { name: true, latitude: true, longitude: true } },

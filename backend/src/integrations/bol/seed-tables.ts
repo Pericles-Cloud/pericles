@@ -17,7 +17,7 @@
  */
 
 import type { PrismaClient } from '@prisma/client';
-import type { BolRow, Geocoder, BolTransformOptions } from './types.js';
+import type { BolRow, Geocoder, GeoPoint, BolTransformOptions } from './types.js';
 
 /** Carrier SCAC → display name for the common ocean lines on trial lanes. */
 const SCAC_NAMES: Record<string, string> = {
@@ -159,6 +159,22 @@ export async function seedShipmentTables(
   }
 
   // ── 3. Upsert one Shipment per BOL row, linked to supplier + carrier ──────
+  // Geocode each distinct US destination once (importer city — often inland, not
+  // a port) so the Atlas feed has real coords without re-resolving a gazetteer.
+  const destPointByKey = new Map<string, GeoPoint | null>();
+  const geocodeDest = async (row: BolRow): Promise<GeoPoint | null> => {
+    const key = [row.destination_city, row.destination_state, row.destination_country]
+      .filter(Boolean)
+      .join(', ');
+    if (!key) return null;
+    let point = destPointByKey.get(key);
+    if (point === undefined) {
+      point = await geocode(key);
+      destPointByKey.set(key, point);
+    }
+    return point;
+  };
+
   let shipmentsWritten = 0;
   for (const row of rows) {
     if (!row.supplier_name) continue;
@@ -168,6 +184,7 @@ export async function seedShipmentTables(
     const scac = row.carrier_scac?.trim().toUpperCase();
     const carrierId = scac ? carrierIdByScac.get(scac) ?? null : null;
     const arrival = toDate(row.shipment_date);
+    const destPoint = await geocodeDest(row);
 
     const id = rowId('BOL-SHP', organizationId, row.bol_number);
     const data = {
@@ -175,10 +192,12 @@ export async function seedShipmentTables(
       supplier_id: supplierId,
       carrier_id: carrierId,
       bol_number: row.bol_number,
-      // Atlas reads these two for the route: supplier lat/lon = origin,
-      // destination_port = the US discharge port (resolved by the port gazetteer).
+      // Atlas reads supplier lat/lon = origin and the destination coords =
+      // importer location; destination_port keeps the human-readable city name.
       departure_port: row.origin_port ?? null,
       destination_port: row.destination_city ?? null,
+      destination_latitude: destPoint?.latitude ?? null,
+      destination_longitude: destPoint?.longitude ?? null,
       destination_port_code: null as string | null,
       departure_port_code: null as string | null,
       vessel_name: row.vessel_name ?? null,

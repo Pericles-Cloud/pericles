@@ -55,6 +55,20 @@ describe('buildVoyagePlan', () => {
     expect(plan).toBeNull();
   });
 
+  it('uses geocoded destination coords for an inland city the gazetteer lacks', () => {
+    // "Tulsa" is not a port; without coords this would be null. With coords it plans.
+    const plan = buildVoyagePlan(
+      { ...shanghaiShipment, destination_port: 'Tulsa', destination_latitude: 36.154, destination_longitude: -95.993 },
+      config,
+    );
+    expect(plan).not.toBeNull();
+    expect(plan!.totalKm).toBeGreaterThan(0);
+    // Route ends at the geocoded destination, not a gazetteer port.
+    const end = plan!.polyline[plan!.polyline.length - 1];
+    expect(Math.abs(end.lat - 36.154)).toBeLessThan(1);
+    expect(Math.abs(end.lng - -95.993)).toBeLessThan(1);
+  });
+
   it('anchors timing on a real arrival date when it is near now', () => {
     const now = Date.parse('2026-06-10T00:00:00Z');
     const arrival = '2026-06-15T00:00:00Z';
