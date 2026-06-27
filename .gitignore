@@ -12,6 +12,12 @@ out/
 # Environment files (secrets)
 .env.local
 .env.*.local
+# Editor/backup copies of env files must never be committed (they hold secrets).
+.env*~
+.env*.bak
+
+# Local patch staging
+/patch/
 
 # IDE
 .idea/
