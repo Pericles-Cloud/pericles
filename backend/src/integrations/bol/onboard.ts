@@ -27,6 +27,9 @@ import {
 
 const defaultPrisma = new PrismaClient();
 
+/** Stand-in parent id used to preview a brand-new customer without writing it. */
+const DRY_RUN_PARENT_ID = '00000000-0000-0000-0000-000000000000';
+
 /** Business info for the parent customer org (all optional but recommended). */
 export interface CustomerBusinessInfo {
   website?: string;
@@ -70,6 +73,7 @@ export async function onboardCustomerFromBol(
     verbose = false,
     ...syncOptions
   } = options;
+  const dryRun = options.dryRun ?? false;
 
   const log = (msg: string): void => {
     if (verbose) console.log(`[Onboard] ${msg}`);
@@ -79,15 +83,14 @@ export async function onboardCustomerFromBol(
     throw new Error('Provide either parentOrganizationId or customerName');
   }
 
-  // 1. Resolve or create the parent customer org.
+  // 1. Resolve or create the parent customer org (never written on a dry run).
   const { id: parentId, created: parentCreated } = await resolveOrCreateCustomer(
     prisma,
     { id: parentOrganizationId, name: customerName, businessInfo },
+    dryRun,
   );
-  log(
-    `${parentCreated ? 'Created' : 'Using'} parent customer org ${parentId}` +
-      (customerName ? ` (${customerName})` : ''),
-  );
+  const verb = parentCreated ? (dryRun ? 'Would create' : 'Created') : 'Using';
+  log(`${verb} parent customer org ${parentId}` + (customerName ? ` (${customerName})` : ''));
 
   // 2-4. Seed every branded subsidiary, with the relational tables turned on so
   //      Atlas + the mocker have data to render.
@@ -105,6 +108,7 @@ export async function onboardCustomerFromBol(
 async function resolveOrCreateCustomer(
   prisma: PrismaClient,
   spec: { id?: string; name?: string; businessInfo?: CustomerBusinessInfo },
+  dryRun: boolean,
 ): Promise<{ id: string; created: boolean }> {
   if (spec.id) {
     const existing = await prisma.organization.findUnique({
@@ -123,6 +127,9 @@ async function resolveOrCreateCustomer(
     select: { id: true },
   });
   if (existing) return { id: existing.id, created: false };
+
+  // Dry run: report that the parent WOULD be created without writing it.
+  if (dryRun) return { id: DRY_RUN_PARENT_ID, created: true };
 
   const info = spec.businessInfo ?? {};
   const child = await prisma.organization.create({

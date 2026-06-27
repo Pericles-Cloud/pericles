@@ -155,7 +155,8 @@ async function main(): Promise<void> {
   console.log(`  Success:        ${result.success ? '✓' : '✗'}`);
   console.log(`  Parent org:     ${result.parent_organization_id}`);
   if ('parent_created' in result) {
-    console.log(`  Parent:         ${result.parent_created ? 'created' : 'existing'}`);
+    const parentState = result.parent_created ? (dryRun ? 'would create' : 'created') : 'existing';
+    console.log(`  Parent:         ${parentState}`);
   }
   console.log(`  Rows fetched:   ${result.rows_fetched}`);
   console.log(`  Subsidiaries:   ${result.subsidiaries.length}`);

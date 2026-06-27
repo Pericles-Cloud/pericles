@@ -128,6 +128,19 @@ export async function syncBolContextForOrganization(
     }
     log(`Organization: ${organization.name}`);
 
+    // Cost-safety: a dry run must never call the paid Apify actor. Skip the
+    // fetch when no rows are supplied and report intent instead.
+    if (!providedRows && dryRun) {
+      log('DRY RUN — skipping paid Apify fetch. Pass rows / a fixture for an offline preview.');
+      return {
+        success: true,
+        organization_id: organizationId,
+        records_synced: emptyCounts,
+        rows_fetched: 0,
+        sync_timestamp: new Date().toISOString(),
+      };
+    }
+
     // 2. Obtain BOL rows — injected (offline/tests) or pulled from Apify.
     let rows = providedRows;
     if (!rows) {
@@ -302,17 +315,33 @@ export async function syncBolContextForSubsidiaries(
       throw new Error('parentOrganizationId is required');
     }
 
-    // 1. Verify the parent exists (children are created under it).
+    // Cost-safety: a dry run must NEVER call the paid Apify actor. When no rows
+    // are supplied (no fixture), skip the fetch and report intent instead.
+    if (!providedRows && dryRun) {
+      const co = (companies ?? []).join(', ') || '(none)';
+      const su = (suppliers ?? []).join(', ') || '(none)';
+      log(`DRY RUN — skipping paid Apify fetch. Would fetch companies=[${co}] suppliers=[${su}]. Pass rows / --fixture for an offline preview.`);
+      return {
+        success: true,
+        parent_organization_id: parentOrganizationId,
+        subsidiaries: [],
+        rows_fetched: 0,
+        sync_timestamp: new Date().toISOString(),
+      };
+    }
+
+    // 1. Verify the parent exists (children are created under it). Skipped on a
+    //    dry run, where nothing is written and the parent may be a preview id.
     const parent = await prisma.organization.findUnique({
       where: { id: parentOrganizationId },
       select: { id: true, name: true },
     });
-    if (!parent) {
+    if (!parent && !dryRun) {
       throw new Error(`Parent organization ${parentOrganizationId} not found`);
     }
-    log(`Parent organization: ${parent.name}`);
+    log(`Parent organization: ${parent?.name ?? '(dry-run preview)'}`);
 
-    // 2. Obtain rows — injected (offline/tests) or pulled from Apify.
+    // 2. Obtain rows — injected (offline/tests/fixture) or pulled from Apify.
     let rows = providedRows;
     if (!rows) {
       if (!companies?.length && !suppliers?.length) {
