@@ -408,12 +408,12 @@ export default function AtlasPage() {
                 title={v.vesselName ?? undefined}
                 icon={{
                   path: google.maps.SymbolPath.FORWARD_CLOSED_ARROW,
-                  scale: 4.5,
+                  scale: 7.5,
                   rotation: v.bearing,
                   fillColor: PERICLES.gold,
                   fillOpacity: 1,
                   strokeColor: PERICLES.white,
-                  strokeWeight: 1.5,
+                  strokeWeight: 2,
                 }}
               />
             ))}
