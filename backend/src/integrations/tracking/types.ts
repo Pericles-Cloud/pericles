@@ -61,6 +61,10 @@ export interface PositionUpdate {
   polyline: LatLng[];
   /** 'mock' | 'live' — so the UI/diligence copy can label simulated motion. */
   source: 'mock' | 'live';
+  /** Owning organization (subsidiary) — set on a rollup so Atlas can color by it. */
+  organizationId?: string;
+  /** Owning organization display name (subsidiary brand) for the Atlas legend. */
+  organizationName?: string;
 }
 
 /**

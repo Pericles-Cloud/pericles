@@ -6,7 +6,8 @@
  * factory returns it — no caller changes. Atlas/API import only from here.
  */
 
-import type { ShipmentPositionFeed, TrackingConfig } from './types.js';
+import type { PrismaClient } from '@prisma/client';
+import type { ShipmentPositionFeed, TrackingConfig, PositionUpdate } from './types.js';
 import { MockPositionFeed } from './mock-feed.js';
 
 export type {
@@ -65,4 +66,52 @@ export function getPositionFeed(config: TrackingConfig = loadTrackingConfig()): 
   }
   mockFeedSingleton ??= new MockPositionFeed(config);
   return mockFeedSingleton;
+}
+
+/**
+ * Vessel positions for an organization, optionally rolled up across its branded
+ * subsidiaries (direct child orgs). Each PositionUpdate is tagged with its owning
+ * organization (id + name) so Atlas can color and legend per subsidiary. The
+ * caller is responsible for authorizing access to `organizationId`.
+ */
+export async function getOrganizationPositions(
+  prisma: PrismaClient,
+  organizationId: string,
+  options: { includeSubsidiaries?: boolean } = {},
+): Promise<PositionUpdate[]> {
+  const orgs = await prisma.organization.findMany({
+    where: options.includeSubsidiaries
+      ? { OR: [{ id: organizationId }, { parent_organization_id: organizationId }] }
+      : { id: organizationId },
+    select: { id: true, name: true },
+  });
+  const nameById = new Map(orgs.map((o) => [o.id, o.name]));
+
+  const shipments = await prisma.shipment.findMany({
+    where: { organization_id: { in: orgs.map((o) => o.id) } },
+    select: {
+      id: true,
+      organization_id: true,
+      vessel_name: true,
+      departure_port: true,
+      destination_port: true,
+      destination_latitude: true,
+      destination_longitude: true,
+      arrival_date: true,
+      estimated_arrival_date: true,
+      supplier: { select: { name: true, latitude: true, longitude: true } },
+    },
+  });
+  const orgByShipment = new Map(shipments.map((s) => [s.id, s.organization_id]));
+
+  const feed = getPositionFeed();
+  const positions = await feed.getPositions(shipments);
+  return positions.map((p) => {
+    const orgId = orgByShipment.get(p.shipmentId);
+    return {
+      ...p,
+      organizationId: orgId,
+      organizationName: orgId ? nameById.get(orgId) : undefined,
+    };
+  });
 }

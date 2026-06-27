@@ -38,7 +38,7 @@ import {
   authenticateRequest,
   checkOrganizationAccess,
 } from '../auth/index.js';
-import { getPositionFeed } from '../integrations/tracking/index.js';
+import { getPositionFeed, getOrganizationPositions } from '../integrations/tracking/index.js';
 import { OAuth2Client } from 'google-auth-library';
 import { createWorkflowExecutionService, type ExecutionMode as WorkflowExecutionMode } from '../workflow/index.js';
 
@@ -2717,26 +2717,16 @@ app.get('/api/shipments/positions', async (req: Request, res: Response) => {
       return;
     }
 
-    // Real BOL-seeded shipments + their supplier origin coordinates.
-    const shipments = await prisma.shipment.findMany({
-      where: { organization_id: organizationId },
-      select: {
-        id: true,
-        vessel_name: true,
-        departure_port: true,
-        destination_port: true,
-        destination_latitude: true,
-        destination_longitude: true,
-        arrival_date: true,
-        estimated_arrival_date: true,
-        supplier: { select: { name: true, latitude: true, longitude: true } },
-      },
+    // Roll up across branded subsidiaries when requested (?includeSubsidiaries=true)
+    // so Atlas can show a parent's whole fleet, colored per subsidiary.
+    const includeSubsidiaries = req.query.includeSubsidiaries === 'true';
+    const positions = await getOrganizationPositions(prisma, organizationId, { includeSubsidiaries });
+
+    res.status(200).json({
+      success: true,
+      data: positions,
+      meta: { source: getPositionFeed().source, count: positions.length },
     });
-
-    const feed = getPositionFeed();
-    const positions = await feed.getPositions(shipments);
-
-    res.status(200).json({ success: true, data: positions, meta: { source: feed.source, count: positions.length } });
   } catch (error) {
     console.error('Get shipment positions error:', error);
     res.status(500).json({ success: false, error: { code: 'INTERNAL_ERROR', message: 'Failed to compute positions' } });

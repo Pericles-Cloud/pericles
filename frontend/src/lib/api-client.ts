@@ -844,6 +844,9 @@ export interface ShipmentPosition {
   vesselName: string | null;
   polyline: Array<{ lat: number; lng: number }>;
   source: 'mock' | 'live';
+  /** Owning subsidiary (set on a rollup) — Atlas colors/legends vessels by this. */
+  organizationId?: string;
+  organizationName?: string;
 }
 
 /**
@@ -852,9 +855,11 @@ export interface ShipmentPosition {
  */
 export async function getShipmentPositions(
   organizationId: string,
+  includeSubsidiaries = false,
 ): Promise<ApiResponse<ShipmentPosition[]>> {
+  const sub = includeSubsidiaries ? '&includeSubsidiaries=true' : '';
   return apiRequest<ShipmentPosition[]>(
-    `/api/shipments/positions?organizationId=${encodeURIComponent(organizationId)}`,
+    `/api/shipments/positions?organizationId=${encodeURIComponent(organizationId)}${sub}`,
   );
 }
 

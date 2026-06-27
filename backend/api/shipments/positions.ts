@@ -14,7 +14,7 @@ import type { VercelRequest, VercelResponse } from '@vercel/node';
 import { PrismaClient } from '@prisma/client';
 import { authenticateRequest, checkOrganizationAccess } from '../../src/auth/index.js';
 import { handleCorsPreflightAndSetHeaders } from '../_cors.js';
-import { getPositionFeed } from '../../src/integrations/tracking/index.js';
+import { getPositionFeed, getOrganizationPositions } from '../../src/integrations/tracking/index.js';
 
 const prisma = new PrismaClient();
 
@@ -57,29 +57,14 @@ export default async function handler(req: VercelRequest, res: VercelResponse): 
       return;
     }
 
-    // Real BOL-seeded shipments + their supplier origin coordinates.
-    const shipments = await prisma.shipment.findMany({
-      where: { organization_id: organizationId },
-      select: {
-        id: true,
-        vessel_name: true,
-        departure_port: true,
-        destination_port: true,
-        destination_latitude: true,
-        destination_longitude: true,
-        arrival_date: true,
-        estimated_arrival_date: true,
-        supplier: { select: { name: true, latitude: true, longitude: true } },
-      },
-    });
-
-    const feed = getPositionFeed();
-    const positions = await feed.getPositions(shipments);
+    // Roll up across branded subsidiaries when requested (?includeSubsidiaries=true).
+    const includeSubsidiaries = req.query.includeSubsidiaries === 'true';
+    const positions = await getOrganizationPositions(prisma, organizationId, { includeSubsidiaries });
 
     res.status(200).json({
       success: true,
       data: positions,
-      meta: { source: feed.source, count: positions.length },
+      meta: { source: getPositionFeed().source, count: positions.length },
     });
   } catch (error) {
     res.status(500).json({

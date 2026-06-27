@@ -23,10 +23,13 @@ export interface UseShipmentPositionsResult {
 /**
  * @param organizationId tenant whose shipments to track (null = idle)
  * @param intervalMs poll cadence; 4s gives smooth motion without hammering the API
+ * @param includeSubsidiaries roll up across the org's branded subsidiaries (each
+ *   vessel is then tagged with its owning org for color-coding)
  */
 export function useShipmentPositions(
   organizationId: string | null | undefined,
   intervalMs = 4000,
+  includeSubsidiaries = false,
 ): UseShipmentPositionsResult {
   const [positions, setPositions] = useState<ShipmentPosition[]>([]);
   const [source, setSource] = useState<'mock' | 'live' | null>(null);
@@ -42,7 +45,7 @@ export function useShipmentPositions(
 
     const poll = async () => {
       setIsLoading(true);
-      const res = await getShipmentPositions(organizationId);
+      const res = await getShipmentPositions(organizationId, includeSubsidiaries);
       if (!active) return;
       if (res.success && res.data) {
         setPositions(res.data);
@@ -58,7 +61,7 @@ export function useShipmentPositions(
       active = false;
       if (timer.current) clearInterval(timer.current);
     };
-  }, [organizationId, intervalMs]);
+  }, [organizationId, intervalMs, includeSubsidiaries]);
 
   // Derive the idle state so no tenant → empty, without a setState-in-effect.
   if (!organizationId) {
