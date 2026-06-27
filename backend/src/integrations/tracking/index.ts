@@ -38,10 +38,18 @@ export function loadTrackingConfig(env: NodeJS.ProcessEnv = process.env): Tracki
   };
 }
 
+/** Process-lifetime mock feed so its reference clock persists across requests. */
+let mockFeedSingleton: MockPositionFeed | null = null;
+
 /**
  * Resolve the active position feed.
  *
- * mock → MockPositionFeed (simulated motion over real BOL lanes).
+ * mock → MockPositionFeed (simulated motion over real BOL lanes). Returned as a
+ *        process singleton: motion is `(now - referenceMs) * compression`, and
+ *        `referenceMs` is anchored when each voyage plan is first built — so the
+ *        SAME feed must survive across polls or every request rebuilds plans at
+ *        `now` and the dots never advance. Tests construct MockPositionFeed
+ *        directly when they need an isolated instance.
  * live → LivePositionFeed (Terminal49 + AISstream) — NOT YET IMPLEMENTED. The
  *        throw is intentional: it surfaces the moment someone flips the flag
  *        before the live adapter exists, rather than silently degrading.
@@ -55,5 +63,6 @@ export function getPositionFeed(config: TrackingConfig = loadTrackingConfig()): 
         'Until then, use TRACKING_MODE=mock.',
     );
   }
-  return new MockPositionFeed(config);
+  mockFeedSingleton ??= new MockPositionFeed(config);
+  return mockFeedSingleton;
 }
