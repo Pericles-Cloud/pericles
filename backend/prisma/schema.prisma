@@ -474,6 +474,11 @@ model Shipment {
   departure_port_code     String?
   last_visit_foreign_port String?
 
+  // Geocoded US destination coordinates (importer location — may be an inland
+  // city, not a port). Drives the Atlas position feed for any destination.
+  destination_latitude    Float?
+  destination_longitude   Float?
+
   // Vessel
   vessel_name             String?
   vessel_code             String?

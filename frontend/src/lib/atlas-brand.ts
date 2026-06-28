@@ -23,6 +23,28 @@ export const PERICLES = {
   black: '#000000',
 } as const;
 
+/**
+ * Categorical palette for delineating branded subsidiaries on the map — vessel
+ * dots and their route lines are colored per subsidiary so a parent rollup is
+ * readable at a glance. Distinct, map-legible hues (gold leads to match the
+ * single-org vessel color).
+ */
+export const SUBSIDIARY_PALETTE = [
+  '#D19B2F', // gold
+  '#2563EB', // blue
+  '#059669', // green
+  '#DC2626', // red
+  '#7C3AED', // violet
+  '#DB2777', // pink
+  '#0891B2', // cyan
+  '#EA580C', // orange
+] as const;
+
+/** Stable color for a subsidiary by its index in the (sorted) set. */
+export function subsidiaryColor(index: number): string {
+  return SUBSIDIARY_PALETTE[index % SUBSIDIARY_PALETTE.length];
+}
+
 /** Severity colors, consistent across Pericles modules (PRD §7.4). */
 export const SEVERITY = {
   critical: '#DC2626', // red

@@ -46,6 +46,18 @@ export interface BolRow {
   /** Carrier SCAC code, when present. */
   carrier_scac?: string;
 
+  /**
+   * Vessel identifiers, when the actor exposes them. Many ImportYeti row-level
+   * actors include the vessel name; some add the IMO/voyage. Optional — absent
+   * on leaner actors, and the seeder/mocker degrade to null labels gracefully.
+   */
+  vessel_name?: string;
+  vessel_code?: string;
+  voyage?: string;
+
+  /** Declared customs value (USD), when present. Often absent on BOL rows. */
+  value_usd?: number;
+
   /** Shipment magnitude — any subset may be present. */
   weight_kg?: number;
   quantity?: number;

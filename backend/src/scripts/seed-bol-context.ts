@@ -26,6 +26,7 @@
 
 import { readFileSync } from 'node:fs';
 import { syncBolContextForSubsidiaries } from '../integrations/bol/sync-service.js';
+import { onboardCustomerFromBol } from '../integrations/bol/onboard.js';
 import { createStubGeocoder } from '../integrations/bol/geocode.js';
 import type { BolRow } from '../integrations/bol/types.js';
 
@@ -44,6 +45,9 @@ Usage:
   npm run bol:seed -- --org-id=<parent-uuid> [source] [options]
 
   --org-id is the PARENT org; one child org is created per branded subsidiary.
+  Alternatively, --customer-name=<name> finds-or-creates the parent customer org
+  (use this to onboard a brand-new customer). --seed-tables additionally writes
+  the relational Supplier/Carrier/Shipment rows Atlas + the position mocker read.
 
 Source (choose one):
   --company=<slugs>     Importer slug(s), comma-separated (actor input: companies)
@@ -51,6 +55,8 @@ Source (choose one):
   --fixture=<path>      Load normalized BolRow[] from a JSON file (no network)
 
 Options:
+  --customer-name=<n>   Find-or-create the parent customer org by name
+  --seed-tables         Also seed Supplier/Carrier/Shipment tables (Atlas path)
   --max-items=<n>       Cap total actor records (default 1000; 0 = no cap). The
                         actor's own default is 50, so set this to pull more.
   --stub                Use the offline gazetteer-only geocoder (no Google calls)
@@ -59,7 +65,9 @@ Options:
   --help, -h            Show this help
 
 Examples:
-  npm run bol:seed -- --org-id=<parent-uuid> --company=sun-hydraulics,faster -v
+  # Onboard Helios end-to-end (parent + subsidiaries + tables):
+  npm run bol:seed -- --customer-name="Helios Technologies" --seed-tables -v \
+    --company=sun-hydraulics,faster,enovation-controls,balboa-water-group,daman-products
   npm run bol:seed -- --org-id=<parent-uuid> --fixture=./fixtures/bol-sample.json --stub --dry-run
 `);
 }
@@ -86,8 +94,10 @@ async function main(): Promise<void> {
   }
 
   const parentOrgId = getArg('org-id');
-  if (!parentOrgId) {
-    console.error('Error: --org-id=<uuid> (parent organization) is required\n');
+  const customerName = getArg('customer-name');
+  const seedTables = hasFlag('seed-tables');
+  if (!parentOrgId && !customerName) {
+    console.error('Error: --org-id=<uuid> or --customer-name=<name> is required\n');
     printUsage();
     process.exit(1);
   }
@@ -109,23 +119,45 @@ async function main(): Promise<void> {
   const geocoder = hasFlag('stub') ? createStubGeocoder({}) : undefined;
   const maxItems = Number(getArg('max-items') ?? 1000);
 
-  console.log(`Seeding BOL context under parent organization: ${parentOrgId}`);
+  // Onboard path (creates parent + optionally seeds relational tables) when a
+  // customer name is given or --seed-tables is set; else the legacy context-only
+  // seed under an existing parent org id.
+  const useOnboard = Boolean(customerName) || seedTables;
+  const target = customerName ? `"${customerName}"` : parentOrgId;
+  console.log(`Seeding BOL data under parent ${target}`);
   console.log('(one child organization is created per branded subsidiary)');
+  if (useOnboard && seedTables) console.log('(seeding relational Supplier/Carrier/Shipment tables)');
   if (dryRun) console.log('(DRY RUN — no database changes will be made)');
 
-  const result = await syncBolContextForSubsidiaries(parentOrgId, {
-    companies,
-    suppliers,
-    maxItems,
-    rows,
-    geocoder,
-    dryRun,
-    verbose,
-  });
+  const result = useOnboard
+    ? await onboardCustomerFromBol({
+        parentOrganizationId: parentOrgId,
+        customerName,
+        companies,
+        suppliers,
+        maxItems,
+        rows,
+        geocoder,
+        dryRun,
+        verbose,
+      })
+    : await syncBolContextForSubsidiaries(parentOrgId!, {
+        companies,
+        suppliers,
+        maxItems,
+        rows,
+        geocoder,
+        dryRun,
+        verbose,
+      });
 
   console.log('\nSeed Result:');
   console.log(`  Success:        ${result.success ? '✓' : '✗'}`);
   console.log(`  Parent org:     ${result.parent_organization_id}`);
+  if ('parent_created' in result) {
+    const parentState = result.parent_created ? (dryRun ? 'would create' : 'created') : 'existing';
+    console.log(`  Parent:         ${parentState}`);
+  }
   console.log(`  Rows fetched:   ${result.rows_fetched}`);
   console.log(`  Subsidiaries:   ${result.subsidiaries.length}`);
   for (const s of result.subsidiaries) {
@@ -135,6 +167,12 @@ async function main(): Promise<void> {
         `${s.records_synced.suppliers} suppliers, ${s.records_synced.plants} plants, ` +
         `${s.records_synced.shipping_lanes} lanes (${s.rows} rows)`
     );
+    if (s.tables_synced) {
+      console.log(
+        `        tables: ${s.tables_synced.suppliers} suppliers, ` +
+          `${s.tables_synced.carriers} carriers, ${s.tables_synced.shipments} shipments`
+      );
+    }
   }
   console.log(`  Timestamp:      ${result.sync_timestamp}`);
   if (result.errors?.length) {
