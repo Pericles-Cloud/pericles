@@ -18,11 +18,12 @@ import {
   InfoWindow,
 } from '@react-google-maps/api';
 import { findPortCoordinates, generateCurvedPath } from '@/lib/port-coordinates';
-import { PERICLES, severityColor, severityLabel } from '@/lib/atlas-brand';
+import { PERICLES, severityColor, severityLabel, subsidiaryColor } from '@/lib/atlas-brand';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { cn } from '@/lib/utils';
+import { useShipmentPositions } from '@/lib/useShipmentPositions';
 
 const GOOGLE_MAPS_API_KEY = process.env.NEXT_PUBLIC_GOOGLE_MAPS_API_KEY || '';
 
@@ -77,6 +78,33 @@ export default function AtlasPage() {
   const mapRef = useRef<google.maps.Map | null>(null);
 
   const { isLoaded, loadError } = useJsApiLoader({ googleMapsApiKey: GOOGLE_MAPS_API_KEY });
+
+  // Live vessel positions: mock-simulated motion over real BOL lanes today;
+  // swaps to Terminal49 + AISstream when TRACKING_MODE=live, no UI change.
+  // See backend/src/integrations/tracking + build skill pericles-atlas-mocker.
+  // Roll up across the org's branded subsidiaries so a parent shows its whole
+  // fleet; each vessel is tagged with its owning org for color-coding.
+  const { positions: vesselPositions } = useShipmentPositions(currentOrganization?.id, 4000, true);
+
+  // Assign a stable, distinct color per subsidiary (sorted by name) + the legend.
+  const subsidiaries = useMemo(() => {
+    const byId = new Map<string, { name: string; count: number }>();
+    for (const v of vesselPositions) {
+      if (!v.organizationId) continue;
+      const e = byId.get(v.organizationId);
+      if (e) e.count += 1;
+      else byId.set(v.organizationId, { name: v.organizationName ?? 'Unknown', count: 1 });
+    }
+    const sorted = [...byId.entries()].sort((a, b) => a[1].name.localeCompare(b[1].name));
+    return sorted.map(([id, info], i) => ({ id, color: subsidiaryColor(i), ...info }));
+  }, [vesselPositions]);
+
+  const colorByOrg = useMemo(
+    () => new Map(subsidiaries.map((s) => [s.id, s.color])),
+    [subsidiaries],
+  );
+  const vesselColor = (orgId?: string): string =>
+    (orgId ? colorByOrg.get(orgId) : undefined) ?? PERICLES.gold;
 
   // Fetch data (BOL-shaped Supplier[] + Shipment[] + Event[]), tenant-scoped.
   useEffect(() => {
@@ -333,6 +361,24 @@ export default function AtlasPage() {
                 <span>Shipping Route</span>
               </div>
             </div>
+
+            {subsidiaries.length > 1 && (
+              <div className="mt-2 pt-2 border-t border-gray-200 dark:border-gray-700">
+                <div className="font-medium mb-1">Subsidiaries · vessels</div>
+                <div className="space-y-1 max-h-44 overflow-y-auto pr-1">
+                  {subsidiaries.map((s) => (
+                    <div key={s.id} className="flex items-center gap-2">
+                      <span
+                        className="inline-block w-3 h-3 rounded-full shrink-0"
+                        style={{ backgroundColor: s.color }}
+                      />
+                      <span className="flex-1 truncate" title={s.name}>{s.name}</span>
+                      <span className="text-xs text-muted-foreground tabular-nums">{s.count}</span>
+                    </div>
+                  ))}
+                </div>
+              </div>
+            )}
           </div>
 
           <GoogleMap
@@ -378,6 +424,39 @@ export default function AtlasPage() {
                   />
                 ),
             )}
+
+            {/* Live vessel layer: sea-route arcs (canal-accurate) + moving dots.
+                Driven by the mock position feed; real data swaps in unchanged. */}
+            {vesselPositions.map((v) => (
+              <Polyline
+                key={`sea-${v.shipmentId}`}
+                path={v.polyline}
+                options={{
+                  strokeColor: vesselColor(v.organizationId),
+                  strokeOpacity: 0.4,
+                  strokeWeight: 1.5,
+                  geodesic: false,
+                  clickable: false,
+                }}
+              />
+            ))}
+            {vesselPositions.map((v) => (
+              <Marker
+                key={`vessel-${v.shipmentId}`}
+                position={v.position}
+                zIndex={999}
+                title={[v.organizationName, v.vesselName].filter(Boolean).join(' · ') || undefined}
+                icon={{
+                  path: google.maps.SymbolPath.FORWARD_CLOSED_ARROW,
+                  scale: 7.5,
+                  rotation: v.bearing,
+                  fillColor: vesselColor(v.organizationId),
+                  fillOpacity: 1,
+                  strokeColor: PERICLES.white,
+                  strokeWeight: 2,
+                }}
+              />
+            ))}
 
             {mapPins.map((pin) => (
               <Marker

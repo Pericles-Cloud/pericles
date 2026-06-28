@@ -26,6 +26,7 @@ import {
 import { fetchBolRows, type ApifyBolClientConfig } from './client.js';
 import { createGoogleGeocoder } from './geocode.js';
 import { transformBolDataToOrganizationContext } from './transformer.js';
+import { seedShipmentTables, type SeedTablesResult } from './seed-tables.js';
 import type { BolRow, Geocoder, BolTransformOptions } from './types.js';
 
 /** Cache geocode results for 90 days — places don't move; saves re-billing. */
@@ -126,6 +127,19 @@ export async function syncBolContextForOrganization(
       throw new Error(`Organization ${organizationId} not found`);
     }
     log(`Organization: ${organization.name}`);
+
+    // Cost-safety: a dry run must never call the paid Apify actor. Skip the
+    // fetch when no rows are supplied and report intent instead.
+    if (!providedRows && dryRun) {
+      log('DRY RUN — skipping paid Apify fetch. Pass rows / a fixture for an offline preview.');
+      return {
+        success: true,
+        organization_id: organizationId,
+        records_synced: emptyCounts,
+        rows_fetched: 0,
+        sync_timestamp: new Date().toISOString(),
+      };
+    }
 
     // 2. Obtain BOL rows — injected (offline/tests) or pulled from Apify.
     let rows = providedRows;
@@ -230,6 +244,13 @@ export interface SyncBolSubsidiariesOptions {
   rows?: BolRow[];
   geocoder?: Geocoder;
   transformOptions?: BolTransformOptions;
+  /**
+   * Also seed the relational Supplier/Carrier/Shipment tables per subsidiary —
+   * the path Atlas + the position mocker read directly. Onboarding sets this
+   * true; the legacy context-only seed leaves it false. See seed-tables.ts and
+   * pericles-customer-onboarding.
+   */
+  seedRelationalTables?: boolean;
   dryRun?: boolean;
   verbose?: boolean;
   prisma?: PrismaClient;
@@ -248,6 +269,8 @@ export interface SyncBolSubsidiaryResult {
     suppliers: number;
     shipping_lanes: number;
   };
+  /** Relational rows written when seedRelationalTables is set (else undefined). */
+  tables_synced?: SeedTablesResult;
   rows: number;
 }
 
@@ -277,6 +300,7 @@ export async function syncBolContextForSubsidiaries(
     rows: providedRows,
     geocoder,
     transformOptions,
+    seedRelationalTables = false,
     dryRun = false,
     verbose = false,
     prisma = defaultPrisma,
@@ -291,17 +315,33 @@ export async function syncBolContextForSubsidiaries(
       throw new Error('parentOrganizationId is required');
     }
 
-    // 1. Verify the parent exists (children are created under it).
+    // Cost-safety: a dry run must NEVER call the paid Apify actor. When no rows
+    // are supplied (no fixture), skip the fetch and report intent instead.
+    if (!providedRows && dryRun) {
+      const co = (companies ?? []).join(', ') || '(none)';
+      const su = (suppliers ?? []).join(', ') || '(none)';
+      log(`DRY RUN — skipping paid Apify fetch. Would fetch companies=[${co}] suppliers=[${su}]. Pass rows / --fixture for an offline preview.`);
+      return {
+        success: true,
+        parent_organization_id: parentOrganizationId,
+        subsidiaries: [],
+        rows_fetched: 0,
+        sync_timestamp: new Date().toISOString(),
+      };
+    }
+
+    // 1. Verify the parent exists (children are created under it). Skipped on a
+    //    dry run, where nothing is written and the parent may be a preview id.
     const parent = await prisma.organization.findUnique({
       where: { id: parentOrganizationId },
       select: { id: true, name: true },
     });
-    if (!parent) {
+    if (!parent && !dryRun) {
       throw new Error(`Parent organization ${parentOrganizationId} not found`);
     }
-    log(`Parent organization: ${parent.name}`);
+    log(`Parent organization: ${parent?.name ?? '(dry-run preview)'}`);
 
-    // 2. Obtain rows — injected (offline/tests) or pulled from Apify.
+    // 2. Obtain rows — injected (offline/tests/fixture) or pulled from Apify.
     let rows = providedRows;
     if (!rows) {
       if (!companies?.length && !suppliers?.length) {
@@ -348,6 +388,7 @@ export async function syncBolContextForSubsidiaries(
 
       let organizationId = '';
       let created = false;
+      let tablesSynced: SeedTablesResult | undefined;
       if (!dryRun) {
         const child = await resolveChildOrganization(
           prisma,
@@ -358,6 +399,21 @@ export async function syncBolContextForSubsidiaries(
         organizationId = child.id;
         created = child.created;
         await persistContext(prisma, organizationId, contextData);
+        // Seed the relational path Atlas + the mocker read (suppliers, carriers,
+        // shipments) from the SAME rows that built the context rollup.
+        if (seedRelationalTables) {
+          tablesSynced = await seedShipmentTables(
+            prisma,
+            organizationId,
+            groupRows,
+            geocode,
+            transformOptions
+          );
+          log(
+            `${brand} tables: ${tablesSynced.suppliers} suppliers, ` +
+              `${tablesSynced.carriers} carriers, ${tablesSynced.shipments} shipments`
+          );
+        }
         log(`${created ? 'Created' : 'Updated'} subsidiary "${brand}" (${organizationId})`);
       } else {
         log(`DRY RUN — would seed "${brand}": ${JSON.stringify(counts)}`);
@@ -368,6 +424,7 @@ export async function syncBolContextForSubsidiaries(
         organization_id: organizationId,
         created,
         records_synced: counts,
+        tables_synced: tablesSynced,
         rows: groupRows.length,
       });
     }

@@ -171,4 +171,22 @@ describe('syncBolContextForSubsidiaries', () => {
     expect(res.errors?.[0]).toContain('`rows` or `companies`');
     expect(prisma.organizationContext.upsert).not.toHaveBeenCalled();
   });
+
+  it('skips the paid Apify fetch on a dry run with no rows (cost-safety)', async () => {
+    const { prisma } = makePrisma();
+    // No `rows` and no geocoder: if it tried to fetch it would hit the network
+    // (no token) and fail, so success:true proves the fetch was skipped.
+    const res = await syncBolContextForSubsidiaries(PARENT_ID, {
+      companies: ['sun-hydraulics', 'faster'],
+      dryRun: true,
+      prisma: prisma as unknown as PrismaClient,
+    });
+
+    expect(res.success).toBe(true);
+    expect(res.rows_fetched).toBe(0);
+    expect(res.subsidiaries).toHaveLength(0);
+    // Returns before the parent lookup and any write.
+    expect(prisma.organization.findUnique).not.toHaveBeenCalled();
+    expect(prisma.organizationContext.upsert).not.toHaveBeenCalled();
+  });
 });
