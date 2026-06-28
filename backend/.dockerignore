@@ -1,0 +1,15 @@
+# Keep the image lean and — critically — keep secret env files OUT of it.
+# auth-server.ts loads ../../../.env.local with override:true; a stray copy in
+# the image would override the container's real env vars. Never ship one.
+.env
+.env.*
+.env*~
+
+node_modules
+dist
+.mastra
+.turbo
+.git
+.vercel
+coverage
+*.log

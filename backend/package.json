@@ -26,6 +26,8 @@
     "mock:help": "dotenv -e ../.env.local -- tsx src/scripts/mocker/index.ts help",
     "jobs:cleanup": "dotenv -e ../.env.local -- tsx src/jobs/data-retention-cleanup.ts",
     "bol:seed": "dotenv -e ../.env.local -- tsx src/scripts/seed-bol-context.ts",
+    "start:server": "tsx src/server/auth-server.ts",
+    "start:server:migrate": "prisma migrate deploy && tsx src/server/auth-server.ts",
     "lint": "eslint . --ext ts,tsx",
     "lint:fix": "eslint . --ext ts,tsx --fix",
     "lint:strict": "eslint . --ext ts,tsx --max-warnings 0",
