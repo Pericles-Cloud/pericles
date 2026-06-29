@@ -3,9 +3,10 @@
 # One port serves the HTTP API and the WebSocket; config comes from env vars.
 FROM node:20-slim
 
-# Prisma needs openssl; ca-certificates for outbound TLS (Apify/Google/OpenAI).
+# Prisma needs openssl; ca-certificates for outbound TLS (Apify/Google/OpenAI);
+# curl so the container healthcheck (Coolify probes GET /health) can run.
 RUN apt-get update \
-    && apt-get install -y --no-install-recommends openssl ca-certificates \
+    && apt-get install -y --no-install-recommends openssl ca-certificates curl \
     && rm -rf /var/lib/apt/lists/*
 
 WORKDIR /app
