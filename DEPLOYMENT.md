@@ -59,9 +59,19 @@ prod `DATABASE_URL`, or a one-off in the container.
 - **Ongoing deploys are automatic:** connect the repo so Coolify redeploys on
   push to the deploy branch, or use the app's **deploy webhook** from CI
   (`curl -X POST "$COOLIFY_DEPLOY_WEBHOOK"`).
-- **Initial app creation** can be scripted via the Coolify v4 REST API
-  (Bearer token from Coolify → Keys & Tokens) — run it from a host on the
-  Coolify network. For a single service the UI (above) is usually faster.
+- **Scripted setup:** `scripts/deploy-coolify.mjs` automates project + app +
+  env + deploy via the Coolify v4 API. **Run it from a host that can reach
+  Coolify** (the server or its LAN — not from outside):
+  ```bash
+  # introspect (read-only): prints servers/projects/apps + UUIDs
+  COOLIFY_URL=http://localhost:8000 COOLIFY_TOKEN=xxxxx node scripts/deploy-coolify.mjs
+  # apply: create/ensure app, sync env from a file, deploy
+  COOLIFY_URL=... COOLIFY_TOKEN=... COOLIFY_SERVER_UUID=<uuid> ENV_FILE=./coolify.env \
+    node scripts/deploy-coolify.mjs --apply
+  ```
+  For a **private** repo, connect it once in the Coolify UI (or pass
+  `COOLIFY_GITHUB_APP_UUID`), then re-run with `APP_UUID=<app>` to just sync env
+  + deploy. The token never passes through anything but your shell.
 
 ### Optional: live monitoring agent
 The `auth-server` serves everything the frontend/Atlas/WebSockets need. The
