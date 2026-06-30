@@ -215,8 +215,12 @@ export default function AtlasPage() {
     [events],
   );
 
-  const supplierCount = mapPins.filter((p) => p.type === 'supplier').length;
-  const portCount = mapPins.filter((p) => p.type === 'port').length;
+  // Stats reflect the org's actual (subsidiary-rolled-up) data, not just the pins
+  // that resolve to coordinates — so the counter matches the live vessel layer.
+  const supplierCount = suppliers.length;
+  const portCount = new Set(
+    shipments.map((s) => s.destinationPort).filter(Boolean),
+  ).size;
 
   const handleMapClick = useCallback(() => {
     setSelectedPin(null);
