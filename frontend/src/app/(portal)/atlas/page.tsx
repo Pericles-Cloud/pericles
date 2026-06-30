@@ -113,15 +113,18 @@ export default function AtlasPage() {
 
     const fetchData = async () => {
       setIsLoading(true);
+      // Roll up across branded subsidiaries so the stats + supplier/port lines
+      // match the live vessel layer (which also rolls up). The server scopes to
+      // the org + its subsidiaries, so no client-side org filter is needed.
       const [shipmentsRes, suppliersRes, eventsRes] = await Promise.all([
-        getShipments(currentOrganization.id),
-        getSuppliers(),
+        getShipments(currentOrganization.id, { includeSubsidiaries: true }),
+        getSuppliers({ organizationId: currentOrganization.id, includeSubsidiaries: true }),
         getEvents({ organizationId: currentOrganization.id, limit: 50 }),
       ]);
       if (!isMounted) return;
       if (shipmentsRes.success && shipmentsRes.data) setShipments(shipmentsRes.data);
       if (suppliersRes.success && suppliersRes.data) {
-        setSuppliers(suppliersRes.data.filter((s) => s.organizationId === currentOrganization.id));
+        setSuppliers(suppliersRes.data);
       }
       if (eventsRes.success && eventsRes.data) setEvents(eventsRes.data.events);
       setIsLoading(false);
