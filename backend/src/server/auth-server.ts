@@ -2103,13 +2103,31 @@ app.get('/api/suppliers', async (req: Request, res: Response) => {
       return;
     }
 
-    // Get user's organizations
-    const memberships = await prisma.userOrganization.findMany({
-      where: { user_id: tokenPayload.userId, status: 'active' },
-      select: { organization_id: true },
-    });
-
-    const orgIds = memberships.map(m => m.organization_id);
+    // Scope to a specific org (honoring root access + optional subsidiary rollup)
+    // when organizationId is given; otherwise fall back to all of the user's orgs.
+    const organizationId = req.query.organizationId as string | undefined;
+    let orgIds: string[];
+    if (organizationId) {
+      const access = await checkOrganizationAccess(tokenPayload.userId, organizationId);
+      if (!access.hasAccess) {
+        res.status(403).json({ success: false, error: { code: 'FORBIDDEN', message: 'Access denied to this organization' } });
+        return;
+      }
+      orgIds = [organizationId];
+      if (req.query.includeSubsidiaries === 'true') {
+        const children = await prisma.organization.findMany({
+          where: { parent_organization_id: organizationId },
+          select: { id: true },
+        });
+        orgIds.push(...children.map((c) => c.id));
+      }
+    } else {
+      const memberships = await prisma.userOrganization.findMany({
+        where: { user_id: tokenPayload.userId, status: 'active' },
+        select: { organization_id: true },
+      });
+      orgIds = memberships.map((m) => m.organization_id);
+    }
 
     const suppliers = await prisma.supplier.findMany({
       where: { organization_id: { in: orgIds } },
@@ -2627,18 +2645,26 @@ app.get('/api/shipments', async (req: Request, res: Response) => {
       return;
     }
 
-    // Verify user has access to this organization
-    const membership = await prisma.userOrganization.findUnique({
-      where: { user_id_organization_id: { user_id: tokenPayload.userId, organization_id: organizationId } },
-    });
-
-    if (membership?.status !== 'active') {
+    // Honor root-org global access + org hierarchy (mirrors /api/shipments/positions).
+    const access = await checkOrganizationAccess(tokenPayload.userId, organizationId);
+    if (!access.hasAccess) {
       res.status(403).json({ success: false, error: { code: 'FORBIDDEN', message: 'Access denied to this organization' } });
       return;
     }
 
+    // Roll up across branded subsidiaries when requested (?includeSubsidiaries=true)
+    // so a parent org's stats/lines reflect its whole fleet, like the live layer.
+    const orgIds = [organizationId];
+    if (req.query.includeSubsidiaries === 'true') {
+      const children = await prisma.organization.findMany({
+        where: { parent_organization_id: organizationId },
+        select: { id: true },
+      });
+      orgIds.push(...children.map((c) => c.id));
+    }
+
     const shipments = await prisma.shipment.findMany({
-      where: { organization_id: organizationId },
+      where: { organization_id: { in: orgIds } },
       include: {
         supplier: { select: { id: true, name: true, country: true } },
         carrier: { select: { id: true, name: true, scac_code: true } },

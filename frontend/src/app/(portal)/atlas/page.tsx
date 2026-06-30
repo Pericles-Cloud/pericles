@@ -113,15 +113,18 @@ export default function AtlasPage() {
 
     const fetchData = async () => {
       setIsLoading(true);
+      // Roll up across branded subsidiaries so the stats + supplier/port lines
+      // match the live vessel layer (which also rolls up). The server scopes to
+      // the org + its subsidiaries, so no client-side org filter is needed.
       const [shipmentsRes, suppliersRes, eventsRes] = await Promise.all([
-        getShipments(currentOrganization.id),
-        getSuppliers(),
+        getShipments(currentOrganization.id, { includeSubsidiaries: true }),
+        getSuppliers({ organizationId: currentOrganization.id, includeSubsidiaries: true }),
         getEvents({ organizationId: currentOrganization.id, limit: 50 }),
       ]);
       if (!isMounted) return;
       if (shipmentsRes.success && shipmentsRes.data) setShipments(shipmentsRes.data);
       if (suppliersRes.success && suppliersRes.data) {
-        setSuppliers(suppliersRes.data.filter((s) => s.organizationId === currentOrganization.id));
+        setSuppliers(suppliersRes.data);
       }
       if (eventsRes.success && eventsRes.data) setEvents(eventsRes.data.events);
       setIsLoading(false);
@@ -212,8 +215,12 @@ export default function AtlasPage() {
     [events],
   );
 
-  const supplierCount = mapPins.filter((p) => p.type === 'supplier').length;
-  const portCount = mapPins.filter((p) => p.type === 'port').length;
+  // Stats reflect the org's actual (subsidiary-rolled-up) data, not just the pins
+  // that resolve to coordinates — so the counter matches the live vessel layer.
+  const supplierCount = suppliers.length;
+  const portCount = new Set(
+    shipments.map((s) => s.destinationPort).filter(Boolean),
+  ).size;
 
   const handleMapClick = useCallback(() => {
     setSelectedPin(null);

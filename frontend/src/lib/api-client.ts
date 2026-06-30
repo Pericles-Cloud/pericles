@@ -590,8 +590,14 @@ export interface UpdateSupplierData {
 /**
  * Get all suppliers for the user's organizations.
  */
-export async function getSuppliers(): Promise<ApiResponse<Supplier[]>> {
-  return apiRequest<Supplier[]>('/api/suppliers');
+export async function getSuppliers(
+  options?: { organizationId?: string; includeSubsidiaries?: boolean },
+): Promise<ApiResponse<Supplier[]>> {
+  const params = new URLSearchParams();
+  if (options?.organizationId) params.set('organizationId', options.organizationId);
+  if (options?.includeSubsidiaries) params.set('includeSubsidiaries', 'true');
+  const qs = params.toString();
+  return apiRequest<Supplier[]>(`/api/suppliers${qs ? `?${qs}` : ''}`);
 }
 
 /**
@@ -823,8 +829,13 @@ export interface UpdateShipmentData {
 /**
  * Get all shipments for an organization.
  */
-export async function getShipments(organizationId: string): Promise<ApiResponse<Shipment[]>> {
-  return apiRequest<Shipment[]>(`/api/shipments?organizationId=${encodeURIComponent(organizationId)}`);
+export async function getShipments(
+  organizationId: string,
+  options?: { includeSubsidiaries?: boolean },
+): Promise<ApiResponse<Shipment[]>> {
+  const params = new URLSearchParams({ organizationId });
+  if (options?.includeSubsidiaries) params.set('includeSubsidiaries', 'true');
+  return apiRequest<Shipment[]>(`/api/shipments?${params.toString()}`);
 }
 
 /**
