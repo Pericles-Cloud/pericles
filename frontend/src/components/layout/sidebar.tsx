@@ -1,8 +1,10 @@
 'use client';
 
+import { useEffect, useRef } from 'react';
 import Link from 'next/link';
 import { usePathname } from 'next/navigation';
 import { cn } from '@/lib/utils';
+import { useSidebarExpanded } from '@/stores/sidebar-store';
 
 interface NavItem {
   name: string;
@@ -131,47 +133,124 @@ const navigation: NavSection[] = [
   },
 ];
 
+/** Width classes, kept here so the layout can mirror them for content padding. */
+export const SIDEBAR_WIDTH = { expanded: 'w-64', collapsed: 'w-16' } as const;
+
 export function Sidebar() {
   const pathname = usePathname();
+  const { surface, isExpanded, collapse } = useSidebarExpanded(pathname);
+  const asideRef = useRef<HTMLElement>(null);
+
+  // On full-bleed routes the nav floats above the map instead of reflowing it,
+  // so an open nav is modal there (GH #8). Below lg it is always modal, since
+  // there is no room to sit beside the content.
+  const isOverlay = surface === 'map';
 
   const isActive = (href: string) => {
-    if (href === '/dashboard') {
-      return pathname === href;
-    }
+    if (href === '/dashboard') return pathname === href;
     return pathname.startsWith(href);
   };
 
+  // Modal behaviour while open: Escape closes, focus moves in and cycles.
+  useEffect(() => {
+    if (!isExpanded) return;
+    const aside = asideRef.current;
+    if (!aside) return;
+
+    const focusable = () =>
+      Array.from(
+        aside.querySelectorAll<HTMLElement>('a[href], button:not([disabled])'),
+      ).filter((el) => el.offsetParent !== null);
+
+    const onKeyDown = (event: KeyboardEvent) => {
+      if (event.key === 'Escape') {
+        collapse();
+        return;
+      }
+      if (event.key !== 'Tab') return;
+
+      const items = focusable();
+      if (items.length === 0) return;
+      const first = items[0];
+      const last = items[items.length - 1];
+
+      if (event.shiftKey && document.activeElement === first) {
+        event.preventDefault();
+        last.focus();
+      } else if (!event.shiftKey && document.activeElement === last) {
+        event.preventDefault();
+        first.focus();
+      }
+    };
+
+    document.addEventListener('keydown', onKeyDown);
+    return () => document.removeEventListener('keydown', onKeyDown);
+  }, [isExpanded, collapse]);
+
   return (
-    <aside className="hidden lg:fixed lg:inset-y-0 lg:flex lg:w-64 lg:flex-col">
-      <div className="flex grow flex-col gap-y-5 overflow-y-auto border-r bg-white dark:bg-gray-800 px-6 pt-5">
-        <div className="flex h-16 shrink-0 items-center">
-          <h1 className="text-2xl font-bold text-gray-900 dark:text-white">
-            Pericles
-          </h1>
-        </div>
-        <nav className="flex flex-1 flex-col">
-          <ul className="flex flex-1 flex-col gap-y-7">
+    <>
+      {/* Scrim: only when the nav is floating above content. */}
+      {isExpanded && (
+        <div
+          onClick={collapse}
+          aria-hidden="true"
+          className={cn(
+            'fixed inset-x-0 bottom-0 top-16 z-20 bg-black/30 backdrop-blur-[1px]',
+            !isOverlay && 'lg:hidden',
+          )}
+        />
+      )}
+
+      <aside
+        ref={asideRef}
+        id="primary-navigation"
+        aria-label="Main navigation"
+        className={cn(
+          'fixed bottom-0 left-0 top-16 z-30 flex flex-col border-r bg-white dark:bg-gray-800',
+          'transition-[width,transform] duration-200 ease-out',
+          isExpanded ? SIDEBAR_WIDTH.expanded : SIDEBAR_WIDTH.collapsed,
+          // Off-canvas when collapsed on small screens; a rail from lg up.
+          isExpanded ? 'translate-x-0' : '-translate-x-full lg:translate-x-0',
+        )}
+      >
+        <nav className="flex flex-1 flex-col overflow-y-auto overflow-x-hidden px-2 py-4">
+          <ul className="flex flex-1 flex-col gap-y-6">
             {navigation.map((section, sectionIndex) => (
               <li key={sectionIndex}>
                 {section.title && (
-                  <div className="text-xs font-semibold text-gray-400 uppercase tracking-wide mb-2">
+                  <div
+                    className={cn(
+                      'mb-2 px-2 text-xs font-semibold uppercase tracking-wide text-gray-400',
+                      // The label is meaningless next to icon-only items.
+                      !isExpanded && 'sr-only',
+                    )}
+                  >
                     {section.title}
                   </div>
                 )}
-                <ul className="-mx-2 space-y-1">
+                {/* Divider stands in for the hidden section label on the rail. */}
+                {section.title && !isExpanded && (
+                  <div className="mx-2 mb-2 border-t border-gray-200 dark:border-gray-700" />
+                )}
+                <ul className="space-y-1">
                   {section.items.map((item) => (
                     <li key={item.name}>
                       <Link
                         href={item.href}
+                        title={!isExpanded ? item.name : undefined}
+                        aria-current={isActive(item.href) ? 'page' : undefined}
                         className={cn(
                           isActive(item.href)
-                            ? 'bg-gray-100 dark:bg-gray-700 text-gray-900 dark:text-white'
-                            : 'text-gray-600 dark:text-gray-300 hover:bg-gray-50 dark:hover:bg-gray-700 hover:text-gray-900 dark:hover:text-white',
-                          'group flex gap-x-3 rounded-md p-2 text-sm font-medium'
+                            ? 'bg-gray-100 text-gray-900 dark:bg-gray-700 dark:text-white'
+                            : 'text-gray-600 hover:bg-gray-50 hover:text-gray-900 dark:text-gray-300 dark:hover:bg-gray-700 dark:hover:text-white',
+                          'group flex items-center gap-x-3 rounded-md p-2 text-sm font-medium',
+                          !isExpanded && 'justify-center',
                         )}
                       >
-                        {item.icon}
-                        {item.name}
+                        <span className="shrink-0">{item.icon}</span>
+                        <span className={cn('truncate', !isExpanded && 'sr-only')}>
+                          {item.name}
+                        </span>
                       </Link>
                     </li>
                   ))}
@@ -180,7 +259,7 @@ export function Sidebar() {
             ))}
           </ul>
         </nav>
-      </div>
-    </aside>
+      </aside>
+    </>
   );
 }
