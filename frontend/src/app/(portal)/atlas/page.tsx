@@ -1,6 +1,7 @@
 'use client';
 
 import { useState, useEffect, useMemo, useCallback, useRef } from 'react';
+import Link from 'next/link';
 import { useAuth } from '@/providers/auth-provider';
 import {
   Shipment,
@@ -600,8 +601,12 @@ export default function AtlasPage() {
 }
 
 function EventFeedItem({ event }: { event: Event }) {
+  // Click through to the event's detail in Intelligence (GH #12).
   return (
-    <div className="p-4 hover:bg-muted/50 cursor-pointer transition-colors">
+    <Link
+      href={`/intelligence?event=${encodeURIComponent(event.id)}`}
+      className="block p-4 hover:bg-muted/50 transition-colors"
+    >
       <div className="flex items-start gap-3">
         <div
           className="w-1 min-h-[40px] rounded-full"
@@ -643,6 +648,6 @@ function EventFeedItem({ event }: { event: Event }) {
           )}
         </div>
       </div>
-    </div>
+    </Link>
   );
 }
