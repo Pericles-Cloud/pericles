@@ -17,8 +17,10 @@ interface EventListProps {
 }
 
 /**
- * The Intelligence feed: a selectable list of monitored events. Shared by the
- * Feed and Analytics views so selection carries across both.
+ * The Intelligence feed: a selectable list of monitored events.
+ *
+ * Rendered by the Feed view only. Selection lives on the page, so it survives a
+ * switch to Analytics and back, but Analytics shows no list of its own.
  */
 export function EventList({ events, selectedEventId, onSelect }: EventListProps) {
   if (events.length === 0) {

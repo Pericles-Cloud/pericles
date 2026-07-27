@@ -294,7 +294,9 @@ export default function AtlasPage() {
       {/* Controls overlay. The wrapper ignores pointer events so map drags pass
           through the gaps between control clusters. */}
       <div className="pointer-events-none absolute inset-x-3 top-3 z-10 flex items-start gap-3">
-        <div className="pointer-events-auto flex flex-wrap items-center gap-3 rounded-lg bg-white/90 p-2 shadow-lg backdrop-blur dark:bg-gray-900/90">
+        {/* min-w-0 so this cluster yields instead of pushing the fixed-width
+            Events Feed off the right edge on narrow viewports. */}
+        <div className="pointer-events-auto flex min-w-0 flex-wrap items-center gap-3 rounded-lg bg-white/90 p-2 shadow-lg backdrop-blur dark:bg-gray-900/90">
           <form onSubmit={handleSearch} className="flex items-center gap-2">
             <Input
               value={search}

@@ -51,15 +51,21 @@ export default function IntelligencePage() {
 function IntelligenceContent() {
   const { currentOrganization } = useAuth();
   const searchParams = useSearchParams();
-  // Atlas deep-links here as /intelligence?event=<id>.
-  const deepLinkedEventId = searchParams.get('event');
+  // Atlas and the dashboard deep-link here as /intelligence?event=<id>.
+  // `selected` is the pre-merge spelling from /events — the redirect in
+  // next.config.ts carries the old query string through unchanged, so honour it
+  // rather than silently dropping a bookmarked link's selection.
+  const deepLinkedEventId = searchParams.get('event') ?? searchParams.get('selected');
 
   const [events, setEvents] = useState<Event[]>([]);
   const [suppliers, setSuppliers] = useState<Supplier[]>([]);
   const [shipments, setShipments] = useState<Shipment[]>([]);
   const [total, setTotal] = useState(0);
-  const [selectedEventId, setSelectedEventId] = useState<string | null>(null);
+  // Only the user's explicit pick is state; the deep link and the
+  // newest-event default are derived below.
+  const [userSelectedId, setUserSelectedId] = useState<string | null>(null);
   const [isLoading, setIsLoading] = useState(true);
+  const [loadError, setLoadError] = useState<string | null>(null);
 
   const [view, setView] = useState<IntelligenceView>('feed');
   const [searchQuery, setSearchQuery] = useState('');
@@ -73,6 +79,15 @@ function IntelligenceContent() {
 
     const fetchData = async () => {
       setIsLoading(true);
+      setLoadError(null);
+      // Drop the outgoing organization's data before the new request resolves.
+      // Without this, a failed fetch after an org switch leaves the previous
+      // tenant's events on screen under the incoming tenant's name.
+      setEvents([]);
+      setSuppliers([]);
+      setShipments([]);
+      setTotal(0);
+      setUserSelectedId(null);
 
       // Suppliers/shipments feed the analytics view. All three are scoped
       // server-side by organizationId — never filtered client-side.
@@ -84,16 +99,27 @@ function IntelligenceContent() {
 
       if (!isMounted) return;
 
+      const failed: string[] = [];
+
       if (eventsRes.success && eventsRes.data) {
         setEvents(eventsRes.data.events);
         setTotal(eventsRes.data.total);
-        // Preselect the deep-linked event when it is present, else the newest.
-        const preselect =
-          eventsRes.data.events.find((e) => e.id === deepLinkedEventId) ?? eventsRes.data.events[0];
-        setSelectedEventId(preselect?.id ?? null);
+      } else {
+        failed.push('events');
       }
+
       if (suppliersRes.success && suppliersRes.data) setSuppliers(suppliersRes.data);
+      else failed.push('suppliers');
+
       if (shipmentsRes.success && shipmentsRes.data) setShipments(shipmentsRes.data);
+      else failed.push('shipments');
+
+      if (failed.length > 0) {
+        setLoadError(
+          `Could not load ${failed.join(', ')} for ${currentOrganization.name}. ` +
+            'What is shown may be incomplete — reload to try again.',
+        );
+      }
 
       setIsLoading(false);
     };
@@ -102,7 +128,26 @@ function IntelligenceContent() {
     return () => {
       isMounted = false;
     };
-  }, [currentOrganization?.id, deepLinkedEventId]);
+  }, [currentOrganization?.id, currentOrganization?.name]);
+
+  // Resolve the deep link against whatever is loaded.
+  const deepLinkedEvent = useMemo(
+    () => (deepLinkedEventId ? (events.find((e) => e.id === deepLinkedEventId) ?? null) : null),
+    [deepLinkedEventId, events],
+  );
+
+  // A deep link that isn't in the fetched window is surfaced rather than
+  // silently falling back to the newest event — otherwise the user reads a
+  // different event from the one they clicked and has no way to tell.
+  const deepLinkMissed =
+    deepLinkedEventId !== null && events.length > 0 && deepLinkedEvent === null;
+
+  // The user's pick wins; then the deep link; then the newest event.
+  const selectedEventId = useMemo(() => {
+    if (userSelectedId) return userSelectedId;
+    if (deepLinkedEventId) return deepLinkedEvent?.id ?? null;
+    return events[0]?.id ?? null;
+  }, [userSelectedId, deepLinkedEventId, deepLinkedEvent, events]);
 
   const eventTypes = useMemo(
     () => Array.from(new Set(events.map((e) => e.type))).sort(),
@@ -131,13 +176,14 @@ function IntelligenceContent() {
     [events, selectedEventId],
   );
 
-  const handleSelect = useCallback((event: Event) => setSelectedEventId(event.id), []);
+  const handleSelect = useCallback((event: Event) => setUserSelectedId(event.id), []);
 
-  const handleGenerate = useCallback(() => {
-    // Placeholder for the Co-Pilot generation path (pericles-copilot-ui).
-    console.log('Generate insight for:', generatePrompt);
-    setGeneratePrompt('');
-  }, [generatePrompt]);
+  // Generation and the Create Memo/Report/Dashboard actions all route through
+  // the Co-Pilot path (pericles-copilot-ui), which is not built yet. The
+  // controls stay visible so the shape of the module is legible, but they are
+  // disabled — a button that clears its input and does nothing else reads as
+  // success.
+  const COPILOT_UNAVAILABLE = 'Not available yet — Co-Pilot generation is not wired up';
 
   if (!currentOrganization) {
     return (
@@ -189,6 +235,24 @@ function IntelligenceContent() {
         </div>
       </div>
 
+      {loadError && (
+        <div
+          role="alert"
+          className="rounded-md border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-800 dark:border-red-900 dark:bg-red-950/40 dark:text-red-300"
+        >
+          {loadError}
+        </div>
+      )}
+
+      {deepLinkMissed && (
+        <div
+          role="status"
+          className="rounded-md border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-900 dark:border-amber-900 dark:bg-amber-950/40 dark:text-amber-300"
+        >
+          That event is not in the current window of monitored events. Pick one from the feed.
+        </div>
+      )}
+
       {view === 'feed' ? (
         <>
           {/* Filters */}
@@ -212,7 +276,9 @@ function IntelligenceContent() {
                 <option value="all">All Status</option>
                 <option value="awaiting">Awaiting plan initiation</option>
                 <option value="ongoing">Plan ongoing</option>
-                <option value="delayed">Plan delayed</option>
+                {/* No "Plan delayed" option: getEventStatus cannot return
+                    'delayed' yet (no incident status maps to it), so offering it
+                    would only ever filter down to nothing. */}
                 <option value="resolved">Resolved</option>
               </select>
               <select
@@ -284,7 +350,7 @@ function IntelligenceContent() {
         <div className="space-y-4">
           {/* Report actions */}
           <div className="flex gap-3 flex-wrap">
-            <Button variant="outline" className="gap-2">
+            <Button variant="outline" className="gap-2" disabled title={COPILOT_UNAVAILABLE}>
               <svg className="size-4" fill="none" viewBox="0 0 24 24" strokeWidth="1.5" stroke="currentColor">
                 <path
                   strokeLinecap="round"
@@ -294,7 +360,7 @@ function IntelligenceContent() {
               </svg>
               Create Memo
             </Button>
-            <Button variant="outline" className="gap-2">
+            <Button variant="outline" className="gap-2" disabled title={COPILOT_UNAVAILABLE}>
               <svg className="size-4" fill="none" viewBox="0 0 24 24" strokeWidth="1.5" stroke="currentColor">
                 <path
                   strokeLinecap="round"
@@ -304,7 +370,7 @@ function IntelligenceContent() {
               </svg>
               Create Report
             </Button>
-            <Button variant="outline" className="gap-2">
+            <Button variant="outline" className="gap-2" disabled title={COPILOT_UNAVAILABLE}>
               <svg className="size-4" fill="none" viewBox="0 0 24 24" strokeWidth="1.5" stroke="currentColor">
                 <path
                   strokeLinecap="round"
@@ -361,12 +427,13 @@ function IntelligenceContent() {
                   type="text"
                   value={generatePrompt}
                   onChange={(e) => setGeneratePrompt(e.target.value)}
-                  placeholder="Ask for insights or analysis..."
+                  placeholder="Ask for insights or analysis (coming soon)"
                   aria-label="Ask for insights or analysis"
-                  className="flex-1 bg-transparent border-none outline-none text-sm"
-                  onKeyDown={(e) => e.key === 'Enter' && handleGenerate()}
+                  disabled
+                  title={COPILOT_UNAVAILABLE}
+                  className="flex-1 bg-transparent border-none outline-none text-sm disabled:cursor-not-allowed"
                 />
-                <Button size="sm" onClick={handleGenerate} disabled={!generatePrompt.trim()} className="gap-1">
+                <Button size="sm" disabled title={COPILOT_UNAVAILABLE} className="gap-1">
                   <svg className="size-4" fill="none" viewBox="0 0 24 24" strokeWidth="1.5" stroke="currentColor">
                     <path
                       strokeLinecap="round"

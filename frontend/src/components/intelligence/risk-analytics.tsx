@@ -128,12 +128,18 @@ export function RiskAnalytics({ events, suppliers, shipments }: RiskAnalyticsPro
 
   const riskTrends = useMemo((): RiskTrend[] => {
     const trends: RiskTrend[] = [];
+
+    // Buckets are UTC days, because events are bucketed by their UTC date too.
+    // Stepping with local `setDate` and then formatting with `toISOString` mixes
+    // the two calendars: across a DST transition a local day is 23 or 25 hours,
+    // so two adjacent steps can land on the same UTC date (duplicating a bucket
+    // and dropping the day either side of it). UTC has no such transitions.
     const now = new Date();
+    const todayUtc = Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), now.getUTCDate());
+    const DAY_MS = 24 * 60 * 60 * 1000;
 
     for (let i = 29; i >= 0; i--) {
-      const date = new Date(now);
-      date.setDate(date.getDate() - i);
-      const dateStr = date.toISOString().split('T')[0];
+      const dateStr = new Date(todayUtc - i * DAY_MS).toISOString().split('T')[0];
 
       const dayEvents = events.filter(
         (e) => new Date(e.eventTimestamp).toISOString().split('T')[0] === dateStr,

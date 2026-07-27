@@ -4,7 +4,7 @@ import { useEffect, useRef } from 'react';
 import Link from 'next/link';
 import { usePathname } from 'next/navigation';
 import { cn } from '@/lib/utils';
-import { useSidebarExpanded } from '@/stores/sidebar-store';
+import { useSidebarExpanded, useSidebarStore } from '@/stores/sidebar-store';
 
 interface NavItem {
   name: string;
@@ -138,33 +138,53 @@ export const SIDEBAR_WIDTH = { expanded: 'w-64', collapsed: 'w-16' } as const;
 
 export function Sidebar() {
   const pathname = usePathname();
-  const { surface, isExpanded, collapse } = useSidebarExpanded(pathname);
+  const { isExpanded, isModal, drawerOpen, collapse } = useSidebarExpanded(pathname);
+  const setDrawerOpen = useSidebarStore((state) => state.setDrawerOpen);
   const asideRef = useRef<HTMLElement>(null);
 
-  // On full-bleed routes the nav floats above the map instead of reflowing it,
-  // so an open nav is modal there (GH #8). Below lg it is always modal, since
-  // there is no room to sit beside the content.
-  const isOverlay = surface === 'map';
+  // Only trap/scrim when the nav actually floats above content: the Atlas
+  // overlay (GH #8) or the below-lg drawer. As a docked rail it is part of the
+  // page, and trapping Tab there would strand keyboard users inside the nav.
+  const isModalOpen = isExpanded && isModal;
 
   const isActive = (href: string) => {
     if (href === '/dashboard') return pathname === href;
     return pathname.startsWith(href);
   };
 
-  // Modal behaviour while open: Escape closes, focus moves in and cycles.
+  // `collapse` changes identity with the drawer state; holding it in a ref keeps
+  // the effect below keyed purely on open/closed, so it cannot re-run mid-open
+  // and yank focus back to the first nav item.
+  const collapseRef = useRef(collapse);
   useEffect(() => {
-    if (!isExpanded) return;
+    collapseRef.current = collapse;
+  }, [collapse]);
+
+  // Navigating from inside the drawer should not leave it covering the page it
+  // just opened. Only the transient drawer is closed — never the stored rail.
+  useEffect(() => {
+    setDrawerOpen(false);
+  }, [pathname, setDrawerOpen]);
+
+  // Modal behaviour while open: focus moves in, Escape closes, Tab cycles, and
+  // focus returns to whatever opened it.
+  useEffect(() => {
+    if (!isModalOpen) return;
     const aside = asideRef.current;
     if (!aside) return;
+
+    const previouslyFocused = document.activeElement as HTMLElement | null;
 
     const focusable = () =>
       Array.from(
         aside.querySelectorAll<HTMLElement>('a[href], button:not([disabled])'),
       ).filter((el) => el.offsetParent !== null);
 
+    focusable()[0]?.focus();
+
     const onKeyDown = (event: KeyboardEvent) => {
       if (event.key === 'Escape') {
-        collapse();
+        collapseRef.current();
         return;
       }
       if (event.key !== 'Tab') return;
@@ -184,20 +204,20 @@ export function Sidebar() {
     };
 
     document.addEventListener('keydown', onKeyDown);
-    return () => document.removeEventListener('keydown', onKeyDown);
-  }, [isExpanded, collapse]);
+    return () => {
+      document.removeEventListener('keydown', onKeyDown);
+      previouslyFocused?.focus?.();
+    };
+  }, [isModalOpen]);
 
   return (
     <>
       {/* Scrim: only when the nav is floating above content. */}
-      {isExpanded && (
+      {isModalOpen && (
         <div
           onClick={collapse}
           aria-hidden="true"
-          className={cn(
-            'fixed inset-x-0 bottom-0 top-16 z-20 bg-black/30 backdrop-blur-[1px]',
-            !isOverlay && 'lg:hidden',
-          )}
+          className="fixed inset-x-0 bottom-0 top-16 z-20 bg-black/30 backdrop-blur-[1px]"
         />
       )}
 
@@ -205,12 +225,17 @@ export function Sidebar() {
         ref={asideRef}
         id="primary-navigation"
         aria-label="Main navigation"
+        role={isModalOpen ? 'dialog' : undefined}
+        aria-modal={isModalOpen ? true : undefined}
         className={cn(
           'fixed bottom-0 left-0 top-16 z-30 flex flex-col border-r bg-white dark:bg-gray-800',
           'transition-[width,transform] duration-200 ease-out',
           isExpanded ? SIDEBAR_WIDTH.expanded : SIDEBAR_WIDTH.collapsed,
-          // Off-canvas when collapsed on small screens; a rail from lg up.
-          isExpanded ? 'translate-x-0' : '-translate-x-full lg:translate-x-0',
+          // Below lg the transform is the drawer, which starts closed — so the
+          // prerendered markup is off-canvas on phones. From lg up it is always
+          // on-canvas and the width above decides rail vs expanded.
+          drawerOpen ? 'translate-x-0' : '-translate-x-full',
+          'lg:translate-x-0',
         )}
       >
         <nav className="flex flex-1 flex-col overflow-y-auto overflow-x-hidden px-2 py-4">

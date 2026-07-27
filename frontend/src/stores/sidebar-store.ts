@@ -13,6 +13,12 @@
  * A deliberate toggle wins and persists for that surface, so someone who likes
  * the nav open on Atlas keeps it open without also forcing it collapsed
  * everywhere else.
+ *
+ * Below `lg` none of that applies: there is no room for a rail beside the
+ * content, so the nav is a drawer that starts closed and is NOT persisted.
+ * Keeping the drawer out of the stored preference matters — otherwise
+ * dismissing it once on a phone would also collapse the nav to a rail on the
+ * same user's desktop, and every page would load behind a scrim.
  */
 
 import { useCallback, useSyncExternalStore } from 'react';
@@ -33,9 +39,13 @@ export function isFullBleedPath(pathname: string): boolean {
 }
 
 interface SidebarState {
+  /** Persisted per-surface rail preference. Only consulted from `lg` up. */
   expanded: Record<SidebarSurface, boolean>;
+  /** Transient below-`lg` drawer. Deliberately not persisted. */
+  drawerOpen: boolean;
   toggle: (surface: SidebarSurface) => void;
   setExpanded: (surface: SidebarSurface, value: boolean) => void;
+  setDrawerOpen: (value: boolean) => void;
 }
 
 const DEFAULT_EXPANDED: Record<SidebarSurface, boolean> = {
@@ -47,16 +57,46 @@ export const useSidebarStore = create<SidebarState>()(
   persist(
     (set) => ({
       expanded: DEFAULT_EXPANDED,
+      drawerOpen: false,
       toggle: (surface) =>
         set((state) => ({
           expanded: { ...state.expanded, [surface]: !state.expanded[surface] },
         })),
       setExpanded: (surface, value) =>
         set((state) => ({ expanded: { ...state.expanded, [surface]: value } })),
+      setDrawerOpen: (value) => set({ drawerOpen: value }),
     }),
-    { name: 'pericles.sidebar' },
+    {
+      name: 'pericles.sidebar',
+      // The drawer is a transient mobile affordance, never a stored preference.
+      partialize: (state) => ({ expanded: state.expanded }),
+    },
   ),
 );
+
+/** Tailwind's `lg`. Kept in sync with the `lg:` classes in the nav + layout. */
+const LG_QUERY = '(min-width: 1024px)';
+
+function subscribeToBreakpoint(onChange: () => void): () => void {
+  const mql = window.matchMedia(LG_QUERY);
+  mql.addEventListener('change', onChange);
+  return () => mql.removeEventListener('change', onChange);
+}
+
+/**
+ * True when the viewport is narrower than `lg`.
+ *
+ * The server snapshot is `false` so the prerendered markup matches the desktop
+ * layout; the nav's own classes keep the drawer off-canvas below `lg` until
+ * this resolves, so a phone never paints an open drawer.
+ */
+export function useIsBelowLg(): boolean {
+  return useSyncExternalStore(
+    subscribeToBreakpoint,
+    () => !window.matchMedia(LG_QUERY).matches,
+    () => false,
+  );
+}
 
 /**
  * True once the persisted state has been read from localStorage.
@@ -69,33 +109,57 @@ export function useSidebarHydrated(): boolean {
   // Subscribing to the persist API directly (rather than mirroring it into
   // component state) keeps the server snapshot pinned to `false` and avoids a
   // setState-in-effect cascade.
-  return useSyncExternalStore(
-    (onStoreChange) => useSidebarStore.persist.onFinishHydration(onStoreChange),
-    () => useSidebarStore.persist.hasHydrated(),
-    () => false,
-  );
+  return useSyncExternalStore(subscribeToHydration, hasHydrated, () => false);
+}
+
+function subscribeToHydration(onStoreChange: () => void): () => void {
+  return useSidebarStore.persist.onFinishHydration(onStoreChange);
+}
+
+function hasHydrated(): boolean {
+  return useSidebarStore.persist.hasHydrated();
 }
 
 /** Resolved expand state for a pathname, defaults-safe before hydration. */
 export function useSidebarExpanded(pathname: string): {
   surface: SidebarSurface;
   isExpanded: boolean;
+  /** The nav floats above content, so it owns focus and needs a scrim. */
+  isModal: boolean;
+  /** Below-`lg` drawer state, for the off-canvas transform. */
+  drawerOpen: boolean;
   toggle: () => void;
   collapse: () => void;
 } {
   const surface = surfaceForPath(pathname);
   const hydrated = useSidebarHydrated();
-  const expanded = useSidebarStore((state) => state.expanded[surface]);
-  const toggle = useSidebarStore((state) => state.toggle);
-  const setExpanded = useSidebarStore((state) => state.setExpanded);
+  const isBelowLg = useIsBelowLg();
 
-  // Stable identities — the sidebar keys its keydown listener on `collapse`.
-  const toggleSurface = useCallback(() => toggle(surface), [toggle, surface]);
-  const collapseSurface = useCallback(() => setExpanded(surface, false), [setExpanded, surface]);
+  const railExpanded = useSidebarStore((state) => state.expanded[surface]);
+  const drawerOpen = useSidebarStore((state) => state.drawerOpen);
+  const toggleRail = useSidebarStore((state) => state.toggle);
+  const setExpanded = useSidebarStore((state) => state.setExpanded);
+  const setDrawerOpen = useSidebarStore((state) => state.setDrawerOpen);
+
+  const railIsExpanded = hydrated ? railExpanded : DEFAULT_EXPANDED[surface];
+
+  const toggleSurface = useCallback(() => {
+    if (isBelowLg) setDrawerOpen(!drawerOpen);
+    else toggleRail(surface);
+  }, [isBelowLg, drawerOpen, setDrawerOpen, toggleRail, surface]);
+
+  const collapseSurface = useCallback(() => {
+    if (isBelowLg) setDrawerOpen(false);
+    else setExpanded(surface, false);
+  }, [isBelowLg, setDrawerOpen, setExpanded, surface]);
 
   return {
     surface,
-    isExpanded: hydrated ? expanded : DEFAULT_EXPANDED[surface],
+    isExpanded: isBelowLg ? drawerOpen : railIsExpanded,
+    // A rail docked beside the page is part of the document; only the drawer
+    // and the Atlas overlay float above content.
+    isModal: isBelowLg || surface === 'map',
+    drawerOpen,
     toggle: toggleSurface,
     collapse: collapseSurface,
   };
