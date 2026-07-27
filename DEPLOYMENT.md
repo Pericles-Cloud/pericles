@@ -100,9 +100,18 @@ The command runs **inside the app container**, so it uses `npx tsx` against the
 image's `WORKDIR` — not `npm run monitoring:start`, whose
 `dotenv -e ../.env.local` and `dist/` inputs do not exist in the image.
 
+`--all` skips the root org and any org without an `OrganizationContext` — both
+would burn an LLM cycle with nothing to correlate against.
+
 Cost note: each cycle fans out to the monitoring tools and makes OpenAI calls
 **per organization**. At `* * * * *` that is 1440 runs/day multiplied by your
 org count — widen the schedule if that is more than you want to spend.
+
+Overlap: Coolify does **not** serialize scheduled tasks. A run iterates orgs
+sequentially and each cycle can take up to `MONITORING_AGENT_TIMEOUT_MS` (300s),
+so with enough orgs a run can outlast its own interval and the next one starts
+alongside it — multiplying spend. If a run's duration approaches the interval,
+widen the schedule or switch to shape B below.
 
 **B. Persistent worker.** For the full 15-second cadence
 (`MONITORING_DEFAULT_INTERVAL_MS`), which no cron can reach, add a **second

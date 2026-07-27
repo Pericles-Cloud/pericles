@@ -205,6 +205,7 @@ export async function runMonitoringCycle(
 
   // Heartbeat interval for progress feedback (declared outside try for cleanup in finally)
   let heartbeatInterval: NodeJS.Timeout | null = null;
+  let agentTimeout: NodeJS.Timeout | null = null;
 
   try {
     // Get monitoring agent from Mastra
@@ -236,15 +237,16 @@ export async function runMonitoringCycle(
     const agentStartTime = Date.now();
     cycleLogger.info({ prompt: monitoringPrompt.substring(0, 200) + '...' }, '[Cycle] Starting agent execution');
 
-    // Create a timeout promise for the overall agent execution
-    // In Vercel serverless (VERCEL=1), default to 280s to fit within 300s streaming function limit
-    // In other environments, default to 5 minutes (300s) for full monitoring cycles
-    const isVercelServerless = process.env.VERCEL === '1';
-    const defaultTimeoutMs = isVercelServerless ? 280000 : 300000;
-    const AGENT_TIMEOUT_MS = parseInt(process.env.MONITORING_AGENT_TIMEOUT_MS || String(defaultTimeoutMs), 10);
+    // Create a timeout promise for the overall agent execution. 5 minutes is
+    // the cap for a full cycle. (The old 280s Vercel-serverless branch went
+    // with the serverless deploy — the backend is a Coolify container now.)
+    const AGENT_TIMEOUT_MS = parseInt(process.env.MONITORING_AGENT_TIMEOUT_MS || '300000', 10);
 
+    // The handle is cleared in `finally`. Left pending it keeps the event loop
+    // alive for the full timeout after the cycle has already returned, which
+    // stalls any one-shot caller (see monitoring/run-once.ts) long past its work.
     const timeoutPromise = new Promise<never>((_, reject) => {
-      setTimeout(() => {
+      agentTimeout = setTimeout(() => {
         reject(new Error(`Agent execution timed out after ${AGENT_TIMEOUT_MS / 1000} seconds`));
       }, AGENT_TIMEOUT_MS);
     });
@@ -496,6 +498,12 @@ export async function runMonitoringCycle(
     if (heartbeatInterval) {
       clearInterval(heartbeatInterval);
       heartbeatInterval = null;
+    }
+    // Drop the agent timeout too — otherwise it holds the event loop open for
+    // the remainder of AGENT_TIMEOUT_MS after the cycle is done.
+    if (agentTimeout) {
+      clearTimeout(agentTimeout);
+      agentTimeout = null;
     }
     finalizeCycleMetrics(metrics);
     cycleLogger.info({ metrics: getMetricsSummary(metrics) }, '[Cycle] Cycle complete');

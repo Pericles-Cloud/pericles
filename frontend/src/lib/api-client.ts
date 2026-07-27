@@ -1754,8 +1754,12 @@ export async function executeWorkflow(
   options: ExecuteWorkflowOptions = {}
 ): Promise<ApiResponse<WorkflowExecutionResult>> {
   const { mode = 'run', initialVariables } = options;
+  // `/execute` — the server takes trial vs run from the body, not the path.
+  // This used to POST to `/trial`, which only ever existed in the deleted
+  // Vercel serverless tree; the Express server has never served that path, so
+  // the call 404'd on the deployed backend.
   return apiRequest<WorkflowExecutionResult>(
-    `/api/organizations/${orgId}/workflows/${workflowId}/trial`,
+    `/api/organizations/${orgId}/workflows/${workflowId}/execute`,
     {
       method: 'POST',
       body: { mode, initialVariables },

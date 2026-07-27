@@ -64,10 +64,25 @@ function validateEnvironment(): void {
   }
 }
 
+/**
+ * Organizations worth a cycle under `--all`.
+ *
+ * Explicit `--organization-id` is never filtered — if you name an org, you get
+ * it. `--all` is filtered, because every id costs a full LLM agent cycle:
+ *
+ *  - `is_root` is the @pericles.cloud operator org. It has global read access
+ *    but no supply chain of its own, so a cycle for it detects nothing.
+ *  - No `OrganizationContext` means no plants, warehouses, suppliers, or lanes
+ *    to geo-filter against — the cycle has nothing to correlate events with.
+ *
+ * There is no `monitoring_enabled` column to gate on yet; when one exists it
+ * belongs here.
+ */
 async function resolveOrganizationIds(args: Args): Promise<string[]> {
   if (!args.all) return args.organizationIds;
 
   const organizations = await getPrismaClient().organization.findMany({
+    where: { is_root: false, context: { isNot: null } },
     select: { id: true },
   });
   return organizations.map((org) => org.id);
@@ -138,6 +153,11 @@ async function main(): Promise<void> {
   }
 
   logger.info({ total: organizationIds.length }, '[RunOnce] All cycles succeeded');
+
+  // Exit explicitly. The work is done, but pooled handles we do not own (the
+  // Mastra PostgresStore among them) can keep the event loop alive well past
+  // it. A scheduled task must terminate promptly or runs pile up.
+  process.exit(0);
 }
 
 main().catch(async (error: unknown) => {

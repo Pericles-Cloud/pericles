@@ -69,8 +69,21 @@ case "$cmd" in
     duuid="${1:?usage: coolify.sh watch <deployment_uuid>}"
     interval="${2:-5}"
     echo "Watching deployment ${duuid} (poll ${interval}s)..."
+    fails=0
     while true; do
-      d=$(api GET "/deployments/${duuid}")
+      # A transient 5xx/timeout from the Coolify API must not read as a failed
+      # deployment — keep polling, and only give up after several in a row.
+      if ! d=$(api GET "/deployments/${duuid}" 2>/dev/null); then
+        fails=$((fails + 1))
+        if [[ "$fails" -ge 5 ]]; then
+          echo "Giving up: ${fails} consecutive poll failures. The deployment may still be running." >&2
+          exit 1
+        fi
+        echo "$(date +%H:%M:%S)  poll failed (${fails}/5), retrying in ${interval}s..." >&2
+        sleep "$interval"
+        continue
+      fi
+      fails=0
       status=$(echo "$d" | jq -r '.status // "unknown"')
       printf '%s  status=%s\n' "$(date +%H:%M:%S)" "$status"
       case "$status" in
