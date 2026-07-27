@@ -73,14 +73,22 @@ async function validateEnvironment(): Promise<void> {
  * for the scheduled task, a run cut short by the task timeout or a redeploy
  * would otherwise be logged as a success while most orgs never ran.
  *
- * Registered before the first `getPrismaClient()` call so this listener runs
- * first — `process.exit` inside it pre-empts the handler db-client adds later.
+ * This must exit **synchronously**. Node runs every listener for a signal in
+ * registration order, and ours is registered before the first
+ * `getPrismaClient()` call — but only a synchronous `process.exit` stops the
+ * chain there. Deferring through an async helper hands control back to the
+ * loop, db-client's handler runs, and its `$disconnect().then(exit(0))` settles
+ * first — reinstating the exact false success this guards against.
+ *
+ * The cost is no log flush on the way out. In the container that is free
+ * (NODE_ENV=production, so pino writes synchronously); locally the line may be
+ * clipped. Reporting the right exit code matters more.
  */
 function installSignalHandlers(): void {
   for (const signal of ['SIGINT', 'SIGTERM'] as const) {
     process.on(signal, () => {
       logger.error({ signal }, '[RunOnce] Terminated before completing — reporting failure');
-      void shutdown(1);
+      process.exit(1);
     });
   }
 }
