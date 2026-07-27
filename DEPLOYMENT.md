@@ -103,8 +103,10 @@ The command runs **inside the app container**, so it uses `npx tsx` against the
 image's `WORKDIR` — not `npm run monitoring:start`, whose
 `dotenv -e ../.env.local` and `dist/` inputs do not exist in the image.
 
-`--all` skips the root org and any org without an `OrganizationContext` — both
-would burn an LLM cycle with nothing to correlate against.
+`--all` monitors every org **except**: the root operator org, any org without an
+`OrganizationContext` (nothing to correlate against), and any org whose tenant
+has switched **Monitoring agent** off in Manage → Settings. Naming an org
+explicitly with `--organization-id=` bypasses all three filters.
 
 **Why `*/15` and not `* * * * *`.** Coolify does **not** serialize scheduled
 tasks, and there is no lock in `run-once`. A run iterates orgs sequentially and

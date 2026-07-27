@@ -17,7 +17,7 @@
 import { describe, it, expect, vi } from 'vitest';
 import type { PrismaClient } from '@prisma/client';
 import type { MonitoringConfig } from './config.js';
-import type { CycleMetrics } from './metrics.js';
+import { initializeCycleMetrics, type CycleMetrics } from './metrics.js';
 import { parseArgs, resolveOrganizationIds, runCycles, type CycleDeps } from './run-once.js';
 
 // ---------------------------------------------------------------------------
@@ -40,59 +40,89 @@ const ORGS: OrgRow[] = [
   { id: 'standex', is_root: false, hasContext: true, monitoringEnabled: null },
 ];
 
+interface RelationFilter {
+  is?: null | Record<string, unknown>;
+  isNot?: null;
+}
+
 /**
  * Minimal stand-in for `organization.findMany` that interprets the same `where`
  * clause the production query builds, so the test exercises the real filter
  * rather than a restatement of it.
+ *
+ * It honours the *direction* of each clause — `{ isNot: null }` requires the
+ * relation, `{ is: null }` requires its absence — because inverting a filter is
+ * a far more likely mistake than deleting one, and an inverted filter selects
+ * exactly the wrong tenants while the task stays green.
+ *
+ * Anything it does not recognise throws. A fake that quietly matches everything
+ * when the query shape changes turns a real regression into a green run.
  */
 function makeClient(orgs: OrgRow[] = ORGS) {
-  const findMany = vi.fn(
-    ({ where }: { where?: Record<string, unknown> } = {}) => {
-      const wantsRootExcluded = where?.is_root === false;
-      const wantsContext = where?.context !== undefined;
-      const orClause = where?.OR as
-        | Array<{ settings: { is: null | { monitoring_agent_enabled: boolean } } }>
-        | undefined;
-
-      const matches = orgs.filter((org) => {
-        if (wantsRootExcluded && org.is_root) return false;
-        if (wantsContext && !org.hasContext) return false;
-
-        if (orClause) {
-          const allowsNullSettings = orClause.some((c) => c.settings.is === null);
-          const requiredFlag = orClause.find((c) => c.settings.is !== null)?.settings.is;
-
-          if (org.monitoringEnabled === null) return allowsNullSettings;
-          if (requiredFlag && typeof requiredFlag !== 'object') return true;
-          return org.monitoringEnabled === (requiredFlag as { monitoring_agent_enabled: boolean }).monitoring_agent_enabled;
-        }
-
-        return true;
-      });
-
-      return Promise.resolve(matches.map((org) => ({ id: org.id })));
+  const findMany = vi.fn(({ where }: { where?: Record<string, unknown> } = {}) => {
+    const known = new Set(['is_root', 'context', 'OR']);
+    const unknown = Object.keys(where ?? {}).filter((k) => !known.has(k));
+    if (unknown.length > 0) {
+      throw new Error(
+        `fake findMany: unrecognised where key(s) [${unknown.join(', ')}] — ` +
+          'teach the fake this clause rather than letting it match everything'
+      );
     }
-  );
+
+    /** true = relation must exist, false = must be absent. */
+    const requireContext = ((): boolean | undefined => {
+      const clause = where?.context as RelationFilter | undefined;
+      if (clause === undefined) return undefined;
+      if (clause.isNot === null) return true;
+      if (clause.is === null) return false;
+      throw new Error(`fake findMany: unrecognised context filter ${JSON.stringify(clause)}`);
+    })();
+
+    const orClause = where?.OR as Array<{ settings: RelationFilter }> | undefined;
+
+    const matches = orgs.filter((org) => {
+      if (where?.is_root !== undefined && org.is_root !== where.is_root) return false;
+      if (requireContext !== undefined && org.hasContext !== requireContext) return false;
+
+      if (orClause) {
+        const allowsAbsentSettings = orClause.some((c) => c.settings.is === null);
+        const flagClause = orClause.find(
+          (c) => c.settings.is !== null && c.settings.is !== undefined
+        )?.settings.is as { monitoring_agent_enabled?: boolean } | undefined;
+
+        if (org.monitoringEnabled === null) return allowsAbsentSettings;
+        if (flagClause?.monitoring_agent_enabled === undefined) {
+          throw new Error(
+            `fake findMany: unrecognised settings filter ${JSON.stringify(orClause)}`
+          );
+        }
+        return org.monitoringEnabled === flagClause.monitoring_agent_enabled;
+      }
+
+      return true;
+    });
+
+    return Promise.resolve(matches.map((org) => ({ id: org.id })));
+  });
 
   return { client: { organization: { findMany } } as unknown as PrismaClient, findMany };
 }
 
 const CONFIG = { organizationId: 'x' } as unknown as MonitoringConfig;
 
+/**
+ * Build metrics from the production initializer rather than a hand-rolled
+ * literal, so a new required field on CycleMetrics arrives here with its real
+ * default instead of `undefined` behind a cast.
+ */
 function metrics(overrides: Partial<CycleMetrics> = {}): CycleMetrics {
   return {
+    ...initializeCycleMetrics('org-under-test'),
     durationMs: 10,
-    eventsDetected: 0,
-    eventsPublished: 0,
-    duplicatesFiltered: 0,
-    geographyFiltered: 0,
-    severityFiltered: 0,
     toolsExecuted: 3,
     toolsSucceeded: 3,
-    toolsFailed: 0,
-    errors: [],
     ...overrides,
-  } as unknown as CycleMetrics;
+  };
 }
 
 function makeDeps(runCycle: CycleDeps['runCycle']): CycleDeps {
@@ -175,6 +205,43 @@ describe('resolveOrganizationIds', () => {
     const ids = await resolveOrganizationIds({ all: true, organizationIds: [] }, client);
 
     expect(ids).toContain('standex');
+  });
+
+  it('under --all, requires an OrganizationContext rather than requiring its absence', async () => {
+    // Pins the *direction* of the context filter. Inverting it (isNot: null →
+    // is: null) selects exactly the wrong set in production — every org that can
+    // correlate nothing, and no real tenant — while the task stays green.
+    // 'onlyContextless' is chosen so it is the sole match under the inversion.
+    const { client } = makeClient([
+      { id: 'withContext', is_root: false, hasContext: true, monitoringEnabled: true },
+      { id: 'onlyContextless', is_root: false, hasContext: false, monitoringEnabled: true },
+    ]);
+
+    const ids = await resolveOrganizationIds({ all: true, organizationIds: [] }, client);
+
+    expect(ids).toEqual(['withContext']);
+  });
+
+  it('under --all, excludes the root org rather than selecting only it', async () => {
+    const { client } = makeClient([
+      { id: 'root', is_root: true, hasContext: true, monitoringEnabled: true },
+      { id: 'tenant', is_root: false, hasContext: true, monitoringEnabled: true },
+    ]);
+
+    const ids = await resolveOrganizationIds({ all: true, organizationIds: [] }, client);
+
+    expect(ids).toEqual(['tenant']);
+  });
+
+  it('under --all, selects monitoring-enabled orgs rather than disabled ones', async () => {
+    const { client } = makeClient([
+      { id: 'on', is_root: false, hasContext: true, monitoringEnabled: true },
+      { id: 'off', is_root: false, hasContext: true, monitoringEnabled: false },
+    ]);
+
+    const ids = await resolveOrganizationIds({ all: true, organizationIds: [] }, client);
+
+    expect(ids).toEqual(['on']);
   });
 
   it('returns an empty list when --all matches nothing', async () => {

@@ -24,6 +24,7 @@
  * Exit codes: 0 = every cycle succeeded, 1 = at least one org failed.
  */
 
+import { realpathSync } from 'node:fs';
 import { pathToFileURL } from 'node:url';
 import type { PrismaClient } from '@prisma/client';
 import { loadMonitoringConfig, getEnvironmentOverrides, type MonitoringConfig } from './config.js';
@@ -116,11 +117,15 @@ export function installSignalHandlers(): void {
  */
 export async function resolveOrganizationIds(
   args: Args,
-  client: PrismaClient = getPrismaClient()
+  client?: PrismaClient
 ): Promise<string[]> {
+  // Resolved after the early return, not as a default parameter: defaults are
+  // evaluated before the body, which would construct a Prisma client (and
+  // register db-client's signal handlers) even for a named-org run that never
+  // queries.
   if (!args.all) return args.organizationIds;
 
-  const organizations = await client.organization.findMany({
+  const organizations = await (client ?? getPrismaClient()).organization.findMany({
     where: {
       is_root: false,
       context: { isNot: null },
@@ -276,8 +281,21 @@ async function main(): Promise<void> {
 
 // Only run when invoked as a script. Importing this module (tests) must not
 // kick off a monitoring run or call process.exit out from under the runner.
-const invokedDirectly =
-  process.argv[1] !== undefined && import.meta.url === pathToFileURL(process.argv[1]).href;
+//
+// `import.meta.url` is realpath-resolved but argv[1] is not, so the comparison
+// must resolve symlinks too. Otherwise invoking through a symlinked path makes
+// this false, main() never runs, and the process exits 0 having done nothing —
+// a green scheduled task with no log line at all, which is the worst shape of
+// the false success this file exists to prevent.
+const invokedDirectly = (() => {
+  const entry = process.argv[1];
+  if (entry === undefined) return false;
+  try {
+    return import.meta.url === pathToFileURL(realpathSync(entry)).href;
+  } catch {
+    return import.meta.url === pathToFileURL(entry).href;
+  }
+})();
 
 if (invokedDirectly) {
   main().catch(async (error: unknown) => {
