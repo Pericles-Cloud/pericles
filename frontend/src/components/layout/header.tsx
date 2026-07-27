@@ -1,7 +1,9 @@
 'use client';
 
 import Link from 'next/link';
+import { usePathname } from 'next/navigation';
 import { useAuth } from '@/providers/auth-provider';
+import { useSidebarExpanded } from '@/stores/sidebar-store';
 import { Button } from '@/components/ui/button';
 import {
   DropdownMenu,
@@ -14,6 +16,8 @@ import {
 
 export function Header() {
   const { user, currentOrganization, logout } = useAuth();
+  const pathname = usePathname();
+  const { isExpanded, toggle } = useSidebarExpanded(pathname);
 
   const handleLogout = async () => {
     await logout();
@@ -23,9 +27,32 @@ export function Header() {
     <header className="sticky top-0 z-40 border-b bg-white dark:bg-gray-800">
       <div className="flex h-16 items-center justify-between px-4 lg:px-6">
         <div className="flex items-center gap-4">
-          <h1 className="text-xl font-semibold text-gray-900 dark:text-white lg:hidden">
-            Pericles
-          </h1>
+          {/* Nav toggle (GH #8). The nav lives below the header now, so the
+              wordmark moved here — it used to sit in the sidebar underneath
+              this bar, where the header painted over it. */}
+          <Button
+            variant="ghost"
+            size="icon"
+            onClick={toggle}
+            aria-label={isExpanded ? 'Collapse navigation' : 'Expand navigation'}
+            aria-expanded={isExpanded}
+            aria-controls="primary-navigation"
+          >
+            <svg
+              className="size-5"
+              fill="none"
+              viewBox="0 0 24 24"
+              strokeWidth="1.5"
+              stroke="currentColor"
+            >
+              <path
+                strokeLinecap="round"
+                strokeLinejoin="round"
+                d="M3.75 6.75h16.5M3.75 12h16.5m-16.5 5.25h16.5"
+              />
+            </svg>
+          </Button>
+          <h1 className="text-xl font-semibold text-gray-900 dark:text-white">Pericles</h1>
           {currentOrganization && (
             <span className="text-sm text-gray-500 dark:text-gray-400 hidden sm:block">
               {currentOrganization.name}

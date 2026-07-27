@@ -1,6 +1,7 @@
 'use client';
 
 import { useState, useEffect, useMemo, useCallback, useRef } from 'react';
+import Link from 'next/link';
 import { useAuth } from '@/providers/auth-provider';
 import {
   Shipment,
@@ -19,7 +20,7 @@ import {
 } from '@react-google-maps/api';
 import { findPortCoordinates, generateCurvedPath } from '@/lib/port-coordinates';
 import { PERICLES, severityColor, severityLabel, subsidiaryColor } from '@/lib/atlas-brand';
-import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
+import { Card, CardContent } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { cn } from '@/lib/utils';
@@ -74,6 +75,8 @@ export default function AtlasPage() {
   const [searchError, setSearchError] = useState<string | null>(null);
   const [selectedPin, setSelectedPin] = useState<MapPin | null>(null);
   const [selectedRoute, setSelectedRoute] = useState<ShipmentRoute | null>(null);
+  // Collapsed by default so the map reads as the whole surface (GH #8).
+  const [isFeedOpen, setIsFeedOpen] = useState(false);
 
   const mapRef = useRef<google.maps.Map | null>(null);
 
@@ -248,7 +251,7 @@ export default function AtlasPage() {
 
   if (!currentOrganization) {
     return (
-      <div className="flex items-center justify-center min-h-[400px]">
+      <div className="flex h-full items-center justify-center p-6">
         <Card>
           <CardContent className="py-8 text-center">
             <p className="text-muted-foreground">Please select an organization to view the Atlas</p>
@@ -260,7 +263,7 @@ export default function AtlasPage() {
 
   if (loadError) {
     return (
-      <div className="flex items-center justify-center min-h-[400px]">
+      <div className="flex h-full items-center justify-center p-6">
         <Card>
           <CardContent className="py-8 text-center">
             <p className="text-destructive">Error loading Google Maps</p>
@@ -273,7 +276,7 @@ export default function AtlasPage() {
 
   if (!isLoaded || isLoading) {
     return (
-      <div className="flex items-center justify-center min-h-[400px]">
+      <div className="flex h-full items-center justify-center p-6">
         <div className="text-center">
           <div
             className="animate-spin rounded-full h-8 w-8 border-b-2 mx-auto"
@@ -286,61 +289,59 @@ export default function AtlasPage() {
   }
 
   return (
-    <div className="h-[calc(100vh-120px)] flex flex-col gap-3">
-      {/* Top filter bar (PRD §7.1) */}
-      <div className="flex items-center gap-3 flex-wrap">
-        <form onSubmit={handleSearch} className="flex items-center gap-2">
-          <Input
-            value={search}
-            onChange={(e) => setSearch(e.target.value)}
-            placeholder="Search country, city, or port…"
-            className="w-64"
-            aria-label="Search location"
-          />
-          <Button type="submit" variant="secondary" size="sm">
-            Search
-          </Button>
-        </form>
-
-        {searchError && <span className="text-sm text-destructive">{searchError}</span>}
-
-        <div className="flex items-center gap-1 ml-auto">
-          {(['all', 'active', 'completed'] as const).map((f) => (
-            <Button
-              key={f}
-              size="sm"
-              variant={timeliness === f ? 'default' : 'outline'}
-              onClick={() => setTimeliness(f)}
-            >
-              {f === 'all' ? 'All' : f === 'active' ? 'In Transit' : 'Arrived'}
+    // The map owns the whole surface; every control floats above it (GH #8).
+    <div className="relative h-full w-full">
+      {/* Controls overlay. The wrapper ignores pointer events so map drags pass
+          through the gaps between control clusters. */}
+      <div className="pointer-events-none absolute inset-x-3 top-3 z-10 flex items-start gap-3">
+        {/* min-w-0 so this cluster yields instead of pushing the fixed-width
+            Events Feed off the right edge on narrow viewports. */}
+        <div className="pointer-events-auto flex min-w-0 flex-wrap items-center gap-3 rounded-lg bg-white/90 p-2 shadow-lg backdrop-blur dark:bg-gray-900/90">
+          <form onSubmit={handleSearch} className="flex items-center gap-2">
+            <Input
+              value={search}
+              onChange={(e) => setSearch(e.target.value)}
+              placeholder="Search country, city, or port…"
+              className="w-56"
+              aria-label="Search location"
+            />
+            <Button type="submit" variant="secondary" size="sm">
+              Search
             </Button>
-          ))}
-        </div>
+          </form>
 
-        {/* View toggle (PRD §7.2) */}
-        <div className="flex items-center rounded-md border overflow-hidden">
-          {(['roadmap', 'hybrid'] as const).map((t) => (
-            <button
-              key={t}
-              onClick={() => setMapType(t)}
-              className={cn(
-                'px-3 py-1.5 text-sm transition-colors',
-                mapType === t
-                  ? 'bg-primary text-primary-foreground'
-                  : 'text-muted-foreground hover:bg-muted',
-              )}
-            >
-              {t === 'roadmap' ? 'Map' : 'Satellite'}
-            </button>
-          ))}
-        </div>
-      </div>
+          <div className="flex items-center gap-1">
+            {(['all', 'active', 'completed'] as const).map((f) => (
+              <Button
+                key={f}
+                size="sm"
+                variant={timeliness === f ? 'default' : 'outline'}
+                onClick={() => setTimeliness(f)}
+              >
+                {f === 'all' ? 'All' : f === 'active' ? 'In Transit' : 'Arrived'}
+              </Button>
+            ))}
+          </div>
 
-      {/* Main content: map + events feed */}
-      <div className="flex-1 flex gap-4 min-h-0">
-        <div className="flex-1 relative rounded-lg overflow-hidden border">
-          {/* Stats overlay */}
-          <div className="absolute top-3 left-3 z-10 rounded-md bg-white/90 dark:bg-gray-900/90 backdrop-blur px-3 py-1.5 text-sm shadow-sm flex items-center gap-2">
+          {/* View toggle (PRD §7.2) */}
+          <div className="flex items-center overflow-hidden rounded-md border">
+            {(['roadmap', 'hybrid'] as const).map((t) => (
+              <button
+                key={t}
+                onClick={() => setMapType(t)}
+                className={cn(
+                  'px-3 py-1.5 text-sm transition-colors',
+                  mapType === t
+                    ? 'bg-primary text-primary-foreground'
+                    : 'text-muted-foreground hover:bg-muted',
+                )}
+              >
+                {t === 'roadmap' ? 'Map' : 'Satellite'}
+              </button>
+            ))}
+          </div>
+
+          <div className="flex items-center gap-2 px-1 text-sm">
             <span className="font-semibold">{shipments.length}</span>
             <span className="text-muted-foreground">shipments</span>
             <span className="text-gray-300">|</span>
@@ -351,236 +352,60 @@ export default function AtlasPage() {
             <span className="text-muted-foreground">ports</span>
           </div>
 
-          {/* Legend (brand-aligned) */}
-          <div className="absolute bottom-4 left-4 z-10 bg-white dark:bg-gray-800 rounded-lg shadow-lg p-3 text-sm">
-            <div className="font-medium mb-2">Legend</div>
-            <div className="space-y-1">
-              <div className="flex items-center gap-2">
-                <div className="w-3 h-3 rounded-full" style={{ backgroundColor: PERICLES.purple }} />
-                <span>Supplier</span>
-              </div>
-              <div className="flex items-center gap-2">
-                <div className="w-3 h-3 rounded-full" style={{ backgroundColor: PERICLES.gold }} />
-                <span>Destination Port</span>
-              </div>
-              <div className="flex items-center gap-2">
-                <div className="w-6 h-0.5" style={{ backgroundColor: PERICLES.slate }} />
-                <span>Shipping Route</span>
-              </div>
-            </div>
-
-            {subsidiaries.length > 1 && (
-              <div className="mt-2 pt-2 border-t border-gray-200 dark:border-gray-700">
-                <div className="font-medium mb-1">Subsidiaries · vessels</div>
-                <div className="space-y-1 max-h-44 overflow-y-auto pr-1">
-                  {subsidiaries.map((s) => (
-                    <div key={s.id} className="flex items-center gap-2">
-                      <span
-                        className="inline-block w-3 h-3 rounded-full shrink-0"
-                        style={{ backgroundColor: s.color }}
-                      />
-                      <span className="flex-1 truncate" title={s.name}>{s.name}</span>
-                      <span className="text-xs text-muted-foreground tabular-nums">{s.count}</span>
-                    </div>
-                  ))}
-                </div>
-              </div>
-            )}
-          </div>
-
-          <GoogleMap
-            mapContainerStyle={containerStyle}
-            center={defaultCenter}
-            zoom={defaultZoom}
-            mapTypeId={mapType}
-            onClick={handleMapClick}
-            onLoad={(map) => {
-              mapRef.current = map;
-            }}
-            onUnmount={() => {
-              mapRef.current = null;
-            }}
-            options={{
-              styles: mapType === 'roadmap' ? mapStyles : undefined,
-              disableDefaultUI: false,
-              zoomControl: true,
-              mapTypeControl: false,
-              streetViewControl: false,
-              fullscreenControl: true,
-              minZoom: 2,
-              maxZoom: 15,
-            }}
-          >
-            {filteredRoutes.map(
-              (route, index) =>
-                route.path.length > 0 && (
-                  <Polyline
-                    key={`route-${route.shipment.id}-${index}`}
-                    path={route.path}
-                    options={{
-                      strokeColor:
-                        selectedRoute?.shipment.id === route.shipment.id
-                          ? PERICLES.gold
-                          : PERICLES.slate,
-                      strokeOpacity: selectedRoute?.shipment.id === route.shipment.id ? 1 : 0.6,
-                      strokeWeight: selectedRoute?.shipment.id === route.shipment.id ? 3 : 2,
-                      geodesic: false,
-                      clickable: true,
-                    }}
-                    onClick={() => setSelectedRoute(route)}
-                  />
-                ),
-            )}
-
-            {/* Live vessel layer: sea-route arcs (canal-accurate) + moving dots.
-                Driven by the mock position feed; real data swaps in unchanged. */}
-            {vesselPositions.map((v) => (
-              <Polyline
-                key={`sea-${v.shipmentId}`}
-                path={v.polyline}
-                options={{
-                  strokeColor: vesselColor(v.organizationId),
-                  strokeOpacity: 0.4,
-                  strokeWeight: 1.5,
-                  geodesic: false,
-                  clickable: false,
-                }}
-              />
-            ))}
-            {vesselPositions.map((v) => (
-              <Marker
-                key={`vessel-${v.shipmentId}`}
-                position={v.position}
-                zIndex={999}
-                title={[v.organizationName, v.vesselName].filter(Boolean).join(' · ') || undefined}
-                icon={{
-                  path: google.maps.SymbolPath.FORWARD_CLOSED_ARROW,
-                  scale: 7.5,
-                  rotation: v.bearing,
-                  fillColor: vesselColor(v.organizationId),
-                  fillOpacity: 1,
-                  strokeColor: PERICLES.white,
-                  strokeWeight: 2,
-                }}
-              />
-            ))}
-
-            {mapPins.map((pin) => (
-              <Marker
-                key={pin.id}
-                position={pin.position}
-                onClick={() => setSelectedPin(pin)}
-                icon={{
-                  path: google.maps.SymbolPath.CIRCLE,
-                  scale: 8 + Math.min(pin.shipmentCount * 2, 10),
-                  fillColor: pin.type === 'supplier' ? PERICLES.purple : PERICLES.gold,
-                  fillOpacity: 1,
-                  strokeColor: PERICLES.white,
-                  strokeWeight: 2,
-                }}
-              />
-            ))}
-
-            {selectedPin && (
-              <InfoWindow position={selectedPin.position} onCloseClick={() => setSelectedPin(null)}>
-                <div className="p-2 min-w-[180px]">
-                  <div className="font-medium text-gray-900">{selectedPin.name}</div>
-                  <div className="text-sm text-gray-600 mt-1">
-                    {selectedPin.type === 'supplier' ? 'Supplier' : 'Destination Port'}
-                  </div>
-                  {selectedPin.supplier?.country && (
-                    <div className="text-sm text-gray-500 mt-1">
-                      {selectedPin.supplier.country}
-                    </div>
-                  )}
-                  <div className="text-sm text-gray-500 mt-1">
-                    {selectedPin.shipmentCount} shipment{selectedPin.shipmentCount !== 1 ? 's' : ''} on map
-                    {selectedPin.supplier?.totalShipments
-                      ? ` · ${selectedPin.supplier.totalShipments} total`
-                      : ''}
-                  </div>
-                  {selectedPin.supplier?.departurePorts?.length ? (
-                    <div className="text-xs text-gray-500 mt-2">
-                      <span className="text-gray-400">Departs:</span>{' '}
-                      {selectedPin.supplier.departurePorts.slice(0, 3).join(', ')}
-                    </div>
-                  ) : null}
-                  {selectedPin.supplier?.hsCodes?.length ? (
-                    <div className="text-xs text-gray-500 mt-1">
-                      <span className="text-gray-400">HS:</span>{' '}
-                      {selectedPin.supplier.hsCodes.slice(0, 4).join(', ')}
-                    </div>
-                  ) : null}
-                </div>
-              </InfoWindow>
-            )}
-
-            {selectedRoute && selectedRoute.destination && (
-              <InfoWindow
-                position={selectedRoute.destination}
-                onCloseClick={() => setSelectedRoute(null)}
-              >
-                <div className="p-2 min-w-[200px]">
-                  <div className="font-medium text-gray-900 font-mono text-sm">
-                    {selectedRoute.shipment.bolNumber}
-                  </div>
-                  <div className="text-sm text-gray-600 mt-2 space-y-1">
-                    <div>
-                      <span className="text-gray-500">From:</span>{' '}
-                      {selectedRoute.origin?.name || selectedRoute.shipment.departurePort || 'Unknown'}
-                    </div>
-                    <div>
-                      <span className="text-gray-500">To:</span>{' '}
-                      {selectedRoute.destination?.name ||
-                        selectedRoute.shipment.destinationPort ||
-                        'Unknown'}
-                    </div>
-                    {selectedRoute.shipment.vesselName && (
-                      <div>
-                        <span className="text-gray-500">Vessel:</span>{' '}
-                        {selectedRoute.shipment.vesselName}
-                      </div>
-                    )}
-                    {selectedRoute.shipment.arrivalDate && (
-                      <div>
-                        <span className="text-gray-500">Arrival:</span>{' '}
-                        {new Date(selectedRoute.shipment.arrivalDate).toLocaleDateString()}
-                      </div>
-                    )}
-                  </div>
-                </div>
-              </InfoWindow>
-            )}
-          </GoogleMap>
+          {searchError && <span className="text-sm text-destructive">{searchError}</span>}
         </div>
 
-        {/* Events Feed (PRD §3.2) */}
-        <div className="w-80 shrink-0">
-          <Card className="h-full flex flex-col">
-            <CardHeader className="border-b shrink-0">
-              <CardTitle className="flex items-center gap-2">
-                <svg
-                  className="size-5"
-                  style={{ color: PERICLES.gold }}
-                  fill="none"
-                  viewBox="0 0 24 24"
-                  strokeWidth="1.5"
-                  stroke="currentColor"
-                >
-                  <path
-                    strokeLinecap="round"
-                    strokeLinejoin="round"
-                    d="M14.857 17.082a23.848 23.848 0 005.454-1.31A8.967 8.967 0 0118 9.75v-.7V9A6 6 0 006 9v.75a8.967 8.967 0 01-2.312 6.022c1.733.64 3.56 1.085 5.455 1.31m5.714 0a24.255 24.255 0 01-5.714 0m5.714 0a3 3 0 11-5.714 0"
-                  />
-                </svg>
-                Events Feed
-              </CardTitle>
-            </CardHeader>
-            <CardContent className="flex-1 overflow-y-auto p-0">
+        {/* Events Feed: a bar that expands downward over the map. */}
+        <div className="pointer-events-auto ml-auto flex w-80 shrink-0 flex-col overflow-hidden rounded-lg bg-white shadow-lg dark:bg-gray-800">
+          <button
+            onClick={() => setIsFeedOpen((open) => !open)}
+            aria-expanded={isFeedOpen}
+            aria-controls="atlas-events-feed"
+            className="flex items-center gap-2 px-4 py-3 text-left font-medium transition-colors hover:bg-muted/50"
+          >
+            <svg
+              className="size-5 shrink-0"
+              style={{ color: PERICLES.gold }}
+              fill="none"
+              viewBox="0 0 24 24"
+              strokeWidth="1.5"
+              stroke="currentColor"
+            >
+              <path
+                strokeLinecap="round"
+                strokeLinejoin="round"
+                d="M14.857 17.082a23.848 23.848 0 005.454-1.31A8.967 8.967 0 0118 9.75v-.7V9A6 6 0 006 9v.75a8.967 8.967 0 01-2.312 6.022c1.733.64 3.56 1.085 5.455 1.31m5.714 0a24.255 24.255 0 01-5.714 0m5.714 0a3 3 0 11-5.714 0"
+              />
+            </svg>
+            <span className="flex-1">Events Feed</span>
+            {openEvents.length > 0 && (
+              <span className="rounded-full bg-muted px-2 py-0.5 text-xs font-semibold tabular-nums">
+                {openEvents.length}
+              </span>
+            )}
+            <svg
+              className={cn(
+                'size-4 shrink-0 text-muted-foreground transition-transform',
+                isFeedOpen && 'rotate-180',
+              )}
+              fill="none"
+              viewBox="0 0 24 24"
+              strokeWidth="1.5"
+              stroke="currentColor"
+            >
+              <path strokeLinecap="round" strokeLinejoin="round" d="M19.5 8.25l-7.5 7.5-7.5-7.5" />
+            </svg>
+          </button>
+
+          {isFeedOpen && (
+            <div
+              id="atlas-events-feed"
+              className="max-h-[calc(100vh-11rem)] overflow-y-auto border-t"
+            >
               {openEvents.length === 0 ? (
                 <div className="p-4 text-center text-muted-foreground">
                   <p>No active events</p>
-                  <p className="text-xs mt-1">
+                  <p className="mt-1 text-xs">
                     Events appear here once the monitoring pipeline is connected.
                   </p>
                 </div>
@@ -591,17 +416,225 @@ export default function AtlasPage() {
                   ))}
                 </div>
               )}
-            </CardContent>
-          </Card>
+            </div>
+          )}
         </div>
       </div>
+
+      {/* Legend (brand-aligned) */}
+      <div className="absolute bottom-4 left-4 z-10 bg-white dark:bg-gray-800 rounded-lg shadow-lg p-3 text-sm">
+        <div className="font-medium mb-2">Legend</div>
+        <div className="space-y-1">
+          <div className="flex items-center gap-2">
+            <div className="w-3 h-3 rounded-full" style={{ backgroundColor: PERICLES.purple }} />
+            <span>Supplier</span>
+          </div>
+          <div className="flex items-center gap-2">
+            <div className="w-3 h-3 rounded-full" style={{ backgroundColor: PERICLES.gold }} />
+            <span>Destination Port</span>
+          </div>
+          <div className="flex items-center gap-2">
+            <div className="w-6 h-0.5" style={{ backgroundColor: PERICLES.slate }} />
+            <span>Shipping Route</span>
+          </div>
+        </div>
+
+        {subsidiaries.length > 1 && (
+          <div className="mt-2 pt-2 border-t border-gray-200 dark:border-gray-700">
+            <div className="font-medium mb-1">Subsidiaries · vessels</div>
+            <div className="space-y-1 max-h-44 overflow-y-auto pr-1">
+              {subsidiaries.map((s) => (
+                <div key={s.id} className="flex items-center gap-2">
+                  <span
+                    className="inline-block w-3 h-3 rounded-full shrink-0"
+                    style={{ backgroundColor: s.color }}
+                  />
+                  <span className="flex-1 truncate" title={s.name}>{s.name}</span>
+                  <span className="text-xs text-muted-foreground tabular-nums">{s.count}</span>
+                </div>
+              ))}
+            </div>
+          </div>
+        )}
+      </div>
+
+      <GoogleMap
+        mapContainerStyle={containerStyle}
+        center={defaultCenter}
+        zoom={defaultZoom}
+        mapTypeId={mapType}
+        onClick={handleMapClick}
+        onLoad={(map) => {
+          mapRef.current = map;
+        }}
+        onUnmount={() => {
+          mapRef.current = null;
+        }}
+        options={{
+          styles: mapType === 'roadmap' ? mapStyles : undefined,
+          disableDefaultUI: false,
+          zoomControl: true,
+          mapTypeControl: false,
+          streetViewControl: false,
+          // The map already fills the viewport, and the control would sit
+          // under the Events Feed bar (GH #8).
+          fullscreenControl: false,
+          minZoom: 2,
+          maxZoom: 15,
+        }}
+      >
+        {filteredRoutes.map(
+          (route, index) =>
+            route.path.length > 0 && (
+              <Polyline
+                key={`route-${route.shipment.id}-${index}`}
+                path={route.path}
+                options={{
+                  strokeColor:
+                    selectedRoute?.shipment.id === route.shipment.id
+                      ? PERICLES.gold
+                      : PERICLES.slate,
+                  strokeOpacity: selectedRoute?.shipment.id === route.shipment.id ? 1 : 0.6,
+                  strokeWeight: selectedRoute?.shipment.id === route.shipment.id ? 3 : 2,
+                  geodesic: false,
+                  clickable: true,
+                }}
+                onClick={() => setSelectedRoute(route)}
+              />
+            ),
+        )}
+
+        {/* Live vessel layer: sea-route arcs (canal-accurate) + moving dots.
+            Driven by the mock position feed; real data swaps in unchanged. */}
+        {vesselPositions.map((v) => (
+          <Polyline
+            key={`sea-${v.shipmentId}`}
+            path={v.polyline}
+            options={{
+              strokeColor: vesselColor(v.organizationId),
+              strokeOpacity: 0.4,
+              strokeWeight: 1.5,
+              geodesic: false,
+              clickable: false,
+            }}
+          />
+        ))}
+        {vesselPositions.map((v) => (
+          <Marker
+            key={`vessel-${v.shipmentId}`}
+            position={v.position}
+            zIndex={999}
+            title={[v.organizationName, v.vesselName].filter(Boolean).join(' · ') || undefined}
+            icon={{
+              path: google.maps.SymbolPath.FORWARD_CLOSED_ARROW,
+              scale: 7.5,
+              rotation: v.bearing,
+              fillColor: vesselColor(v.organizationId),
+              fillOpacity: 1,
+              strokeColor: PERICLES.white,
+              strokeWeight: 2,
+            }}
+          />
+        ))}
+
+        {mapPins.map((pin) => (
+          <Marker
+            key={pin.id}
+            position={pin.position}
+            onClick={() => setSelectedPin(pin)}
+            icon={{
+              path: google.maps.SymbolPath.CIRCLE,
+              scale: 8 + Math.min(pin.shipmentCount * 2, 10),
+              fillColor: pin.type === 'supplier' ? PERICLES.purple : PERICLES.gold,
+              fillOpacity: 1,
+              strokeColor: PERICLES.white,
+              strokeWeight: 2,
+            }}
+          />
+        ))}
+
+        {selectedPin && (
+          <InfoWindow position={selectedPin.position} onCloseClick={() => setSelectedPin(null)}>
+            <div className="p-2 min-w-[180px]">
+              <div className="font-medium text-gray-900">{selectedPin.name}</div>
+              <div className="text-sm text-gray-600 mt-1">
+                {selectedPin.type === 'supplier' ? 'Supplier' : 'Destination Port'}
+              </div>
+              {selectedPin.supplier?.country && (
+                <div className="text-sm text-gray-500 mt-1">
+                  {selectedPin.supplier.country}
+                </div>
+              )}
+              <div className="text-sm text-gray-500 mt-1">
+                {selectedPin.shipmentCount} shipment{selectedPin.shipmentCount !== 1 ? 's' : ''} on map
+                {selectedPin.supplier?.totalShipments
+                  ? ` · ${selectedPin.supplier.totalShipments} total`
+                  : ''}
+              </div>
+              {selectedPin.supplier?.departurePorts?.length ? (
+                <div className="text-xs text-gray-500 mt-2">
+                  <span className="text-gray-400">Departs:</span>{' '}
+                  {selectedPin.supplier.departurePorts.slice(0, 3).join(', ')}
+                </div>
+              ) : null}
+              {selectedPin.supplier?.hsCodes?.length ? (
+                <div className="text-xs text-gray-500 mt-1">
+                  <span className="text-gray-400">HS:</span>{' '}
+                  {selectedPin.supplier.hsCodes.slice(0, 4).join(', ')}
+                </div>
+              ) : null}
+            </div>
+          </InfoWindow>
+        )}
+
+        {selectedRoute && selectedRoute.destination && (
+          <InfoWindow
+            position={selectedRoute.destination}
+            onCloseClick={() => setSelectedRoute(null)}
+          >
+            <div className="p-2 min-w-[200px]">
+              <div className="font-medium text-gray-900 font-mono text-sm">
+                {selectedRoute.shipment.bolNumber}
+              </div>
+              <div className="text-sm text-gray-600 mt-2 space-y-1">
+                <div>
+                  <span className="text-gray-500">From:</span>{' '}
+                  {selectedRoute.origin?.name || selectedRoute.shipment.departurePort || 'Unknown'}
+                </div>
+                <div>
+                  <span className="text-gray-500">To:</span>{' '}
+                  {selectedRoute.destination?.name ||
+                    selectedRoute.shipment.destinationPort ||
+                    'Unknown'}
+                </div>
+                {selectedRoute.shipment.vesselName && (
+                  <div>
+                    <span className="text-gray-500">Vessel:</span>{' '}
+                    {selectedRoute.shipment.vesselName}
+                  </div>
+                )}
+                {selectedRoute.shipment.arrivalDate && (
+                  <div>
+                    <span className="text-gray-500">Arrival:</span>{' '}
+                    {new Date(selectedRoute.shipment.arrivalDate).toLocaleDateString()}
+                  </div>
+                )}
+              </div>
+            </div>
+          </InfoWindow>
+        )}
+      </GoogleMap>
     </div>
   );
 }
 
 function EventFeedItem({ event }: { event: Event }) {
+  // Click through to the event's detail in Intelligence (GH #12).
   return (
-    <div className="p-4 hover:bg-muted/50 cursor-pointer transition-colors">
+    <Link
+      href={`/intelligence?event=${encodeURIComponent(event.id)}`}
+      className="block p-4 hover:bg-muted/50 transition-colors"
+    >
       <div className="flex items-start gap-3">
         <div
           className="w-1 min-h-[40px] rounded-full"
@@ -643,6 +676,6 @@ function EventFeedItem({ event }: { event: Event }) {
           )}
         </div>
       </div>
-    </div>
+    </Link>
   );
 }

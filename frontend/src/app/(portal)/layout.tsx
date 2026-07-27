@@ -1,8 +1,11 @@
 'use client';
 
+import { usePathname } from 'next/navigation';
 import { useAuth } from '@/providers/auth-provider';
 import { Header } from '@/components/layout/header';
 import { Sidebar } from '@/components/layout/sidebar';
+import { isFullBleedPath, useSidebarExpanded } from '@/stores/sidebar-store';
+import { cn } from '@/lib/utils';
 
 export default function PortalLayout({
   children,
@@ -10,6 +13,9 @@ export default function PortalLayout({
   children: React.ReactNode;
 }) {
   const { isLoading, isAuthenticated } = useAuth();
+  const pathname = usePathname();
+  const isFullBleed = isFullBleedPath(pathname);
+  const { isExpanded } = useSidebarExpanded(pathname);
 
   // Show loading state
   if (isLoading) {
@@ -31,14 +37,21 @@ export default function PortalLayout({
   }
 
   return (
-    <div className="min-h-screen bg-gray-50 dark:bg-gray-900">
+    <div className={cn('bg-gray-50 dark:bg-gray-900', isFullBleed ? 'h-screen overflow-hidden' : 'min-h-screen')}>
       <Header />
-      <div className="flex">
-        <Sidebar />
-        <main className="flex-1 p-6 lg:ml-64">
-          {children}
-        </main>
-      </div>
+      <Sidebar />
+      <main
+        className={cn(
+          'transition-[padding] duration-200 ease-out',
+          // Full-bleed routes (Atlas) run edge-to-edge under the header and the
+          // nav floats above them, so they get no padding at all (GH #8).
+          isFullBleed
+            ? 'h-[calc(100vh-4rem)] lg:pl-16'
+            : cn('p-6', isExpanded ? 'lg:pl-[calc(16rem+1.5rem)]' : 'lg:pl-[calc(4rem+1.5rem)]'),
+        )}
+      >
+        {children}
+      </main>
     </div>
   );
 }
