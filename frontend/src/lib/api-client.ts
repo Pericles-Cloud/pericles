@@ -955,6 +955,8 @@ export interface EventsQueryParams {
   source?: string;
   limit?: number;
   offset?: number;
+  /** Roll up events from child organizations, as getSuppliers/getShipments do. */
+  includeSubsidiaries?: boolean;
 }
 
 /**
@@ -968,6 +970,7 @@ export async function getEvents(params: EventsQueryParams): Promise<ApiResponse<
   if (params.source) queryParams.append('source', params.source);
   if (params.limit) queryParams.append('limit', params.limit.toString());
   if (params.offset) queryParams.append('offset', params.offset.toString());
+  if (params.includeSubsidiaries) queryParams.append('includeSubsidiaries', 'true');
 
   return apiRequest<{ events: Event[]; total: number }>(`/api/events?${queryParams.toString()}`);
 }
