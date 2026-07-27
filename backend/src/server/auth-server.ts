@@ -3148,6 +3148,13 @@ app.get('/api/events', async (req: Request, res: Response) => {
     // suppliers and shipments rolled up across subsidiaries; without this the
     // events feed beside them would be scoped to the parent org alone and read
     // as empty.
+    //
+    // Known limitation, shared verbatim with /api/suppliers and /api/shipments:
+    // this is ONE level (direct children only), while checkOrganizationAccess
+    // above grants access across the full ancestor chain. In an org tree deeper
+    // than two levels a grandparent-org user is authorised to read a
+    // grandchild's events but will not see them rolled up here. Fixing it means
+    // a shared descendant-walk used by all three endpoints, not a change here.
     const orgIds = [organizationId];
     if (req.query.includeSubsidiaries === 'true') {
       const children = await prisma.organization.findMany({

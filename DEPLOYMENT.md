@@ -90,11 +90,14 @@ app runs one cycle across every organization and exits:
 | Command | `npx tsx src/monitoring/run-once.ts --all` |
 | Frequency | `* * * * *` |
 
-Manage it with the `coolify-deploy` skill:
+Manage it with the `coolify-deploy` skill's helper (needs `COOLIFY_URL` and
+`COOLIFY_API_TOKEN` in the environment):
 ```bash
-scripts/coolify.sh tasks <app_uuid>                       # list
-scripts/coolify.sh task-add <app_uuid> <name> <cron> …    # add
-scripts/coolify.sh task-rm  <app_uuid> <task_uuid>        # remove
+CS=.claude/skills/coolify-deploy/scripts/coolify.sh
+$CS apps                                  # find the backend app uuid
+$CS tasks <app_uuid>                      # list scheduled tasks
+$CS task-add <app_uuid> <name> <cron> …   # add
+$CS task-rm  <app_uuid> <task_uuid>       # remove
 ```
 The command runs **inside the app container**, so it uses `npx tsx` against the
 image's `WORKDIR` — not `npm run monitoring:start`, whose

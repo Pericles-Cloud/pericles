@@ -70,22 +70,60 @@ function validateEnvironment(): void {
  * Explicit `--organization-id` is never filtered — if you name an org, you get
  * it. `--all` is filtered, because every id costs a full LLM agent cycle:
  *
+ *  - `monitoring_agent_enabled` is the tenant's own switch, exposed in Manage →
+ *    Settings. Honouring it is the whole point of the toggle: without this a
+ *    tenant who turns monitoring off still gets cycles run and Event rows
+ *    written. `loadMonitoringConfig` does not read it, so it must be enforced
+ *    here. A missing settings row means defaults, and the column defaults to
+ *    true — so absent settings still monitor.
  *  - `is_root` is the @pericles.cloud operator org. It has global read access
  *    but no supply chain of its own, so a cycle for it detects nothing.
  *  - No `OrganizationContext` means no plants, warehouses, suppliers, or lanes
  *    to geo-filter against — the cycle has nothing to correlate events with.
- *
- * There is no `monitoring_enabled` column to gate on yet; when one exists it
- * belongs here.
  */
 async function resolveOrganizationIds(args: Args): Promise<string[]> {
   if (!args.all) return args.organizationIds;
 
   const organizations = await getPrismaClient().organization.findMany({
-    where: { is_root: false, context: { isNot: null } },
+    where: {
+      is_root: false,
+      context: { isNot: null },
+      OR: [
+        { settings: { is: null } },
+        { settings: { is: { monitoring_agent_enabled: true } } },
+      ],
+    },
     select: { id: true },
   });
   return organizations.map((org) => org.id);
+}
+
+/**
+ * Terminate deterministically.
+ *
+ * Exiting explicitly is required: pooled handles we do not own (the Mastra
+ * PostgresStore among them) can keep the event loop alive long after the work
+ * is done, and a scheduled task that lingers piles runs up.
+ *
+ * But outside production the logger writes through a `pino-pretty` worker
+ * thread, so a bare `process.exit` drops the very lines that report the
+ * outcome. Flush first, bounded so a stuck transport cannot hang the task.
+ */
+async function shutdown(code: number): Promise<never> {
+  await disconnectPrisma().catch(() => undefined);
+
+  await Promise.race([
+    new Promise<void>((resolve) => {
+      logger.flush(() => {
+        resolve();
+      });
+    }),
+    new Promise<void>((resolve) => {
+      setTimeout(resolve, 500);
+    }),
+  ]);
+
+  process.exit(code);
 }
 
 async function main(): Promise<void> {
@@ -99,15 +137,14 @@ async function main(): Promise<void> {
         '  npx tsx src/monitoring/run-once.ts --all\n' +
         '  npx tsx src/monitoring/run-once.ts --organization-id=<uuid>[,<uuid>...]'
     );
-    process.exit(1);
+    await shutdown(1);
   }
 
   const organizationIds = await resolveOrganizationIds(args);
 
   if (organizationIds.length === 0) {
     logger.warn('[RunOnce] No organizations to monitor — nothing to do');
-    await disconnectPrisma();
-    return;
+    await shutdown(0);
   }
 
   logger.info({ organizationCount: organizationIds.length }, '[RunOnce] Starting cycle');
@@ -142,26 +179,19 @@ async function main(): Promise<void> {
     }
   }
 
-  await disconnectPrisma();
-
   if (failures > 0) {
     logger.error(
       { failures, total: organizationIds.length },
       '[RunOnce] Finished with failures'
     );
-    process.exit(1);
+    await shutdown(1);
   }
 
   logger.info({ total: organizationIds.length }, '[RunOnce] All cycles succeeded');
-
-  // Exit explicitly. The work is done, but pooled handles we do not own (the
-  // Mastra PostgresStore among them) can keep the event loop alive well past
-  // it. A scheduled task must terminate promptly or runs pile up.
-  process.exit(0);
+  await shutdown(0);
 }
 
 main().catch(async (error: unknown) => {
   logger.fatal({ error }, '[RunOnce] Unhandled error');
-  await disconnectPrisma().catch(() => undefined);
-  process.exit(1);
+  await shutdown(1);
 });
