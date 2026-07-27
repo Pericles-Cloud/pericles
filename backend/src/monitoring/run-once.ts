@@ -24,18 +24,20 @@
  * Exit codes: 0 = every cycle succeeded, 1 = at least one org failed.
  */
 
-import { loadMonitoringConfig, getEnvironmentOverrides } from './config.js';
+import { pathToFileURL } from 'node:url';
+import type { PrismaClient } from '@prisma/client';
+import { loadMonitoringConfig, getEnvironmentOverrides, type MonitoringConfig } from './config.js';
 import { runMonitoringCycle } from './index.js';
+import type { CycleMetrics } from './metrics.js';
 import { getPrismaClient, disconnectPrisma } from './db-client.js';
 import { logger } from './logger.js';
 
-interface Args {
+export interface Args {
   organizationIds: string[];
   all: boolean;
 }
 
-function parseArgs(): Args {
-  const argv = process.argv.slice(2);
+export function parseArgs(argv: string[] = process.argv.slice(2)): Args {
   const result: Args = { organizationIds: [], all: false };
 
   for (const arg of argv) {
@@ -109,11 +111,16 @@ function installSignalHandlers(): void {
  *    but no supply chain of its own, so a cycle for it detects nothing.
  *  - No `OrganizationContext` means no plants, warehouses, suppliers, or lanes
  *    to geo-filter against — the cycle has nothing to correlate events with.
+ *
+ * `client` is injectable for tests; it defaults to the module Prisma client.
  */
-async function resolveOrganizationIds(args: Args): Promise<string[]> {
+export async function resolveOrganizationIds(
+  args: Args,
+  client: PrismaClient = getPrismaClient()
+): Promise<string[]> {
   if (!args.all) return args.organizationIds;
 
-  const organizations = await getPrismaClient().organization.findMany({
+  const organizations = await client.organization.findMany({
     where: {
       is_root: false,
       context: { isNot: null },
@@ -125,6 +132,80 @@ async function resolveOrganizationIds(args: Args): Promise<string[]> {
     select: { id: true },
   });
   return organizations.map((org) => org.id);
+}
+
+export interface CycleDeps {
+  loadConfig: (
+    organizationId: string,
+    overrides: Partial<MonitoringConfig>
+  ) => Promise<MonitoringConfig>;
+  runCycle: (config: MonitoringConfig) => Promise<CycleMetrics>;
+  overrides: Partial<MonitoringConfig>;
+}
+
+/**
+ * Run one cycle per organization; return how many failed.
+ *
+ * Sequential on purpose: cycles fan out to the same rate-limited external
+ * feeds, so running every tenant concurrently would trip upstream limits.
+ *
+ * `deps` is injectable for tests — the real ones reach OpenAI and every
+ * monitoring feed.
+ */
+export async function runCycles(
+  organizationIds: string[],
+  deps: CycleDeps = {
+    loadConfig: loadMonitoringConfig,
+    runCycle: runMonitoringCycle,
+    overrides: getEnvironmentOverrides(),
+  }
+): Promise<number> {
+  let failures = 0;
+
+  for (const organizationId of organizationIds) {
+    try {
+      const config = await deps.loadConfig(organizationId, deps.overrides);
+      const metrics = await deps.runCycle(config);
+
+      // A cycle only throws on a hard error; per-tool failures are collected
+      // into the metrics. If every tool that ran failed, the cycle detected
+      // nothing and is a failure in substance — an expired feed API key would
+      // otherwise leave the scheduled task green forever.
+      if (metrics.toolsExecuted > 0 && metrics.toolsSucceeded === 0) {
+        failures++;
+        logger.error(
+          {
+            organizationId,
+            toolsExecuted: metrics.toolsExecuted,
+            toolsFailed: metrics.toolsFailed,
+            errors: metrics.errors,
+          },
+          '[RunOnce] Every tool failed — treating cycle as failed'
+        );
+        continue;
+      }
+
+      logger.info(
+        {
+          organizationId,
+          durationMs: metrics.durationMs,
+          eventsDetected: metrics.eventsDetected,
+          eventsPublished: metrics.eventsPublished,
+          duplicatesFiltered: metrics.duplicatesFiltered,
+          toolsSucceeded: metrics.toolsSucceeded,
+          toolsFailed: metrics.toolsFailed,
+          errorCount: metrics.errors.length,
+        },
+        '[RunOnce] Cycle complete'
+      );
+    } catch (error) {
+      failures++;
+      // Keep going: one tenant's bad config must not starve the others.
+      logger.error({ error, organizationId }, '[RunOnce] Cycle failed');
+    }
+  }
+
+  return failures;
 }
 
 /**
@@ -179,53 +260,7 @@ async function main(): Promise<void> {
 
   logger.info({ organizationCount: organizationIds.length }, '[RunOnce] Starting cycle');
 
-  const envOverrides = getEnvironmentOverrides();
-  let failures = 0;
-
-  // Sequential on purpose: cycles fan out to the same rate-limited external
-  // feeds, so running every tenant concurrently would trip upstream limits.
-  for (const organizationId of organizationIds) {
-    try {
-      const config = await loadMonitoringConfig(organizationId, envOverrides);
-      const metrics = await runMonitoringCycle(config);
-
-      // A cycle only throws on a hard error; per-tool failures are collected
-      // into the metrics. If every tool that ran failed, the cycle detected
-      // nothing and is a failure in substance — an expired feed API key would
-      // otherwise leave the scheduled task green forever.
-      if (metrics.toolsExecuted > 0 && metrics.toolsSucceeded === 0) {
-        failures++;
-        logger.error(
-          {
-            organizationId,
-            toolsExecuted: metrics.toolsExecuted,
-            toolsFailed: metrics.toolsFailed,
-            errors: metrics.errors,
-          },
-          '[RunOnce] Every tool failed — treating cycle as failed'
-        );
-        continue;
-      }
-
-      logger.info(
-        {
-          organizationId,
-          durationMs: metrics.durationMs,
-          eventsDetected: metrics.eventsDetected,
-          eventsPublished: metrics.eventsPublished,
-          duplicatesFiltered: metrics.duplicatesFiltered,
-          toolsSucceeded: metrics.toolsSucceeded,
-          toolsFailed: metrics.toolsFailed,
-          errorCount: metrics.errors.length,
-        },
-        '[RunOnce] Cycle complete'
-      );
-    } catch (error) {
-      failures++;
-      // Keep going: one tenant's bad config must not starve the others.
-      logger.error({ error, organizationId }, '[RunOnce] Cycle failed');
-    }
-  }
+  const failures = await runCycles(organizationIds);
 
   if (failures > 0) {
     logger.error(
@@ -239,7 +274,14 @@ async function main(): Promise<void> {
   await shutdown(0);
 }
 
-main().catch(async (error: unknown) => {
-  logger.fatal({ error }, '[RunOnce] Unhandled error');
-  await shutdown(1);
-});
+// Only run when invoked as a script. Importing this module (tests) must not
+// kick off a monitoring run or call process.exit out from under the runner.
+const invokedDirectly =
+  process.argv[1] !== undefined && import.meta.url === pathToFileURL(process.argv[1]).href;
+
+if (invokedDirectly) {
+  main().catch(async (error: unknown) => {
+    logger.fatal({ error }, '[RunOnce] Unhandled error');
+    await shutdown(1);
+  });
+}
