@@ -3135,12 +3135,12 @@ app.get('/api/events', async (req: Request, res: Response) => {
       return;
     }
 
-    // Verify membership
-    const membership = await prisma.userOrganization.findUnique({
-      where: { user_id_organization_id: { user_id: tokenPayload.userId, organization_id: organizationId } },
-    });
-
-    if (membership?.status !== 'active') {
+    // Honour root access and ancestor rollup, exactly as /api/suppliers and
+    // /api/shipments do. A direct-membership-only check 403s a root-org user or
+    // a parent-org member viewing a subsidiary, even though the sibling
+    // endpoints on the same page let them through.
+    const access = await checkOrganizationAccess(tokenPayload.userId, organizationId);
+    if (!access.hasAccess) {
       res.status(403).json({ success: false, error: { code: 'FORBIDDEN', message: 'Access denied to this organization' } });
       return;
     }
@@ -3230,12 +3230,10 @@ app.get('/api/events/:id', async (req: Request, res: Response) => {
       return;
     }
 
-    // Verify membership
-    const membership = await prisma.userOrganization.findUnique({
-      where: { user_id_organization_id: { user_id: tokenPayload.userId, organization_id: event.organization_id } },
-    });
-
-    if (membership?.status !== 'active') {
+    // Same access model as the collection endpoint above: root and ancestor
+    // members can read a descendant org's events.
+    const access = await checkOrganizationAccess(tokenPayload.userId, event.organization_id);
+    if (!access.hasAccess) {
       res.status(403).json({ success: false, error: { code: 'FORBIDDEN', message: 'Access denied to this event' } });
       return;
     }
@@ -3308,12 +3306,12 @@ app.patch('/api/events/:id/validation', async (req: Request, res: Response) => {
       return;
     }
 
-    // Verify user has write access
-    const membership = await prisma.userOrganization.findUnique({
-      where: { user_id_organization_id: { user_id: tokenPayload.userId, organization_id: event.organization_id } },
-    });
+    // Verify user has write access. The role gate is unchanged — GUEST still
+    // cannot validate — but the access check now honours root and ancestor
+    // membership, where the granting org supplies the role.
+    const access = await checkOrganizationAccess(tokenPayload.userId, event.organization_id);
 
-    if (membership?.status !== 'active' || !['OWNER', 'ADMIN', 'MEMBER'].includes(membership.role)) {
+    if (!access.hasAccess || !['OWNER', 'ADMIN', 'MEMBER'].includes(access.membership?.role ?? '')) {
       res.status(403).json({ success: false, error: { code: 'FORBIDDEN', message: 'Insufficient permissions' } });
       return;
     }
