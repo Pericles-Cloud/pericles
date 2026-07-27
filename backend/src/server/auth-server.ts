@@ -2722,7 +2722,6 @@ app.get('/api/shipments', async (req: Request, res: Response) => {
 
 // Live vessel positions for the org's shipments (Atlas live layer). Registered
 // BEFORE '/api/shipments/:id' so the literal path isn't captured as :id.
-// Mirrors the Vercel handler at backend/api/shipments/positions.ts.
 app.get('/api/shipments/positions', async (req: Request, res: Response) => {
   try {
     const tokenPayload = authenticateRequest(req);
@@ -3135,18 +3134,38 @@ app.get('/api/events', async (req: Request, res: Response) => {
       return;
     }
 
-    // Verify membership
-    const membership = await prisma.userOrganization.findUnique({
-      where: { user_id_organization_id: { user_id: tokenPayload.userId, organization_id: organizationId } },
-    });
-
-    if (membership?.status !== 'active') {
+    // Honour root access and ancestor rollup, exactly as /api/suppliers and
+    // /api/shipments do. A direct-membership-only check 403s a root-org user or
+    // a parent-org member viewing a subsidiary, even though the sibling
+    // endpoints on the same page let them through.
+    const access = await checkOrganizationAccess(tokenPayload.userId, organizationId);
+    if (!access.hasAccess) {
       res.status(403).json({ success: false, error: { code: 'FORBIDDEN', message: 'Access denied to this organization' } });
       return;
     }
 
+    // Optional subsidiary rollup, matching the sibling endpoints. Atlas draws
+    // suppliers and shipments rolled up across subsidiaries; without this the
+    // events feed beside them would be scoped to the parent org alone and read
+    // as empty.
+    //
+    // Known limitation, shared verbatim with /api/suppliers and /api/shipments:
+    // this is ONE level (direct children only), while checkOrganizationAccess
+    // above grants access across the full ancestor chain. In an org tree deeper
+    // than two levels a grandparent-org user is authorised to read a
+    // grandchild's events but will not see them rolled up here. Fixing it means
+    // a shared descendant-walk used by all three endpoints, not a change here.
+    const orgIds = [organizationId];
+    if (req.query.includeSubsidiaries === 'true') {
+      const children = await prisma.organization.findMany({
+        where: { parent_organization_id: organizationId },
+        select: { id: true },
+      });
+      orgIds.push(...children.map((c) => c.id));
+    }
+
     // Build query filters
-    const where: Prisma.EventWhereInput = { organization_id: organizationId };
+    const where: Prisma.EventWhereInput = { organization_id: { in: orgIds } };
     if (validationStatus) where.validation_status = validationStatus;
     if (type) where.type = type;
     if (source) where.source = source;
@@ -3230,12 +3249,10 @@ app.get('/api/events/:id', async (req: Request, res: Response) => {
       return;
     }
 
-    // Verify membership
-    const membership = await prisma.userOrganization.findUnique({
-      where: { user_id_organization_id: { user_id: tokenPayload.userId, organization_id: event.organization_id } },
-    });
-
-    if (membership?.status !== 'active') {
+    // Same access model as the collection endpoint above: root and ancestor
+    // members can read a descendant org's events.
+    const access = await checkOrganizationAccess(tokenPayload.userId, event.organization_id);
+    if (!access.hasAccess) {
       res.status(403).json({ success: false, error: { code: 'FORBIDDEN', message: 'Access denied to this event' } });
       return;
     }
@@ -3308,7 +3325,12 @@ app.patch('/api/events/:id/validation', async (req: Request, res: Response) => {
       return;
     }
 
-    // Verify user has write access
+    // Writes deliberately require DIRECT membership, unlike the reads above.
+    // checkOrganizationAccess flows access ancestor → descendant, which is the
+    // documented model for reading; granting it here would let any root-org or
+    // parent-org MEMBER mutate a descendant tenant's events. Every other
+    // mutating endpoint in this file gates on direct membership too — widening
+    // that is a deliberate product decision, not a side effect of fixing a read.
     const membership = await prisma.userOrganization.findUnique({
       where: { user_id_organization_id: { user_id: tokenPayload.userId, organization_id: event.organization_id } },
     });

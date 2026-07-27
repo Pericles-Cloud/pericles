@@ -955,6 +955,8 @@ export interface EventsQueryParams {
   source?: string;
   limit?: number;
   offset?: number;
+  /** Roll up events from child organizations, as getSuppliers/getShipments do. */
+  includeSubsidiaries?: boolean;
 }
 
 /**
@@ -968,6 +970,7 @@ export async function getEvents(params: EventsQueryParams): Promise<ApiResponse<
   if (params.source) queryParams.append('source', params.source);
   if (params.limit) queryParams.append('limit', params.limit.toString());
   if (params.offset) queryParams.append('offset', params.offset.toString());
+  if (params.includeSubsidiaries) queryParams.append('includeSubsidiaries', 'true');
 
   return apiRequest<{ events: Event[]; total: number }>(`/api/events?${queryParams.toString()}`);
 }
@@ -1751,8 +1754,12 @@ export async function executeWorkflow(
   options: ExecuteWorkflowOptions = {}
 ): Promise<ApiResponse<WorkflowExecutionResult>> {
   const { mode = 'run', initialVariables } = options;
+  // `/execute` — the server takes trial vs run from the body, not the path.
+  // This used to POST to `/trial`, which only ever existed in the deleted
+  // Vercel serverless tree; the Express server has never served that path, so
+  // the call 404'd on the deployed backend.
   return apiRequest<WorkflowExecutionResult>(
-    `/api/organizations/${orgId}/workflows/${workflowId}/trial`,
+    `/api/organizations/${orgId}/workflows/${workflowId}/execute`,
     {
       method: 'POST',
       body: { mode, initialVariables },

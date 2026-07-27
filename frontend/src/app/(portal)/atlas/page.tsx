@@ -122,7 +122,7 @@ export default function AtlasPage() {
       const [shipmentsRes, suppliersRes, eventsRes] = await Promise.all([
         getShipments(currentOrganization.id, { includeSubsidiaries: true }),
         getSuppliers({ organizationId: currentOrganization.id, includeSubsidiaries: true }),
-        getEvents({ organizationId: currentOrganization.id, limit: 50 }),
+        getEvents({ organizationId: currentOrganization.id, limit: 50, includeSubsidiaries: true }),
       ]);
       if (!isMounted) return;
       if (shipmentsRes.success && shipmentsRes.data) setShipments(shipmentsRes.data);

@@ -92,7 +92,7 @@ function IntelligenceContent() {
       // Suppliers/shipments feed the analytics view. All three are scoped
       // server-side by organizationId — never filtered client-side.
       const [eventsRes, suppliersRes, shipmentsRes] = await Promise.all([
-        getEvents({ organizationId: currentOrganization.id, limit: 100 }),
+        getEvents({ organizationId: currentOrganization.id, limit: 100, includeSubsidiaries: true }),
         getSuppliers({ organizationId: currentOrganization.id, includeSubsidiaries: true }),
         getShipments(currentOrganization.id, { includeSubsidiaries: true }),
       ]);

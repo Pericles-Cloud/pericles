@@ -1,10 +1,19 @@
 ---
 paths:
-  - "backend/api/**/*.ts"
-  - "backend/src/api/**/*.ts"
+  - "backend/src/server/**/*.ts"
 ---
 
 # API Development Standards
+
+> The HTTP surface is `backend/src/server/auth-server.ts` — Express routes on a
+> Coolify container. The examples below are written against the Web `Request`/
+> `Response` API; translate them to Express handlers
+> (`app.get(path, (req, res) => …)`, `res.status(...).json(...)`). The
+> substance — Zod validation, the `{success, data, metadata}` envelope, and
+> validating `organization_id` server-side on every route — applies unchanged.
+>
+> (These paths used to point at `backend/api/**`, the deleted Vercel serverless
+> tree, and at `backend/src/api/**`, which never existed.)
 
 ## Request Validation
 

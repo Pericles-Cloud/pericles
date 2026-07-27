@@ -12,7 +12,6 @@
   },
   "include": [
     "src/**/*",
-    "api/**/*",
     "scripts/**/*",
     "prisma/**/*",
     "test/**/*",

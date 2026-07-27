@@ -67,11 +67,13 @@ export function getPostgresStore(): PostgresStore | undefined {
       return undefined;
     }
 
-    // Enable SSL for production (Neon, Vercel, etc.)
-    // In development, SSL is typically not required for local PostgreSQL
-    const isProduction = process.env.NODE_ENV === 'production' || process.env.VERCEL === '1';
+    // Enable SSL for production (hosted Postgres). In development, SSL is
+    // typically not required for local PostgreSQL. (The VERCEL=1 arm went with
+    // the serverless deploy — the backend is a Coolify container now, where
+    // NODE_ENV=production is set in the image.)
+    const isProduction = process.env.NODE_ENV === 'production';
 
-    // Add connection timeout and pooling settings for Neon serverless cold starts
+    // Generous connect timeout so a cold/held-up database doesn't fail the boot
     if (isProduction) {
       const url = new URL(connectionString);
       // Set connect_timeout to 30 seconds for cold starts

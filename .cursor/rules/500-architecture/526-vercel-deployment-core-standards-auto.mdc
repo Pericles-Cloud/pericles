@@ -1,8 +1,26 @@
 ---
-description: "Comprehensive Vercel deployment standards with Git integration, serverless functions, environment configuration, security best practices, and production optimization following expert deployment standards"
-globs: "**/*.{ts,js,tsx,jsx,json,yml,yaml}"
+description: "Vercel deployment standards — applies to the FRONTEND (frontend/) only. The Pericles backend deploys to Coolify."
+globs: "frontend/**/*.{ts,js,tsx,jsx,json}"
 alwaysApply: false
 ---
+
+> ## ⚠️ Scope: frontend only
+>
+> Pericles is **two deploys on two providers**:
+>
+> | Component | Host |
+> |---|---|
+> | `frontend/` — Next.js/React | **Vercel** ← this rule applies here |
+> | `backend/` — Express + socket.io | **Coolify** (Docker container, port `4112`) |
+>
+> The serverless-function, cron, and backend-environment sections below are
+> **not** how the Pericles backend is deployed. The backend is a long-running
+> container: see `.claude/rules/13-infrastructure.md` and `DEPLOYMENT.md`, and
+> use the `coolify-deploy` skill to trigger deploys, watch builds, and sync env
+> vars.
+>
+> Note also that `NEXT_PUBLIC_*` values are inlined into the client bundle at
+> build time, so changing one requires a rebuild, not just an env edit.
 
 <rule>
   <meta>

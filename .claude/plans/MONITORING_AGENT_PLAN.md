@@ -260,36 +260,30 @@ export async function loadMonitoringConfig(
   ```bash
   node dist/monitoring/start.js --tenant-id=<tenant-id>
   ```
-- `backend/api/monitoring/trigger.ts` - Vercel API endpoint (alternative)
 
 ---
 
-### Phase 5: API Endpoint (Optional - for Vercel Cron)
+### Phase 5: Running the loop (Coolify)
 
-**15. Create Vercel API Endpoint** → `backend/api/monitoring/trigger.ts`
-```typescript
-// POST /api/monitoring/trigger
-// Body: { tenant_id: string }
-// Auth: Bearer token required
-export default async function handler(req: VercelRequest, res: VercelResponse) {
-  // Validate auth
-  // Extract tenant_id
-  // Run single monitoring cycle
-  // Return success/failure
-}
-```
+> ⚠️ **Superseded.** This phase originally specified a Vercel serverless
+> endpoint plus Vercel Cron. The backend no longer runs on Vercel — it is a
+> long-running container on **Coolify** — so the cron-triggered serverless path
+> is obsolete. Vercel hosts the React frontend only.
 
-**16. Configure Vercel Cron** → `backend/vercel.json`
-```json
-{
-  "crons": [{
-    "path": "/api/monitoring/trigger",
-    "schedule": "*/1 * * * *"  // 1-minute minimum
-  }]
-}
-```
+Two shapes, both on Coolify — no HTTP trigger endpoint in either:
 
-⚠️ **Note**: Vercel Cron has 1-minute minimum. For 15-second polling, use standalone Node process.
+**A. Scheduled Task (current).** A cron task on the backend app runs
+`npx tsx src/monitoring/run-once.ts --all` on a schedule. `run-once.ts` wraps
+the same `runMonitoringCycle()` the deleted serverless handler called, iterating
+organizations sequentially (the feeds are rate-limited) and exiting non-zero if
+any org fails, so Coolify marks a bad run as failed.
+
+**B. Persistent worker.** `start.ts` as a second Coolify service, for the 15s
+`MONITORING_DEFAULT_INTERVAL_MS` cadence that a 1-minute cron floor cannot
+reach.
+
+See `DEPLOYMENT.md` → "Monitoring", and use the `coolify-deploy` skill to manage
+the task.
 
 ---
 

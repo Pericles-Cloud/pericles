@@ -1,8 +1,27 @@
 ---
-description: Vercel Backends core standards with Fluid Compute, serverless patterns, database pooling, and realtime guidance
-globs: ["*.{ts,tsx,js,jsx,json,md}"]
+description: "SUPERSEDED for Pericles — the backend runs on Coolify, not Vercel. Retained as generic Vercel-backend reference only."
+globs: []
 alwaysApply: false
 ---
+
+> ## ⚠️ Does not apply to the Pericles backend
+>
+> **The Pericles backend does not run on Vercel.** `backend/` is an Express +
+> socket.io process deployed to **Coolify** as a long-running Docker container
+> on port `4112`. It holds WebSocket connections (`/ws/workflow`) and an
+> in-process position-feed singleton, neither of which survives a serverless
+> execution model.
+>
+> **Vercel hosts the React frontend (`frontend/`) only.**
+>
+> Everything below — Fluid Compute, function sizing, serverless database
+> pooling, `vercel.json` backend config — is generic Vercel reference material
+> and is **not** the standard for this repo. For backend infrastructure see
+> `.claude/rules/13-infrastructure.md` and `DEPLOYMENT.md`; to drive deploys use
+> the `coolify-deploy` skill.
+>
+> Do not introduce `@vercel/node` types into backend code — use Express
+> `Request`/`Response`.
 
 <rule>
   <meta>

@@ -144,9 +144,11 @@ export default function DashboardPage() {
     try {
       // Fetch events, suppliers, and shipments in parallel
       const [eventsRes, suppliersRes, shipmentsRes] = await Promise.all([
-        getEvents({ organizationId: currentOrganization.id, limit: 10 }),
-        getSuppliers(),
-        getShipments(currentOrganization.id),
+        // Roll up subsidiaries, matching Atlas and Intelligence — otherwise a
+        // parent org's dashboard tiles disagree with the pages beside them.
+        getEvents({ organizationId: currentOrganization.id, limit: 10, includeSubsidiaries: true }),
+        getSuppliers({ organizationId: currentOrganization.id, includeSubsidiaries: true }),
+        getShipments(currentOrganization.id, { includeSubsidiaries: true }),
       ]);
 
       setData({

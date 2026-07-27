@@ -4,6 +4,14 @@ globs: "*"
 alwaysApply: true
 ---
 
+> **Handler shape note.** The API examples below are written as Vercel
+> serverless handlers (`VercelRequest`/`VercelResponse`, `api/…` file routes).
+> The deployed Pericles API is the **Express** `auth-server`
+> (`backend/src/server/auth-server.ts`) running as a container on **Coolify** —
+> Vercel hosts the React frontend only. Treat these as *permission-model*
+> guidance and translate the transport: use `Request`/`Response` from `express`
+> and register routes on `app`. See `.claude/rules/13-infrastructure.md`.
+
 <rule>
   <meta>
     <title>Pericles Admin Portal Core Standards</title>

@@ -135,11 +135,23 @@ export default function PlansPage() {
   };
 
   // Handle execute workflow
-  const handleExecute = async (workflowId: string) => {
+  const handleExecute = async (workflowId: string, name: string) => {
     if (!organization?.id) return;
 
+    // A run (as opposed to a trial) commits for real: notification nodes send
+    // actual email/SMS/Slack rather than simulating. This is one click deep in
+    // a ⋮ menu, so confirm before anything leaves the building. The detail page
+    // has separate Trial and Run buttons and does not need this.
+    const confirmed = window.confirm(
+      `Run "${name}" for real?\n\n` +
+        'This executes the plan in run mode — notification steps will send actual ' +
+        'emails, SMS, and Slack messages to their configured recipients.\n\n' +
+        'To rehearse without sending anything, open the plan and use Trial instead.'
+    );
+    if (!confirmed) return;
+
     try {
-      const response = await executeWorkflow(organization.id, workflowId);
+      const response = await executeWorkflow(organization.id, workflowId, { mode: 'run' });
       if (response.success) {
         // Could show a toast or update UI to show execution started
         alert('Workflow execution started!');
@@ -264,11 +276,11 @@ export default function PlansPage() {
                           <DropdownMenuItem
                             onClick={(e) => {
                               e.stopPropagation();
-                              handleExecute(workflow.id);
+                              handleExecute(workflow.id, workflow.name);
                             }}
                           >
                             <Play className="mr-2 h-4 w-4" />
-                            Execute
+                            Run…
                           </DropdownMenuItem>
                         )}
                         {workflow.status !== 'ARCHIVED' && (
