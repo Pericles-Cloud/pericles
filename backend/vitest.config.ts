@@ -11,7 +11,7 @@ export default defineConfig({
     coverage: {
       provider: 'v8',
       reporter: ['text', 'json', 'html'],
-      exclude: ['**/*.d.ts', '**/types/**', 'test/**', 'prisma/**', 'api/**'],
+      exclude: ['**/*.d.ts', '**/types/**', 'test/**', 'prisma/**'],
     },
     testTimeout: 10000,
     hookTimeout: 10000,

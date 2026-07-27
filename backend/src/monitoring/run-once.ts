@@ -86,7 +86,7 @@ async function validateEnvironment(): Promise<void> {
  * (NODE_ENV=production, so pino writes synchronously); locally the line may be
  * clipped. Reporting the right exit code matters more.
  */
-function installSignalHandlers(): void {
+export function installSignalHandlers(): void {
   for (const signal of ['SIGINT', 'SIGTERM'] as const) {
     process.on(signal, () => {
       logger.error({ signal }, '[RunOnce] Terminated before completing — reporting failure');
