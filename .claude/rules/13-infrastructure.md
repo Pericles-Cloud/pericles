@@ -1,106 +1,131 @@
 ---
 paths:
-  - "vercel.json"
+  - "backend/Dockerfile"
+  - "backend/.dockerignore"
+  - "scripts/deploy-coolify.mjs"
+  - "frontend/next.config.ts"
   - "**/cache/**/*.ts"
-  - "**/redis/**/*.ts"
-  - ".vercel/**/*"
 ---
 
 # Infrastructure Standards
 
-## Vercel Deployment
+## Where things run
 
-### Project Configuration
+Pericles is **two deploys with two different providers**. Do not mix them up:
 
-```json
-// vercel.json
-{
-  "buildCommand": "npm run build",
-  "outputDirectory": "dist",
-  "framework": null,
-  "regions": ["iad1"],
-  "functions": {
-    "api/**/*.ts": {
-      "memory": 1024,
-      "maxDuration": 30
-    }
-  },
-  "headers": [
-    {
-      "source": "/(.*)",
-      "headers": [
-        { "key": "X-Content-Type-Options", "value": "nosniff" },
-        { "key": "X-Frame-Options", "value": "DENY" },
-        { "key": "X-XSS-Protection", "value": "1; mode=block" },
-        { "key": "Referrer-Policy", "value": "strict-origin-when-cross-origin" }
-      ]
-    }
-  ]
-}
+| Component | Path | Host | Shape |
+|---|---|---|---|
+| Frontend (Next.js/React) | `frontend/` | **Vercel** | Native Next.js build |
+| Backend (Express API + socket.io) | `backend/` | **Coolify** | Long-running Docker container, port `4112` |
+| Monitoring cycle | `backend/` | **Coolify** | Scheduled Task on the backend app (cron), or a second persistent service |
+| PostgreSQL (`pericles` + `mastra`) | — | Hosted / self-hosted | — |
+
+**The backend is not serverless.** It holds socket.io WebSocket connections
+(`/ws/workflow`) and an in-process position-feed singleton for the Atlas live
+vessel layer. Both need a persistent process, which is why it runs as a
+container on Coolify and not as Vercel functions. The Mastra dev server
+(port 4111) is a *local development* tool — it is not a deployment target.
+
+`DEPLOYMENT.md` is the step-by-step runbook. For driving Coolify itself —
+triggering deploys, watching builds, syncing env vars — use the
+`coolify-deploy` skill (`.claude/skills/coolify-deploy/`), which wraps the
+Coolify REST API.
+
+## Backend Deployment (Coolify)
+
+### Application configuration
+
+Configured in the Coolify UI (or via `scripts/deploy-coolify.mjs`), not in a
+committed provider config file:
+
+- **Build pack:** Dockerfile · **Base directory:** `backend/` · **Dockerfile:** `Dockerfile`
+- **Port:** `4112` · **Health check path:** `/health`
+- **Domain:** e.g. `api.yourdomain.com` — Coolify/Traefik terminates TLS and
+  upgrades WebSockets, giving `https://` and `wss://` without extra config.
+
+The container `CMD` runs `prisma migrate deploy` before starting the server, so
+migrations ship with the deploy. `backend/.dockerignore` keeps local `.env*`
+files out of the image — the server self-loads `.env.local` with
+`override: true`, so a stray copy would clobber the real container env.
+
+### Environment variables
+
+Set as container env vars in **Coolify → app → Environment**. Never commit them
+(see `.claude/rules/14-env-files.md`). Env var changes do **not** redeploy
+automatically — trigger a deploy after editing them.
+
+`CORS_ORIGINS` and `FRONTEND_URL` must list the **Vercel** frontend origin;
+`CORS_ORIGINS` also gates socket.io. Leaving `CORS_ORIGINS` unset falls back to
+`http://localhost:3000,http://localhost:4111`, which will reject the deployed
+frontend on every non-GET request.
+
+Full list: `.env.example`.
+
+### Long-running process patterns
+
+Because the process persists between requests, the serverless habits do not
+apply — there are no cold starts to amortise and no per-invocation time limit:
+
+```typescript
+// Module-scope singletons are safe and expected here: they live for the
+// lifetime of the container, not a single request.
+const prisma = getPrismaClient();
+
+// External calls still need an explicit timeout — a hung upstream would
+// otherwise occupy the process indefinitely.
+const response = await fetch(url, { signal: AbortSignal.timeout(10000) });
 ```
 
-### Environment Variables
+Do not reach for `@vercel/node` types (`VercelRequest`/`VercelResponse`) in new
+backend code. The deployed server is Express — use `Request`/`Response` from
+`express`.
+
+### Scheduled work
+
+Cron-style jobs are **Coolify Scheduled Tasks** on the backend app — a command
+run inside the running container, not an HTTP endpoint poked by an external
+scheduler. There is no `vercel.json` `crons` array any more.
+
+Because the command executes in the container, it must resolve against the
+image's `WORKDIR` and use what the image installs. The image runs TypeScript via
+`tsx`, so schedule `npx tsx src/…/job.ts` — **not** `npm run <script>` for
+scripts that wrap `dotenv -e ../.env.local`, since `.env*` files are excluded
+from the image. Make the entry point exit non-zero on failure; the exit code is
+how Coolify reports a failed run.
+
+Cron granularity bottoms out at one minute. Anything faster (the monitoring
+loop's 15s default) belongs in a persistent service with its own loop.
+
+### Deployment workflow
 
 ```bash
-# Vercel CLI
-vercel env add DATABASE_URL production
-vercel env add OPENAI_API_KEY production
+# Ongoing deploys: Coolify redeploys on push to the deploy branch, or
+curl -X POST "$COOLIFY_DEPLOY_WEBHOOK"
 
-# Pull env vars for local development
+# Scripted setup (run from a host that can reach Coolify):
+COOLIFY_URL=... COOLIFY_TOKEN=... node scripts/deploy-coolify.mjs            # introspect
+COOLIFY_URL=... COOLIFY_TOKEN=... COOLIFY_SERVER_UUID=<uuid> ENV_FILE=./coolify.env \
+  node scripts/deploy-coolify.mjs --apply                                    # apply
+```
+
+## Frontend Deployment (Vercel)
+
+Vercel hosts the Next.js app only — **root directory `frontend/`**.
+
+```bash
+vercel                # preview deployment
+vercel --prod         # production
 vercel env pull .env.local
 ```
 
-| Environment | Purpose |
-|-------------|---------|
-| `production` | Live deployment |
-| `preview` | PR preview deployments |
-| `development` | Local development |
+| Variable | Notes |
+|---|---|
+| `NEXT_PUBLIC_API_URL` | The Coolify backend URL. The browser uses it for `/api/*` and `wss://…/ws/workflow` |
+| `NEXT_PUBLIC_GOOGLE_MAPS_API_KEY` | Needs Maps JavaScript API enabled **and** an HTTP-referrer rule covering the Vercel domain |
 
-### Serverless Function Optimization
-
-```typescript
-// api/monitoring/trigger.ts
-import type { VercelRequest, VercelResponse } from '@vercel/node';
-
-// Initialize outside handler for connection reuse
-const prisma = getPrismaClient();
-
-export default async function handler(
-  req: VercelRequest,
-  res: VercelResponse
-) {
-  // Set appropriate cache headers
-  res.setHeader('Cache-Control', 's-maxage=0, stale-while-revalidate');
-
-  try {
-    const result = await processRequest(req);
-    return res.status(200).json({ success: true, data: result });
-  } catch (error) {
-    console.error('Handler error:', error);
-    return res.status(500).json({ success: false, error: 'Internal error' });
-  }
-}
-
-export const config = {
-  maxDuration: 30, // Max 30 seconds for hobby, 60 for pro
-};
-```
-
-### Deployment Workflow
-
-```bash
-# Preview deployment (PR)
-vercel
-
-# Production deployment
-vercel --prod
-
-# Check deployment status
-vercel ls
-
-# View logs
-vercel logs <deployment-url>
-```
+`NEXT_PUBLIC_*` values are inlined into the client bundle **at build time** — a
+changed key needs a rebuild, not just an env edit. After deploying, add the
+Vercel domain to the backend's `CORS_ORIGINS` and `FRONTEND_URL`.
 
 ## Redis Caching
 

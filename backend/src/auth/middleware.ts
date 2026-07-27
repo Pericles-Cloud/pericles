@@ -1,12 +1,11 @@
-import type { VercelRequest, VercelResponse } from '@vercel/node';
 import { verifyAccessToken, type AccessTokenPayload } from './jwt.js';
 import { PrismaClient } from '@prisma/client';
 
 const prisma = new PrismaClient();
 
 /**
- * Minimal request interface for authentication.
- * Compatible with both Express Request and VercelRequest.
+ * Minimal request interface for authentication — structural, so it accepts an
+ * Express Request without coupling this module to a transport.
  */
 interface AuthenticatableRequest {
   headers: {
@@ -41,58 +40,12 @@ export function authenticateRequest(
   return verifyAccessToken(token);
 }
 
-type AuthHandler = (
-  req: VercelRequest,
-  res: VercelResponse,
-  user: AccessTokenPayload
-) => Promise<void>;
-
-/**
- * Higher-order function to wrap handlers with authentication.
- * Returns 401 if not authenticated.
+/*
+ * `withAuth` / `requireRole` used to live here as Vercel serverless handler
+ * wrappers. They were removed with the `backend/api/**` serverless tree — the
+ * deployed API is the Express server in `src/server/auth-server.ts`, which
+ * calls `authenticateRequest` and `checkOrganizationAccess` directly per route.
  */
-export function withAuth(handler: AuthHandler) {
-  return async (req: VercelRequest, res: VercelResponse): Promise<void> => {
-    const user = authenticateRequest(req);
-
-    if (!user) {
-      res.status(401).json({
-        success: false,
-        error: {
-          code: 'UNAUTHORIZED',
-          message: 'Authentication required',
-        },
-      });
-      return;
-    }
-
-    await handler(req, res, user);
-  };
-}
-
-/**
- * Require specific roles for an endpoint.
- */
-export function requireRole(
-  allowedRoles: Array<'OWNER' | 'ADMIN' | 'MEMBER' | 'GUEST'>
-) {
-  return (handler: AuthHandler) => {
-    return withAuth(async (req, res, user) => {
-      if (!allowedRoles.includes(user.role)) {
-        res.status(403).json({
-          success: false,
-          error: {
-            code: 'FORBIDDEN',
-            message: 'Insufficient permissions',
-          },
-        });
-        return;
-      }
-
-      await handler(req, res, user);
-    });
-  };
-}
 
 /**
  * Result of organization access check.

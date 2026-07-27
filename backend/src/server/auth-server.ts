@@ -2722,7 +2722,6 @@ app.get('/api/shipments', async (req: Request, res: Response) => {
 
 // Live vessel positions for the org's shipments (Atlas live layer). Registered
 // BEFORE '/api/shipments/:id' so the literal path isn't captured as :id.
-// Mirrors the Vercel handler at backend/api/shipments/positions.ts.
 app.get('/api/shipments/positions', async (req: Request, res: Response) => {
   try {
     const tokenPayload = authenticateRequest(req);

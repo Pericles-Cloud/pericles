@@ -1,15 +1,19 @@
 # Deployment
 
-Pericles runs as **two deploys**:
+Pericles runs as **two deploys, on two providers**:
 
-- **Frontend** (`frontend/`, Next.js 16) → **Vercel** (native).
+- **Frontend** (`frontend/`, Next.js 16) → **Vercel** (native). Vercel hosts the
+  React frontend and nothing else.
 - **Backend** (`backend/`, Express API + socket.io WebSocket in one process) →
-  a **persistent container host** (Coolify / Render / Fly / a VM). It is *not*
-  serverless — it holds WebSocket connections and an in-memory position-feed
-  clock, so it needs a long-running process. Vercel serverless cannot host it.
+  **Coolify**, as a long-running Docker container. It is *not* serverless — it
+  holds WebSocket connections and an in-memory position-feed clock, so it needs
+  a persistent process. Vercel serverless cannot host it.
 
-A hosted **PostgreSQL** (Neon / Supabase / Vercel Postgres / self-hosted) backs
-both. The backend needs two databases: `pericles` and `mastra`.
+A hosted **PostgreSQL** (self-hosted on Coolify, Neon, Supabase, or similar)
+backs both. The backend needs two databases: `pericles` and `mastra`.
+
+To drive Coolify from here — trigger a deploy, watch a build, sync env vars —
+use the `coolify-deploy` skill (`.claude/skills/coolify-deploy/`).
 
 ---
 
@@ -73,12 +77,43 @@ prod `DATABASE_URL`, or a one-off in the container.
   `COOLIFY_GITHUB_APP_UUID`), then re-run with `APP_UUID=<app>` to just sync env
   + deploy. The token never passes through anything but your shell.
 
-### Optional: live monitoring agent
-The `auth-server` serves everything the frontend/Atlas/WebSockets need. The
-monitoring **agent loop** is a separate long-running process — add a **second
+### Monitoring
+The `auth-server` serves everything the frontend/Atlas/WebSockets need. Event
+detection runs separately, and there are two shapes — pick one, not both:
+
+**A. Coolify Scheduled Task (current setup).** A cron-style task on the backend
+app runs one cycle across every organization and exits:
+
+| | |
+|---|---|
+| Name | `monitoring-cycle` |
+| Command | `npx tsx src/monitoring/run-once.ts --all` |
+| Frequency | `* * * * *` |
+
+Manage it with the `coolify-deploy` skill:
+```bash
+scripts/coolify.sh tasks <app_uuid>                       # list
+scripts/coolify.sh task-add <app_uuid> <name> <cron> …    # add
+scripts/coolify.sh task-rm  <app_uuid> <task_uuid>        # remove
+```
+The command runs **inside the app container**, so it uses `npx tsx` against the
+image's `WORKDIR` — not `npm run monitoring:start`, whose
+`dotenv -e ../.env.local` and `dist/` inputs do not exist in the image.
+
+Cost note: each cycle fans out to the monitoring tools and makes OpenAI calls
+**per organization**. At `* * * * *` that is 1440 runs/day multiplied by your
+org count — widen the schedule if that is more than you want to spend.
+
+**B. Persistent worker.** For the full 15-second cadence
+(`MONITORING_DEFAULT_INTERVAL_MS`), which no cron can reach, add a **second
 Coolify service** from the same repo with start command
-`npm run monitoring:start` (or `tsx src/monitoring/start.ts`) if you want live
-event detection.
+`npx tsx src/monitoring/start.ts --organization-id=<uuid>` and disable the
+scheduled task above.
+
+> Replaced: this used to be a Vercel Cron hitting a serverless
+> `/api/monitoring/trigger` endpoint. That path is gone with the rest of the
+> Vercel backend — and it never worked, since the cron issued a GET while the
+> handler required a POST with an `organization_id` body.
 
 ---
 

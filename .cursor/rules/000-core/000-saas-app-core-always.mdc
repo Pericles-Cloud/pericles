@@ -1,8 +1,26 @@
 ---
-description: Comprehensive development and deployment standards for SaaS applications with TypeScript, React, local Docker development, Neon serverless PostgreSQL, and Vercel deployment
+description: Generic SaaS development standards. NOTE — the deployment and database sections are superseded for Pericles; see the banner below.
 globs: "*"
 alwaysApply: true
 ---
+
+> ## ⚠️ Superseded where it describes hosting or the database
+>
+> This is generic SaaS boilerplate. Where it conflicts with the Pericles
+> doctrine, **the doctrine wins**:
+>
+> | This rule says | Pericles actually uses |
+> |---|---|
+> | Backend on Vercel serverless (`@vercel/node` handlers, Edge Functions) | **Coolify** — `backend/` is an Express + socket.io container on port `4112` |
+> | Neon serverless PostgreSQL | PostgreSQL (self-hosted / hosted), reached via Prisma |
+> | — | **Vercel hosts `frontend/` only** |
+>
+> The backend cannot be serverless: it holds WebSocket connections
+> (`/ws/workflow`) and an in-process position-feed singleton.
+>
+> Authoritative sources: `CLAUDE.md`, `.claude/rules/13-infrastructure.md`,
+> `DEPLOYMENT.md`, and the `pericles-tech-stack` skill. Use the
+> `coolify-deploy` skill to drive backend deploys.
 
 <rule>
   <meta>

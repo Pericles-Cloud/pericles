@@ -21,7 +21,7 @@ npm run dev:all                  # Start Mastra (4111) + auth server (4112) toge
 npm run dev                      # Start Mastra dev server only (port 4111)
 npm run dev:auth                 # Start auth server only (port 4112)
 npm run build                    # Build Mastra agents
-npm run start                    # Start Mastra production server
+npm run start                    # Start the Mastra server locally (NOT the deployed backend)
 
 # Database
 npm run prisma:generate          # Generate Prisma client
@@ -54,7 +54,25 @@ npm run mock:reset               # Reset mock data
 - pgAdmin: 5050 (admin@pericles.dev / admin) — Docker
 - Mastra Dev: 4111 — host (`npm run dev:all` / `npm run dev`)
 - Auth/API server: 4112 — host (`npm run dev:all` / `npm run dev:auth`)
-- Mastra Server: 3001 (production mode, host-only via `npm run start`; not in docker-compose)
+- Mastra Server: 3001 — host-only via `npm run start`; local tool, not a deployment target
+
+## Deployment
+
+Two deploys, two providers — do not conflate them:
+
+| Component | Host |
+|---|---|
+| `frontend/` — Next.js/React | **Vercel** |
+| `backend/` — Express API + socket.io (port 4112) | **Coolify** (long-running Docker container) |
+
+The backend is **not serverless**: it holds WebSocket connections
+(`/ws/workflow`) and an in-process position-feed singleton. The Mastra server is
+a local development tool, not the deployed backend — the deployed API is
+`backend/src/server/auth-server.ts`.
+
+Runbook: `DEPLOYMENT.md`. Standards: `.claude/rules/13-infrastructure.md`. To
+drive Coolify (deploy, watch a build, sync env vars), use the `coolify-deploy`
+skill.
 
 ## Architecture Overview
 

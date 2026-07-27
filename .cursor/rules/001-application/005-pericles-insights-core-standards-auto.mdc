@@ -90,7 +90,7 @@ alwaysApply: true
 
 ### Technical Requirements
 - TypeScript 5.8 strict; React 19; Tailwind; Vite build.
-- API: Vercel functions with JWT auth; Prisma 6.12 with Neon (production) and Docker Postgres (local).
+- API: the Express `auth-server` with JWT auth, deployed as a container on Coolify (not Vercel functions); Prisma with PostgreSQL (hosted in production, Docker Postgres locally).
 - Data: indexed queries for country, sector, date; pagination for tables; caching where safe; exponential backoff on failures.
 - Observability: audit logs for views/exports; basic metrics for query latency and error rates.
 - Testing: Playwright E2E (mobile/desktop) with accessibility scans; critical tests must pass pre-deploy.
