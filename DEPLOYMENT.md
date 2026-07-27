@@ -88,7 +88,7 @@ app runs one cycle across every organization and exits:
 |---|---|
 | Name | `monitoring-cycle` |
 | Command | `npx tsx src/monitoring/run-once.ts --all` |
-| Frequency | `* * * * *` |
+| Frequency | `*/15 * * * *` |
 
 Manage it with the `coolify-deploy` skill's helper (needs `COOLIFY_URL` and
 `COOLIFY_API_TOKEN` in the environment):
@@ -106,15 +106,18 @@ image's `WORKDIR` — not `npm run monitoring:start`, whose
 `--all` skips the root org and any org without an `OrganizationContext` — both
 would burn an LLM cycle with nothing to correlate against.
 
-Cost note: each cycle fans out to the monitoring tools and makes OpenAI calls
-**per organization**. At `* * * * *` that is 1440 runs/day multiplied by your
-org count — widen the schedule if that is more than you want to spend.
+**Why `*/15` and not `* * * * *`.** Coolify does **not** serialize scheduled
+tasks, and there is no lock in `run-once`. A run iterates orgs sequentially and
+each cycle can take up to `MONITORING_AGENT_TIMEOUT_MS` (300s). Because BOL
+onboarding creates an `OrganizationContext` per branded subsidiary, `--all`
+typically returns many orgs — so a per-minute schedule would routinely start a
+new run while the previous one was still going, running concurrent cycles
+against the same org and multiplying OpenAI spend.
 
-Overlap: Coolify does **not** serialize scheduled tasks. A run iterates orgs
-sequentially and each cycle can take up to `MONITORING_AGENT_TIMEOUT_MS` (300s),
-so with enough orgs a run can outlast its own interval and the next one starts
-alongside it — multiplying spend. If a run's duration approaches the interval,
-widen the schedule or switch to shape B below.
+Cost note: each cycle fans out to the monitoring tools and makes OpenAI calls
+**per organization** — reckon on `runs/day × org count`. Tighten or widen the
+schedule to taste, but keep the interval comfortably above a full run's
+observed duration, or add a lock first.
 
 **B. Persistent worker.** For the full 15-second cadence
 (`MONITORING_DEFAULT_INTERVAL_MS`), which no cron can reach, add a **second

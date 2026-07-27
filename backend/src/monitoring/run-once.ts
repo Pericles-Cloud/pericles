@@ -55,12 +55,33 @@ function parseArgs(): Args {
   return result;
 }
 
-function validateEnvironment(): void {
+async function validateEnvironment(): Promise<void> {
   const missing = ['DATABASE_URL', 'OPENAI_API_KEY'].filter((key) => !process.env[key]);
 
   if (missing.length > 0) {
     logger.fatal({ missing }, 'Missing required environment variables');
-    process.exit(1);
+    // via shutdown(), so the reason survives the pino-pretty worker
+    await shutdown(1);
+  }
+}
+
+/**
+ * Report a killed run as a failure.
+ *
+ * `getPrismaClient()` registers its own SIGINT/SIGTERM handlers that
+ * `process.exit(0)` (db-client.ts). Since the exit code is what Coolify records
+ * for the scheduled task, a run cut short by the task timeout or a redeploy
+ * would otherwise be logged as a success while most orgs never ran.
+ *
+ * Registered before the first `getPrismaClient()` call so this listener runs
+ * first — `process.exit` inside it pre-empts the handler db-client adds later.
+ */
+function installSignalHandlers(): void {
+  for (const signal of ['SIGINT', 'SIGTERM'] as const) {
+    process.on(signal, () => {
+      logger.error({ signal }, '[RunOnce] Terminated before completing — reporting failure');
+      void shutdown(1);
+    });
   }
 }
 
@@ -127,7 +148,8 @@ async function shutdown(code: number): Promise<never> {
 }
 
 async function main(): Promise<void> {
-  validateEnvironment();
+  installSignalHandlers();
+  await validateEnvironment();
 
   const args = parseArgs();
 
@@ -158,6 +180,24 @@ async function main(): Promise<void> {
     try {
       const config = await loadMonitoringConfig(organizationId, envOverrides);
       const metrics = await runMonitoringCycle(config);
+
+      // A cycle only throws on a hard error; per-tool failures are collected
+      // into the metrics. If every tool that ran failed, the cycle detected
+      // nothing and is a failure in substance — an expired feed API key would
+      // otherwise leave the scheduled task green forever.
+      if (metrics.toolsExecuted > 0 && metrics.toolsSucceeded === 0) {
+        failures++;
+        logger.error(
+          {
+            organizationId,
+            toolsExecuted: metrics.toolsExecuted,
+            toolsFailed: metrics.toolsFailed,
+            errors: metrics.errors,
+          },
+          '[RunOnce] Every tool failed — treating cycle as failed'
+        );
+        continue;
+      }
 
       logger.info(
         {

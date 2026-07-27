@@ -5,7 +5,7 @@ const prisma = new PrismaClient();
 
 /**
  * Minimal request interface for authentication — structural, so it accepts an
- * Express Request without coupling this module to a transport.
+ * Express `Request` without coupling this module to a transport.
  */
 interface AuthenticatableRequest {
   headers: {
