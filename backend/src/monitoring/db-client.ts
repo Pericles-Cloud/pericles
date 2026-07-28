@@ -43,15 +43,49 @@ export async function disconnectPrisma(): Promise<void> {
   }
 }
 
+/** sslmode values that mean "do not require SSL". Everything else requires it. */
+const NON_SSL_MODES = new Set(['disable', 'allow', 'prefer']);
+
+export interface MastraStoreConfig {
+  connectionString: string;
+  useSsl: boolean;
+}
+
+/**
+ * Decide the Mastra PostgresStore connection config. Pure and exported for tests.
+ *
+ * SSL is driven by the **connection string**, never by `NODE_ENV`. The backend
+ * and its Postgres share a private Coolify network and speak plaintext, while a
+ * managed Postgres (Neon, RDS, …) carries `sslmode=require` in its URL. The old
+ * code forced `sslmode=require` + an `ssl` option whenever `NODE_ENV` was
+ * production, which made the store's `init()` fail against the internal DB with
+ * "The server does not support SSL connections" — even though Prisma, which
+ * respects the URL, connects to the same server fine.
+ *
+ * The connect/statement/pool timeouts are unrelated to SSL and harmless, so
+ * they are always applied (they only set a default when the URL omits one).
+ */
+export function resolveMastraStoreConfig(rawUrl: string): MastraStoreConfig {
+  const url = new URL(rawUrl);
+
+  if (!url.searchParams.has('connect_timeout')) url.searchParams.set('connect_timeout', '30');
+  if (!url.searchParams.has('statement_timeout')) url.searchParams.set('statement_timeout', '30000');
+  if (!url.searchParams.has('pool_timeout')) url.searchParams.set('pool_timeout', '30');
+
+  const sslmode = url.searchParams.get('sslmode');
+  const useSsl = sslmode !== null && !NON_SSL_MODES.has(sslmode);
+
+  return { connectionString: url.toString(), useSsl };
+}
+
 /**
  * Get or create PostgresStore singleton for Mastra
  *
  * Ensures only one PostgresStore instance exists throughout the application
  * to avoid "Creating a duplicate database object" warnings.
  *
- * In serverless environments, storage initialization may fail due to cold start timeouts.
- * The function will return null if storage cannot be initialized, allowing agents to
- * run without persistent storage (stateless mode).
+ * Returns undefined if storage cannot be initialized, allowing agents to run
+ * without persistent storage (stateless mode).
  */
 export function getPostgresStore(): PostgresStore | undefined {
   // If we've already tried and failed, don't retry in this process
@@ -61,50 +95,23 @@ export function getPostgresStore(): PostgresStore | undefined {
   }
 
   if (!postgresStore) {
-    let connectionString = process.env.MASTRA_DATABASE_URL;
-    if (!connectionString) {
+    const rawUrl = process.env.MASTRA_DATABASE_URL;
+    if (!rawUrl) {
       console.warn('[db-client] MASTRA_DATABASE_URL not set, using stateless mode');
       return undefined;
     }
 
-    // Enable SSL for production (hosted Postgres). In development, SSL is
-    // typically not required for local PostgreSQL. (The VERCEL=1 arm went with
-    // the serverless deploy — the backend is a Coolify container now, where
-    // NODE_ENV=production is set in the image.)
-    const isProduction = process.env.NODE_ENV === 'production';
-
-    // Generous connect timeout so a cold/held-up database doesn't fail the boot
-    if (isProduction) {
-      const url = new URL(connectionString);
-      // Set connect_timeout to 30 seconds for cold starts
-      if (!url.searchParams.has('connect_timeout')) {
-        url.searchParams.set('connect_timeout', '30');
-      }
-      // Set statement_timeout to prevent long-running queries
-      if (!url.searchParams.has('statement_timeout')) {
-        url.searchParams.set('statement_timeout', '30000'); // 30 seconds
-      }
-      // Ensure sslmode is set
-      if (!url.searchParams.has('sslmode')) {
-        url.searchParams.set('sslmode', 'require');
-      }
-      // Add pool settings for serverless
-      if (!url.searchParams.has('pool_timeout')) {
-        url.searchParams.set('pool_timeout', '30');
-      }
-      connectionString = url.toString();
-    }
+    const { connectionString, useSsl } = resolveMastraStoreConfig(rawUrl);
 
     try {
       postgresStore = new PostgresStore({
         connectionString,
-        ssl: isProduction ? { rejectUnauthorized: false } : undefined,
-        // Increase connection pool settings for serverless
-        ...(isProduction ? {
-          max: 1, // Limit connections in serverless
-          idleTimeoutMillis: 10000, // Release idle connections quickly
-          connectionTimeoutMillis: 30000, // 30s connection timeout
-        } : {}),
+        // Only pass ssl when the connection string asks for it. Passing it
+        // against a plaintext server is the failure this fixes.
+        ...(useSsl ? { ssl: { rejectUnauthorized: false } } : {}),
+        max: 5,
+        idleTimeoutMillis: 10000,
+        connectionTimeoutMillis: 30000,
       });
     } catch (error) {
       console.error('[db-client] Failed to create PostgresStore:', error);
