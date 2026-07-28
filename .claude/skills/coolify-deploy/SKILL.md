@@ -100,7 +100,10 @@ Raw API (`W` permission to mutate):
 |---|---|---|
 | GET | `/applications/{uuid}/scheduled-tasks` | List; `[]` when none |
 | POST | `/applications/{uuid}/scheduled-tasks` | Body: `{name, command, frequency}`; returns the task `uuid` |
-| GET/PATCH/DELETE | `/applications/{uuid}/scheduled-tasks/{task_uuid}` | |
+| PATCH / DELETE | `/applications/{uuid}/scheduled-tasks/{task_uuid}` | Update / remove |
+
+There is no show route — `GET …/scheduled-tasks/{task_uuid}` returns 404 on
+4.2.0. To read one task, list them and filter on `uuid`.
 
 `frequency` is a standard 5-field cron expression. The response also carries
 `enabled` (defaults true), `timeout` (seconds, defaults 300), and `container`

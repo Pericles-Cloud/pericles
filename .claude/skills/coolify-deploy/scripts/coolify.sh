@@ -99,8 +99,14 @@ case "$cmd" in
 
   deployments)
     if [[ -n "${1:-}" ]]; then
+      # Per-app history is wrapped as {count, deployments:[…]}, unlike the
+      # running-deployments list below which is a bare array. Iterating the
+      # wrapper directly walks `count` first and dies on "Cannot index number".
       api GET "/deployments/applications/${1}?take=${2:-10}" \
-        | jq -r '.[] | [.deployment_uuid, .status, (.created_at // "-"), (.commit // "-")[0:10]] | @tsv' \
+        | jq -r '(.deployments // [])
+                 | if length==0 then "no deployments for this application"
+                   else .[] | [.deployment_uuid, .status, (.created_at // "-"), (.commit // "-")[0:10]] | @tsv
+                   end' \
         | column -t -s$'\t'
     else
       api GET /deployments | jq -r 'if length==0 then "no running deployments" else .[] | [.deployment_uuid, .status, .application_name // "-"] | @tsv end' \
