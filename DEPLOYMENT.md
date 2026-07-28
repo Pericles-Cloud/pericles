@@ -136,6 +136,19 @@ scheduled task above.
 
 ## Frontend → Vercel
 
+> **Auto-deploy needs two things, and neither is implied by the other.**
+> Coolify listens on a plain repo webhook, so the backend redeploys on push
+> whatever else is configured. Vercel does not — it needs its **GitHub App
+> installed on the repo's org** (`github.com/apps/vercel` → Configure → the org
+> owning this repo). Without it Vercel is never told about a push and simply
+> never builds, silently and with nothing to see in the Vercel UI.
+>
+> **Root Directory must be `frontend`.** There is no `package.json` at the repo
+> root, so a git-triggered build with Root Directory `.` finds nothing to build.
+> A CLI deploy run from `frontend/` masks this, because it uploads that
+> directory and `.` *is* the app — which is how a project can deploy fine by
+> hand for months and fail the moment Git is connected.
+
 1. **New Project →** repo, **Root Directory:** `frontend/`. Next 16 builds natively.
 2. **Environment variables:**
    - `NEXT_PUBLIC_API_URL` = your backend URL (e.g. `https://api.yourdomain.com`)

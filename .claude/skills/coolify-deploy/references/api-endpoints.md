@@ -52,7 +52,13 @@ there is no standalone cron resource. Same shape under `/services/{uuid}/…`.
 |---|---|---|---|
 | GET | `/applications/{uuid}/scheduled-tasks` | R | Returns `[]` when none |
 | POST | `/applications/{uuid}/scheduled-tasks` | W | Body `{name, command, frequency}` → 201 with the task `uuid` |
-| GET / PATCH / DELETE | `/applications/{uuid}/scheduled-tasks/{task_uuid}` | R / W / W | |
+| PATCH | `/applications/{uuid}/scheduled-tasks/{task_uuid}` | W | Same body shape → 200 with the updated task |
+| DELETE | `/applications/{uuid}/scheduled-tasks/{task_uuid}` | W | → 200 `{"message":"Scheduled task deleted."}` |
+
+There is **no show route**: `GET /applications/{uuid}/scheduled-tasks/{task_uuid}`
+returns 404 (verified on Coolify 4.2.0). Read a single task by listing and
+filtering on `uuid`. The four rows above were each exercised against a live
+4.2.0 instance.
 
 Task fields: `frequency` (5-field cron), `command`, `enabled` (default `true`),
 `timeout` (seconds, default `300`), `container` (`null` = the app's default
