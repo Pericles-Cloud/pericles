@@ -74,10 +74,13 @@ export function NodePalette() {
               // hover:border-ring, not hover:border-input — `--input` and
               // `--border` are the same value in both modes, so hovering to
               // `input` changed nothing at all.
-              className="flex items-center gap-3 rounded-lg border border-border bg-muted p-3 cursor-grab active:cursor-grabbing hover:border-ring hover:shadow-sm transition-all"
+              className="flex items-center gap-3 rounded-lg border border-border bg-card p-3 cursor-grab active:cursor-grabbing hover:border-ring hover:shadow-sm transition-all"
             >
               <div
-                className={`flex h-8 w-8 items-center justify-center rounded-md ${item.color}`}
+                // ring, because item.color is a ramp step that can land within
+                // ~1.3:1 of whatever surface is behind it — the Condition
+                // swatch was exactly --muted in dark mode and vanished.
+                className={`flex h-8 w-8 items-center justify-center rounded-md ring-1 ring-muted-foreground/40 ${item.color}`}
               >
                 <Icon className="h-4 w-4 text-grey-100" />
               </div>

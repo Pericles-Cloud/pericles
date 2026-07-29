@@ -1,6 +1,6 @@
 ---
 name: pericles-branding-ui
-version: 2026.07.10
+version: 2026.07.11
 description: >
   How Pericles looks and feels — the brand color system (Pericles Purple / Athenian
   Gold / warm neutral), the light + dark theme token architecture, typography, the
@@ -206,6 +206,12 @@ Name tokens by **risk meaning**, not by color — the UI says "critical", not "r
 
 Validated: light badge text 5.41–8.05:1; dark badge text 10.58–12.23:1 over the
 composited tint. Dark surfaces are `color-mix(in oklab, var(--color-danger) 18%, var(--card))`.
+
+**A ramp step used as a fill can collide with any surface token.** Dark `--muted` is
+`purple-700`, the same step a workflow node used — the swatch measured 1.00:1 against
+its own background. Fills drawn from the ramp (node types, categorical swatches) need
+their own delineation (a ring or border), because you cannot know what surface they
+will end up on. Verified via the audit; see #25.
 
 **`-fg` vs `-text` — two different jobs.** `-fg` is text sitting ON its own tinted
 `bg-risk-*` surface. `-text` is severity text standing alone on a plain card. In light
@@ -504,6 +510,19 @@ GitHub issue **#17** and its two attachments (`pericles-color-system.html`,
 
 ## Changelog
 
+- 2026.07.11 — Eighth review (`/code-review xhigh`), 14 findings; 12 real, 1 rejected,
+  1 deferred. The bad one: **`STATUS_CONFIG` paired `bg-risk-*` surfaces with `-text`
+  instead of `-fg`** (critical chip 4.39:1, under AA) — my earlier `-fg`→`-text` sweep
+  matched line-by-line and `bgColor`/`textColor` sit on *separate* lines, so the
+  "no bg on this line" guard never saw the pairing. Also: all five workflow node
+  colours were under 3:1 against the dark canvas, one at exactly 1.00:1; the skill's
+  own `templates/` had drifted from the shipped code (still teaching the pre-rename
+  `--sidebar-accent` gold); and the audit had three stale rows asserting `--primary`
+  was purple-300 while printing "all checks pass". The audit now **parses globals.css
+  and asserts its own token→ramp assumptions** — verified by breaking a token and
+  watching it fail. **Rejected one finding**: the `handleMapClick` dependency array is
+  required; reverting it to `[]` fails `react-hooks/preserve-manual-memoization`,
+  tested directly.
 - 2026.07.10 — Seventh `/code-review high` (`--fix`). The reviewer found that
   **`<body>` never had `font-sans`**, so the whole app rendered in system-ui with Geist
   loaded and unused — the same failure mode as the `@theme inline` fix one round

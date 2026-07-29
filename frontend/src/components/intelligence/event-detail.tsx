@@ -165,6 +165,10 @@ export function EventMetadataCard({ event }: { event: Event }) {
 }
 
 export function IncidentCard({ incident }: { incident: NonNullable<Event['incident']> }) {
+  // `high` and `medium` deliberately share the Elevated family: the backend's
+  // 4-value priority collapses onto the platform's 3 risk families, and the
+  // chip's own label carries the distinction. Identical values here are
+  // intentional, not a copy-paste — severity is never colour-only anyway.
   const priorityColors: Record<string, string> = {
     critical: 'bg-risk-critical text-risk-critical-fg',
     high: 'bg-risk-elevated text-risk-elevated-fg',

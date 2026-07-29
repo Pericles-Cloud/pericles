@@ -34,7 +34,9 @@ export const Fillet: React.FC<FilletProps> = ({
   tone = 'content',
   className = '',
 }) => {
-  const bar = tone === 'shell' ? 'bg-sidebar-accent' : 'bg-brand-accent';
+  // --sidebar-fillet, not --sidebar-accent: the latter is shadcn's nav
+  // hover/active surface and must keep that meaning.
+  const bar = tone === 'shell' ? 'bg-sidebar-fillet' : 'bg-brand-accent';
   const isHorizontal = orientation === 'horizontal';
 
   return (

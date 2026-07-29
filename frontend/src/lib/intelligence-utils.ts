@@ -17,7 +17,11 @@ export interface StatusConfig {
 }
 
 /**
- * Plan status. Mapped onto the risk role tokens by MEANING, not by the colour
+ * Plan status. `textColor` is the `-fg` step, NOT `-text`: these sit ON their
+ * matching `bgColor` tinted surface, which is exactly what `-fg` is for.
+ * (`-text` on its own surface measures 4.39:1 for critical — under AA.)
+ *
+ * Mapped onto the risk role tokens by MEANING, not by the colour
  * each previously happened to use: an unstarted plan is an open exposure
  * (elevated), a resolved one is the only genuinely good state (low).
  * Each token pair already encodes its light and dark values, so no `dark:`
@@ -27,22 +31,22 @@ export const STATUS_CONFIG: Record<EventStatus, StatusConfig> = {
   awaiting: {
     label: 'Awaiting plan initiation',
     bgColor: 'bg-risk-elevated',
-    textColor: 'text-risk-elevated-text',
+    textColor: 'text-risk-elevated-fg',
   },
   ongoing: {
     label: 'Plan ongoing',
     bgColor: 'bg-risk-monitoring',
-    textColor: 'text-risk-monitoring-text',
+    textColor: 'text-risk-monitoring-fg',
   },
   delayed: {
     label: 'Plan delayed',
     bgColor: 'bg-risk-critical',
-    textColor: 'text-risk-critical-text',
+    textColor: 'text-risk-critical-fg',
   },
   resolved: {
     label: 'Resolved',
     bgColor: 'bg-risk-low',
-    textColor: 'text-risk-low-text',
+    textColor: 'text-risk-low-fg',
   },
 };
 

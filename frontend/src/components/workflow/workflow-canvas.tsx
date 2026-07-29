@@ -202,7 +202,10 @@ function WorkflowCanvasInner({ onNodeSelect }: WorkflowCanvasProps) {
         snapToGrid
         snapGrid={[15, 15]}
         deleteKeyCode={['Backspace', 'Delete']}
-        className="bg-muted"
+        // bg-background, NOT bg-muted: dark --muted is purple-700, the same
+        // step several node colours use — the Condition node was 1.00:1
+        // against its own canvas.
+        className="bg-background"
       >
         <Background gap={15} size={1} color={canvas.dots} />
         <Controls className="!bottom-4 !left-4" />

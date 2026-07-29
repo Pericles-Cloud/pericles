@@ -311,7 +311,7 @@ export default function WorkflowEditorPage() {
       {/* Main content */}
       <div className="flex flex-1 overflow-hidden">
         {/* Left sidebar - Node palette */}
-        <div className="w-64 flex-shrink-0 border-r border-border bg-card p-4 overflow-y-auto">
+        <div className="w-64 flex-shrink-0 border-r border-border bg-background p-4 overflow-y-auto">
           <NodePalette />
         </div>
 

@@ -129,16 +129,14 @@ const PAIRS = [
   ['SD sidebar muted label', 'purple-200', 'purple-600', AA_TEXT],
   ['SD gold fillet / accent', 'gold-300', 'purple-600', AA_TEXT],
   ['SD active-item label on fill', 'grey-50', 'purple-800', AA_TEXT],
-  ['SD avatar disc vs shell', 'purple-300', 'purple-600', AA_LARGE],
-  ['SD avatar initials', 'purple-900', 'purple-300', AA_TEXT],
+  ['SD avatar disc vs shell', 'purple-200', 'purple-600', AA_LARGE],
+  ['SD avatar initials', 'purple-900', 'purple-200', AA_TEXT],
 
   // ── Dark mode — PURPLE canvas (purple-900) / card (purple-800) ───────────
   ['D  body text on canvas', 'purple-50', 'purple-900', AA_TEXT],
   ['D  body text on card', 'purple-50', 'purple-800', AA_TEXT],
   ['D  muted text on canvas', 'purple-300', 'purple-900', AA_TEXT],
   ['D  muted text on card', 'purple-300', 'purple-800', AA_TEXT],
-  ['D  primary text on card', 'purple-300', 'purple-800', AA_TEXT],
-  ['D  primary button label', 'purple-900', 'purple-300', AA_TEXT],
   ['D  gold accent on card', 'gold-400', 'purple-800', AA_TEXT],
   ['D  gold CTA label', 'gold-900', 'gold-400', AA_TEXT],
   ['D  content fillet on canvas', 'gold-400', 'purple-900', AA_LARGE],
@@ -190,7 +188,7 @@ const KNOWN_TRAPS = [
   ['purple-600 fill on the purple-900 shell — use the gold fillet', 'purple-600', 'purple-900', AA_LARGE],
   ['gold-400 as text on the purple-600 dark shell — use gold-300', 'gold-400', 'purple-600', AA_TEXT],
   ['gold-700 as text on the purple-100 light shell — use gold-800', 'gold-700', 'purple-100', AA_TEXT],
-  ['purple-200 active fill vs the purple-100 light shell — the gold rule carries it', 'purple-200', 'purple-100', AA_LARGE],
+  ['purple-300 active fill vs the purple-100 light shell — the gold rule carries it', 'purple-300', 'purple-100', AA_LARGE],
   ['purple-800 active fill vs the purple-600 shell — the gold rule carries the state',
     'purple-800', 'purple-600', AA_LARGE],
 ];
@@ -286,6 +284,37 @@ const globalsCss = resolve(
   dirname(fileURLToPath(import.meta.url)),
   '../../../../frontend/src/app/globals.css',
 );
+
+// ── The pairs above hardcode which ramp step each role token resolves to. That
+// mapping can drift out of globals.css silently — and did: three rows asserted
+// --primary was purple-300 after it moved to purple-200, and the audit still
+// printed "all checks pass". Parse the real values and assert the assumptions.
+const ASSUMED = {
+  root: { '--primary': 'purple-600', '--muted-foreground': 'grey-600', '--sidebar': 'purple-100',
+          '--sidebar-primary': 'purple-300', '--sidebar-fillet': 'gold-800' },
+  dark: { '--primary': 'purple-200', '--muted-foreground': 'purple-300', '--background': 'purple-900',
+          '--card': 'purple-800', '--muted': 'purple-700', '--sidebar': 'purple-600',
+          '--sidebar-primary': 'purple-800', '--sidebar-fillet': 'gold-300' },
+};
+
+console.log('\nROLE TOKEN MAPPING (audit assumptions vs globals.css)');
+try {
+  const css = readFileSync(globalsCss, 'utf8');
+  const blocks = {
+    root: css.slice(css.indexOf(':root {'), css.indexOf('.dark {')),
+    dark: css.slice(css.indexOf('.dark {')),
+  };
+  for (const [scope, expected] of Object.entries(ASSUMED)) {
+    for (const [token, ramp] of Object.entries(expected)) {
+      const m = blocks[scope].match(new RegExp(`\\n\\s*${token}:\\s*var\\(--color-([a-z0-9-]+)\\)`));
+      const actual = m ? m[1] : '(not found)';
+      if (actual === ramp) console.log(`  OK    ${scope} ${token} = ${ramp}`);
+      else { failures += 1; console.log(`  FAIL  ${scope} ${token}: audit assumes ${ramp}, globals.css says ${actual}`); }
+    }
+  }
+} catch (err) {
+  console.log(`  SKIP  could not read globals.css (${err.code ?? err.message})`);
+}
 
 console.log('\nFONT TOKENS (must be inside @theme inline)');
 try {

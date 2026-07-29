@@ -12,6 +12,11 @@ interface NodePropertiesProps {
   selectedNodeId: string | null;
 }
 
+// NOTE: all four non-END icons are `text-primary` — the node-type colour
+// coding is uniform here, unlike the palette swatches and node headers. The
+// selected type is still named in text beside the icon. Unifying the three
+// legs needs the per-mode palette tracked in #25; see that issue before
+// changing these.
 const nodeTypeConfig: Record<NodeType, {
   icon: React.ComponentType<{ className?: string }>;
   color: string;

@@ -6,7 +6,6 @@ import { useTheme } from 'next-themes';
 import { Monitor, Moon, Sun } from 'lucide-react';
 
 import { Button } from '@/components/ui/button';
-import { cn } from '@/lib/utils';
 import { useMounted } from '@/lib/use-mounted';
 import {
   DropdownMenu,
@@ -52,7 +51,7 @@ export const ThemeToggle: React.FC<ThemeToggleProps> = ({ className = '' }) => {
           variant="ghost"
           size="icon"
           aria-label="Change theme"
-          className={cn(className)}
+          className={className}
         >
           {mounted ? <Active className="size-4" aria-hidden /> : <span className="size-4" />}
         </Button>

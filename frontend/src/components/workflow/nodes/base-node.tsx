@@ -31,7 +31,9 @@ export const BaseNode = memo(function BaseNode({
   return (
     <div
       className={cn(
-        'min-w-[80px] rounded border bg-card shadow-sm transition-shadow overflow-hidden',
+        // /70: the node body is only 1.21:1 from the canvas in dark mode, so the
+        // border is what delineates the node. Lower alphas miss 3:1 (WCAG 1.4.11).
+        'min-w-[80px] rounded border border-muted-foreground/70 bg-card shadow-sm transition-shadow overflow-hidden',
         selected ? 'border-primary shadow-md ring-2 ring-ring/30' : 'border-input',
         className
       )}
