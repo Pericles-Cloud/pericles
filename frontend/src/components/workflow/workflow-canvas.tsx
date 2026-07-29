@@ -12,9 +12,29 @@ import ReactFlow, {
 } from 'reactflow';
 import 'reactflow/dist/style.css';
 
+import { useResolvedDark } from '@/lib/use-resolved-dark';
 import { useWorkflowStore } from '@/stores/workflow-store';
 import { nodeTypes } from './nodes';
 import { NodeType } from '@/lib/api-client';
+
+/**
+ * reactflow takes literal colours, not CSS custom properties, so these mirror
+ * the ramps in globals.css — the same reason atlas-brand.ts exists. They MUST
+ * track the node header classes in ./nodes/*; a mismatch means the minimap
+ * shows a different legend from the canvas.
+ */
+const NODE_COLORS: Record<string, string> = {
+  trigger: '#524765', // purple-600
+  action: '#6B5D84', // purple-500
+  condition: '#423851', // purple-700
+  notification: '#5F5A68', // grey-600
+  end: '#2A272F', // grey-800
+};
+
+const CANVAS = {
+  light: { dots: '#E8E6EA', connection: '#A4A0AB', mask: 'rgba(25,23,28,0.10)' },
+  dark: { dots: '#2A272F', connection: '#5F5A68', mask: 'rgba(0,0,0,0.35)' },
+} as const;
 
 interface WorkflowCanvasProps {
   onNodeSelect?: (nodeId: string | null) => void;
@@ -24,6 +44,9 @@ function WorkflowCanvasInner({ onNodeSelect }: WorkflowCanvasProps) {
   const reactFlowWrapper = useRef<HTMLDivElement>(null);
   const { setViewport, project } = useReactFlow();
   const reactFlowInstance = useRef<ReactFlowInstance | null>(null);
+  // Correct on the first paint: a dark-mode user would otherwise get the light
+  // dot grid and minimap mask, then a repaint.
+  const canvas = useResolvedDark() ? CANVAS.dark : CANVAS.light;
 
   const {
     nodes,
@@ -43,13 +66,13 @@ function WorkflowCanvasInner({ onNodeSelect }: WorkflowCanvasProps) {
   const statusColor = useMemo(() => {
     switch (connectionStatus) {
       case 'connected':
-        return 'bg-green-500';
+        return 'bg-risk-low-accent';
       case 'connecting':
-        return 'bg-yellow-500';
+        return 'bg-risk-elevated-accent';
       case 'error':
-        return 'bg-red-500';
+        return 'bg-risk-critical-accent';
       default:
-        return 'bg-gray-400';
+        return 'bg-muted-foreground';
     }
   }, [connectionStatus]);
 
@@ -141,13 +164,13 @@ function WorkflowCanvasInner({ onNodeSelect }: WorkflowCanvasProps) {
   return (
     <div ref={reactFlowWrapper} className="h-full w-full relative">
       {/* Connection status badge */}
-      <div className="absolute top-2 right-2 z-10 flex items-center gap-2 rounded-full bg-white px-3 py-1 shadow-md">
+      <div className="absolute top-2 right-2 z-10 flex items-center gap-2 rounded-full bg-card px-3 py-1 shadow-md">
         <span className={`h-2 w-2 rounded-full ${statusColor}`} />
-        <span className="text-xs font-medium text-gray-600 capitalize">
+        <span className="text-xs font-medium text-muted-foreground capitalize">
           {connectionStatus}
         </span>
         {participants.length > 0 && (
-          <span className="ml-2 text-xs text-gray-500">
+          <span className="ml-2 text-xs text-muted-foreground">
             {participants.length} online
           </span>
         )}
@@ -175,27 +198,20 @@ function WorkflowCanvasInner({ onNodeSelect }: WorkflowCanvasProps) {
           type: 'smoothstep',
           animated: true,
         }}
-        connectionLineStyle={{ stroke: '#6b7280', strokeWidth: 2 }}
+        connectionLineStyle={{ stroke: canvas.connection, strokeWidth: 2 }}
         snapToGrid
         snapGrid={[15, 15]}
         deleteKeyCode={['Backspace', 'Delete']}
-        className="bg-gray-50"
+        className="bg-muted"
       >
-        <Background gap={15} size={1} color="#e5e7eb" />
+        <Background gap={15} size={1} color={canvas.dots} />
         <Controls className="!bottom-4 !left-4" />
         <MiniMap
           className="!bottom-4 !right-4"
-          nodeColor={(node) => {
-            const typeColors: Record<string, string> = {
-              trigger: '#ef4444',  // red-500
-              action: '#3b82f6',   // blue-500
-              condition: '#a855f7', // purple-500
-              notification: '#14b8a6', // teal-500
-              end: '#374151',      // gray-700
-            };
-            return typeColors[node.type || 'action'] || '#6b7280';
-          }}
-          maskColor="rgba(0,0,0,0.1)"
+          // `||`, not `??`: reactflow reports an untyped node as '', which `??`
+          // would pass through to the lookup and miss.
+          nodeColor={(node) => NODE_COLORS[node.type || 'action'] ?? canvas.connection}
+          maskColor={canvas.mask}
         />
       </ReactFlow>
     </div>

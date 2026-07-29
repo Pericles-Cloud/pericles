@@ -19,12 +19,14 @@ import {
   InfoWindow,
 } from '@react-google-maps/api';
 import { findPortCoordinates, generateCurvedPath } from '@/lib/port-coordinates';
-import { PERICLES, severityColor, severityLabel, subsidiaryColor } from '@/lib/atlas-brand';
+import { PERICLES, mapColors, severityLabel, subsidiaryColor } from '@/lib/atlas-brand';
+import { getRiskBgColor, getRiskColor } from '@/lib/intelligence-utils';
 import { Card, CardContent } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { cn } from '@/lib/utils';
 import { useShipmentPositions } from '@/lib/useShipmentPositions';
+import { useResolvedDark } from '@/lib/use-resolved-dark';
 
 const GOOGLE_MAPS_API_KEY = process.env.NEXT_PUBLIC_GOOGLE_MAPS_API_KEY || '';
 
@@ -32,15 +34,34 @@ const containerStyle = { width: '100%', height: '100%' };
 const defaultCenter = { lat: 20, lng: 0 };
 const defaultZoom = 2;
 
-// Roadmap styling for a cleaner, brand-aligned look (applies in 'roadmap' only).
-const mapStyles: google.maps.MapTypeStyle[] = [
-  { featureType: 'water', elementType: 'geometry', stylers: [{ color: '#dbe6f0' }] },
-  { featureType: 'landscape', elementType: 'geometry', stylers: [{ color: '#f6f5f7' }] },
-  { featureType: 'administrative.country', elementType: 'geometry.stroke', stylers: [{ color: '#b9b3c0' }] },
-  { featureType: 'administrative.country', elementType: 'labels.text.fill', stylers: [{ color: '#78909C' }] },
+// Roadmap styling, built from the brand ramps (applies in 'roadmap' only).
+// The Maps API cannot read CSS custom properties, so these are literal hexes
+// taken from the ramps in globals.css — keep them in sync.
+const HIDDEN: google.maps.MapTypeStyle[] = [
   { featureType: 'poi', stylers: [{ visibility: 'off' }] },
   { featureType: 'transit', stylers: [{ visibility: 'off' }] },
   { featureType: 'road', stylers: [{ visibility: 'off' }] },
+];
+
+const mapStylesLight: google.maps.MapTypeStyle[] = [
+  { featureType: 'water', elementType: 'geometry', stylers: [{ color: '#D7D1E0' }] }, // purple-200
+  { featureType: 'landscape', elementType: 'geometry', stylers: [{ color: '#F6F5F7' }] }, // grey-100
+  { featureType: 'administrative.country', elementType: 'geometry.stroke', stylers: [{ color: '#A4A0AB' }] }, // grey-400
+  { featureType: 'administrative.country', elementType: 'labels.text.fill', stylers: [{ color: '#5F5A68' }] }, // grey-600
+  ...HIDDEN,
+];
+
+// Dark canvas: land sits just above the page background so the map reads as a
+// surface, water drops below it, and labels lift to the muted foreground.
+const mapStylesDark: google.maps.MapTypeStyle[] = [
+  { elementType: 'geometry', stylers: [{ color: '#423851' }] }, // purple-700
+  { elementType: 'labels.text.stroke', stylers: [{ color: '#0F0D11' }] }, // grey-950
+  { elementType: 'labels.text.fill', stylers: [{ color: '#A4A0AB' }] }, // grey-400
+  { featureType: 'water', elementType: 'geometry', stylers: [{ color: '#0F0D11' }] }, // grey-950 — 2.25:1 vs land, so coastlines read
+  { featureType: 'landscape', elementType: 'geometry', stylers: [{ color: '#423851' }] }, // purple-700 — NOT purple-600: that is the light-mode supplier-pin fill
+  { featureType: 'administrative.country', elementType: 'geometry.stroke', stylers: [{ color: '#433F4A' }] }, // grey-700
+  { featureType: 'administrative.country', elementType: 'labels.text.fill', stylers: [{ color: '#A4A0AB' }] }, // grey-400
+  ...HIDDEN,
 ];
 
 interface ShipmentRoute {
@@ -64,6 +85,12 @@ type MapType = 'roadmap' | 'hybrid';
 
 export default function AtlasPage() {
   const { currentOrganization } = useAuth();
+  // Correct on the first paint — passing `styles: undefined` while next-themes
+  // resolves would flash Google's stock roadmap (POIs, roads, transit).
+  const isDarkMap = useResolvedDark();
+  // Pins/routes must flip with the map: the light-mode brand purple cannot
+  // reach 3:1 on any dark surface (see MAP_COLORS).
+  const mapPalette = mapColors(isDarkMap);
 
   const [shipments, setShipments] = useState<Shipment[]>([]);
   const [suppliers, setSuppliers] = useState<Supplier[]>([]);
@@ -99,15 +126,19 @@ export default function AtlasPage() {
       else byId.set(v.organizationId, { name: v.organizationName ?? 'Unknown', count: 1 });
     }
     const sorted = [...byId.entries()].sort((a, b) => a[1].name.localeCompare(b[1].name));
-    return sorted.map(([id, info], i) => ({ id, color: subsidiaryColor(i), ...info }));
-  }, [vesselPositions]);
+    // Mode-aware: the light set is 2.03–2.42:1 on the dark land, under the 3:1
+    // non-text floor, so subsidiary vessels/routes would vanish in dark mode.
+    return sorted.map(([id, info], i) => ({ id, color: subsidiaryColor(i, isDarkMap), ...info }));
+  }, [vesselPositions, isDarkMap]);
 
   const colorByOrg = useMemo(
     () => new Map(subsidiaries.map((s) => [s.id, s.color])),
     [subsidiaries],
   );
+  // Falls back to the port colour for vessels with no subsidiary — mode-aware,
+  // since gold-500 is unreadable on the dark map.
   const vesselColor = (orgId?: string): string =>
-    (orgId ? colorByOrg.get(orgId) : undefined) ?? PERICLES.gold;
+    (orgId ? colorByOrg.get(orgId) : undefined) ?? mapPalette.port;
 
   // Fetch data (BOL-shaped Supplier[] + Shipment[] + Event[]), tenant-scoped.
   useEffect(() => {
@@ -225,10 +256,13 @@ export default function AtlasPage() {
     shipments.map((s) => s.destinationPort).filter(Boolean),
   ).size;
 
+  // Setters are stable, but the React Compiler infers them as dependencies and
+  // refuses to preserve the memoization when they're omitted; listing them is
+  // semantically identical.
   const handleMapClick = useCallback(() => {
     setSelectedPin(null);
     setSelectedRoute(null);
-  }, []);
+  }, [setSelectedPin, setSelectedRoute]);
 
   // Location search (§3.1.1): geocode the query and recenter the map.
   const handleSearch = useCallback(
@@ -280,7 +314,7 @@ export default function AtlasPage() {
         <div className="text-center">
           <div
             className="animate-spin rounded-full h-8 w-8 border-b-2 mx-auto"
-            style={{ borderColor: PERICLES.purple }}
+            style={{ borderColor: mapPalette.supplier }}
           />
           <p className="mt-4 text-muted-foreground">Loading Atlas...</p>
         </div>
@@ -293,10 +327,10 @@ export default function AtlasPage() {
     <div className="relative h-full w-full">
       {/* Controls overlay. The wrapper ignores pointer events so map drags pass
           through the gaps between control clusters. */}
-      <div className="pointer-events-none absolute inset-x-3 top-3 z-10 flex items-start gap-3">
+      <div className="pointer-events-none absolute left-[max(0.75rem,env(safe-area-inset-left))] right-[max(0.75rem,env(safe-area-inset-right))] top-3 z-10 flex items-start gap-3">
         {/* min-w-0 so this cluster yields instead of pushing the fixed-width
             Events Feed off the right edge on narrow viewports. */}
-        <div className="pointer-events-auto flex min-w-0 flex-wrap items-center gap-3 rounded-lg bg-white/90 p-2 shadow-lg backdrop-blur dark:bg-gray-900/90">
+        <div className="pointer-events-auto flex min-w-0 flex-wrap items-center gap-3 rounded-lg bg-card/90 p-2 shadow-lg backdrop-blur">
           <form onSubmit={handleSearch} className="flex items-center gap-2">
             <Input
               value={search}
@@ -344,10 +378,10 @@ export default function AtlasPage() {
           <div className="flex items-center gap-2 px-1 text-sm">
             <span className="font-semibold">{shipments.length}</span>
             <span className="text-muted-foreground">shipments</span>
-            <span className="text-gray-300">|</span>
+            <span className="text-muted-foreground">|</span>
             <span className="font-semibold">{supplierCount}</span>
             <span className="text-muted-foreground">suppliers</span>
-            <span className="text-gray-300">|</span>
+            <span className="text-muted-foreground">|</span>
             <span className="font-semibold">{portCount}</span>
             <span className="text-muted-foreground">ports</span>
           </div>
@@ -356,7 +390,7 @@ export default function AtlasPage() {
         </div>
 
         {/* Events Feed: a bar that expands downward over the map. */}
-        <div className="pointer-events-auto ml-auto flex w-80 shrink-0 flex-col overflow-hidden rounded-lg bg-white shadow-lg dark:bg-gray-800">
+        <div className="pointer-events-auto ml-auto flex w-80 shrink-0 flex-col overflow-hidden rounded-lg bg-card shadow-lg">
           <button
             onClick={() => setIsFeedOpen((open) => !open)}
             aria-expanded={isFeedOpen}
@@ -365,7 +399,7 @@ export default function AtlasPage() {
           >
             <svg
               className="size-5 shrink-0"
-              style={{ color: PERICLES.gold }}
+              style={{ color: mapPalette.port }}
               fill="none"
               viewBox="0 0 24 24"
               strokeWidth="1.5"
@@ -400,7 +434,10 @@ export default function AtlasPage() {
           {isFeedOpen && (
             <div
               id="atlas-events-feed"
-              className="max-h-[calc(100vh-11rem)] overflow-y-auto border-t"
+              // Offset by --app-header-h, not a bare 4rem: under viewportFit
+              // 'cover' the header grows by the top inset and the feed would
+              // overflow the map by exactly that much.
+              className="max-h-[calc(100dvh-var(--app-header-h)-7rem)] overflow-y-auto border-t"
             >
               {openEvents.length === 0 ? (
                 <div className="p-4 text-center text-muted-foreground">
@@ -410,7 +447,7 @@ export default function AtlasPage() {
                   </p>
                 </div>
               ) : (
-                <div className="divide-y divide-gray-100 dark:divide-gray-800">
+                <div className="divide-y divide-border">
                   {openEvents.map((event) => (
                     <EventFeedItem key={event.id} event={event} />
                   ))}
@@ -422,25 +459,25 @@ export default function AtlasPage() {
       </div>
 
       {/* Legend (brand-aligned) */}
-      <div className="absolute bottom-4 left-4 z-10 bg-white dark:bg-gray-800 rounded-lg shadow-lg p-3 text-sm">
+      <div className="absolute bottom-4 left-4 z-10 bg-card rounded-lg shadow-lg p-3 text-sm">
         <div className="font-medium mb-2">Legend</div>
         <div className="space-y-1">
           <div className="flex items-center gap-2">
-            <div className="w-3 h-3 rounded-full" style={{ backgroundColor: PERICLES.purple }} />
+            <div className="w-3 h-3 rounded-full" style={{ backgroundColor: mapPalette.supplier }} />
             <span>Supplier</span>
           </div>
           <div className="flex items-center gap-2">
-            <div className="w-3 h-3 rounded-full" style={{ backgroundColor: PERICLES.gold }} />
+            <div className="w-3 h-3 rounded-full" style={{ backgroundColor: mapPalette.port }} />
             <span>Destination Port</span>
           </div>
           <div className="flex items-center gap-2">
-            <div className="w-6 h-0.5" style={{ backgroundColor: PERICLES.slate }} />
+            <div className="w-6 h-0.5" style={{ backgroundColor: mapPalette.route }} />
             <span>Shipping Route</span>
           </div>
         </div>
 
         {subsidiaries.length > 1 && (
-          <div className="mt-2 pt-2 border-t border-gray-200 dark:border-gray-700">
+          <div className="mt-2 pt-2 border-t border-border">
             <div className="font-medium mb-1">Subsidiaries · vessels</div>
             <div className="space-y-1 max-h-44 overflow-y-auto pr-1">
               {subsidiaries.map((s) => (
@@ -471,7 +508,16 @@ export default function AtlasPage() {
           mapRef.current = null;
         }}
         options={{
-          styles: mapType === 'roadmap' ? mapStyles : undefined,
+          // Satellite carries its own imagery; only the roadmap is themed.
+          // useResolvedDark reads the `dark` class off <html> (which next-themes
+          // writes before hydration), so this resolves to the right array on the
+          // first paint — next-themes' own `resolvedTheme` is undefined until
+          // after mount and would flash a white map at a dark-mode user.
+          styles:
+            mapType === 'roadmap' ? (isDarkMap ? mapStylesDark : mapStylesLight) : undefined,
+          // One-finger pan on touch; the default ('auto') demands two fingers
+          // inside a scrollable page and feels broken on a phone.
+          gestureHandling: 'greedy',
           disableDefaultUI: false,
           zoomControl: true,
           mapTypeControl: false,
@@ -492,8 +538,8 @@ export default function AtlasPage() {
                 options={{
                   strokeColor:
                     selectedRoute?.shipment.id === route.shipment.id
-                      ? PERICLES.gold
-                      : PERICLES.slate,
+                      ? mapPalette.port
+                      : mapPalette.route,
                   strokeOpacity: selectedRoute?.shipment.id === route.shipment.id ? 1 : 0.6,
                   strokeWeight: selectedRoute?.shipment.id === route.shipment.id ? 3 : 2,
                   geodesic: false,
@@ -545,7 +591,7 @@ export default function AtlasPage() {
             icon={{
               path: google.maps.SymbolPath.CIRCLE,
               scale: 8 + Math.min(pin.shipmentCount * 2, 10),
-              fillColor: pin.type === 'supplier' ? PERICLES.purple : PERICLES.gold,
+              fillColor: pin.type === 'supplier' ? mapPalette.supplier : mapPalette.port,
               fillOpacity: 1,
               strokeColor: PERICLES.white,
               strokeWeight: 2,
@@ -553,33 +599,39 @@ export default function AtlasPage() {
           />
         ))}
 
+        {/* InfoWindow content uses the grey RAMP, not role tokens. Google's
+            bubble (.gm-style-iw-c) is always white and the map style array
+            can't theme it, but the content renders inside the app DOM where
+            `.dark` applies — role tokens would give near-white text on a white
+            bubble. Re-scoping --foreground here would not help either: it is
+            resolved into --color-foreground at :root. */}
         {selectedPin && (
           <InfoWindow position={selectedPin.position} onCloseClick={() => setSelectedPin(null)}>
             <div className="p-2 min-w-[180px]">
-              <div className="font-medium text-gray-900">{selectedPin.name}</div>
-              <div className="text-sm text-gray-600 mt-1">
+              <div className="font-medium text-grey-900">{selectedPin.name}</div>
+              <div className="text-sm text-grey-600 mt-1">
                 {selectedPin.type === 'supplier' ? 'Supplier' : 'Destination Port'}
               </div>
               {selectedPin.supplier?.country && (
-                <div className="text-sm text-gray-500 mt-1">
+                <div className="text-sm text-grey-600 mt-1">
                   {selectedPin.supplier.country}
                 </div>
               )}
-              <div className="text-sm text-gray-500 mt-1">
+              <div className="text-sm text-grey-600 mt-1">
                 {selectedPin.shipmentCount} shipment{selectedPin.shipmentCount !== 1 ? 's' : ''} on map
                 {selectedPin.supplier?.totalShipments
                   ? ` · ${selectedPin.supplier.totalShipments} total`
                   : ''}
               </div>
               {selectedPin.supplier?.departurePorts?.length ? (
-                <div className="text-xs text-gray-500 mt-2">
-                  <span className="text-gray-400">Departs:</span>{' '}
+                <div className="text-xs text-grey-600 mt-2">
+                  <span className="text-grey-500">Departs:</span>{' '}
                   {selectedPin.supplier.departurePorts.slice(0, 3).join(', ')}
                 </div>
               ) : null}
               {selectedPin.supplier?.hsCodes?.length ? (
-                <div className="text-xs text-gray-500 mt-1">
-                  <span className="text-gray-400">HS:</span>{' '}
+                <div className="text-xs text-grey-600 mt-1">
+                  <span className="text-grey-500">HS:</span>{' '}
                   {selectedPin.supplier.hsCodes.slice(0, 4).join(', ')}
                 </div>
               ) : null}
@@ -593,29 +645,29 @@ export default function AtlasPage() {
             onCloseClick={() => setSelectedRoute(null)}
           >
             <div className="p-2 min-w-[200px]">
-              <div className="font-medium text-gray-900 font-mono text-sm">
+              <div className="font-medium text-grey-900 font-mono text-sm">
                 {selectedRoute.shipment.bolNumber}
               </div>
-              <div className="text-sm text-gray-600 mt-2 space-y-1">
+              <div className="text-sm text-grey-600 mt-2 space-y-1">
                 <div>
-                  <span className="text-gray-500">From:</span>{' '}
+                  <span className="text-grey-500">From:</span>{' '}
                   {selectedRoute.origin?.name || selectedRoute.shipment.departurePort || 'Unknown'}
                 </div>
                 <div>
-                  <span className="text-gray-500">To:</span>{' '}
+                  <span className="text-grey-500">To:</span>{' '}
                   {selectedRoute.destination?.name ||
                     selectedRoute.shipment.destinationPort ||
                     'Unknown'}
                 </div>
                 {selectedRoute.shipment.vesselName && (
                   <div>
-                    <span className="text-gray-500">Vessel:</span>{' '}
+                    <span className="text-grey-500">Vessel:</span>{' '}
                     {selectedRoute.shipment.vesselName}
                   </div>
                 )}
                 {selectedRoute.shipment.arrivalDate && (
                   <div>
-                    <span className="text-gray-500">Arrival:</span>{' '}
+                    <span className="text-grey-500">Arrival:</span>{' '}
                     {new Date(selectedRoute.shipment.arrivalDate).toLocaleDateString()}
                   </div>
                 )}
@@ -636,23 +688,28 @@ function EventFeedItem({ event }: { event: Event }) {
       className="block p-4 hover:bg-muted/50 transition-colors"
     >
       <div className="flex items-start gap-3">
-        <div
-          className="w-1 min-h-[40px] rounded-full"
-          style={{ backgroundColor: severityColor(event.severity) }}
-        />
+        {/* Same reason as the label below: the map hexes are 2.55:1 on the
+            dark card, under the 3:1 non-text floor. The role token's dark
+            `-accent` step is lifted for exactly this. */}
+        <div className={cn('w-1 min-h-[40px] rounded-full', getRiskBgColor(event.severity))} />
         <div className="flex-1 min-w-0">
           <div className="flex items-center gap-2">
             <h4 className="font-medium text-sm leading-tight line-clamp-2">{event.title}</h4>
           </div>
+          {/* Role token, NOT severityColor(): those hexes are tuned for map
+              markers on satellite/roadmap imagery and drop to ~2.6:1 as text on
+              the dark card. */}
           <span
-            className="inline-block text-[10px] font-semibold uppercase tracking-wide mt-1"
-            style={{ color: severityColor(event.severity) }}
+            className={cn(
+              'mt-1 inline-block text-[10px] font-semibold uppercase tracking-wide',
+              getRiskColor(event.severity),
+            )}
           >
             {severityLabel(event.severity)}
           </span>
           <p className="text-xs text-muted-foreground mt-1 line-clamp-2">{event.description}</p>
           {event.locationName && (
-            <p className="text-xs text-gray-400 mt-1 flex items-center gap-1">
+            <p className="text-xs text-muted-foreground mt-1 flex items-center gap-1">
               <svg
                 className="size-3"
                 fill="none"

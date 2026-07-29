@@ -28,7 +28,7 @@ export function EventList({ events, selectedEventId, onSelect }: EventListProps)
       <Card>
         <CardContent className="py-8 text-center">
           <svg
-            className="mx-auto h-12 w-12 text-gray-300"
+            className="mx-auto h-12 w-12 text-muted-foreground"
             fill="none"
             viewBox="0 0 24 24"
             strokeWidth="1.5"
@@ -40,7 +40,7 @@ export function EventList({ events, selectedEventId, onSelect }: EventListProps)
               d="M12 9v3.75m9-.75a9 9 0 11-18 0 9 9 0 0118 0zm-9 3.75h.008v.008H12v-.008z"
             />
           </svg>
-          <p className="mt-4 text-gray-500">No events found</p>
+          <p className="mt-4 text-muted-foreground">No events found</p>
         </CardContent>
       </Card>
     );
@@ -59,8 +59,11 @@ export function EventList({ events, selectedEventId, onSelect }: EventListProps)
             aria-current={selectedEventId === event.id}
             className={`w-full text-left p-4 rounded-lg border transition-colors ${
               selectedEventId === event.id
-                ? 'border-blue-500 bg-blue-50 dark:bg-blue-900/20'
-                : 'border-gray-200 dark:border-gray-700 hover:bg-gray-50 dark:hover:bg-gray-800'
+                ? 'border-primary bg-primary/10'
+                // bg-muted, not bg-accent: the location/date lines below keep
+                // their own `text-muted-foreground`, which is 2.7:1 on --accent
+                // in dark mode but 4.9:1 on --muted.
+                : 'border-border hover:bg-muted'
             }`}
           >
             <div className="space-y-2">
@@ -68,7 +71,7 @@ export function EventList({ events, selectedEventId, onSelect }: EventListProps)
               <div className="flex items-start justify-between gap-2">
                 <h4 className="font-medium text-sm leading-tight line-clamp-2">{event.title}</h4>
                 <div
-                  className={`shrink-0 size-6 rounded-full ${severityConfig.color} flex items-center justify-center text-white text-xs font-bold`}
+                  className={`shrink-0 size-6 rounded-full ${severityConfig.color} flex items-center justify-center text-xs font-bold`}
                   title={`Severity ${severityConfig.label}`}
                 >
                   {severityConfig.label}
@@ -76,7 +79,7 @@ export function EventList({ events, selectedEventId, onSelect }: EventListProps)
               </div>
 
               {/* Location */}
-              <div className="flex items-center gap-1 text-xs text-gray-500">
+              <div className="flex items-center gap-1 text-xs text-muted-foreground">
                 <svg className="size-3" fill="none" viewBox="0 0 24 24" strokeWidth="1.5" stroke="currentColor">
                   <path strokeLinecap="round" strokeLinejoin="round" d="M15 10.5a3 3 0 11-6 0 3 3 0 016 0z" />
                   <path
@@ -89,7 +92,7 @@ export function EventList({ events, selectedEventId, onSelect }: EventListProps)
               </div>
 
               {/* Date/Time */}
-              <div className="flex items-center gap-1 text-xs text-gray-500">
+              <div className="flex items-center gap-1 text-xs text-muted-foreground">
                 <svg className="size-3" fill="none" viewBox="0 0 24 24" strokeWidth="1.5" stroke="currentColor">
                   <path
                     strokeLinecap="round"

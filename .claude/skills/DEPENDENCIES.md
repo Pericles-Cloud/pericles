@@ -49,8 +49,11 @@ pericles-external-feeds  ◄── (used by topical-skill authors when adding ne
 ## Frontend
 
 ```
-pericles-frontend-foundations ◄── copilot-ui, atlas-ui, intelligence-ui,
+pericles-frontend-foundations ◄── branding-ui, copilot-ui, atlas-ui, intelligence-ui,
                                    admin-portal-ui, plans-ui, assessments-ui, mobile
+pericles-branding-ui     ◄── copilot-ui, atlas-ui, intelligence-ui, admin-portal-ui,
+                             plans-ui, assessments-ui, mobile
+                             (color/theme/type tokens + responsive & device rules)
 pericles-copilot-ui      ◄── intelligence-ui, mobile
 pericles-atlas-ui        ◄── (siblings)
 pericles-intelligence-ui ◄── (siblings)
@@ -88,7 +91,8 @@ pericles-dev-environment  ◄── repo-conventions, tech-stack, postgres-queue
 
 - **"I'm building a new Topical monitor"** → tech-stack → mastra-tool → topical-skill → external-feeds → evals-scorers → testing.
 - **"I'm building a new Functional Skill"** → doctrine (§4) → functional-agent → skill-authoring → skill-registry → evals-scorers → compliance-audit (architecture review).
-- **"I'm building a UI surface"** → frontend-foundations → persona-layer → [surface] → execution-node (for actions) → api-conventions.
+- **"I'm building a UI surface"** → frontend-foundations → branding-ui → persona-layer → [surface] → execution-node (for actions) → api-conventions.
+- **"I'm touching color, dark mode, type, or a mobile layout"** → branding-ui → frontend-foundations → mobile (if phone-facing).
 - **"I'm shipping a new ERP adapter"** → erp-adapter → mcp-layer → data-model → tenant-isolation → testing.
 - **"I'm enabling Custom Skills"** → custom-skill → security-threat-model → tenant-isolation → mcp-layer → skill-registry → compliance-audit.
 - **"I'm onboarding to the codebase"** → dev-environment → repo-conventions → tech-stack → data-model → doctrine.

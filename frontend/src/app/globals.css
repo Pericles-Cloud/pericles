@@ -1,45 +1,406 @@
+/**
+ * Pericles theme — Tailwind v4
+ * Drop-in replacement for frontend/src/app/globals.css.
+ *
+ * Three layers, in order:
+ *   1. @theme        brand ramps (mode-independent primitives)
+ *   2. :root / .dark role tokens (mode-dependent)
+ *   3. @theme inline role tokens exposed as utilities
+ *
+ * Components use LAYER 3 (bg-card, text-muted-foreground, border-border).
+ * Ramp utilities (bg-purple-600, text-gold-500) are for deliberate brand
+ * moments only — the wordmark, a fillet, marketing surfaces.
+ *
+ * See .claude/skills/pericles-branding-ui/SKILL.md for the discipline rules and
+ * .claude/skills/pericles-branding-ui/references/palette.md for the rationale
+ * behind each ramp. `references/contrast-audit.mjs` in the same directory
+ * asserts every token pair — run it after touching a ramp or a role token.
+ */
+
 @import "tailwindcss";
 @import "tw-animate-css";
 
 @custom-variant dark (&:is(.dark *));
 
+/* ────────────────────────────────────────────────────────────────────────
+   LAYER 1 — brand ramps. Identical in both modes.
+   ──────────────────────────────────────────────────────────────────────── */
+@theme {
+  /* Pericles Purple — brand base 600 */
+  --color-purple-50:  #F7F6F9;
+  --color-purple-100: #ECE9F1;
+  --color-purple-200: #D7D1E0;
+  --color-purple-300: #B4AAC5;
+  --color-purple-400: #8778A1;
+  --color-purple-500: #6B5D84;
+  --color-purple-600: #524765;
+  --color-purple-700: #423851;
+  --color-purple-800: #2E273A;
+  --color-purple-900: #1D1825;
+
+  /* Athenian Gold — brand base 500. Accent only; see the gold contrast trap. */
+  --color-gold-50:  #FAF7EF;
+  --color-gold-100: #F5ECDB;
+  --color-gold-200: #ECD8B1;
+  --color-gold-300: #E2C283;
+  --color-gold-400: #D9AE59;
+  --color-gold-500: #D19B2F;
+  --color-gold-600: #B48322;
+  --color-gold-700: #936B1A;
+  --color-gold-800: #6F5115;
+  --color-gold-900: #4C3810;
+
+  /* Warm neutral — carries a trace of the purple hue. The workhorse scale. */
+  --color-grey-50:  #FBFBFC;
+  --color-grey-100: #F6F5F7;
+  --color-grey-200: #E8E6EA;
+  --color-grey-300: #D3D1D7;
+  --color-grey-400: #A4A0AB;
+  --color-grey-500: #7D7887;
+  --color-grey-600: #5F5A68;
+  --color-grey-700: #433F4A;
+  --color-grey-800: #2A272F;
+  --color-grey-900: #19171C;
+  --color-grey-950: #0F0D11;
+
+  /* DOOR CLOSED (migration step 6). The default Tailwind palettes are cleared
+     so `bg-slate-500`, `text-gray-400`, `border-indigo-600` and friends are
+     not merely off-brand — they do not compile to anything. The only colours
+     that exist are the ramps above and the role tokens below.
+     Removing a line here re-opens that family; don't. */
+  --color-gray-*: initial;
+  --color-slate-*: initial;
+  --color-zinc-*: initial;
+  --color-neutral-*: initial;
+  --color-stone-*: initial;
+  --color-red-*: initial;
+  --color-orange-*: initial;
+  --color-amber-*: initial;
+  --color-yellow-*: initial;
+  --color-lime-*: initial;
+  --color-green-*: initial;
+  --color-emerald-*: initial;
+  --color-teal-*: initial;
+  --color-cyan-*: initial;
+  --color-sky-*: initial;
+  --color-blue-*: initial;
+  --color-indigo-*: initial;
+  --color-violet-*: initial;
+  --color-fuchsia-*: initial;
+  --color-pink-*: initial;
+  --color-rose-*: initial;
+
+  /* Semantic / risk families. Warning sits at hue 28° vs brand gold's 40°
+     so an elevated-risk badge is never confusable with a gold accent.
+     NEVER close that gap. */
+  --color-danger-light:  #F7DCD9;
+  --color-danger:        #BD3728;
+  --color-danger-dark:   #74241B;
+
+  --color-warning-light: #F8E7D8;
+  --color-warning:       #DF7920;
+  --color-warning-dark:  #8C4E17;
+
+  --color-success-light: #DAF1E6;
+  --color-success:       #358D64;
+  --color-success-dark:  #205B3F;
+
+  --color-info-light:    #E1EAF4;
+  --color-info:          #4377B1;
+  --color-info-dark:     #2A4A6F;
+
+  /* Motion */
+  --ease-brand: cubic-bezier(0.2, 0, 0.2, 1);
+}
+
+/* ────────────────────────────────────────────────────────────────────────
+   LAYER 2 — role tokens. Defined twice; this is the only place a value
+   is allowed to differ between modes.
+   ──────────────────────────────────────────────────────────────────────── */
+:root {
+  color-scheme: light;
+  --radius: 0.625rem; /* 10px cards; 6px chips via --radius-sm */
+
+  /* Single source of truth for the sticky header's real height. The bar is
+     4rem tall but also carries pt-safe, so under viewportFit: 'cover' on a
+     notched iOS device it is taller. Anything that sits below the header
+     (the nav rail, the drawer scrim, full-bleed page heights) MUST offset by
+     this, not by a bare 4rem — otherwise the header overlaps the nav and
+     full-bleed pages overflow by the inset.
+     The trailing 1px is the header's own `border-b`: leave it out and the
+     full-bleed main is 1px taller than the space left for it, and the nav rail
+     starts 1px under the header instead of flush against its border. */
+  --app-header-h: calc(4rem + 1px + env(safe-area-inset-top));
+
+  --background: #FFFFFF;
+  --foreground: var(--color-grey-900);
+
+  --card: #FFFFFF;
+  --card-foreground: var(--color-grey-900);
+  --popover: #FFFFFF;
+  --popover-foreground: var(--color-grey-900);
+
+  /* Purple-tinted rather than pure neutral, so light mode is recognisably
+     Pericles and not a default white dashboard. */
+  --muted: var(--color-purple-50);
+  --muted-foreground: var(--color-grey-600);   /* 6.67:1 on white, 6.19:1 on purple-50 */
+
+  --border: var(--color-purple-100);
+  --input: var(--color-purple-100);
+
+  --primary: var(--color-purple-600);          /* 8.58:1 on white */
+  --primary-foreground: var(--color-grey-50);  /* 8.30:1 on purple-600 */
+
+  --secondary: var(--color-grey-100);
+  --secondary-foreground: var(--color-grey-800);
+
+  /* --accent is shadcn's NEUTRAL hover surface (ghost/outline buttons, menu
+     items). It is NOT the brand accent — mapping gold here would put gold on
+     every hover and destroy the one-gold-per-screen rule. */
+  /* MUST differ from --muted, or every `hover:bg-accent` on a muted surface
+     is a no-op. They were identical (both purple-50) and the hovers were dead. */
+  --accent: var(--color-purple-200);
+  --accent-foreground: var(--color-purple-900);
+
+  /* The brand accent (gold) is deliberate and rare. On light surfaces gold-500
+     is only 2.49:1 — a fill needs the gold-600 border to have an edge, and
+     gold TEXT must be gold-700. */
+  --brand-accent: var(--color-gold-500);
+  --brand-accent-foreground: var(--color-purple-900); /* 6.98:1 on gold-500 */
+  --brand-accent-border: var(--color-gold-600);        /* 3.38:1 on white */
+  --brand-accent-text: var(--color-gold-700);          /* 4.82:1 on white */
+
+  --ring: var(--color-purple-600);
+  --destructive: var(--color-danger);
+
+  /* Risk states — named by MEANING, never by color. */
+  --risk-critical-surface: var(--color-danger-light);
+  --risk-critical-fg:      var(--color-danger-dark);   /* 8.05:1 */
+  --risk-critical-accent:  var(--color-danger);
+
+  --risk-elevated-surface: var(--color-warning-light);
+  --risk-elevated-fg:      var(--color-warning-dark);  /* 5.41:1 */
+  --risk-elevated-accent:  var(--color-warning);
+
+  --risk-low-surface:      var(--color-success-light);
+  --risk-low-fg:           var(--color-success-dark);  /* 6.73:1 */
+  --risk-low-accent:       var(--color-success);
+
+  --risk-monitoring-surface: var(--color-info-light);
+  --risk-monitoring-fg:      var(--color-info-dark);   /* 7.49:1 */
+  --risk-monitoring-accent:  var(--color-info);
+
+  /* `-fg` is for text ON the matching tinted surface. `-text` is for severity
+     text standing alone on a card. In light mode they coincide; in dark they
+     must NOT (see .dark). */
+  --risk-critical-text:   var(--color-danger-dark);
+  --risk-elevated-text:   var(--color-warning-dark);
+  --risk-low-text:        var(--color-success-dark);
+  --risk-monitoring-text: var(--color-info-dark);
+
+  /* App shell — LIGHT. The whole design goes light together: a light purple
+     tint, not a dark slab. The shell flips with the mode (see .dark). */
+  --sidebar: var(--color-purple-100);
+  --sidebar-foreground: var(--color-purple-900);        /* 14.46:1 */
+  --sidebar-muted-foreground: var(--color-purple-600);  /* 7.15:1 */
+  /* active fill and hover surface must differ, or hovering an inactive item
+     makes it look active */
+  --sidebar-primary: var(--color-purple-300);           /* active fill */
+  --sidebar-primary-foreground: var(--color-purple-900);
+  /* --sidebar-fillet, NOT --sidebar-accent: shadcn's contract defines
+     --sidebar-accent as the nav hover/active SURFACE, and any future
+     `shadcn add sidebar` would emit `hover:bg-sidebar-accent` — painting a
+     solid gold bar on every nav hover. The gold rule gets its own name.
+     gold-800, NOT gold-500/600/700: on purple-100 those are 2.82/4.01 and fail.
+     gold-800 is 6.11:1. Gold has to darken as its backdrop lightens. */
+  --sidebar-fillet: var(--color-gold-800);
+  --sidebar-accent: var(--color-purple-200);
+  --sidebar-accent-foreground: var(--color-purple-900);
+  --sidebar-border: var(--color-purple-200);
+  --sidebar-ring: var(--color-gold-800);
+
+  /* Charts — purple→gold sequential. Replaces the shadcn rainbow. */
+  --chart-1: var(--color-purple-600);
+  --chart-2: var(--color-purple-400);
+  --chart-3: var(--color-gold-600);
+  --chart-4: var(--color-gold-400);
+  --chart-5: var(--color-grey-500);
+}
+
+.dark {
+  color-scheme: dark;
+
+  /* Dark mode is PURPLE, not black. The canvas is a shade DARKER than the
+     purple-600 shell, and cards sit one step above the canvas — so the whole
+     app stays in the brand hue instead of the shell floating on a neutral
+     void. Using grey-950/grey-900 here read as a generic black dashboard with
+     a purple bar stuck on top. */
+  --background: var(--color-purple-900); /* darker than the shell */
+  --foreground: var(--color-purple-50);  /* 16.13:1 */
+
+  --card: var(--color-purple-800);       /* raised above the canvas */
+  --card-foreground: var(--color-purple-50); /* 13.29:1 */
+  --popover: var(--color-purple-800);
+  --popover-foreground: var(--color-purple-50);
+
+  --muted: var(--color-purple-700);
+  --muted-foreground: var(--color-purple-300); /* 6.47:1 on card */
+
+  --border: var(--color-purple-700);
+  --input: var(--color-purple-700);
+
+  /* purple-200, NOT purple-300: --muted-foreground is purple-300, and an
+     identical --primary made `text-primary` links indistinguishable from
+     `text-muted-foreground` secondary text, and toggle on/off differ only by
+     alpha. Primary must sit a step brighter than muted. */
+  --primary: var(--color-purple-200);            /* 9.60:1 on card */
+  --primary-foreground: var(--color-purple-900); /* 11.65:1 on purple-200 */
+
+  --secondary: var(--color-purple-700);
+  --secondary-foreground: var(--color-purple-50);
+
+  /* One step LIGHTER than --muted (purple-700), so hover lifts. */
+  --accent: var(--color-purple-500);
+  --accent-foreground: var(--color-purple-50); /* 5.53:1 */
+
+  --brand-accent: var(--color-gold-400);              /* 8.60:1 on card */
+  --brand-accent-foreground: var(--color-gold-900);   /* 5.40:1 on gold-400 */
+  --brand-accent-border: var(--color-gold-400);
+  --brand-accent-text: var(--color-gold-400);
+
+  --ring: var(--color-purple-200);
+  --destructive: var(--color-danger);
+
+  /* The `-light` tints are near-white and CANNOT be dark-mode surfaces.
+     Composite the base color over the card instead.
+     The `-accent` steps (icons, dots, borders) are lifted 30% toward their
+     light tint: the purple-800 card is lighter than the grey-900 it replaced,
+     which dropped the raw danger base to 2.55:1 — under the 3:1 non-text
+     floor. Lifted, all four clear it (danger 3.95, info 4.87, low 5.29,
+     elevated 6.24). */
+  --risk-critical-surface: color-mix(in oklab, var(--color-danger) 18%, var(--card));
+  --risk-critical-fg:      var(--color-danger-light);   /* 11.93:1 on the composite */
+  --risk-critical-accent:  color-mix(in oklab, var(--color-danger) 70%, var(--color-danger-light));
+
+  --risk-elevated-surface: color-mix(in oklab, var(--color-warning) 18%, var(--card));
+  --risk-elevated-fg:      var(--color-warning-light);  /* 11.36:1 */
+  --risk-elevated-accent:  color-mix(in oklab, var(--color-warning) 70%, var(--color-warning-light));
+
+  --risk-low-surface:      color-mix(in oklab, var(--color-success) 18%, var(--card));
+  --risk-low-fg:           var(--color-success-light);  /* 12.23:1 */
+  --risk-low-accent:       color-mix(in oklab, var(--color-success) 70%, var(--color-success-light));
+
+  --risk-monitoring-surface: color-mix(in oklab, var(--color-info) 18%, var(--card));
+  --risk-monitoring-fg:      var(--color-info-light);   /* 12.14:1 */
+  --risk-monitoring-accent:  color-mix(in oklab, var(--color-info) 70%, var(--color-info-light));
+
+  /* Standalone severity text. The `-fg` tints above are ~90% lightness by
+     design — correct on their own tinted surface, but on a plain card all four
+     collapse into the same off-white and severity stops being readable at a
+     glance. These keep their hue AND clear 4.5:1 on the card
+     (danger 4.98, monitoring 6.00, low 6.42, elevated 7.20). */
+  --risk-critical-text:   color-mix(in oklab, var(--color-danger) 55%, var(--color-danger-light));
+  --risk-elevated-text:   color-mix(in oklab, var(--color-warning) 55%, var(--color-warning-light));
+  --risk-low-text:        color-mix(in oklab, var(--color-success) 55%, var(--color-success-light));
+  --risk-monitoring-text: color-mix(in oklab, var(--color-info) 55%, var(--color-info-light));
+
+  /* App shell — DARK. Pericles Purple at its brand base, sitting one step
+     LIGHTER than the purple-900 canvas so the chrome reads as the dominant
+     surface it is meant to be. */
+  --sidebar: var(--color-purple-600);
+  --sidebar-foreground: var(--color-grey-50);           /* 8.30:1 */
+  --sidebar-muted-foreground: var(--color-purple-200);  /* 5.75:1 */
+  --sidebar-primary: var(--color-purple-800);           /* active fill (recessed) */
+  --sidebar-primary-foreground: var(--color-grey-50);
+  /* gold-300, NOT gold-400: on purple-600 gold-400 is only 4.15:1 and fails AA
+     as text. gold-300 is 5.02:1. Gold lightens as its backdrop darkens —
+     the mirror of the gold-800 used on the light shell. */
+  --sidebar-fillet: var(--color-gold-300);
+  --sidebar-accent: var(--color-purple-500);
+  --sidebar-accent-foreground: var(--color-purple-50);
+  --sidebar-border: var(--color-purple-700);
+  --sidebar-ring: var(--color-gold-300);
+
+
+  --chart-1: var(--color-purple-300);
+  --chart-2: var(--color-purple-400);
+  --chart-3: var(--color-gold-400);
+  --chart-4: var(--color-gold-300);
+  --chart-5: var(--color-grey-400);
+}
+
+/* ────────────────────────────────────────────────────────────────────────
+   LAYER 3 — role tokens as utilities. `inline` so they follow the mode.
+   ──────────────────────────────────────────────────────────────────────── */
 @theme inline {
+  /* Type MUST be `inline`. next/font declares --font-cormorant et al. on
+     <body> (via the .variable classes), not on :root. A plain @theme emits
+     `--font-display: var(--font-cormorant)` into :root, where that var is
+     undefined — the token computes to guaranteed-invalid, inherits down
+     invalid, and every `font-family: var(--font-display)` silently falls back
+     to system sans. `inline` substitutes the var into the utility itself, so
+     it resolves on the element, where it is defined. */
+  --font-sans:    var(--font-geist-sans);
+  --font-display: var(--font-cormorant);
+  --font-mono:    var(--font-plex-mono);
+
   --color-background: var(--background);
   --color-foreground: var(--foreground);
-  --font-sans: var(--font-geist-sans);
-  --font-mono: var(--font-geist-mono);
-  --color-sidebar-ring: var(--sidebar-ring);
-  --color-sidebar-border: var(--sidebar-border);
-  --color-sidebar-accent-foreground: var(--sidebar-accent-foreground);
-  --color-sidebar-accent: var(--sidebar-accent);
-  --color-sidebar-primary-foreground: var(--sidebar-primary-foreground);
-  --color-sidebar-primary: var(--sidebar-primary);
-  --color-sidebar-foreground: var(--sidebar-foreground);
-  --color-sidebar: var(--sidebar);
-  --color-chart-5: var(--chart-5);
-  --color-chart-4: var(--chart-4);
-  --color-chart-3: var(--chart-3);
-  --color-chart-2: var(--chart-2);
-  --color-chart-1: var(--chart-1);
-  --color-ring: var(--ring);
-  --color-input: var(--input);
-  --color-border: var(--border);
-  --color-destructive: var(--destructive);
-  --color-accent-foreground: var(--accent-foreground);
-  --color-accent: var(--accent);
-  --color-muted-foreground: var(--muted-foreground);
-  --color-muted: var(--muted);
-  --color-secondary-foreground: var(--secondary-foreground);
-  --color-secondary: var(--secondary);
-  --color-primary-foreground: var(--primary-foreground);
-  --color-primary: var(--primary);
-  --color-brand-purple: var(--brand-purple);
-  --color-brand-gold: var(--brand-gold);
-  --color-brand-slate: var(--brand-slate);
-  --color-popover-foreground: var(--popover-foreground);
-  --color-popover: var(--popover);
-  --color-card-foreground: var(--card-foreground);
   --color-card: var(--card);
+  --color-card-foreground: var(--card-foreground);
+  --color-popover: var(--popover);
+  --color-popover-foreground: var(--popover-foreground);
+  --color-muted: var(--muted);
+  --color-muted-foreground: var(--muted-foreground);
+  --color-border: var(--border);
+  --color-input: var(--input);
+  --color-primary: var(--primary);
+  --color-primary-foreground: var(--primary-foreground);
+  --color-secondary: var(--secondary);
+  --color-secondary-foreground: var(--secondary-foreground);
+  --color-accent: var(--accent);
+  --color-accent-foreground: var(--accent-foreground);
+  --color-brand-accent: var(--brand-accent);
+  --color-brand-accent-foreground: var(--brand-accent-foreground);
+  --color-brand-accent-border: var(--brand-accent-border);
+  --color-brand-accent-text: var(--brand-accent-text);
+  --color-ring: var(--ring);
+  --color-destructive: var(--destructive);
+
+  --color-risk-critical: var(--risk-critical-surface);
+  --color-risk-critical-fg: var(--risk-critical-fg);
+  --color-risk-critical-accent: var(--risk-critical-accent);
+  --color-risk-elevated: var(--risk-elevated-surface);
+  --color-risk-elevated-fg: var(--risk-elevated-fg);
+  --color-risk-elevated-accent: var(--risk-elevated-accent);
+  --color-risk-low: var(--risk-low-surface);
+  --color-risk-low-fg: var(--risk-low-fg);
+  --color-risk-low-accent: var(--risk-low-accent);
+  --color-risk-monitoring: var(--risk-monitoring-surface);
+  --color-risk-monitoring-fg: var(--risk-monitoring-fg);
+  --color-risk-monitoring-accent: var(--risk-monitoring-accent);
+  --color-risk-critical-text: var(--risk-critical-text);
+  --color-risk-elevated-text: var(--risk-elevated-text);
+  --color-risk-low-text: var(--risk-low-text);
+  --color-risk-monitoring-text: var(--risk-monitoring-text);
+
+  --color-sidebar: var(--sidebar);
+  --color-sidebar-foreground: var(--sidebar-foreground);
+  --color-sidebar-muted-foreground: var(--sidebar-muted-foreground);
+  --color-sidebar-primary: var(--sidebar-primary);
+  --color-sidebar-primary-foreground: var(--sidebar-primary-foreground);
+  --color-sidebar-accent: var(--sidebar-accent);
+  --color-sidebar-accent-foreground: var(--sidebar-accent-foreground);
+  --color-sidebar-fillet: var(--sidebar-fillet);
+  --color-sidebar-border: var(--sidebar-border);
+  --color-sidebar-ring: var(--sidebar-ring);
+
+  --color-chart-1: var(--chart-1);
+  --color-chart-2: var(--chart-2);
+  --color-chart-3: var(--chart-3);
+  --color-chart-4: var(--chart-4);
+  --color-chart-5: var(--chart-5);
+
   --radius-sm: calc(var(--radius) - 4px);
   --radius-md: calc(var(--radius) - 2px);
   --radius-lg: var(--radius);
@@ -49,88 +410,86 @@
   --radius-4xl: calc(var(--radius) + 16px);
 }
 
-:root {
-  --radius: 0.625rem;
-  /* Pericles brand palette (PRD: Atlas §7.4) */
-  --brand-purple: oklch(0.4212 0.0507 301.06); /* #524765 */
-  --brand-gold: oklch(0.7231 0.1342 80.23); /* #D19B2F */
-  --brand-slate: oklch(0.6388 0.0327 229.55); /* #78909C */
-  --background: oklch(1 0 0);
-  --foreground: oklch(0.145 0 0);
-  --card: oklch(1 0 0);
-  --card-foreground: oklch(0.145 0 0);
-  --popover: oklch(1 0 0);
-  --popover-foreground: oklch(0.145 0 0);
-  --primary: oklch(0.4212 0.0507 301.06); /* brand purple */
-  --primary-foreground: oklch(0.985 0 0);
-  --secondary: oklch(0.97 0 0);
-  --secondary-foreground: oklch(0.205 0 0);
-  --muted: oklch(0.97 0 0);
-  --muted-foreground: oklch(0.556 0 0);
-  --accent: oklch(0.97 0 0);
-  --accent-foreground: oklch(0.205 0 0);
-  --destructive: oklch(0.577 0.245 27.325);
-  --border: oklch(0.922 0 0);
-  --input: oklch(0.922 0 0);
-  --ring: oklch(0.4212 0.0507 301.06); /* brand purple focus ring */
-  --chart-1: oklch(0.646 0.222 41.116);
-  --chart-2: oklch(0.6 0.118 184.704);
-  --chart-3: oklch(0.398 0.07 227.392);
-  --chart-4: oklch(0.828 0.189 84.429);
-  --chart-5: oklch(0.769 0.188 70.08);
-  --sidebar: oklch(0.985 0 0);
-  --sidebar-foreground: oklch(0.145 0 0);
-  --sidebar-primary: oklch(0.4212 0.0507 301.06); /* brand purple */
-  --sidebar-primary-foreground: oklch(0.985 0 0);
-  --sidebar-accent: oklch(0.97 0 0);
-  --sidebar-accent-foreground: oklch(0.205 0 0);
-  --sidebar-border: oklch(0.922 0 0);
-  --sidebar-ring: oklch(0.4212 0.0507 301.06);
-}
-
-.dark {
-  /* Pericles brand palette — purple lifted for contrast on dark surfaces */
-  --brand-purple: oklch(0.72 0.0707 301.06);
-  --brand-gold: oklch(0.7231 0.1342 80.23);
-  --brand-slate: oklch(0.6388 0.0327 229.55);
-  --background: oklch(0.145 0 0);
-  --foreground: oklch(0.985 0 0);
-  --card: oklch(0.205 0 0);
-  --card-foreground: oklch(0.985 0 0);
-  --popover: oklch(0.205 0 0);
-  --popover-foreground: oklch(0.985 0 0);
-  --primary: oklch(0.72 0.0707 301.06); /* brand purple, lifted for dark */
-  --primary-foreground: oklch(0.205 0 0);
-  --secondary: oklch(0.269 0 0);
-  --secondary-foreground: oklch(0.985 0 0);
-  --muted: oklch(0.269 0 0);
-  --muted-foreground: oklch(0.708 0 0);
-  --accent: oklch(0.269 0 0);
-  --accent-foreground: oklch(0.985 0 0);
-  --destructive: oklch(0.704 0.191 22.216);
-  --border: oklch(1 0 0 / 10%);
-  --input: oklch(1 0 0 / 15%);
-  --ring: oklch(0.72 0.0707 301.06); /* brand purple, lifted for dark */
-  --chart-1: oklch(0.488 0.243 264.376);
-  --chart-2: oklch(0.696 0.17 162.48);
-  --chart-3: oklch(0.769 0.188 70.08);
-  --chart-4: oklch(0.627 0.265 303.9);
-  --chart-5: oklch(0.645 0.246 16.439);
-  --sidebar: oklch(0.205 0 0);
-  --sidebar-foreground: oklch(0.985 0 0);
-  --sidebar-primary: oklch(0.72 0.0707 301.06); /* brand purple, lifted for dark */
-  --sidebar-primary-foreground: oklch(0.985 0 0);
-  --sidebar-accent: oklch(0.269 0 0);
-  --sidebar-accent-foreground: oklch(0.985 0 0);
-  --sidebar-border: oklch(1 0 0 / 10%);
-  --sidebar-ring: oklch(0.72 0.0707 301.06);
-}
-
 @layer base {
   * {
     @apply border-border outline-ring/50;
   }
+
   body {
     @apply bg-background text-foreground;
+    /* NO `-webkit-tap-highlight-color: transparent` here.
+       It was set once with the intent of supplying our own press feedback, but
+       `active:` styles only ever reached Button and the nav links — every raw
+       <button>/<a> (dialog closes, tab strips, event rows, theme cards, the
+       toggles) was left with no touch feedback at all. Suppressing the platform
+       highlight is only acceptable once EVERY tappable has its own active
+       state; until then the default is strictly better. */
   }
+
+  @media (prefers-reduced-motion: reduce) {
+    *,
+    *::before,
+    *::after {
+      animation-duration: 0.01ms !important;
+      animation-iteration-count: 1 !important;
+      transition-duration: 0.01ms !important;
+      scroll-behavior: auto !important;
+    }
+  }
+}
+
+@layer utilities {
+  /* Safe-area helpers — required on fixed chrome when viewportFit: 'cover'. */
+  .pt-safe { padding-top: env(safe-area-inset-top); }
+  .pb-safe { padding-bottom: env(safe-area-inset-bottom); }
+  .pl-safe { padding-left: env(safe-area-inset-left); }
+  .pr-safe { padding-right: env(safe-area-inset-right); }
+}
+
+/*
+ * iOS Safari auto-zooms when a form control smaller than 16px takes focus, and
+ * never zooms back out.
+ *
+ * DELIBERATELY UNLAYERED. This lived in `@layer base` first, where it lost to
+ * every `text-sm` utility — and 13 selects/textareas carry `text-sm`, which is
+ * exactly the set the rule exists to protect. Unlayered declarations outrank
+ * all layered ones in the cascade, so this is the only placement that actually
+ * wins. Do not move it back into a layer, and do not "fix" it with !important.
+ *
+ * Scoped to touch-width viewports so desktop density is untouched.
+ */
+@media (max-width: 767px) {
+  input,
+  select,
+  textarea {
+    font-size: 16px;
+  }
+}
+
+/*
+ * reactflow's Controls and MiniMap chrome. `reactflow/dist/style.css` hardcodes
+ * `background: #fefefe` on the control buttons and `background-color: #fff` on
+ * the minimap, and the button icons have no `fill`, so they default to black.
+ * No role token reaches any of it — in dark mode the canvas themes correctly
+ * but both panels stay bright white slabs.
+ *
+ * Also DELIBERATELY UNLAYERED, and it wins on SPECIFICITY, not order: that
+ * stylesheet is imported by workflow-canvas.tsx, so it lands after this file;
+ * `.dark .react-flow__…` (0,2,0) beats its `.react-flow__…` (0,1,0).
+ */
+.dark .react-flow__controls-button {
+  background: var(--card);
+  border-bottom: 1px solid var(--border);
+}
+
+.dark .react-flow__controls-button:hover {
+  background: var(--accent);
+}
+
+.dark .react-flow__controls-button svg {
+  fill: var(--card-foreground);
+}
+
+.dark .react-flow__minimap {
+  background-color: var(--card);
 }

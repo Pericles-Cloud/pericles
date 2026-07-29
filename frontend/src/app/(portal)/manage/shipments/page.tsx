@@ -16,6 +16,7 @@ import {
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
+import { Fillet } from '@/components/ui/fillet';
 import {
   Card,
   CardContent,
@@ -264,7 +265,7 @@ export default function ShipmentsPage() {
       <div className="flex items-center justify-center min-h-[400px]">
         <Card>
           <CardContent className="py-8 text-center">
-            <p className="text-gray-500">Please select an organization to view shipments</p>
+            <p className="text-muted-foreground">Please select an organization to view shipments</p>
           </CardContent>
         </Card>
       </div>
@@ -274,7 +275,7 @@ export default function ShipmentsPage() {
   if (isLoadingOrNoOrg) {
     return (
       <div className="flex items-center justify-center min-h-[400px]">
-        <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-blue-600" />
+        <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-primary" />
       </div>
     );
   }
@@ -283,8 +284,9 @@ export default function ShipmentsPage() {
     <div className="space-y-6">
       <div className="flex items-center justify-between">
         <div>
-          <h2 className="text-2xl font-bold text-gray-900 dark:text-white">Shipments</h2>
-          <p className="text-gray-600 dark:text-gray-400">
+          <h2 className="font-display text-3xl font-semibold text-foreground">Shipments</h2>
+          <Fillet className="my-2" />
+          <p className="text-muted-foreground">
             Manage shipments for {currentOrganization.name}
           </p>
         </div>
@@ -300,8 +302,8 @@ export default function ShipmentsPage() {
         <div
           className={`p-3 rounded-md text-sm ${
             message.type === 'success'
-              ? 'bg-green-50 text-green-800 dark:bg-green-900/20 dark:text-green-400'
-              : 'bg-red-50 text-red-800 dark:bg-red-900/20 dark:text-red-400'
+              ? 'bg-risk-low text-risk-low-fg'
+              : 'bg-risk-critical text-risk-critical-fg'
           }`}
         >
           {message.text}
@@ -320,14 +322,14 @@ export default function ShipmentsPage() {
               className="w-full"
             />
           </div>
-          <h3 className="text-sm font-medium text-gray-500 dark:text-gray-400 uppercase tracking-wide">
+          <h3 className="text-sm font-medium text-muted-foreground uppercase tracking-wide">
             {filteredShipments.length} Shipment{filteredShipments.length !== 1 ? 's' : ''}
           </h3>
           <div className="space-y-2 max-h-[600px] overflow-y-auto">
             {filteredShipments.length === 0 ? (
               <Card>
                 <CardContent className="py-8 text-center">
-                  <p className="text-gray-500">No shipments found</p>
+                  <p className="text-muted-foreground">No shipments found</p>
                   <Button
                     variant="outline"
                     className="mt-4"
@@ -344,27 +346,30 @@ export default function ShipmentsPage() {
                   onClick={() => setSelectedShipment(shipment)}
                   className={`w-full text-left p-4 rounded-lg border transition-colors ${
                     selectedShipment?.id === shipment.id
-                      ? 'border-blue-500 bg-blue-50 dark:bg-blue-900/20'
-                      : 'border-gray-200 dark:border-gray-700 hover:bg-gray-50 dark:hover:bg-gray-800'
+                      ? 'border-primary bg-primary/10'
+                      // bg-muted, not bg-accent: the row's own sub-labels are
+                      // `text-muted-foreground`, which is 2.7:1 on --accent in
+                      // dark mode but 4.9:1 on --muted.
+                      : 'border-border hover:bg-muted'
                   }`}
                 >
                   <div className="flex items-start gap-3">
-                    <div className="size-10 rounded-full bg-gradient-to-br from-purple-500 to-pink-600 flex items-center justify-center shrink-0">
-                      <svg className="size-5 text-white" fill="none" viewBox="0 0 24 24" strokeWidth="1.5" stroke="currentColor">
+                    <div className="size-10 rounded-full bg-primary flex items-center justify-center shrink-0">
+                      <svg className="size-5 text-primary-foreground" fill="none" viewBox="0 0 24 24" strokeWidth="1.5" stroke="currentColor">
                         <path strokeLinecap="round" strokeLinejoin="round" d="M8.25 18.75a1.5 1.5 0 01-3 0m3 0a1.5 1.5 0 00-3 0m3 0h6m-9 0H3.375a1.125 1.125 0 01-1.125-1.125V14.25m17.25 4.5a1.5 1.5 0 01-3 0m3 0a1.5 1.5 0 00-3 0m3 0h1.125c.621 0 1.129-.504 1.09-1.124a17.902 17.902 0 00-3.213-9.193 2.056 2.056 0 00-1.58-.86H14.25M16.5 18.75h-2.25m0-11.177v-.958c0-.568-.422-1.048-.987-1.106a48.554 48.554 0 00-10.026 0 1.106 1.106 0 00-.987 1.106v7.635m12-6.677v6.677m0 4.5v-4.5m0 0h-12" />
                       </svg>
                     </div>
                     <div className="flex-1 min-w-0">
                       <p className="font-medium font-mono text-sm truncate">{shipment.bolNumber}</p>
-                      <p className="text-xs text-gray-500 truncate">
+                      <p className="text-xs text-muted-foreground truncate">
                         {shipment.supplier?.name || 'No supplier'} &rarr; {shipment.destinationPort || 'Unknown'}
                       </p>
-                      <p className="text-xs text-gray-400 mt-1">
+                      <p className="text-xs text-muted-foreground mt-1">
                         {shipment.arrivalDate ? formatDate(shipment.arrivalDate) : 'No arrival date'}
                       </p>
                     </div>
                     {shipment.containersCount && (
-                      <span className="text-xs bg-gray-100 dark:bg-gray-800 px-2 py-1 rounded">
+                      <span className="text-xs bg-muted px-2 py-1 rounded">
                         {shipment.containersCount} cont.
                       </span>
                     )}
@@ -383,8 +388,8 @@ export default function ShipmentsPage() {
                 <CardHeader className="flex flex-row items-start justify-between">
                   <div>
                     <CardTitle className="flex items-center gap-3">
-                      <div className="size-12 rounded-full bg-gradient-to-br from-purple-500 to-pink-600 flex items-center justify-center">
-                        <svg className="size-6 text-white" fill="none" viewBox="0 0 24 24" strokeWidth="1.5" stroke="currentColor">
+                      <div className="size-12 rounded-full bg-primary flex items-center justify-center">
+                        <svg className="size-6 text-primary-foreground" fill="none" viewBox="0 0 24 24" strokeWidth="1.5" stroke="currentColor">
                           <path strokeLinecap="round" strokeLinejoin="round" d="M8.25 18.75a1.5 1.5 0 01-3 0m3 0a1.5 1.5 0 00-3 0m3 0h6m-9 0H3.375a1.125 1.125 0 01-1.125-1.125V14.25m17.25 4.5a1.5 1.5 0 01-3 0m3 0a1.5 1.5 0 00-3 0m3 0h1.125c.621 0 1.129-.504 1.09-1.124a17.902 17.902 0 00-3.213-9.193 2.056 2.056 0 00-1.58-.86H14.25M16.5 18.75h-2.25m0-11.177v-.958c0-.568-.422-1.048-.987-1.106a48.554 48.554 0 00-10.026 0 1.106 1.106 0 00-.987 1.106v7.635m12-6.677v6.677m0 4.5v-4.5m0 0h-12" />
                         </svg>
                       </div>
@@ -404,33 +409,33 @@ export default function ShipmentsPage() {
                 <CardContent>
                   <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
                     <div>
-                      <Label className="text-gray-500">Supplier</Label>
+                      <Label className="text-muted-foreground">Supplier</Label>
                       <p className="font-medium">{selectedShipment.supplier?.name || '-'}</p>
                       {selectedShipment.supplier?.country && (
-                        <p className="text-xs text-gray-500">{selectedShipment.supplier.country}</p>
+                        <p className="text-xs text-muted-foreground">{selectedShipment.supplier.country}</p>
                       )}
                     </div>
                     <div>
-                      <Label className="text-gray-500">Carrier</Label>
+                      <Label className="text-muted-foreground">Carrier</Label>
                       <p className="font-medium">{selectedShipment.carrier?.name || '-'}</p>
                       {selectedShipment.carrier?.scacCode && (
-                        <p className="text-xs text-gray-500 font-mono">{selectedShipment.carrier.scacCode}</p>
+                        <p className="text-xs text-muted-foreground font-mono">{selectedShipment.carrier.scacCode}</p>
                       )}
                     </div>
                     <div>
-                      <Label className="text-gray-500">Value</Label>
+                      <Label className="text-muted-foreground">Value</Label>
                       <p className="font-medium">{formatCurrency(selectedShipment.valueUsd)}</p>
                     </div>
                     <div>
-                      <Label className="text-gray-500">Containers</Label>
+                      <Label className="text-muted-foreground">Containers</Label>
                       <p className="font-medium">{selectedShipment.containersCount || '-'}</p>
                     </div>
                     <div>
-                      <Label className="text-gray-500">TEU</Label>
+                      <Label className="text-muted-foreground">TEU</Label>
                       <p className="font-medium">{selectedShipment.teu || '-'}</p>
                     </div>
                     <div>
-                      <Label className="text-gray-500">Weight</Label>
+                      <Label className="text-muted-foreground">Weight</Label>
                       <p className="font-medium">{selectedShipment.weight ? `${selectedShipment.weight.toLocaleString()} kg` : '-'}</p>
                     </div>
                   </div>
@@ -444,37 +449,37 @@ export default function ShipmentsPage() {
                 </CardHeader>
                 <CardContent>
                   <div className="grid gap-4 sm:grid-cols-2">
-                    <div className="p-4 bg-blue-50 dark:bg-blue-900/20 rounded-lg">
-                      <Label className="text-blue-600 dark:text-blue-400">Departure</Label>
+                    <div className="p-4 bg-primary/10 rounded-lg">
+                      <Label className="text-primary">Departure</Label>
                       <p className="font-medium text-lg">{selectedShipment.departurePort || '-'}</p>
                       {selectedShipment.departurePortCode && (
-                        <p className="text-sm text-gray-500 font-mono">{selectedShipment.departurePortCode}</p>
+                        <p className="text-sm text-muted-foreground font-mono">{selectedShipment.departurePortCode}</p>
                       )}
                     </div>
-                    <div className="p-4 bg-green-50 dark:bg-green-900/20 rounded-lg">
-                      <Label className="text-green-600 dark:text-green-400">Destination</Label>
+                    <div className="p-4 bg-risk-low rounded-lg">
+                      <Label className="text-risk-low-fg">Destination</Label>
                       <p className="font-medium text-lg">{selectedShipment.destinationPort || '-'}</p>
                       {selectedShipment.destinationPortCode && (
-                        <p className="text-sm text-gray-500 font-mono">{selectedShipment.destinationPortCode}</p>
+                        <p className="text-sm text-muted-foreground font-mono">{selectedShipment.destinationPortCode}</p>
                       )}
                     </div>
                     <div>
-                      <Label className="text-gray-500">Vessel</Label>
+                      <Label className="text-muted-foreground">Vessel</Label>
                       <p className="font-medium">{selectedShipment.vesselName || '-'}</p>
                       {selectedShipment.vesselCode && (
-                        <p className="text-xs text-gray-500 font-mono">{selectedShipment.vesselCode}</p>
+                        <p className="text-xs text-muted-foreground font-mono">{selectedShipment.vesselCode}</p>
                       )}
                     </div>
                     <div>
-                      <Label className="text-gray-500">Voyage</Label>
+                      <Label className="text-muted-foreground">Voyage</Label>
                       <p className="font-medium">{selectedShipment.voyage || '-'}</p>
                     </div>
                     <div>
-                      <Label className="text-gray-500">Arrival Date</Label>
+                      <Label className="text-muted-foreground">Arrival Date</Label>
                       <p className="font-medium">{formatDate(selectedShipment.arrivalDate)}</p>
                     </div>
                     <div>
-                      <Label className="text-gray-500">Est. Arrival</Label>
+                      <Label className="text-muted-foreground">Est. Arrival</Label>
                       <p className="font-medium">{formatDate(selectedShipment.estimatedArrivalDate)}</p>
                     </div>
                   </div>
@@ -490,13 +495,13 @@ export default function ShipmentsPage() {
                   <div className="space-y-4">
                     {selectedShipment.productDescription && (
                       <div>
-                        <Label className="text-gray-500">Product Description</Label>
+                        <Label className="text-muted-foreground">Product Description</Label>
                         <p className="font-medium">{selectedShipment.productDescription}</p>
                       </div>
                     )}
                     <div className="grid gap-4 sm:grid-cols-2">
                       <div>
-                        <Label className="text-gray-500">Quantity</Label>
+                        <Label className="text-muted-foreground">Quantity</Label>
                         <p className="font-medium">
                           {selectedShipment.quantity ? `${selectedShipment.quantity.toLocaleString()} ${selectedShipment.quantityUnit || ''}` : '-'}
                         </p>
@@ -504,13 +509,13 @@ export default function ShipmentsPage() {
                     </div>
                     {selectedShipment.hsCodes && selectedShipment.hsCodes.length > 0 && (
                       <div>
-                        <Label className="text-gray-500">HS Codes</Label>
+                        <Label className="text-muted-foreground">HS Codes</Label>
                         <div className="flex flex-wrap gap-2 mt-1">
                           {selectedShipment.hsCodes.map((code, idx) => (
-                            <span key={code} className="px-2 py-1 bg-gray-100 dark:bg-gray-800 rounded text-sm font-mono">
+                            <span key={code} className="px-2 py-1 bg-muted rounded text-sm font-mono">
                               {code}
                               {selectedShipment.hsCodeDescriptions?.[idx] && (
-                                <span className="text-gray-500 ml-1 font-sans">- {selectedShipment.hsCodeDescriptions[idx]}</span>
+                                <span className="text-muted-foreground ml-1 font-sans">- {selectedShipment.hsCodeDescriptions[idx]}</span>
                               )}
                             </span>
                           ))}
@@ -519,10 +524,10 @@ export default function ShipmentsPage() {
                     )}
                     {selectedShipment.containerIds && selectedShipment.containerIds.length > 0 && (
                       <div>
-                        <Label className="text-gray-500">Container IDs</Label>
+                        <Label className="text-muted-foreground">Container IDs</Label>
                         <div className="flex flex-wrap gap-2 mt-1">
                           {selectedShipment.containerIds.map((id) => (
-                            <span key={id} className="px-2 py-1 bg-purple-100 dark:bg-purple-900/30 text-purple-700 dark:text-purple-300 rounded text-sm font-mono">
+                            <span key={id} className="px-2 py-1 bg-primary/10 text-primary rounded text-sm font-mono">
                               {id}
                             </span>
                           ))}
@@ -536,10 +541,10 @@ export default function ShipmentsPage() {
           ) : (
             <Card>
               <CardContent className="py-12 text-center">
-                <svg className="mx-auto h-12 w-12 text-gray-300" fill="none" viewBox="0 0 24 24" strokeWidth="1.5" stroke="currentColor">
+                <svg className="mx-auto h-12 w-12 text-muted-foreground" fill="none" viewBox="0 0 24 24" strokeWidth="1.5" stroke="currentColor">
                   <path strokeLinecap="round" strokeLinejoin="round" d="M8.25 18.75a1.5 1.5 0 01-3 0m3 0a1.5 1.5 0 00-3 0m3 0h6m-9 0H3.375a1.125 1.125 0 01-1.125-1.125V14.25m17.25 4.5a1.5 1.5 0 01-3 0m3 0a1.5 1.5 0 00-3 0m3 0h1.125c.621 0 1.129-.504 1.09-1.124a17.902 17.902 0 00-3.213-9.193 2.056 2.056 0 00-1.58-.86H14.25M16.5 18.75h-2.25m0-11.177v-.958c0-.568-.422-1.048-.987-1.106a48.554 48.554 0 00-10.026 0 1.106 1.106 0 00-.987 1.106v7.635m12-6.677v6.677m0 4.5v-4.5m0 0h-12" />
                 </svg>
-                <p className="mt-4 text-gray-500">Select a shipment to view details</p>
+                <p className="mt-4 text-muted-foreground">Select a shipment to view details</p>
               </CardContent>
             </Card>
           )}
@@ -851,9 +856,9 @@ export default function ShipmentsPage() {
       {/* Delete Confirmation */}
       {showDeleteConfirm && (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50">
-          <Card className="w-full max-w-md mx-4 border-red-200 dark:border-red-900">
+          <Card className="w-full max-w-md mx-4 border-risk-critical-accent/40">
             <CardHeader>
-              <CardTitle className="text-red-600">Delete Shipment</CardTitle>
+              <CardTitle className="text-risk-critical-text">Delete Shipment</CardTitle>
               <CardDescription>
                 This action cannot be undone. This will permanently delete shipment {selectedShipment?.bolNumber}.
               </CardDescription>

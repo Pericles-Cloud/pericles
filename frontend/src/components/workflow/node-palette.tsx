@@ -18,35 +18,35 @@ const paletteItems: NodePaletteItem[] = [
     label: 'Trigger',
     description: 'Starts the workflow',
     icon: Zap,
-    color: 'bg-amber-500',
+    color: 'bg-purple-600',
   },
   {
     type: 'ACTION',
     label: 'Action',
     description: 'Execute an operation',
     icon: Play,
-    color: 'bg-blue-500',
+    color: 'bg-purple-500',
   },
   {
     type: 'CONDITION',
     label: 'Condition',
     description: 'Branch based on logic',
     icon: GitBranch,
-    color: 'bg-purple-500',
+    color: 'bg-purple-700',
   },
   {
     type: 'NOTIFICATION',
     label: 'Notification',
     description: 'Send alerts',
     icon: Bell,
-    color: 'bg-teal-500',
+    color: 'bg-grey-600',
   },
   {
     type: 'END',
     label: 'End',
     description: 'Workflow termination',
     icon: CircleStop,
-    color: 'bg-gray-700',
+    color: 'bg-grey-800',
   },
 ];
 
@@ -59,8 +59,8 @@ export function NodePalette() {
   return (
     <div className="flex flex-col gap-4">
       <div>
-        <h3 className="text-sm font-semibold text-gray-900 mb-1">Node Types</h3>
-        <p className="text-xs text-gray-500">Drag nodes to the canvas</p>
+        <h3 className="text-sm font-semibold text-foreground mb-1">Node Types</h3>
+        <p className="text-xs text-muted-foreground">Drag nodes to the canvas</p>
       </div>
 
       <div className="flex flex-col gap-2">
@@ -71,25 +71,28 @@ export function NodePalette() {
               key={item.type}
               draggable
               onDragStart={(e) => onDragStart(e, item.type)}
-              className="flex items-center gap-3 rounded-lg border border-gray-200 bg-white p-3 cursor-grab active:cursor-grabbing hover:border-gray-300 hover:shadow-sm transition-all"
+              // hover:border-ring, not hover:border-input — `--input` and
+              // `--border` are the same value in both modes, so hovering to
+              // `input` changed nothing at all.
+              className="flex items-center gap-3 rounded-lg border border-border bg-muted p-3 cursor-grab active:cursor-grabbing hover:border-ring hover:shadow-sm transition-all"
             >
               <div
                 className={`flex h-8 w-8 items-center justify-center rounded-md ${item.color}`}
               >
-                <Icon className="h-4 w-4 text-white" />
+                <Icon className="h-4 w-4 text-grey-100" />
               </div>
               <div className="flex-1 min-w-0">
-                <p className="text-sm font-medium text-gray-900">{item.label}</p>
-                <p className="text-xs text-gray-500 truncate">{item.description}</p>
+                <p className="text-sm font-medium text-foreground">{item.label}</p>
+                <p className="text-xs text-muted-foreground truncate">{item.description}</p>
               </div>
             </div>
           );
         })}
       </div>
 
-      <div className="mt-4 rounded-lg bg-gray-50 p-3">
-        <h4 className="text-xs font-medium text-gray-700 mb-2">Tips</h4>
-        <ul className="text-xs text-gray-500 space-y-1">
+      <div className="mt-4 rounded-lg bg-muted p-3">
+        <h4 className="text-xs font-medium text-muted-foreground mb-2">Tips</h4>
+        <ul className="text-xs text-muted-foreground space-y-1">
           <li>- Drag nodes from here to the canvas</li>
           <li>- Connect nodes by dragging between handles</li>
           <li>- Press Delete to remove selected nodes</li>

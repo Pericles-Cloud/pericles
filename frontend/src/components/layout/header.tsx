@@ -5,6 +5,8 @@ import { usePathname } from 'next/navigation';
 import { useAuth } from '@/providers/auth-provider';
 import { useSidebarExpanded } from '@/stores/sidebar-store';
 import { Button } from '@/components/ui/button';
+import { ThemeToggle } from '@/components/layout/theme-toggle';
+import { Fillet } from '@/components/ui/fillet';
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -24,7 +26,10 @@ export function Header() {
   };
 
   return (
-    <header className="sticky top-0 z-40 border-b bg-white dark:bg-gray-800">
+    // Brand chrome — flips with the mode: purple-100 in light, purple-600 in
+    // dark. Everything on it must use --sidebar-* tokens, not fixed ramp steps.
+    // pt-safe keeps the bar clear of the iOS notch under viewportFit: 'cover'.
+    <header className="sticky top-0 z-40 border-b border-sidebar-border bg-sidebar pt-safe pl-safe pr-safe">
       <div className="flex h-16 items-center justify-between px-4 lg:px-6">
         <div className="flex items-center gap-4">
           {/* Nav toggle (GH #8). The nav lives below the header now, so the
@@ -37,6 +42,9 @@ export function Header() {
             aria-label={isExpanded ? 'Collapse navigation' : 'Expand navigation'}
             aria-expanded={isExpanded}
             aria-controls="primary-navigation"
+            // The shell has its own surface in each mode, so the default ghost
+            // hover (--accent, tuned for the page canvas) would be wrong here.
+            className="text-sidebar-foreground hover:bg-sidebar-accent hover:text-sidebar-accent-foreground"
           >
             <svg
               className="size-5"
@@ -52,20 +60,36 @@ export function Header() {
               />
             </svg>
           </Button>
-          <h1 className="text-xl font-semibold text-gray-900 dark:text-white">Pericles</h1>
+          {/* Wordmark + fillet — the brand's primary signature, exactly as the
+              colour system sets it: display serif over the gold rule. */}
+          <div className="flex flex-col">
+            <h1 className="font-display text-2xl font-semibold leading-none tracking-wide text-sidebar-foreground">
+              Pericles
+            </h1>
+            <Fillet tone="shell" className="mt-1 w-14" />
+          </div>
           {currentOrganization && (
-            <span className="text-sm text-gray-500 dark:text-gray-400 hidden sm:block">
+            <span className="hidden text-sm text-sidebar-muted-foreground sm:block">
               {currentOrganization.name}
             </span>
           )}
         </div>
 
-        <div className="flex items-center gap-4">
+        <div className="flex items-center gap-2">
+          <ThemeToggle className="text-sidebar-foreground hover:bg-sidebar-accent hover:text-sidebar-accent-foreground" />
           <DropdownMenu>
             <DropdownMenuTrigger asChild>
-              <Button variant="ghost" size="icon-lg" className="rounded-full">
-                <div className="size-10 rounded-full bg-gradient-to-br from-blue-500 to-indigo-600 flex items-center justify-center">
-                  <span className="text-sm font-medium text-white">
+              <Button
+                variant="ghost"
+                size="icon-lg"
+                className="rounded-full hover:bg-sidebar-accent"
+              >
+                {/* bg-primary inverts with the mode, so the disc contrasts with the
+                    shell in both: purple-600 on the light shell (7.15:1),
+                    purple-200 on the dark shell (5.75:1). A fixed ramp value
+                    would vanish in one of them. */}
+                <div className="flex size-10 items-center justify-center rounded-full bg-primary">
+                  <span className="text-sm font-medium text-primary-foreground">
                     {user?.name?.[0]?.toUpperCase() || user?.email?.[0]?.toUpperCase() || '?'}
                   </span>
                 </div>
@@ -75,7 +99,7 @@ export function Header() {
               <DropdownMenuLabel>
                 <div className="flex flex-col space-y-1">
                   <p className="text-sm font-medium">{user?.name || 'User'}</p>
-                  <p className="text-xs text-gray-500">{user?.email}</p>
+                  <p className="text-xs text-muted-foreground">{user?.email}</p>
                 </div>
               </DropdownMenuLabel>
               <DropdownMenuSeparator />

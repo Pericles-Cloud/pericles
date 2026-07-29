@@ -22,6 +22,7 @@ import {
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
+import { Fillet } from '@/components/ui/fillet';
 import {
   Card,
   CardContent,
@@ -266,7 +267,7 @@ export default function OrganizationsPage() {
   if (isLoading) {
     return (
       <div className="flex items-center justify-center min-h-[400px]">
-        <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-blue-600" />
+        <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-primary" />
       </div>
     );
   }
@@ -275,8 +276,9 @@ export default function OrganizationsPage() {
     <div className="space-y-6">
       <div className="flex items-center justify-between">
         <div>
-          <h2 className="text-2xl font-bold text-gray-900 dark:text-white">Organizations</h2>
-          <p className="text-gray-600 dark:text-gray-400">
+          <h2 className="font-display text-3xl font-semibold text-foreground">Organizations</h2>
+          <Fillet className="my-2" />
+          <p className="text-muted-foreground">
             Manage your organizations and team members
           </p>
         </div>
@@ -292,8 +294,8 @@ export default function OrganizationsPage() {
         <div
           className={`p-3 rounded-md text-sm ${
             message.type === 'success'
-              ? 'bg-green-50 text-green-800 dark:bg-green-900/20 dark:text-green-400'
-              : 'bg-red-50 text-red-800 dark:bg-red-900/20 dark:text-red-400'
+              ? 'bg-risk-low text-risk-low-fg'
+              : 'bg-risk-critical text-risk-critical-fg'
           }`}
         >
           {message.text}
@@ -309,14 +311,14 @@ export default function OrganizationsPage() {
       <div className="grid gap-6 lg:grid-cols-3">
         {/* Organization List */}
         <div className="space-y-4">
-          <h3 className="text-sm font-medium text-gray-500 dark:text-gray-400 uppercase tracking-wide">
+          <h3 className="text-sm font-medium text-muted-foreground uppercase tracking-wide">
             Your Organizations
           </h3>
           <div className="space-y-2">
             {organizations.length === 0 ? (
               <Card>
                 <CardContent className="py-8 text-center">
-                  <p className="text-gray-500">No organizations yet</p>
+                  <p className="text-muted-foreground">No organizations yet</p>
                   <Button
                     variant="outline"
                     className="mt-4"
@@ -333,22 +335,25 @@ export default function OrganizationsPage() {
                   onClick={() => setSelectedOrg(org)}
                   className={`w-full text-left p-4 rounded-lg border transition-colors ${
                     selectedOrg?.id === org.id
-                      ? 'border-blue-500 bg-blue-50 dark:bg-blue-900/20'
-                      : 'border-gray-200 dark:border-gray-700 hover:bg-gray-50 dark:hover:bg-gray-800'
+                      ? 'border-primary bg-primary/10'
+                      // bg-muted, not bg-accent: the row's own sub-labels are
+                      // `text-muted-foreground`, which is 2.7:1 on --accent in
+                      // dark mode but 4.9:1 on --muted.
+                      : 'border-border hover:bg-muted'
                   }`}
                 >
                   <div className="flex items-center gap-3">
-                    <div className="size-10 rounded-full bg-gradient-to-br from-blue-500 to-indigo-600 flex items-center justify-center shrink-0">
-                      <span className="text-sm font-bold text-white">
+                    <div className="size-10 rounded-full bg-primary flex items-center justify-center shrink-0">
+                      <span className="text-sm font-bold text-primary-foreground">
                         {org.name[0].toUpperCase()}
                       </span>
                     </div>
                     <div className="flex-1 min-w-0">
                       <p className="font-medium truncate">{org.name}</p>
-                      <p className="text-xs text-gray-500">{org.role}</p>
+                      <p className="text-xs text-muted-foreground">{org.role}</p>
                     </div>
                     {currentOrganization?.id === org.id && (
-                      <span className="text-xs bg-blue-100 dark:bg-blue-900 text-blue-600 dark:text-blue-300 px-2 py-1 rounded">
+                      <span className="text-xs bg-risk-monitoring text-risk-monitoring-fg px-2 py-1 rounded">
                         Active
                       </span>
                     )}
@@ -367,8 +372,8 @@ export default function OrganizationsPage() {
                 <CardHeader className="flex flex-row items-start justify-between">
                   <div>
                     <CardTitle className="flex items-center gap-3">
-                      <div className="size-12 rounded-full bg-gradient-to-br from-blue-500 to-indigo-600 flex items-center justify-center">
-                        <span className="text-lg font-bold text-white">
+                      <div className="size-12 rounded-full bg-primary flex items-center justify-center">
+                        <span className="text-lg font-bold text-primary-foreground">
                           {selectedOrg.name[0].toUpperCase()}
                         </span>
                       </div>
@@ -420,17 +425,17 @@ export default function OrganizationsPage() {
                     {members.map((member) => (
                       <div
                         key={member.id}
-                        className="flex items-center justify-between p-3 rounded-lg bg-gray-50 dark:bg-gray-800"
+                        className="flex items-center justify-between p-3 rounded-lg bg-muted"
                       >
                         <div className="flex items-center gap-3">
-                          <div className="size-10 rounded-full bg-gray-200 dark:bg-gray-700 flex items-center justify-center">
-                            <span className="text-sm font-medium text-gray-600 dark:text-gray-300">
+                          <div className="size-10 rounded-full bg-muted-foreground/20 flex items-center justify-center">
+                            <span className="text-sm font-medium text-muted-foreground">
                               {member.user.name?.[0]?.toUpperCase() || member.user.email[0].toUpperCase()}
                             </span>
                           </div>
                           <div>
                             <p className="font-medium">{member.user.name || member.user.email}</p>
-                            <p className="text-sm text-gray-500">{member.user.email}</p>
+                            <p className="text-sm text-muted-foreground">{member.user.email}</p>
                           </div>
                         </div>
                         <div className="flex items-center gap-3">
@@ -438,7 +443,7 @@ export default function OrganizationsPage() {
                             <select
                               value={member.role}
                               onChange={(e) => handleUpdateRole(member.id, e.target.value as 'OWNER' | 'ADMIN' | 'MEMBER' | 'GUEST')}
-                              className="text-sm border rounded-md px-2 py-1 bg-white dark:bg-gray-700 dark:border-gray-600"
+                              className="text-sm border rounded-md px-2 py-1 bg-card"
                             >
                               {isOwner && <option value="OWNER">Owner</option>}
                               <option value="ADMIN">Admin</option>
@@ -448,8 +453,8 @@ export default function OrganizationsPage() {
                           ) : (
                             <span className={`text-sm px-2 py-1 rounded ${
                               member.role === 'OWNER'
-                                ? 'bg-purple-100 text-purple-800 dark:bg-purple-900/30 dark:text-purple-300'
-                                : 'bg-gray-100 text-gray-800 dark:bg-gray-700 dark:text-gray-300'
+                                ? 'bg-primary/10 text-primary'
+                                : 'bg-muted text-foreground'
                             }`}>
                               {member.role}
                             </span>
@@ -457,7 +462,7 @@ export default function OrganizationsPage() {
                           {canManageOrg && member.role !== 'OWNER' && (
                             <button
                               onClick={() => handleRemoveMember(member.id)}
-                              className="text-red-600 hover:text-red-800 dark:text-red-400 dark:hover:text-red-300"
+                              className="text-risk-critical-text hover:bg-risk-critical hover:text-risk-critical-fg"
                             >
                               <svg className="size-5" fill="none" viewBox="0 0 24 24" strokeWidth="1.5" stroke="currentColor">
                                 <path strokeLinecap="round" strokeLinejoin="round" d="M6 18L18 6M6 6l12 12" />
@@ -483,11 +488,11 @@ export default function OrganizationsPage() {
                       {invites.filter(i => i.status === 'PENDING').map((invite) => (
                         <div
                           key={invite.id}
-                          className="flex items-center justify-between p-3 rounded-lg bg-yellow-50 dark:bg-yellow-900/20"
+                          className="flex items-center justify-between p-3 rounded-lg bg-risk-elevated"
                         >
                           <div>
                             <p className="font-medium">{invite.email}</p>
-                            <p className="text-sm text-gray-500">
+                            <p className="text-sm text-muted-foreground">
                               Invited as {invite.role} &middot; Expires {new Date(invite.expiresAt).toLocaleDateString()}
                             </p>
                           </div>
@@ -506,16 +511,16 @@ export default function OrganizationsPage() {
               )}
 
               {/* Danger Zone */}
-              <Card className="border-red-200 dark:border-red-900">
+              <Card className="border-risk-critical-accent/40">
                 <CardHeader>
-                  <CardTitle className="text-red-600">Danger Zone</CardTitle>
+                  <CardTitle className="text-risk-critical-text">Danger Zone</CardTitle>
                 </CardHeader>
                 <CardContent className="space-y-4">
                   {!isOwner && (
                     <div className="flex items-center justify-between">
                       <div>
                         <p className="font-medium">Leave Organization</p>
-                        <p className="text-sm text-gray-500">Remove yourself from this organization</p>
+                        <p className="text-sm text-muted-foreground">Remove yourself from this organization</p>
                       </div>
                       <Button variant="outline" onClick={handleLeaveOrg}>
                         Leave
@@ -526,7 +531,7 @@ export default function OrganizationsPage() {
                     <div className="flex items-center justify-between">
                       <div>
                         <p className="font-medium">Delete Organization</p>
-                        <p className="text-sm text-gray-500">Permanently delete this organization and all its data</p>
+                        <p className="text-sm text-muted-foreground">Permanently delete this organization and all its data</p>
                       </div>
                       <Button variant="destructive" onClick={() => setShowDeleteConfirm(true)}>
                         Delete
@@ -539,10 +544,10 @@ export default function OrganizationsPage() {
           ) : (
             <Card>
               <CardContent className="py-12 text-center">
-                <svg className="mx-auto h-12 w-12 text-gray-300" fill="none" viewBox="0 0 24 24" strokeWidth="1.5" stroke="currentColor">
+                <svg className="mx-auto h-12 w-12 text-muted-foreground" fill="none" viewBox="0 0 24 24" strokeWidth="1.5" stroke="currentColor">
                   <path strokeLinecap="round" strokeLinejoin="round" d="M2.25 21h19.5m-18-18v18m10.5-18v18m6-13.5V21M6.75 6.75h.75m-.75 3h.75m-.75 3h.75m3-6h.75m-.75 3h.75m-.75 3h.75M6.75 21v-3.375c0-.621.504-1.125 1.125-1.125h2.25c.621 0 1.125.504 1.125 1.125V21M3 3h12m-.75 4.5H21m-3.75 3.75h.008v.008h-.008v-.008zm0 3h.008v.008h-.008v-.008zm0 3h.008v.008h-.008v-.008z" />
                 </svg>
-                <p className="mt-4 text-gray-500">Select an organization to view details</p>
+                <p className="mt-4 text-muted-foreground">Select an organization to view details</p>
               </CardContent>
             </Card>
           )}
@@ -686,9 +691,9 @@ export default function OrganizationsPage() {
       {/* Delete Confirmation Modal */}
       {showDeleteConfirm && (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50">
-          <Card className="w-full max-w-md mx-4 border-red-200 dark:border-red-900">
+          <Card className="w-full max-w-md mx-4 border-risk-critical-accent/40">
             <CardHeader>
-              <CardTitle className="text-red-600">Delete Organization</CardTitle>
+              <CardTitle className="text-risk-critical-text">Delete Organization</CardTitle>
               <CardDescription>
                 This action cannot be undone. This will permanently delete {selectedOrg?.name} and remove all associated data.
               </CardDescription>

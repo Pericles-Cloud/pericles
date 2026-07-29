@@ -21,7 +21,7 @@ function LoginError() {
   if (!error || !errorMessages[error]) return null;
 
   return (
-    <div className="mb-4 p-3 text-sm text-red-500 bg-red-50 dark:bg-red-950 rounded-md text-center">
+    <div className="mb-4 p-3 text-sm text-risk-critical-fg bg-risk-critical rounded-md text-center">
       {errorMessages[error]}
     </div>
   );

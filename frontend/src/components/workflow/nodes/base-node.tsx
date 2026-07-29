@@ -31,8 +31,8 @@ export const BaseNode = memo(function BaseNode({
   return (
     <div
       className={cn(
-        'min-w-[80px] rounded border bg-white shadow-sm transition-shadow overflow-hidden',
-        selected ? 'border-blue-500 shadow-md ring-2 ring-blue-200' : 'border-gray-300',
+        'min-w-[80px] rounded border bg-card shadow-sm transition-shadow overflow-hidden',
+        selected ? 'border-primary shadow-md ring-2 ring-ring/30' : 'border-input',
         className
       )}
     >
@@ -41,7 +41,7 @@ export const BaseNode = memo(function BaseNode({
         <Handle
           type="target"
           position={Position.Left}
-          className="!h-2 !w-2 !border !border-white !bg-gray-400 !top-1/2 !-translate-y-1/2"
+          className="!h-2 !w-2 !border !border-card !bg-muted-foreground !top-1/2 !-translate-y-1/2"
         />
       )}
 
@@ -52,14 +52,14 @@ export const BaseNode = memo(function BaseNode({
           type="target"
           position={handle.position}
           id={handle.id}
-          className={cn('!h-2 !w-2 !border !border-white !bg-gray-400', handle.className)}
+          className={cn('!h-2 !w-2 !border !border-card !bg-muted-foreground', handle.className)}
         />
       ))}
 
       {/* Header with type name */}
       <div
         className={cn(
-          'px-2 py-1 text-[10px] font-medium text-white text-center',
+          'px-2 py-1 text-[10px] font-medium text-grey-100 text-center',
           headerClassName
         )}
       >
@@ -67,13 +67,13 @@ export const BaseNode = memo(function BaseNode({
       </div>
 
       {/* Body with label */}
-      <div className="px-3 py-2 text-xs text-gray-800 text-center font-medium">
+      <div className="px-3 py-2 text-xs text-foreground text-center font-medium">
         {data.label}
       </div>
 
       {/* Additional content */}
       {children && (
-        <div className="border-t border-gray-100 px-2 py-1 text-[10px] text-gray-600">
+        <div className="border-t border-border px-2 py-1 text-[10px] text-muted-foreground">
           {children}
         </div>
       )}
@@ -83,7 +83,7 @@ export const BaseNode = memo(function BaseNode({
         <Handle
           type="source"
           position={Position.Right}
-          className="!h-2 !w-2 !border !border-white !bg-gray-400 !top-1/2 !-translate-y-1/2"
+          className="!h-2 !w-2 !border !border-card !bg-muted-foreground !top-1/2 !-translate-y-1/2"
         />
       )}
 
@@ -94,7 +94,7 @@ export const BaseNode = memo(function BaseNode({
           type="source"
           position={handle.position}
           id={handle.id}
-          className={cn('!h-2 !w-2 !border !border-white !bg-gray-400', handle.className)}
+          className={cn('!h-2 !w-2 !border !border-card !bg-muted-foreground', handle.className)}
         />
       ))}
     </div>

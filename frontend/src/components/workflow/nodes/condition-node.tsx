@@ -10,24 +10,24 @@ export const ConditionNode = memo(function ConditionNode(props: NodeProps<Workfl
     <BaseNode
       {...props}
       typeName="Condition"
-      headerClassName="bg-purple-500"
+      headerClassName="bg-purple-700"
       showSourceHandle={false}
       sourceHandles={[
         {
           id: 'yes',
           position: Position.Right,
-          className: '!bg-green-500 !top-1/3',
+          className: '!bg-risk-low-accent !top-1/3',
         },
         {
           id: 'no',
           position: Position.Right,
-          className: '!bg-red-500 !top-2/3',
+          className: '!bg-risk-critical-accent !top-2/3',
         },
       ]}
     >
       <div className="flex justify-between text-[10px]">
-        <span className="text-green-600">Yes</span>
-        <span className="text-red-600">No</span>
+        <span className="text-risk-low-text">Yes</span>
+        <span className="text-risk-critical-text">No</span>
       </div>
     </BaseNode>
   );
