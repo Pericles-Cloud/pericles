@@ -13,6 +13,7 @@ import {
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
+import { Fillet } from '@/components/ui/fillet';
 import {
   Card,
   CardContent,
@@ -160,7 +161,7 @@ export default function CarriersPage() {
   if (isLoading) {
     return (
       <div className="flex items-center justify-center min-h-[400px]">
-        <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-blue-600" />
+        <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-primary" />
       </div>
     );
   }
@@ -169,8 +170,9 @@ export default function CarriersPage() {
     <div className="space-y-6">
       <div className="flex items-center justify-between">
         <div>
-          <h2 className="text-2xl font-bold text-gray-900 dark:text-white">Carriers</h2>
-          <p className="text-gray-600 dark:text-gray-400">
+          <h2 className="font-display text-3xl font-semibold text-foreground">Carriers</h2>
+          <Fillet className="my-2" />
+          <p className="text-muted-foreground">
             Manage shipping carriers and their SCAC codes
           </p>
         </div>
@@ -188,8 +190,8 @@ export default function CarriersPage() {
         <div
           className={`p-3 rounded-md text-sm ${
             message.type === 'success'
-              ? 'bg-green-50 text-green-800 dark:bg-green-900/20 dark:text-green-400'
-              : 'bg-red-50 text-red-800 dark:bg-red-900/20 dark:text-red-400'
+              ? 'bg-risk-low text-risk-low-fg'
+              : 'bg-risk-critical text-risk-critical-fg'
           }`}
         >
           {message.text}
@@ -208,14 +210,14 @@ export default function CarriersPage() {
               className="w-full"
             />
           </div>
-          <h3 className="text-sm font-medium text-gray-500 dark:text-gray-400 uppercase tracking-wide">
+          <h3 className="text-sm font-medium text-muted-foreground uppercase tracking-wide">
             {filteredCarriers.length} Carrier{filteredCarriers.length !== 1 ? 's' : ''}
           </h3>
           <div className="space-y-2 max-h-[600px] overflow-y-auto">
             {filteredCarriers.length === 0 ? (
               <Card>
                 <CardContent className="py-8 text-center">
-                  <p className="text-gray-500">No carriers found</p>
+                  <p className="text-muted-foreground">No carriers found</p>
                   {canManageCarriers && (
                     <Button
                       variant="outline"
@@ -234,19 +236,22 @@ export default function CarriersPage() {
                   onClick={() => setSelectedCarrier(carrier)}
                   className={`w-full text-left p-4 rounded-lg border transition-colors ${
                     selectedCarrier?.id === carrier.id
-                      ? 'border-blue-500 bg-blue-50 dark:bg-blue-900/20'
-                      : 'border-gray-200 dark:border-gray-700 hover:bg-gray-50 dark:hover:bg-gray-800'
+                      ? 'border-primary bg-primary/10'
+                      // bg-muted, not bg-accent: the row's own sub-labels are
+                      // `text-muted-foreground`, which is 2.7:1 on --accent in
+                      // dark mode but 4.9:1 on --muted.
+                      : 'border-border hover:bg-muted'
                   }`}
                 >
                   <div className="flex items-center gap-3">
-                    <div className="size-10 rounded-full bg-gradient-to-br from-orange-500 to-red-600 flex items-center justify-center shrink-0">
-                      <span className="text-xs font-bold text-white">
+                    <div className="size-10 rounded-full bg-primary flex items-center justify-center shrink-0">
+                      <span className="text-xs font-bold text-primary-foreground">
                         {carrier.scacCode.slice(0, 2)}
                       </span>
                     </div>
                     <div className="flex-1 min-w-0">
                       <p className="font-medium truncate">{carrier.name}</p>
-                      <p className="text-xs text-gray-500 truncate">
+                      <p className="text-xs text-muted-foreground truncate">
                         <span className="font-mono">{carrier.scacCode}</span> &middot; {carrier.totalShipments} shipments
                       </p>
                     </div>
@@ -265,8 +270,8 @@ export default function CarriersPage() {
                 <CardHeader className="flex flex-row items-start justify-between">
                   <div>
                     <CardTitle className="flex items-center gap-3">
-                      <div className="size-12 rounded-full bg-gradient-to-br from-orange-500 to-red-600 flex items-center justify-center">
-                        <span className="text-sm font-bold text-white">
+                      <div className="size-12 rounded-full bg-primary flex items-center justify-center">
+                        <span className="text-sm font-bold text-primary-foreground">
                           {selectedCarrier.scacCode.slice(0, 2)}
                         </span>
                       </div>
@@ -286,25 +291,27 @@ export default function CarriersPage() {
                 <CardContent>
                   <div className="grid gap-6 sm:grid-cols-2">
                     <div className="space-y-1">
-                      <Label className="text-gray-500">SCAC Code</Label>
-                      <p className="text-2xl font-mono font-bold text-gray-900 dark:text-white">
+                      <Label className="text-muted-foreground">SCAC Code</Label>
+                      {/* font-medium, not font-bold: IBM Plex Mono is loaded at
+                          400/500 only, so 700 renders as a synthesised faux-bold. */}
+                      <p className="text-2xl font-mono font-medium text-foreground">
                         {selectedCarrier.scacCode}
                       </p>
-                      <p className="text-xs text-gray-500">
+                      <p className="text-xs text-muted-foreground">
                         Standard Carrier Alpha Code
                       </p>
                     </div>
                     <div className="space-y-1">
-                      <Label className="text-gray-500">Total Shipments</Label>
-                      <p className="text-2xl font-bold text-gray-900 dark:text-white">
+                      <Label className="text-muted-foreground">Total Shipments</Label>
+                      <p className="font-display text-3xl font-semibold text-foreground">
                         {selectedCarrier.totalShipments.toLocaleString()}
                       </p>
-                      <p className="text-xs text-gray-500">
+                      <p className="text-xs text-muted-foreground">
                         Shipments handled by this carrier
                       </p>
                     </div>
                     <div>
-                      <Label className="text-gray-500">Created</Label>
+                      <Label className="text-muted-foreground">Created</Label>
                       <p className="font-medium">
                         {new Date(selectedCarrier.createdAt).toLocaleDateString(undefined, {
                           year: 'numeric',
@@ -314,7 +321,7 @@ export default function CarriersPage() {
                       </p>
                     </div>
                     <div>
-                      <Label className="text-gray-500">Last Updated</Label>
+                      <Label className="text-muted-foreground">Last Updated</Label>
                       <p className="font-medium">
                         {new Date(selectedCarrier.updatedAt).toLocaleDateString(undefined, {
                           year: 'numeric',
@@ -334,14 +341,14 @@ export default function CarriersPage() {
                 </CardHeader>
                 <CardContent>
                   <div className="prose prose-sm dark:prose-invert max-w-none">
-                    <p className="text-gray-600 dark:text-gray-400">
+                    <p className="text-muted-foreground">
                       The Standard Carrier Alpha Code (SCAC) is a unique two-to-four letter code used to identify
                       transportation companies. SCAC codes are assigned by the National Motor Freight Traffic
                       Association (NMFTA) and are required for doing business with U.S. government agencies.
                     </p>
-                    <div className="mt-4 p-3 bg-gray-50 dark:bg-gray-800 rounded-lg">
-                      <p className="text-sm font-medium text-gray-700 dark:text-gray-300">
-                        This carrier&apos;s SCAC: <span className="font-mono text-blue-600 dark:text-blue-400">{selectedCarrier.scacCode}</span>
+                    <div className="mt-4 p-3 bg-muted rounded-lg">
+                      <p className="text-sm font-medium text-foreground">
+                        This carrier&apos;s SCAC: <span className="font-mono text-primary">{selectedCarrier.scacCode}</span>
                       </p>
                     </div>
                   </div>
@@ -351,10 +358,10 @@ export default function CarriersPage() {
           ) : (
             <Card>
               <CardContent className="py-12 text-center">
-                <svg className="mx-auto h-12 w-12 text-gray-300" fill="none" viewBox="0 0 24 24" strokeWidth="1.5" stroke="currentColor">
+                <svg className="mx-auto h-12 w-12 text-muted-foreground" fill="none" viewBox="0 0 24 24" strokeWidth="1.5" stroke="currentColor">
                   <path strokeLinecap="round" strokeLinejoin="round" d="M8.25 18.75a1.5 1.5 0 01-3 0m3 0a1.5 1.5 0 00-3 0m3 0h6m-9 0H3.375a1.125 1.125 0 01-1.125-1.125V14.25m17.25 4.5a1.5 1.5 0 01-3 0m3 0a1.5 1.5 0 00-3 0m3 0h1.125c.621 0 1.129-.504 1.09-1.124a17.902 17.902 0 00-3.213-9.193 2.056 2.056 0 00-1.58-.86H14.25M16.5 18.75h-2.25m0-11.177v-.958c0-.568-.422-1.048-.987-1.106a48.554 48.554 0 00-10.026 0 1.106 1.106 0 00-.987 1.106v7.635m12-6.677v6.677m0 4.5v-4.5m0 0h-12" />
                 </svg>
-                <p className="mt-4 text-gray-500">Select a carrier to view details</p>
+                <p className="mt-4 text-muted-foreground">Select a carrier to view details</p>
               </CardContent>
             </Card>
           )}
@@ -382,7 +389,7 @@ export default function CarriersPage() {
                     className="font-mono uppercase"
                     required
                   />
-                  <p className="text-xs text-gray-500">2-4 letter Standard Carrier Alpha Code</p>
+                  <p className="text-xs text-muted-foreground">2-4 letter Standard Carrier Alpha Code</p>
                 </div>
                 <div className="space-y-2">
                   <Label htmlFor="createName">Carrier Name *</Label>
@@ -428,7 +435,7 @@ export default function CarriersPage() {
                     className="font-mono uppercase"
                     required
                   />
-                  <p className="text-xs text-gray-500">2-4 letter Standard Carrier Alpha Code</p>
+                  <p className="text-xs text-muted-foreground">2-4 letter Standard Carrier Alpha Code</p>
                 </div>
                 <div className="space-y-2">
                   <Label htmlFor="editName">Carrier Name *</Label>
@@ -456,9 +463,9 @@ export default function CarriersPage() {
       {/* Delete Confirmation */}
       {showDeleteConfirm && (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50">
-          <Card className="w-full max-w-md mx-4 border-red-200 dark:border-red-900">
+          <Card className="w-full max-w-md mx-4 border-risk-critical-accent/40">
             <CardHeader>
-              <CardTitle className="text-red-600">Delete Carrier</CardTitle>
+              <CardTitle className="text-risk-critical-text">Delete Carrier</CardTitle>
               <CardDescription>
                 This action cannot be undone. This will permanently delete {selectedCarrier?.name} ({selectedCarrier?.scacCode}).
               </CardDescription>

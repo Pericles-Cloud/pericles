@@ -483,44 +483,44 @@ export function MonitoringProgressDialog({
         <div className="fixed inset-0 bg-black/50 transition-opacity" />
 
         {/* Dialog */}
-        <div className="relative bg-white dark:bg-gray-800 rounded-lg shadow-xl max-w-lg w-full p-6">
+        <div className="relative bg-card rounded-lg shadow-xl max-w-lg w-full p-6">
           {/* Header */}
           <div className="flex items-center justify-between mb-4">
             <div className="flex items-center gap-3">
               <div className={`size-10 rounded-full flex items-center justify-center ${
-                currentPhase === 'error' ? 'bg-red-100 dark:bg-red-900/30' :
-                currentPhase === 'stopped' ? 'bg-orange-100 dark:bg-orange-900/30' :
-                currentPhase === 'complete' ? 'bg-green-100 dark:bg-green-900/30' :
-                'bg-blue-100 dark:bg-blue-900/30'
+                currentPhase === 'error' ? 'bg-risk-critical' :
+                currentPhase === 'stopped' ? 'bg-risk-elevated' :
+                currentPhase === 'complete' ? 'bg-risk-low' :
+                'bg-risk-monitoring'
               }`}>
                 {currentPhase === 'error' ? (
-                  <svg className="size-5 text-red-600 dark:text-red-400" fill="none" viewBox="0 0 24 24" strokeWidth="1.5" stroke="currentColor">
+                  <svg className="size-5 text-risk-critical-fg" fill="none" viewBox="0 0 24 24" strokeWidth="1.5" stroke="currentColor">
                     <path strokeLinecap="round" strokeLinejoin="round" d="M12 9v3.75m9-.75a9 9 0 1 1-18 0 9 9 0 0 1 18 0Zm-9 3.75h.008v.008H12v-.008Z" />
                   </svg>
                 ) : currentPhase === 'stopped' ? (
-                  <svg className="size-5 text-orange-600 dark:text-orange-400" fill="none" viewBox="0 0 24 24" strokeWidth="1.5" stroke="currentColor">
+                  <svg className="size-5 text-risk-elevated-fg" fill="none" viewBox="0 0 24 24" strokeWidth="1.5" stroke="currentColor">
                     <path strokeLinecap="round" strokeLinejoin="round" d="M5.25 7.5A2.25 2.25 0 0 1 7.5 5.25h9a2.25 2.25 0 0 1 2.25 2.25v9a2.25 2.25 0 0 1-2.25 2.25h-9a2.25 2.25 0 0 1-2.25-2.25v-9Z" />
                   </svg>
                 ) : currentPhase === 'complete' ? (
-                  <svg className="size-5 text-green-600 dark:text-green-400" fill="none" viewBox="0 0 24 24" strokeWidth="1.5" stroke="currentColor">
+                  <svg className="size-5 text-risk-low-fg" fill="none" viewBox="0 0 24 24" strokeWidth="1.5" stroke="currentColor">
                     <path strokeLinecap="round" strokeLinejoin="round" d="M9 12.75 11.25 15 15 9.75M21 12a9 9 0 1 1-18 0 9 9 0 0 1 18 0Z" />
                   </svg>
                 ) : (
-                  <svg className="size-5 text-blue-600 dark:text-blue-400 animate-spin" fill="none" viewBox="0 0 24 24">
+                  <svg className="size-5 text-primary animate-spin" fill="none" viewBox="0 0 24 24">
                     <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" />
                     <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z" />
                   </svg>
                 )}
               </div>
               <div>
-                <h3 className="text-lg font-semibold text-gray-900 dark:text-white">
+                <h3 className="text-lg font-semibold text-foreground">
                   Monitoring Cycle
                 </h3>
                 <p className={`text-sm ${
-                  currentPhase === 'error' ? 'text-red-600 dark:text-red-400' :
-                  currentPhase === 'stopped' ? 'text-orange-600 dark:text-orange-400' :
-                  currentPhase === 'complete' ? 'text-green-600 dark:text-green-400' :
-                  'text-gray-500 dark:text-gray-400'
+                  currentPhase === 'error' ? 'text-risk-critical-text' :
+                  currentPhase === 'stopped' ? 'text-risk-elevated-text' :
+                  currentPhase === 'complete' ? 'text-risk-low-text' :
+                  'text-muted-foreground'
                 }`}>
                   {getPhaseLabel(currentPhase)}
                 </p>
@@ -529,7 +529,9 @@ export function MonitoringProgressDialog({
             <div className="flex items-center gap-3">
               {/* Elapsed Time */}
               <div className="text-right">
-                <span className="text-2xl font-mono font-semibold text-gray-900 dark:text-white">
+                {/* font-medium, not font-semibold: IBM Plex Mono is loaded at
+                    400/500 only, so 600 renders as a synthesised faux-bold. */}
+                <span className="text-2xl font-mono font-medium text-foreground">
                   {finalMetrics
                     ? formatElapsedTime(finalMetrics.durationMs)
                     : formatElapsedTime(elapsedTime)
@@ -539,7 +541,7 @@ export function MonitoringProgressDialog({
               {(currentPhase === 'complete' || currentPhase === 'error' || currentPhase === 'stopped') && (
                 <button
                   onClick={handleClose}
-                  className="p-1 rounded-full text-gray-400 hover:text-gray-600 dark:hover:text-gray-300 hover:bg-gray-100 dark:hover:bg-gray-700 transition-colors"
+                  className="p-1 rounded-full text-muted-foreground hover:text-foreground hover:bg-accent transition-colors"
                 >
                   <svg className="size-5" fill="none" viewBox="0 0 24 24" strokeWidth="1.5" stroke="currentColor">
                     <path strokeLinecap="round" strokeLinejoin="round" d="M6 18 18 6M6 6l12 12" />
@@ -551,18 +553,18 @@ export function MonitoringProgressDialog({
 
           {/* Progress Bar */}
           <div className="mb-4">
-            <div className="h-2 bg-gray-200 dark:bg-gray-700 rounded-full overflow-hidden">
+            <div className="h-2 bg-muted-foreground/25 rounded-full overflow-hidden">
               <div
                 className={`h-full transition-all duration-300 ease-out ${
-                  currentPhase === 'error' ? 'bg-red-500' :
-                  currentPhase === 'stopped' ? 'bg-orange-500' :
-                  currentPhase === 'complete' ? 'bg-green-500' :
-                  'bg-blue-500'
+                  currentPhase === 'error' ? 'bg-risk-critical-accent' :
+                  currentPhase === 'stopped' ? 'bg-risk-elevated-accent' :
+                  currentPhase === 'complete' ? 'bg-risk-low-accent' :
+                  'bg-primary'
                 }`}
                 style={{ width: `${progress}%` }}
               />
             </div>
-            <div className="flex justify-between mt-1 text-xs text-gray-500 dark:text-gray-400">
+            <div className="flex justify-between mt-1 text-xs text-muted-foreground">
               <span>{Math.round(progress)}%</span>
               {enabledTools.length > 0 && (
                 <span>{enabledTools.length} tools enabled</span>
@@ -573,18 +575,18 @@ export function MonitoringProgressDialog({
           {/* Tool Configuration Summary - Collapsible */}
           {enabledTools.length > 0 && (
             <details className="mb-4 group">
-              <summary className="cursor-pointer text-xs font-medium text-gray-500 dark:text-gray-400 hover:text-gray-700 dark:hover:text-gray-300 select-none flex items-center gap-1">
+              <summary className="cursor-pointer text-xs font-medium text-muted-foreground hover:text-foreground select-none flex items-center gap-1">
                 <svg className="size-3 transition-transform group-open:rotate-90" fill="none" viewBox="0 0 24 24" strokeWidth="2" stroke="currentColor">
                   <path strokeLinecap="round" strokeLinejoin="round" d="m8.25 4.5 7.5 7.5-7.5 7.5" />
                 </svg>
                 View enabled tools ({enabledTools.length})
               </summary>
-              <div className="mt-2 p-3 bg-gray-50 dark:bg-gray-900 rounded-lg">
+              <div className="mt-2 p-3 bg-muted rounded-lg">
                 <div className="flex flex-wrap gap-1.5">
                   {enabledTools.map((tool) => (
                     <span
                       key={tool}
-                      className="px-2 py-0.5 text-xs rounded-full bg-blue-100 dark:bg-blue-900/30 text-blue-700 dark:text-blue-300"
+                      className="px-2 py-0.5 text-xs rounded-full bg-risk-monitoring text-risk-monitoring-fg"
                     >
                       {formatToolName(tool)}
                     </span>
@@ -597,16 +599,16 @@ export function MonitoringProgressDialog({
           {/* Activity Log */}
           <div
             ref={scrollRef}
-            className="h-56 overflow-y-auto bg-gray-50 dark:bg-gray-900 rounded-lg p-3 mb-4 font-mono text-xs"
+            className="h-56 overflow-y-auto bg-muted rounded-lg p-3 mb-4 font-mono text-xs"
           >
             {updates.filter(u => u.type === 'progress' && u.message && !u.isHeartbeat).map((update, idx) => {
               const cleanMessage = getCleanMessage(update);
               return (
                 <div
                   key={idx}
-                  className="flex items-center gap-2 py-1 border-b border-gray-100 dark:border-gray-800 last:border-0"
+                  className="flex items-center gap-2 py-1 border-b border-border last:border-0"
                 >
-                  <span className="text-gray-400 dark:text-gray-500 w-14 shrink-0 tabular-nums">
+                  <span className="text-muted-foreground w-14 shrink-0 tabular-nums">
                     {new Date(update.timestamp || '').toLocaleTimeString([], {
                       hour: '2-digit',
                       minute: '2-digit',
@@ -618,17 +620,17 @@ export function MonitoringProgressDialog({
                     <>
                       <span className={`shrink-0 px-1.5 py-0.5 rounded text-xs font-medium ${
                         update.phase === 'executing_tools'
-                          ? 'bg-blue-100 dark:bg-blue-900/30 text-blue-700 dark:text-blue-300'
-                          : 'bg-gray-200 dark:bg-gray-700 text-gray-600 dark:text-gray-400'
+                          ? 'bg-risk-monitoring text-risk-monitoring-fg'
+                          : 'bg-muted-foreground/20 text-muted-foreground'
                       }`}>
                         {formatToolName(update.tool)}
                       </span>
-                      <span className="text-gray-500 dark:text-gray-400 truncate">
+                      <span className="text-muted-foreground truncate">
                         {cleanMessage}
                       </span>
                     </>
                   ) : (
-                    <span className="text-gray-600 dark:text-gray-300">
+                    <span className="text-muted-foreground">
                       {update.message}
                     </span>
                   )}
@@ -636,7 +638,7 @@ export function MonitoringProgressDialog({
               );
             })}
             {error && (
-              <div className="flex items-center gap-2 py-1 text-red-600 dark:text-red-400">
+              <div className="flex items-center gap-2 py-1 text-risk-critical-text">
                 <svg className="size-4 shrink-0" fill="none" viewBox="0 0 24 24" strokeWidth="1.5" stroke="currentColor">
                   <path strokeLinecap="round" strokeLinejoin="round" d="M12 9v3.75m9-.75a9 9 0 1 1-18 0 9 9 0 0 1 18 0Zm-9 3.75h.008v.008H12v-.008Z" />
                 </svg>
@@ -647,31 +649,31 @@ export function MonitoringProgressDialog({
 
           {/* Final Results */}
           {finalMetrics && (
-            <div className="bg-green-50 dark:bg-green-900/20 rounded-lg p-4 mb-4">
+            <div className="bg-risk-low rounded-lg p-4 mb-4">
               <div className="grid grid-cols-4 gap-3 text-center">
                 <div>
-                  <p className="text-xl font-bold text-green-800 dark:text-green-200">
+                  <p className="text-xl font-bold text-risk-low-fg">
                     {finalMetrics.eventsDetected}
                   </p>
-                  <p className="text-xs text-green-600 dark:text-green-400">Detected</p>
+                  <p className="text-xs text-risk-low-fg">Detected</p>
                 </div>
                 <div>
-                  <p className="text-xl font-bold text-green-800 dark:text-green-200">
+                  <p className="text-xl font-bold text-risk-low-fg">
                     {finalMetrics.eventsPublished}
                   </p>
-                  <p className="text-xs text-green-600 dark:text-green-400">Published</p>
+                  <p className="text-xs text-risk-low-fg">Published</p>
                 </div>
                 <div>
-                  <p className="text-xl font-bold text-green-800 dark:text-green-200">
+                  <p className="text-xl font-bold text-risk-low-fg">
                     {finalMetrics.duplicatesFiltered}
                   </p>
-                  <p className="text-xs text-green-600 dark:text-green-400">Duplicates</p>
+                  <p className="text-xs text-risk-low-fg">Duplicates</p>
                 </div>
                 <div>
-                  <p className="text-xl font-bold text-green-800 dark:text-green-200">
+                  <p className="text-xl font-bold text-risk-low-fg">
                     {finalMetrics.toolsSucceeded}/{finalMetrics.toolsExecuted}
                   </p>
-                  <p className="text-xs text-green-600 dark:text-green-400">Tools OK</p>
+                  <p className="text-xs text-risk-low-fg">Tools OK</p>
                 </div>
               </div>
             </div>
@@ -687,7 +689,7 @@ export function MonitoringProgressDialog({
               <Button
                 variant="destructive"
                 onClick={handleStop}
-                className="bg-red-600 hover:bg-red-700 text-white"
+                className="bg-destructive text-white hover:bg-destructive/90"
               >
                 <svg className="size-4 mr-2" fill="none" viewBox="0 0 24 24" strokeWidth="2" stroke="currentColor">
                   <path strokeLinecap="round" strokeLinejoin="round" d="M5.25 7.5A2.25 2.25 0 0 1 7.5 5.25h9a2.25 2.25 0 0 1 2.25 2.25v9a2.25 2.25 0 0 1-2.25 2.25h-9a2.25 2.25 0 0 1-2.25-2.25v-9Z" />

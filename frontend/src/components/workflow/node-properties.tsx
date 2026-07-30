@@ -12,6 +12,11 @@ interface NodePropertiesProps {
   selectedNodeId: string | null;
 }
 
+// NOTE: all four non-END icons are `text-primary` — the node-type colour
+// coding is uniform here, unlike the palette swatches and node headers. The
+// selected type is still named in text beside the icon. Unifying the three
+// legs needs the per-mode palette tracked in #25; see that issue before
+// changing these.
 const nodeTypeConfig: Record<NodeType, {
   icon: React.ComponentType<{ className?: string }>;
   color: string;
@@ -25,7 +30,7 @@ const nodeTypeConfig: Record<NodeType, {
 }> = {
   TRIGGER: {
     icon: Zap,
-    color: 'text-amber-500',
+    color: 'text-primary',
     fields: [
       {
         key: 'triggerType',
@@ -49,7 +54,7 @@ const nodeTypeConfig: Record<NodeType, {
   },
   ACTION: {
     icon: Play,
-    color: 'text-blue-500',
+    color: 'text-primary',
     fields: [
       {
         key: 'actionType',
@@ -73,7 +78,7 @@ const nodeTypeConfig: Record<NodeType, {
   },
   CONDITION: {
     icon: GitBranch,
-    color: 'text-purple-500',
+    color: 'text-primary',
     fields: [
       {
         key: 'expression',
@@ -91,7 +96,7 @@ const nodeTypeConfig: Record<NodeType, {
   },
   NOTIFICATION: {
     icon: Bell,
-    color: 'text-teal-500',
+    color: 'text-primary',
     fields: [
       {
         key: 'channel',
@@ -114,7 +119,7 @@ const nodeTypeConfig: Record<NodeType, {
   },
   END: {
     icon: CircleStop,
-    color: 'text-gray-700',
+    color: 'text-muted-foreground',
     fields: [
       {
         key: 'status',
@@ -147,7 +152,7 @@ export function NodeProperties({ selectedNodeId }: NodePropertiesProps) {
   if (!selectedNode) {
     return (
       <div className="flex h-full items-center justify-center p-4 text-center">
-        <div className="text-gray-400">
+        <div className="text-muted-foreground">
           <p className="text-sm font-medium">No node selected</p>
           <p className="text-xs mt-1">Click a node to edit its properties</p>
         </div>
@@ -175,11 +180,11 @@ export function NodeProperties({ selectedNodeId }: NodePropertiesProps) {
   return (
     <div className="flex flex-col h-full">
       {/* Header */}
-      <div className="flex items-center gap-3 border-b border-gray-200 p-4">
+      <div className="flex items-center gap-3 border-b border-border p-4">
         <Icon className={`h-5 w-5 ${config.color}`} />
         <div className="flex-1 min-w-0">
-          <p className="text-sm font-semibold text-gray-900">{nodeType}</p>
-          <p className="text-xs text-gray-500 truncate">{selectedNode.id}</p>
+          <p className="text-sm font-semibold text-foreground">{nodeType}</p>
+          <p className="text-xs text-muted-foreground truncate">{selectedNode.id}</p>
         </div>
       </div>
 
@@ -215,7 +220,7 @@ export function NodeProperties({ selectedNodeId }: NodePropertiesProps) {
                     id={`node-${field.key}`}
                     value={value as string}
                     onChange={(e) => handleConfigChange(field.key, e.target.value)}
-                    className="mt-1 w-full rounded-md border border-gray-200 bg-white px-3 py-2 text-sm focus:border-blue-500 focus:outline-none focus:ring-1 focus:ring-blue-500"
+                    className="mt-1 w-full rounded-md border border-border bg-card px-3 py-2 text-sm focus:border-ring focus:outline-none focus:ring-1 focus:ring-ring"
                   >
                     <option value="">Select...</option>
                     {field.options?.map((opt) => (
@@ -241,7 +246,7 @@ export function NodeProperties({ selectedNodeId }: NodePropertiesProps) {
                     id={`node-${field.key}`}
                     value={value as string}
                     onChange={(e) => handleConfigChange(field.key, e.target.value)}
-                    className="mt-1 w-full rounded-md border border-gray-200 px-3 py-2 text-sm focus:border-blue-500 focus:outline-none focus:ring-1 focus:ring-blue-500"
+                    className="mt-1 w-full rounded-md border border-border px-3 py-2 text-sm focus:border-ring focus:outline-none focus:ring-1 focus:ring-ring"
                     rows={3}
                     placeholder={field.placeholder}
                   />
@@ -253,7 +258,7 @@ export function NodeProperties({ selectedNodeId }: NodePropertiesProps) {
       </div>
 
       {/* Footer actions */}
-      <div className="border-t border-gray-200 p-4">
+      <div className="border-t border-border p-4">
         <Button
           variant="destructive"
           size="sm"

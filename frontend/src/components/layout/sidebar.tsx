@@ -5,6 +5,7 @@ import Link from 'next/link';
 import { usePathname } from 'next/navigation';
 import { cn } from '@/lib/utils';
 import { useSidebarExpanded, useSidebarStore } from '@/stores/sidebar-store';
+import { Fillet } from '@/components/ui/fillet';
 
 interface NavItem {
   name: string;
@@ -217,7 +218,7 @@ export function Sidebar() {
         <div
           onClick={collapse}
           aria-hidden="true"
-          className="fixed inset-x-0 bottom-0 top-16 z-20 bg-black/30 backdrop-blur-[1px]"
+          className="fixed inset-x-0 bottom-0 top-[var(--app-header-h)] z-20 bg-black/30 backdrop-blur-[1px]"
         />
       )}
 
@@ -228,7 +229,13 @@ export function Sidebar() {
         role={isModalOpen ? 'dialog' : undefined}
         aria-modal={isModalOpen ? true : undefined}
         className={cn(
-          'fixed bottom-0 left-0 top-16 z-30 flex flex-col border-r bg-white dark:bg-gray-800',
+          // Brand chrome — flips with the mode: purple-100 light, purple-600 dark.
+          // NO pl-safe here: the aside has a fixed width (w-16 / w-64) and
+          // border-box sizing, so a left inset would be subtracted from the
+          // usable width — a 44px landscape notch leaves the 64px rail with
+          // 20px of content box. The inset goes on the inner nav's padding
+          // instead, where it is additive.
+          'fixed bottom-0 left-0 top-[var(--app-header-h)] z-30 flex flex-col border-r border-sidebar-border bg-sidebar',
           'transition-[width,transform] duration-200 ease-out',
           isExpanded ? SIDEBAR_WIDTH.expanded : SIDEBAR_WIDTH.collapsed,
           // Below lg the transform is the drawer, which starts closed — so the
@@ -238,14 +245,20 @@ export function Sidebar() {
           'lg:translate-x-0',
         )}
       >
-        <nav className="flex flex-1 flex-col overflow-y-auto overflow-x-hidden px-2 py-4">
+        {/* Bottom padding is `1rem + the home-indicator inset`, written as a
+            calc rather than `py-4 pb-safe`: .pb-safe sets padding-bottom, which
+            REPLACES py-4's block-end value, so on any device without an inset
+            (all desktop) the last nav item would sit flush against the edge.
+            overscroll-contain stops scroll chaining into the page behind. */}
+        <nav className="flex flex-1 flex-col overflow-y-auto overflow-x-hidden overscroll-contain pl-[calc(0.5rem+env(safe-area-inset-left))] pr-2 pt-4 pb-[calc(1rem+env(safe-area-inset-bottom))]">
           <ul className="flex flex-1 flex-col gap-y-6">
             {navigation.map((section, sectionIndex) => (
               <li key={sectionIndex}>
                 {section.title && (
                   <div
                     className={cn(
-                      'mb-2 px-2 text-xs font-semibold uppercase tracking-wide text-gray-400',
+                      // Mono eyebrow — the brand's section-label treatment.
+                      'mb-2 px-2 font-mono text-[11px] font-medium uppercase tracking-[0.18em] text-sidebar-muted-foreground',
                       // The label is meaningless next to icon-only items.
                       !isExpanded && 'sr-only',
                     )}
@@ -255,7 +268,7 @@ export function Sidebar() {
                 )}
                 {/* Divider stands in for the hidden section label on the rail. */}
                 {section.title && !isExpanded && (
-                  <div className="mx-2 mb-2 border-t border-gray-200 dark:border-gray-700" />
+                  <div className="mx-2 mb-2 border-t border-sidebar-border" />
                 )}
                 <ul className="space-y-1">
                   {section.items.map((item) => (
@@ -266,12 +279,26 @@ export function Sidebar() {
                         aria-current={isActive(item.href) ? 'page' : undefined}
                         className={cn(
                           isActive(item.href)
-                            ? 'bg-gray-100 text-gray-900 dark:bg-gray-700 dark:text-white'
-                            : 'text-gray-600 hover:bg-gray-50 hover:text-gray-900 dark:text-gray-300 dark:hover:bg-gray-700 dark:hover:text-white',
-                          'group flex items-center gap-x-3 rounded-md p-2 text-sm font-medium',
+                            ? 'bg-sidebar-primary text-sidebar-foreground'
+                            // hover uses --sidebar-accent, NOT --sidebar-primary:
+                            // sharing the active fill made a hovered inactive
+                            // item indistinguishable from the active one.
+                            : 'text-sidebar-muted-foreground hover:bg-sidebar-accent hover:text-sidebar-accent-foreground',
+                          'group relative flex items-center gap-x-3 rounded-md p-2 text-sm font-medium',
+                          'pointer-coarse:min-h-11 active:opacity-80',
                           !isExpanded && 'justify-center',
                         )}
                       >
+                        {/* The gold rule carries the active state: a purple-600
+                            fill is one ramp step from the shell in either mode and would
+                            be invisible on its own. */}
+                        {isActive(item.href) && (
+                          <Fillet
+                            orientation="vertical"
+                            tone="shell"
+                            className="absolute inset-y-1 left-0"
+                          />
+                        )}
                         <span className="shrink-0">{item.icon}</span>
                         <span className={cn('truncate', !isExpanded && 'sr-only')}>
                           {item.name}

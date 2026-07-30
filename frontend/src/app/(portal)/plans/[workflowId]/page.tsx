@@ -152,7 +152,7 @@ export default function WorkflowEditorPage() {
   if (!organization) {
     return (
       <div className="flex h-full items-center justify-center">
-        <p className="text-gray-500">Please select an organization</p>
+        <p className="text-muted-foreground">Please select an organization</p>
       </div>
     );
   }
@@ -161,8 +161,8 @@ export default function WorkflowEditorPage() {
     return (
       <div className="flex h-full items-center justify-center">
         <div className="flex flex-col items-center gap-3">
-          <Loader2 className="h-8 w-8 animate-spin text-blue-500" />
-          <p className="text-sm text-gray-500">Loading workflow...</p>
+          <Loader2 className="h-8 w-8 animate-spin text-primary" />
+          <p className="text-sm text-muted-foreground">Loading workflow...</p>
         </div>
       </div>
     );
@@ -171,7 +171,7 @@ export default function WorkflowEditorPage() {
   if (error || !workflow) {
     return (
       <div className="flex h-full flex-col items-center justify-center gap-4">
-        <p className="text-red-500">{error || 'Workflow not found'}</p>
+        <p className="text-risk-critical-text">{error || 'Workflow not found'}</p>
         <Button variant="outline" onClick={() => router.push('/plans')}>
           <ArrowLeft className="mr-2 h-4 w-4" />
           Back to Plans
@@ -183,7 +183,7 @@ export default function WorkflowEditorPage() {
   return (
     <div className="flex h-full flex-col">
       {/* Toolbar */}
-      <div className="flex items-center justify-between border-b border-gray-200 px-4 py-2">
+      <div className="flex items-center justify-between border-b border-border px-4 py-2">
         <div className="flex items-center gap-4">
           {/* Back button */}
           <Button variant="ghost" size="sm" onClick={() => router.push('/plans')}>
@@ -205,20 +205,20 @@ export default function WorkflowEditorPage() {
             />
           ) : (
             <button
-              className="flex items-center gap-2 rounded px-2 py-1 hover:bg-gray-100"
+              className="flex items-center gap-2 rounded px-2 py-1 hover:bg-muted"
               onClick={() => {
                 setEditedName(workflow.name);
                 setIsEditingName(true);
               }}
             >
-              <h1 className="text-lg font-semibold text-gray-900">{workflow.name}</h1>
+              <h1 className="text-lg font-semibold text-foreground">{workflow.name}</h1>
               <span
                 className={`rounded-full px-2 py-0.5 text-xs font-medium ${
                   workflow.status === 'PUBLISHED'
-                    ? 'bg-green-100 text-green-700'
+                    ? 'bg-risk-low text-risk-low-fg'
                     : workflow.status === 'DRAFT'
-                    ? 'bg-yellow-100 text-yellow-700'
-                    : 'bg-gray-100 text-gray-700'
+                    ? 'bg-risk-elevated text-risk-elevated-fg'
+                    : 'bg-muted-foreground/20 text-muted-foreground'
                 }`}
               >
                 {workflow.status}
@@ -227,15 +227,15 @@ export default function WorkflowEditorPage() {
           )}
 
           {/* Version */}
-          <span className="text-xs text-gray-400">v{workflow.version}</span>
+          <span className="text-xs text-muted-foreground">v{workflow.version}</span>
         </div>
 
         <div className="flex items-center gap-2">
           {/* Collaborators */}
           {participants.length > 0 && (
             <div className="flex items-center gap-1 mr-2">
-              <Users className="h-4 w-4 text-gray-400" />
-              <span className="text-xs text-gray-500">
+              <Users className="h-4 w-4 text-muted-foreground" />
+              <span className="text-xs text-muted-foreground">
                 {participants.length} online
               </span>
             </div>
@@ -243,7 +243,7 @@ export default function WorkflowEditorPage() {
 
           {/* Error message */}
           {actionError && (
-            <span className="text-xs text-red-500 mr-2">{actionError}</span>
+            <span className="text-xs text-risk-critical-text mr-2">{actionError}</span>
           )}
 
           {/* Save button */}
@@ -311,7 +311,7 @@ export default function WorkflowEditorPage() {
       {/* Main content */}
       <div className="flex flex-1 overflow-hidden">
         {/* Left sidebar - Node palette */}
-        <div className="w-64 flex-shrink-0 border-r border-gray-200 bg-gray-50 p-4 overflow-y-auto">
+        <div className="w-64 flex-shrink-0 border-r border-border bg-background p-4 overflow-y-auto">
           <NodePalette />
         </div>
 
@@ -321,7 +321,7 @@ export default function WorkflowEditorPage() {
         </div>
 
         {/* Right sidebar - Properties */}
-        <div className="w-72 flex-shrink-0 border-l border-gray-200 bg-white overflow-hidden">
+        <div className="w-72 flex-shrink-0 border-l border-border bg-card overflow-hidden">
           <NodeProperties selectedNodeId={selectedNodeId} />
         </div>
       </div>

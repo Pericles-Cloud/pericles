@@ -28,8 +28,8 @@ export function AnalysisTabs({ event }: { event: Event | null }) {
             onClick={() => setActiveTab(tab)}
             className={`flex-1 px-3 py-2 text-sm font-medium transition-colors ${
               activeTab === tab
-                ? 'border-b-2 border-blue-500 text-blue-600 bg-blue-50 dark:bg-blue-900/20'
-                : 'text-gray-500 hover:text-gray-700 hover:bg-gray-50 dark:hover:bg-gray-800'
+                ? 'border-b-2 border-primary text-primary bg-primary/10'
+                : 'text-muted-foreground hover:text-foreground hover:bg-accent'
             }`}
           >
             {tab.charAt(0).toUpperCase() + tab.slice(1)}
@@ -41,7 +41,7 @@ export function AnalysisTabs({ event }: { event: Event | null }) {
         {event ? (
           <AnalysisContent event={event} activeTab={activeTab} />
         ) : (
-          <div className="text-center text-gray-500">
+          <div className="text-center text-muted-foreground">
             <p>Select an event to view analysis</p>
           </div>
         )}
@@ -96,13 +96,13 @@ function AnalysisContent({ event, activeTab }: { event: Event; activeTab: Analys
             <h4 className="text-sm font-medium mt-4">Risk Assessment</h4>
             <div className="grid grid-cols-2 gap-2 text-sm">
               <div>
-                <span className="text-gray-500">Severity:</span>
+                <span className="text-muted-foreground">Severity:</span>
                 <span className={`ml-1 font-medium ${getRiskColor(event.severity)}`}>
                   {(event.severity * 100).toFixed(0)}%
                 </span>
               </div>
               <div>
-                <span className="text-gray-500">Confidence:</span>
+                <span className="text-muted-foreground">Confidence:</span>
                 <span className="ml-1 font-medium">{(event.confidence * 100).toFixed(0)}%</span>
               </div>
             </div>
@@ -111,7 +111,7 @@ function AnalysisContent({ event, activeTab }: { event: Event; activeTab: Analys
                 <h4 className="text-sm font-medium mt-4">Risk Factors</h4>
                 <ul className="text-sm space-y-1">
                   {event.riskFactors.map((factor) => (
-                    <li key={factor} className="text-gray-600 dark:text-gray-400">
+                    <li key={factor} className="text-muted-foreground">
                       {factor.replace(/_/g, ' ')}
                     </li>
                   ))}
@@ -134,7 +134,7 @@ function AnalysisContent({ event, activeTab }: { event: Event; activeTab: Analys
                   {event.affectedDomains.map((domain) => (
                     <span
                       key={domain}
-                      className="px-2 py-1 bg-purple-100 dark:bg-purple-900/30 text-purple-700 dark:text-purple-300 rounded text-xs"
+                      className="px-2 py-1 bg-primary/10 text-primary rounded text-xs"
                     >
                       {domain.replace(/_/g, ' ')}
                     </span>
@@ -142,12 +142,12 @@ function AnalysisContent({ event, activeTab }: { event: Event; activeTab: Analys
                 </div>
               </>
             ) : (
-              <p className="text-gray-500">No impact data available for this event.</p>
+              <p className="text-muted-foreground">No impact data available for this event.</p>
             )}
             {event.locationName && (
               <>
                 <h4 className="text-sm font-medium mt-4">Geographic Impact</h4>
-                <p className="text-sm text-gray-600 dark:text-gray-400">{event.locationName}</p>
+                <p className="text-sm text-muted-foreground">{event.locationName}</p>
               </>
             )}
             {event.incident && (
@@ -167,7 +167,7 @@ function AnalysisContent({ event, activeTab }: { event: Event; activeTab: Analys
         <div className="space-y-4">
           <h3 className="font-semibold text-lg">Notes</h3>
           <div className="prose prose-sm dark:prose-invert">
-            <p className="text-gray-500">No notes have been added for this event yet.</p>
+            <p className="text-muted-foreground">No notes have been added for this event yet.</p>
             <div className="mt-4">
               <textarea
                 placeholder="Add a note..."
@@ -188,13 +188,13 @@ function TimelineItem({ label, time, description }: { label: string; time: strin
   return (
     <div className="flex gap-3">
       <div className="flex flex-col items-center">
-        <div className="size-2 rounded-full bg-blue-500" />
-        <div className="w-px flex-1 bg-gray-200 dark:bg-gray-700" />
+        <div className="size-2 rounded-full bg-primary" />
+        <div className="w-px flex-1 bg-muted-foreground/25" />
       </div>
       <div className="pb-4">
         <div className="font-medium text-sm">{label}</div>
-        <div className="text-xs text-gray-500">{time}</div>
-        <div className="text-xs text-gray-400 mt-1">{description}</div>
+        <div className="text-xs text-muted-foreground">{time}</div>
+        <div className="text-xs text-muted-foreground mt-1">{description}</div>
       </div>
     </div>
   );

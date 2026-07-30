@@ -14,6 +14,7 @@ import {
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
+import { Fillet } from '@/components/ui/fillet';
 import {
   Card,
   CardContent,
@@ -215,7 +216,7 @@ export default function SuppliersPage() {
   if (isLoading) {
     return (
       <div className="flex items-center justify-center min-h-[400px]">
-        <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-blue-600" />
+        <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-primary" />
       </div>
     );
   }
@@ -224,8 +225,9 @@ export default function SuppliersPage() {
     <div className="space-y-6">
       <div className="flex items-center justify-between">
         <div>
-          <h2 className="text-2xl font-bold text-gray-900 dark:text-white">Suppliers</h2>
-          <p className="text-gray-600 dark:text-gray-400">
+          <h2 className="font-display text-3xl font-semibold text-foreground">Suppliers</h2>
+          <Fillet className="my-2" />
+          <p className="text-muted-foreground">
             Manage your supply chain suppliers
           </p>
         </div>
@@ -241,8 +243,8 @@ export default function SuppliersPage() {
         <div
           className={`p-3 rounded-md text-sm ${
             message.type === 'success'
-              ? 'bg-green-50 text-green-800 dark:bg-green-900/20 dark:text-green-400'
-              : 'bg-red-50 text-red-800 dark:bg-red-900/20 dark:text-red-400'
+              ? 'bg-risk-low text-risk-low-fg'
+              : 'bg-risk-critical text-risk-critical-fg'
           }`}
         >
           {message.text}
@@ -261,14 +263,14 @@ export default function SuppliersPage() {
               className="w-full"
             />
           </div>
-          <h3 className="text-sm font-medium text-gray-500 dark:text-gray-400 uppercase tracking-wide">
+          <h3 className="text-sm font-medium text-muted-foreground uppercase tracking-wide">
             {filteredSuppliers.length} Supplier{filteredSuppliers.length !== 1 ? 's' : ''}
           </h3>
           <div className="space-y-2 max-h-[600px] overflow-y-auto">
             {filteredSuppliers.length === 0 ? (
               <Card>
                 <CardContent className="py-8 text-center">
-                  <p className="text-gray-500">No suppliers found</p>
+                  <p className="text-muted-foreground">No suppliers found</p>
                   <Button
                     variant="outline"
                     className="mt-4"
@@ -285,19 +287,22 @@ export default function SuppliersPage() {
                   onClick={() => setSelectedSupplier(supplier)}
                   className={`w-full text-left p-4 rounded-lg border transition-colors ${
                     selectedSupplier?.id === supplier.id
-                      ? 'border-blue-500 bg-blue-50 dark:bg-blue-900/20'
-                      : 'border-gray-200 dark:border-gray-700 hover:bg-gray-50 dark:hover:bg-gray-800'
+                      ? 'border-primary bg-primary/10'
+                      // bg-muted, not bg-accent: the row's own sub-labels are
+                      // `text-muted-foreground`, which is 2.7:1 on --accent in
+                      // dark mode but 4.9:1 on --muted.
+                      : 'border-border hover:bg-muted'
                   }`}
                 >
                   <div className="flex items-center gap-3">
-                    <div className="size-10 rounded-full bg-gradient-to-br from-emerald-500 to-teal-600 flex items-center justify-center shrink-0">
-                      <span className="text-sm font-bold text-white">
+                    <div className="size-10 rounded-full bg-primary flex items-center justify-center shrink-0">
+                      <span className="text-sm font-bold text-primary-foreground">
                         {supplier.name[0].toUpperCase()}
                       </span>
                     </div>
                     <div className="flex-1 min-w-0">
                       <p className="font-medium truncate">{supplier.name}</p>
-                      <p className="text-xs text-gray-500 truncate">
+                      <p className="text-xs text-muted-foreground truncate">
                         {supplier.country || 'No location'} &middot; {supplier.totalShipments} shipments
                       </p>
                     </div>
@@ -316,8 +321,8 @@ export default function SuppliersPage() {
                 <CardHeader className="flex flex-row items-start justify-between">
                   <div>
                     <CardTitle className="flex items-center gap-3">
-                      <div className="size-12 rounded-full bg-gradient-to-br from-emerald-500 to-teal-600 flex items-center justify-center">
-                        <span className="text-lg font-bold text-white">
+                      <div className="size-12 rounded-full bg-primary flex items-center justify-center">
+                        <span className="text-lg font-bold text-primary-foreground">
                           {selectedSupplier.name[0].toUpperCase()}
                         </span>
                       </div>
@@ -337,37 +342,37 @@ export default function SuppliersPage() {
                 <CardContent>
                   <div className="grid gap-4 sm:grid-cols-2">
                     <div>
-                      <Label className="text-gray-500">Country</Label>
+                      <Label className="text-muted-foreground">Country</Label>
                       <p className="font-medium">{selectedSupplier.country || '-'}</p>
                     </div>
                     <div>
-                      <Label className="text-gray-500">Country Code</Label>
+                      <Label className="text-muted-foreground">Country Code</Label>
                       <p className="font-medium">{selectedSupplier.countryCode || '-'}</p>
                     </div>
                     <div className="sm:col-span-2">
-                      <Label className="text-gray-500">Address</Label>
+                      <Label className="text-muted-foreground">Address</Label>
                       <p className="font-medium">{selectedSupplier.address || '-'}</p>
                     </div>
                     <div>
-                      <Label className="text-gray-500">Website</Label>
+                      <Label className="text-muted-foreground">Website</Label>
                       <p className="font-medium">
                         {selectedSupplier.website ? (
-                          <a href={selectedSupplier.website} target="_blank" rel="noopener noreferrer" className="text-blue-600 hover:underline">
+                          <a href={selectedSupplier.website} target="_blank" rel="noopener noreferrer" className="text-primary hover:underline">
                             {selectedSupplier.website}
                           </a>
                         ) : '-'}
                       </p>
                     </div>
                     <div>
-                      <Label className="text-gray-500">Contact Info</Label>
+                      <Label className="text-muted-foreground">Contact Info</Label>
                       <p className="font-medium">{selectedSupplier.contactInfo || '-'}</p>
                     </div>
                     <div>
-                      <Label className="text-gray-500">Total Shipments</Label>
+                      <Label className="text-muted-foreground">Total Shipments</Label>
                       <p className="font-medium">{selectedSupplier.totalShipments}</p>
                     </div>
                     <div>
-                      <Label className="text-gray-500">Coordinates</Label>
+                      <Label className="text-muted-foreground">Coordinates</Label>
                       <p className="font-medium">
                         {selectedSupplier.latitude && selectedSupplier.longitude
                           ? `${selectedSupplier.latitude}, ${selectedSupplier.longitude}`
@@ -387,11 +392,11 @@ export default function SuppliersPage() {
                 <CardContent>
                   <div className="grid gap-4 sm:grid-cols-2">
                     <div>
-                      <Label className="text-gray-500">Name</Label>
+                      <Label className="text-muted-foreground">Name</Label>
                       <p className="font-medium">{selectedSupplier.notifyPartyName || '-'}</p>
                     </div>
                     <div>
-                      <Label className="text-gray-500">Address</Label>
+                      <Label className="text-muted-foreground">Address</Label>
                       <p className="font-medium">{selectedSupplier.notifyPartyAddress || '-'}</p>
                     </div>
                   </div>
@@ -406,44 +411,44 @@ export default function SuppliersPage() {
                 <CardContent>
                   <div className="grid gap-4">
                     <div>
-                      <Label className="text-gray-500">Departure Ports</Label>
+                      <Label className="text-muted-foreground">Departure Ports</Label>
                       <div className="flex flex-wrap gap-2 mt-1">
                         {selectedSupplier.departurePorts?.length ? (
                           selectedSupplier.departurePorts.map((port) => (
-                            <span key={port} className="px-2 py-1 bg-blue-100 dark:bg-blue-900/30 text-blue-700 dark:text-blue-300 rounded text-sm">
+                            <span key={port} className="px-2 py-1 bg-risk-monitoring text-risk-monitoring-fg rounded text-sm">
                               {port}
                             </span>
                           ))
                         ) : (
-                          <span className="text-gray-500">-</span>
+                          <span className="text-muted-foreground">-</span>
                         )}
                       </div>
                     </div>
                     <div>
-                      <Label className="text-gray-500">Destination Ports</Label>
+                      <Label className="text-muted-foreground">Destination Ports</Label>
                       <div className="flex flex-wrap gap-2 mt-1">
                         {selectedSupplier.destinationPorts?.length ? (
                           selectedSupplier.destinationPorts.map((port) => (
-                            <span key={port} className="px-2 py-1 bg-green-100 dark:bg-green-900/30 text-green-700 dark:text-green-300 rounded text-sm">
+                            <span key={port} className="px-2 py-1 bg-risk-low text-risk-low-fg rounded text-sm">
                               {port}
                             </span>
                           ))
                         ) : (
-                          <span className="text-gray-500">-</span>
+                          <span className="text-muted-foreground">-</span>
                         )}
                       </div>
                     </div>
                     <div>
-                      <Label className="text-gray-500">HS Codes</Label>
+                      <Label className="text-muted-foreground">HS Codes</Label>
                       <div className="flex flex-wrap gap-2 mt-1">
                         {selectedSupplier.hsCodes?.length ? (
                           selectedSupplier.hsCodes.map((code) => (
-                            <span key={code} className="px-2 py-1 bg-gray-100 dark:bg-gray-800 text-gray-700 dark:text-gray-300 rounded text-sm font-mono">
+                            <span key={code} className="px-2 py-1 bg-muted text-foreground rounded text-sm font-mono">
                               {code}
                             </span>
                           ))
                         ) : (
-                          <span className="text-gray-500">-</span>
+                          <span className="text-muted-foreground">-</span>
                         )}
                       </div>
                     </div>
@@ -454,10 +459,10 @@ export default function SuppliersPage() {
           ) : (
             <Card>
               <CardContent className="py-12 text-center">
-                <svg className="mx-auto h-12 w-12 text-gray-300" fill="none" viewBox="0 0 24 24" strokeWidth="1.5" stroke="currentColor">
+                <svg className="mx-auto h-12 w-12 text-muted-foreground" fill="none" viewBox="0 0 24 24" strokeWidth="1.5" stroke="currentColor">
                   <path strokeLinecap="round" strokeLinejoin="round" d="M8.25 18.75a1.5 1.5 0 01-3 0m3 0a1.5 1.5 0 00-3 0m3 0h6m-9 0H3.375a1.125 1.125 0 01-1.125-1.125V14.25m17.25 4.5a1.5 1.5 0 01-3 0m3 0a1.5 1.5 0 00-3 0m3 0h1.125c.621 0 1.129-.504 1.09-1.124a17.902 17.902 0 00-3.213-9.193 2.056 2.056 0 00-1.58-.86H14.25M16.5 18.75h-2.25m0-11.177v-.958c0-.568-.422-1.048-.987-1.106a48.554 48.554 0 00-10.026 0 1.106 1.106 0 00-.987 1.106v7.635m12-6.677v6.677m0 4.5v-4.5m0 0h-12" />
                 </svg>
-                <p className="mt-4 text-gray-500">Select a supplier to view details</p>
+                <p className="mt-4 text-muted-foreground">Select a supplier to view details</p>
               </CardContent>
             </Card>
           )}
@@ -677,9 +682,9 @@ export default function SuppliersPage() {
       {/* Delete Confirmation */}
       {showDeleteConfirm && (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50">
-          <Card className="w-full max-w-md mx-4 border-red-200 dark:border-red-900">
+          <Card className="w-full max-w-md mx-4 border-risk-critical-accent/40">
             <CardHeader>
-              <CardTitle className="text-red-600">Delete Supplier</CardTitle>
+              <CardTitle className="text-risk-critical-text">Delete Supplier</CardTitle>
               <CardDescription>
                 This action cannot be undone. This will permanently delete {selectedSupplier?.name}.
               </CardDescription>

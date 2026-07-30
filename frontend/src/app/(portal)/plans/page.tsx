@@ -14,6 +14,7 @@ import {
 } from '@/components/ui/card';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
+import { Fillet } from '@/components/ui/fillet';
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -167,20 +168,20 @@ export default function PlansPage() {
   const getStatusColor = (status: WorkflowStatus) => {
     switch (status) {
       case 'PUBLISHED':
-        return 'bg-green-100 text-green-700';
+        return 'bg-risk-low text-risk-low-fg';
       case 'DRAFT':
-        return 'bg-yellow-100 text-yellow-700';
+        return 'bg-risk-elevated text-risk-elevated-fg';
       case 'ARCHIVED':
-        return 'bg-gray-100 text-gray-700';
+        return 'bg-muted text-muted-foreground';
       default:
-        return 'bg-gray-100 text-gray-700';
+        return 'bg-muted text-muted-foreground';
     }
   };
 
   if (!organization) {
     return (
       <div className="flex h-full items-center justify-center">
-        <p className="text-gray-500">Please select an organization</p>
+        <p className="text-muted-foreground">Please select an organization</p>
       </div>
     );
   }
@@ -188,10 +189,11 @@ export default function PlansPage() {
   return (
     <div className="flex h-full flex-col">
       {/* Header */}
-      <div className="flex items-center justify-between border-b border-gray-200 px-6 py-4">
+      <div className="flex items-center justify-between border-b border-border px-6 py-4">
         <div>
-          <h1 className="text-2xl font-bold text-gray-900">Plans</h1>
-          <p className="text-sm text-gray-500">
+          <h1 className="font-display text-3xl font-semibold text-foreground">Plans</h1>
+          <Fillet className="my-2" />
+          <p className="text-sm text-muted-foreground">
             Create and manage supply chain contingency workflows
           </p>
         </div>
@@ -202,8 +204,8 @@ export default function PlansPage() {
       </div>
 
       {/* Filters */}
-      <div className="flex items-center gap-4 border-b border-gray-200 px-6 py-3">
-        <span className="text-sm font-medium text-gray-700">Status:</span>
+      <div className="flex items-center gap-4 border-b border-border px-6 py-3">
+        <span className="text-sm font-medium text-muted-foreground">Status:</span>
         <div className="flex gap-2">
           {(['all', 'DRAFT', 'PUBLISHED', 'ARCHIVED'] as const).map((status) => (
             <button
@@ -211,8 +213,8 @@ export default function PlansPage() {
               onClick={() => setStatusFilter(status)}
               className={`rounded-full px-3 py-1 text-xs font-medium transition-colors ${
                 statusFilter === status
-                  ? 'bg-blue-500 text-white'
-                  : 'bg-gray-100 text-gray-600 hover:bg-gray-200'
+                  ? 'bg-primary text-primary-foreground'
+                  : 'bg-muted text-muted-foreground hover:bg-accent hover:text-foreground'
               }`}
             >
               {status === 'all' ? 'All' : status.charAt(0) + status.slice(1).toLowerCase()}
@@ -223,7 +225,7 @@ export default function PlansPage() {
 
       {/* Error message */}
       {error && (
-        <div className="mx-6 mt-4 rounded-md bg-red-50 p-3 text-sm text-red-600">
+        <div className="mx-6 mt-4 rounded-md bg-risk-critical p-3 text-sm text-risk-critical-fg">
           {error}
         </div>
       )}
@@ -232,13 +234,13 @@ export default function PlansPage() {
       <div className="flex-1 overflow-y-auto p-6">
         {isLoading ? (
           <div className="flex items-center justify-center py-12">
-            <div className="h-8 w-8 animate-spin rounded-full border-4 border-blue-500 border-t-transparent" />
+            <div className="h-8 w-8 animate-spin rounded-full border-4 border-primary border-t-transparent" />
           </div>
         ) : workflows.length === 0 ? (
           <div className="flex flex-col items-center justify-center py-12 text-center">
-            <FileText className="h-12 w-12 text-gray-300" />
-            <h3 className="mt-4 text-lg font-medium text-gray-900">No workflows yet</h3>
-            <p className="mt-1 text-sm text-gray-500">
+            <FileText className="h-12 w-12 text-muted-foreground" />
+            <h3 className="mt-4 text-lg font-medium text-foreground">No workflows yet</h3>
+            <p className="mt-1 text-sm text-muted-foreground">
               Create your first workflow to start building contingency plans
             </p>
             <Button className="mt-4" onClick={() => setShowCreateDialog(true)}>
@@ -266,10 +268,10 @@ export default function PlansPage() {
                     </div>
                     <DropdownMenu>
                       <DropdownMenuTrigger
-                        className="rounded-md p-1 hover:bg-gray-100"
+                        className="rounded-md p-1 hover:bg-muted"
                         onClick={(e) => e.stopPropagation()}
                       >
-                        <MoreVertical className="h-4 w-4 text-gray-500" />
+                        <MoreVertical className="h-4 w-4 text-muted-foreground" />
                       </DropdownMenuTrigger>
                       <DropdownMenuContent align="end">
                         {workflow.status === 'PUBLISHED' && (
@@ -295,7 +297,7 @@ export default function PlansPage() {
                           </DropdownMenuItem>
                         )}
                         <DropdownMenuItem
-                          className="text-red-600"
+                          className="text-risk-critical-text"
                           onClick={(e) => {
                             e.stopPropagation();
                             if (confirm('Are you sure you want to delete this workflow?')) {
@@ -319,11 +321,11 @@ export default function PlansPage() {
                     >
                       {workflow.status}
                     </span>
-                    <span className="text-gray-500">
+                    <span className="text-muted-foreground">
                       v{workflow.version} - {workflow.counts?.nodes || 0} nodes
                     </span>
                   </div>
-                  <div className="mt-2 text-xs text-gray-400">
+                  <div className="mt-2 text-xs text-muted-foreground">
                     Updated {new Date(workflow.updatedAt).toLocaleDateString()}
                   </div>
                 </CardContent>
@@ -336,9 +338,9 @@ export default function PlansPage() {
       {/* Create Dialog */}
       {showCreateDialog && (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50">
-          <div className="w-full max-w-md rounded-lg bg-white p-6 shadow-xl">
-            <h2 className="text-lg font-semibold text-gray-900">Create New Workflow</h2>
-            <p className="mt-1 text-sm text-gray-500">
+          <div className="w-full max-w-md rounded-lg bg-card p-6 shadow-xl">
+            <h2 className="text-lg font-semibold text-foreground">Create New Workflow</h2>
+            <p className="mt-1 text-sm text-muted-foreground">
               Give your workflow a name and optional description
             </p>
 
@@ -361,7 +363,7 @@ export default function PlansPage() {
                   value={newWorkflowDescription}
                   onChange={(e) => setNewWorkflowDescription(e.target.value)}
                   placeholder="Describe the purpose of this workflow..."
-                  className="mt-1 w-full rounded-md border border-gray-200 px-3 py-2 text-sm focus:border-blue-500 focus:outline-none focus:ring-1 focus:ring-blue-500"
+                  className="mt-1 w-full rounded-md border border-border px-3 py-2 text-sm focus:border-ring focus:outline-none focus:ring-1 focus:ring-ring"
                   rows={3}
                 />
               </div>

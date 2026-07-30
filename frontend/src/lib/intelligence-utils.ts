@@ -16,33 +16,57 @@ export interface StatusConfig {
   textColor: string;
 }
 
+/**
+ * Plan status. `textColor` is the `-fg` step, NOT `-text`: these sit ON their
+ * matching `bgColor` tinted surface, which is exactly what `-fg` is for.
+ * (`-text` on its own surface measures 4.39:1 for critical — under AA.)
+ *
+ * Mapped onto the risk role tokens by MEANING, not by the colour
+ * each previously happened to use: an unstarted plan is an open exposure
+ * (elevated), a resolved one is the only genuinely good state (low).
+ * Each token pair already encodes its light and dark values, so no `dark:`
+ * variant is needed here.
+ */
 export const STATUS_CONFIG: Record<EventStatus, StatusConfig> = {
   awaiting: {
     label: 'Awaiting plan initiation',
-    bgColor: 'bg-yellow-100 dark:bg-yellow-900/30',
-    textColor: 'text-yellow-700 dark:text-yellow-400',
+    bgColor: 'bg-risk-elevated',
+    textColor: 'text-risk-elevated-fg',
   },
   ongoing: {
     label: 'Plan ongoing',
-    bgColor: 'bg-blue-100 dark:bg-blue-900/30',
-    textColor: 'text-blue-700 dark:text-blue-400',
+    bgColor: 'bg-risk-monitoring',
+    textColor: 'text-risk-monitoring-fg',
   },
   delayed: {
     label: 'Plan delayed',
-    bgColor: 'bg-orange-100 dark:bg-orange-900/30',
-    textColor: 'text-orange-700 dark:text-orange-400',
+    bgColor: 'bg-risk-critical',
+    textColor: 'text-risk-critical-fg',
   },
   resolved: {
     label: 'Resolved',
-    bgColor: 'bg-green-100 dark:bg-green-900/30',
-    textColor: 'text-green-700 dark:text-green-400',
+    bgColor: 'bg-risk-low',
+    textColor: 'text-risk-low-fg',
   },
 };
 
+/**
+ * Severity chips. `color` carries BOTH surface and foreground because the safe
+ * text colour differs per family: white on the solid elevated/warning fill is
+ * only 3.05:1 and fails AA. These surface/foreground pairs are the same tokens
+ * RiskBadge uses and are contrast-validated in both modes (5.41–8.05:1 light,
+ * 10.58–12.23:1 dark). The numeric label is always rendered alongside, so
+ * severity is never carried by colour alone.
+ *
+ * The `-accent/40` border is not decoration: these render as a filled DISC, and
+ * the tinted surface is 1.20–1.30:1 against the light card, so without an edge
+ * the disc itself is not a perceivable graphic (WCAG 1.4.11). RiskBadge carries
+ * the same border for the same reason.
+ */
 export const SEVERITY_CONFIG: Record<number, { label: string; color: string }> = {
-  1: { label: '1', color: 'bg-yellow-500' },
-  2: { label: '2', color: 'bg-orange-500' },
-  3: { label: '3', color: 'bg-red-500' },
+  1: { label: '1', color: 'border border-risk-low-accent/40 bg-risk-low text-risk-low-fg' },
+  2: { label: '2', color: 'border border-risk-elevated-accent/40 bg-risk-elevated text-risk-elevated-fg' },
+  3: { label: '3', color: 'border border-risk-critical-accent/40 bg-risk-critical text-risk-critical-fg' },
 };
 
 export const TYPE_ICONS: Record<string, string> = {
@@ -104,14 +128,31 @@ export function formatTypeLabel(type: string): string {
     .join(' ');
 }
 
+/**
+ * Risk score → STANDALONE text token, for severity text on a plain card.
+ *
+ * Uses `-text`, not `-fg`: the dark `-fg` tints are ~90% lightness (correct on
+ * their own tinted badge surface) and all four read as the same off-white on a
+ * card.
+ *
+ * The 0.33 / 0.66 boundaries are shared with `getSeverityLevel` above,
+ * `getRiskBgColor` below and `severityLabel` in `atlas-brand.ts`. They drifted
+ * apart once — a 0.30 event got a green chip and an orange label — so treat the
+ * four as one table.
+ */
 export function getRiskColor(score: number): string {
-  if (score >= 0.66) return 'text-red-600 dark:text-red-400';
-  if (score >= 0.33) return 'text-orange-600 dark:text-orange-400';
-  return 'text-yellow-600 dark:text-yellow-400';
+  if (score >= 0.66) return 'text-risk-critical-text';
+  if (score >= 0.33) return 'text-risk-elevated-text';
+  return 'text-risk-low-text';
 }
 
+/**
+ * Risk score → solid fill, for bars and dots only. These are the saturated
+ * `-accent` steps, which clear 3:1 as non-text UI but NOT 4.5:1 as text —
+ * never put a label directly on one. Use getRiskColor for text.
+ */
 export function getRiskBgColor(score: number): string {
-  if (score >= 0.66) return 'bg-red-500';
-  if (score >= 0.33) return 'bg-orange-500';
-  return 'bg-yellow-500';
+  if (score >= 0.66) return 'bg-risk-critical-accent';
+  if (score >= 0.33) return 'bg-risk-elevated-accent';
+  return 'bg-risk-low-accent';
 }

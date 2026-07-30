@@ -5,9 +5,9 @@ Pericles supply-chain risk platform without drifting from the Platform Doctrine.
 Intended to be committed into `Pericles-Cloud/pericles` (suggested home: `.claude/skills/`
 or `/skills/`) and mirrored under **Product Docs → Build Skills** in Notion.
 
-## Status — all skills complete (2026-05-28)
+## Status — all skills complete (2026-05-28; `pericles-branding-ui` added 2026-07-28)
 
-W0 (10) + W1 (21) + W1.5 (4) + Post-MVP (6) + Build process (3) = **44 build skills**,
+W0 (10) + W1 (22) + W1.5 (4) + Post-MVP (6) + Build process (3) = **45 build skills**,
 all reconciled against the live repo (`CLAUDE.md`, `backend/package.json`,
 `prisma/schema.prisma`, `backend/src/*`, the `.claude/rules` + `.cursor/rules`
 libraries). The repo-side master list is `pericles-skills-master-list.md`; the live
@@ -32,15 +32,15 @@ ends with Open questions + Changelog. A stale `last_reconciled` is the signal to
 `-data-model` · `-tenant-isolation` · `-evals-scorers` (+template) · `-observability` ·
 `-prompts` · `-postgres-queue`
 
-## W1 — MVP spine (21)
+## W1 — MVP spine (22)
 
 **Skill System:** `pericles-skill-authoring` (+manifest template) · `-skill-registry` ·
 `-functional-agent` · `-execution-node` · `-topical-skill` · `-industry-skill` ·
 `-industry-pack` (+pack template) · `-persona-layer`
 **Backend / data / integrations:** `pericles-mcp-layer` · `-monitoring-pipeline` ·
 `-org-memory` · `-erp-adapter` · `-external-feeds`
-**Frontend:** `pericles-frontend-foundations` · `-copilot-ui` · `-atlas-ui` ·
-`-intelligence-ui` · `-admin-portal-ui`
+**Frontend:** `pericles-frontend-foundations` · `-branding-ui` · `-copilot-ui` ·
+`-atlas-ui` · `-intelligence-ui` · `-admin-portal-ui`
 **Governance:** `pericles-deployment-shapes` · `-compliance-audit` (+ADR template) ·
 `-security-threat-model`
 
@@ -70,7 +70,7 @@ The repo already contains more than the architecture docs implied — several sk
 - **Auth + RBAC** (auth-server, JWT/Google OAuth, `UserOrganization` OWNER/ADMIN/MEMBER/GUEST).
 - **Postgres `MessageQueue` + `KeyValueStore`** (+ `queue-client.ts`), `MonitoringAuditLog`/`AuthAuditLog`.
 - **Tools** put `organization_id` in `inputSchema` (validated via `context`); scorers use `createScorer` from `@mastra/core/scores`.
-- **`.mcp.json` is empty** → MCP (§5) is genuinely greenfield.
+- **`.mcp.json` holds one server** (`apify-importyeti`) → MCP (§5) is otherwise greenfield.
 - **`.cursor/rules`** is a generic library (its Kafka/Redis/VoltAgent/Neon files are NOT in use; `CLAUDE.md` + `package.json` are authoritative).
 - **`validation-client.ts` is a stub** → the Validation Agent (PoC) is not wired yet.
 

@@ -1,11 +1,14 @@
 'use client';
 
 import { useState } from 'react';
+import { useTheme } from 'next-themes';
 import { useAuth } from '@/providers/auth-provider';
+import { useMounted } from '@/lib/use-mounted';
 import { updatePassword, deleteAccount } from '@/lib/api-client';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
+import { Fillet } from '@/components/ui/fillet';
 import {
   Card,
   CardContent,
@@ -14,8 +17,19 @@ import {
   CardTitle,
 } from '@/components/ui/card';
 
+/** Literal light/dark previews — ramp colours, not role tokens. */
+const THEME_OPTIONS = [
+  { value: 'light', label: 'Light', swatch: 'bg-grey-50' },
+  { value: 'dark', label: 'Dark', swatch: 'bg-grey-900' },
+  { value: 'system', label: 'System', swatch: 'bg-gradient-to-r from-grey-50 to-grey-900' },
+] as const;
+
 export default function SettingsPage() {
   const { logout } = useAuth();
+  const { theme, setTheme } = useTheme();
+  // theme is undefined server-side; without this the selected option would
+  // differ between server and client markup.
+  const mounted = useMounted();
 
   // Password form state
   const [currentPassword, setCurrentPassword] = useState('');
@@ -81,8 +95,9 @@ export default function SettingsPage() {
   return (
     <div className="space-y-6">
       <div>
-        <h2 className="text-2xl font-bold text-gray-900 dark:text-white">Settings</h2>
-        <p className="text-gray-600 dark:text-gray-400">
+        <h2 className="font-display text-3xl font-semibold text-foreground">Settings</h2>
+        <Fillet className="my-2" />
+        <p className="text-muted-foreground">
           Manage your account settings and preferences
         </p>
       </div>
@@ -99,8 +114,8 @@ export default function SettingsPage() {
                 <div
                   className={`p-3 rounded-md text-sm ${
                     passwordMessage.type === 'success'
-                      ? 'bg-green-50 text-green-800 dark:bg-green-900/20 dark:text-green-400'
-                      : 'bg-red-50 text-red-800 dark:bg-red-900/20 dark:text-red-400'
+                      ? 'bg-risk-low text-risk-low-fg'
+                      : 'bg-risk-critical text-risk-critical-fg'
                   }`}
                 >
                   {passwordMessage.text}
@@ -160,45 +175,45 @@ export default function SettingsPage() {
             <div className="flex items-center justify-between">
               <div>
                 <p className="font-medium">Email Notifications</p>
-                <p className="text-sm text-gray-500">Receive email alerts for critical events</p>
+                <p className="text-sm text-muted-foreground">Receive email alerts for critical events</p>
               </div>
               <button
                 type="button"
-                className="relative inline-flex h-6 w-11 items-center rounded-full bg-blue-600 transition-colors"
+                className="relative inline-flex h-6 w-11 items-center rounded-full border border-primary bg-primary transition-colors"
                 role="switch"
                 aria-checked="true"
               >
-                <span className="inline-block size-4 translate-x-6 transform rounded-full bg-white transition-transform" />
+                <span className="inline-block size-4 translate-x-6 transform rounded-full bg-primary-foreground transition-transform" />
               </button>
             </div>
 
             <div className="flex items-center justify-between">
               <div>
                 <p className="font-medium">Weekly Digest</p>
-                <p className="text-sm text-gray-500">Receive a weekly summary of events</p>
+                <p className="text-sm text-muted-foreground">Receive a weekly summary of events</p>
               </div>
               <button
                 type="button"
-                className="relative inline-flex h-6 w-11 items-center rounded-full bg-gray-200 dark:bg-gray-700 transition-colors"
+                className="relative inline-flex h-6 w-11 items-center rounded-full bg-muted ring-1 ring-muted-foreground/70 transition-colors"
                 role="switch"
                 aria-checked="false"
               >
-                <span className="inline-block size-4 translate-x-1 transform rounded-full bg-white transition-transform" />
+                <span className="inline-block size-4 translate-x-1 transform rounded-full bg-muted-foreground transition-transform" />
               </button>
             </div>
 
             <div className="flex items-center justify-between">
               <div>
                 <p className="font-medium">Push Notifications</p>
-                <p className="text-sm text-gray-500">Browser push notifications for real-time alerts</p>
+                <p className="text-sm text-muted-foreground">Browser push notifications for real-time alerts</p>
               </div>
               <button
                 type="button"
-                className="relative inline-flex h-6 w-11 items-center rounded-full bg-gray-200 dark:bg-gray-700 transition-colors"
+                className="relative inline-flex h-6 w-11 items-center rounded-full bg-muted ring-1 ring-muted-foreground/70 transition-colors"
                 role="switch"
                 aria-checked="false"
               >
-                <span className="inline-block size-4 translate-x-1 transform rounded-full bg-white transition-transform" />
+                <span className="inline-block size-4 translate-x-1 transform rounded-full bg-muted-foreground transition-transform" />
               </button>
             </div>
           </CardContent>
@@ -212,36 +227,36 @@ export default function SettingsPage() {
           <CardContent className="space-y-4">
             <div>
               <Label className="mb-3 block">Theme</Label>
+              {/* Wired to the same next-themes store as the header toggle, so
+                  the two can't disagree. The swatches are literal light/dark
+                  previews, so they use the ramp, not role tokens. */}
               <div className="flex gap-3">
-                <button
-                  type="button"
-                  className="flex-1 p-3 rounded-lg border-2 border-blue-500 bg-white text-center"
-                >
-                  <div className="size-8 mx-auto mb-2 rounded bg-gray-100 border" />
-                  <span className="text-sm font-medium">Light</span>
-                </button>
-                <button
-                  type="button"
-                  className="flex-1 p-3 rounded-lg border border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-800 text-center"
-                >
-                  <div className="size-8 mx-auto mb-2 rounded bg-gray-800 border border-gray-700" />
-                  <span className="text-sm font-medium">Dark</span>
-                </button>
-                <button
-                  type="button"
-                  className="flex-1 p-3 rounded-lg border border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-800 text-center"
-                >
-                  <div className="size-8 mx-auto mb-2 rounded bg-gradient-to-r from-gray-100 to-gray-800 border" />
-                  <span className="text-sm font-medium">System</span>
-                </button>
+                {THEME_OPTIONS.map(({ value, label, swatch }) => (
+                  <button
+                    key={value}
+                    type="button"
+                    onClick={() => setTheme(value)}
+                    aria-pressed={mounted && theme === value}
+                    className={`flex-1 rounded-lg p-3 text-center transition-colors pointer-coarse:min-h-11 ${
+                      mounted && theme === value
+                        // border-2 on BOTH: switching selection must not change
+                        // the border width, or the row shifts by 1px.
+                        ? 'border-2 border-primary bg-primary/10'
+                        : 'border-2 border-border bg-card hover:bg-accent'
+                    }`}
+                  >
+                    <div className={`mx-auto mb-2 size-8 rounded border border-grey-300 ${swatch}`} />
+                    <span className="text-sm font-medium text-foreground">{label}</span>
+                  </button>
+                ))}
               </div>
             </div>
           </CardContent>
         </Card>
 
-        <Card className="border-red-200 dark:border-red-900">
+        <Card className="border-risk-critical-accent/40">
           <CardHeader>
-            <CardTitle className="text-red-600">Danger Zone</CardTitle>
+            <CardTitle className="text-risk-critical-text">Danger Zone</CardTitle>
             <CardDescription>Irreversible actions for your account</CardDescription>
           </CardHeader>
           <CardContent>
@@ -249,7 +264,7 @@ export default function SettingsPage() {
               <div className="flex items-center justify-between">
                 <div>
                   <p className="font-medium">Delete Account</p>
-                  <p className="text-sm text-gray-500">Permanently delete your account and all data</p>
+                  <p className="text-sm text-muted-foreground">Permanently delete your account and all data</p>
                 </div>
                 <Button
                   variant="destructive"
@@ -259,10 +274,10 @@ export default function SettingsPage() {
                 </Button>
               </div>
             ) : (
-              <div className="space-y-4 p-4 bg-red-50 dark:bg-red-900/20 rounded-lg">
+              <div className="space-y-4 p-4 bg-risk-critical rounded-lg">
                 <div className="flex items-start gap-3">
                   <svg
-                    className="size-6 text-red-600 shrink-0 mt-0.5"
+                    className="size-6 text-risk-critical-fg shrink-0 mt-0.5"
                     fill="none"
                     viewBox="0 0 24 24"
                     strokeWidth="1.5"
@@ -275,17 +290,17 @@ export default function SettingsPage() {
                     />
                   </svg>
                   <div>
-                    <p className="font-medium text-red-800 dark:text-red-200">
+                    <p className="font-medium text-risk-critical-fg">
                       This action cannot be undone
                     </p>
-                    <p className="text-sm text-red-700 dark:text-red-300 mt-1">
+                    <p className="text-sm text-risk-critical-fg mt-1">
                       This will permanently delete your account, remove your data, and revoke access to all organizations.
                     </p>
                   </div>
                 </div>
 
                 <div className="space-y-2">
-                  <Label htmlFor="deleteConfirm" className="text-red-800 dark:text-red-200">
+                  <Label htmlFor="deleteConfirm" className="text-risk-critical-fg">
                     Type DELETE to confirm
                   </Label>
                   <Input
@@ -294,7 +309,7 @@ export default function SettingsPage() {
                     value={deleteConfirmText}
                     onChange={(e) => setDeleteConfirmText(e.target.value)}
                     placeholder="DELETE"
-                    className="border-red-300 dark:border-red-700"
+                    className="border-risk-critical-accent/40"
                   />
                 </div>
 

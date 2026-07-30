@@ -20,12 +20,13 @@ export default function PortalLayout({
   // Show loading state
   if (isLoading) {
     return (
-      <div className="min-h-screen flex items-center justify-center bg-gray-50 dark:bg-gray-900">
+      <div className="flex min-h-dvh items-center justify-center bg-background">
         <div className="text-center">
-          <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-gray-900 dark:border-white mx-auto"></div>
-          <p className="mt-4 text-gray-600 dark:text-gray-400">
-            Loading...
-          </p>
+          {/* No motion-reduce: utility — globals.css already caps every
+              animation at one iteration under prefers-reduced-motion, and only
+              this one spinner out of nine carried the class. */}
+          <div className="mx-auto h-8 w-8 animate-spin rounded-full border-b-2 border-primary" />
+          <p className="mt-4 text-muted-foreground">Loading...</p>
         </div>
       </div>
     );
@@ -37,7 +38,8 @@ export default function PortalLayout({
   }
 
   return (
-    <div className={cn('bg-gray-50 dark:bg-gray-900', isFullBleed ? 'h-screen overflow-hidden' : 'min-h-screen')}>
+    // dvh, not vh — 100vh sits under the iOS Safari toolbar and clips content.
+    <div className={cn('bg-background', isFullBleed ? 'h-dvh overflow-hidden' : 'min-h-dvh')}>
       <Header />
       <Sidebar />
       <main
@@ -46,8 +48,11 @@ export default function PortalLayout({
           // Full-bleed routes (Atlas) run edge-to-edge under the header and the
           // nav floats above them, so they get no padding at all (GH #8).
           isFullBleed
-            ? 'h-[calc(100vh-4rem)] lg:pl-16'
-            : cn('p-6', isExpanded ? 'lg:pl-[calc(16rem+1.5rem)]' : 'lg:pl-[calc(4rem+1.5rem)]'),
+            ? 'h-[calc(100dvh-var(--app-header-h))] lg:pl-16'
+            // pb is `1.5rem + the home-indicator inset`, not `py-6`: a bare
+            // 1.5rem is less than the 34px inset, so the last row of a
+            // scrolling page sits under the indicator on a notched device.
+            : cn('pt-6 pb-[calc(1.5rem+env(safe-area-inset-bottom))] pl-[max(1.5rem,env(safe-area-inset-left))] pr-[max(1.5rem,env(safe-area-inset-right))]', isExpanded ? 'lg:pl-[calc(16rem+1.5rem)]' : 'lg:pl-[calc(4rem+1.5rem)]'),
         )}
       >
         {children}

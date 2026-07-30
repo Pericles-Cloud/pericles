@@ -10,7 +10,7 @@ export const TriggerNode = memo(function TriggerNode(props: NodeProps<WorkflowNo
     <BaseNode
       {...props}
       typeName="Trigger"
-      headerClassName="bg-red-500"
+      headerClassName="bg-purple-600"
       showTargetHandle={false}
     />
   );

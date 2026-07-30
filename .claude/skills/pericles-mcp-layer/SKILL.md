@@ -7,7 +7,8 @@ description: >
   feed) or design how a Skill reaches data. Encodes the "new sources via MCP, existing
   inline grandfathered" rule, portability (swap stores behind MCP), audit symmetry
   (MCP access logged like any invocation), and tenant scoping enforced at the MCP
-  boundary. .mcp.json is currently empty — this layer is greenfield.
+  boundary. .mcp.json holds exactly one server today (apify-importyeti) — this layer is
+  still close to greenfield.
 doctrine_refs: [§5; Security §2; Manifest Spec]
 depends_on: [pericles-doctrine, pericles-tenant-isolation, pericles-skill-authoring]
 last_reconciled: 2026-05-28
@@ -19,7 +20,8 @@ MCP (Model Context Protocol) is the **target data-access layer** (§5): Skills r
 external data through MCP servers rather than per-Skill integration code. This makes
 data sources portable (swap the store without touching Skills), keeps access auditable
 in one place, and lets the platform enforce tenant scoping at the data boundary. **The
-repo's `.mcp.json` is empty (`{"mcpServers":{}}`) — MCP is genuinely greenfield.**
+repo's `.mcp.json` holds exactly one server — `apify-importyeti`, the ImportYeti/Apify
+BOL source (`pericles-yetiscraper-mcp-apify`). Everything else is still greenfield.**
 
 ## When to use this skill
 

@@ -350,7 +350,7 @@ export function DataSourceSettingsDialog({
             <Label htmlFor={field.key} className="text-sm">
               {field.label}
             </Label>
-            <p className="text-xs text-gray-500 dark:text-gray-400">{field.description}</p>
+            <p className="text-xs text-muted-foreground">{field.description}</p>
             <Input
               id={field.key}
               type="number"
@@ -370,7 +370,7 @@ export function DataSourceSettingsDialog({
               <Label htmlFor={field.key} className="text-sm">
                 {field.label}
               </Label>
-              <p className="text-xs text-gray-500 dark:text-gray-400">{field.description}</p>
+              <p className="text-xs text-muted-foreground">{field.description}</p>
             </div>
             <button
               type="button"
@@ -378,11 +378,11 @@ export function DataSourceSettingsDialog({
               aria-checked={value as boolean}
               onClick={() => handleConfigFieldChange(field.key, !value)}
               className={`relative inline-flex h-6 w-11 items-center rounded-full transition-colors ${
-                value ? 'bg-blue-600' : 'bg-gray-200 dark:bg-gray-700'
+                value ? 'bg-primary border border-primary' : 'bg-muted ring-1 ring-muted-foreground/70'
               }`}
             >
               <span
-                className={`inline-block h-4 w-4 transform rounded-full bg-white transition-transform ${
+                className={`inline-block h-4 w-4 transform rounded-full ${value ? 'bg-primary-foreground' : 'bg-muted-foreground'} transition-transform ${
                   value ? 'translate-x-6' : 'translate-x-1'
                 }`}
               />
@@ -396,7 +396,7 @@ export function DataSourceSettingsDialog({
             <Label htmlFor={field.key} className="text-sm">
               {field.label}
             </Label>
-            <p className="text-xs text-gray-500 dark:text-gray-400">{field.description}</p>
+            <p className="text-xs text-muted-foreground">{field.description}</p>
             <Input
               id={field.key}
               type="text"
@@ -413,7 +413,7 @@ export function DataSourceSettingsDialog({
             <Label htmlFor={field.key} className="text-sm">
               {field.label}
             </Label>
-            <p className="text-xs text-gray-500 dark:text-gray-400">{field.description}</p>
+            <p className="text-xs text-muted-foreground">{field.description}</p>
             <textarea
               id={field.key}
               value={(value as string[]).join('\n')}
@@ -424,7 +424,7 @@ export function DataSourceSettingsDialog({
                 )
               }
               rows={4}
-              className="w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-md bg-white dark:bg-gray-800 text-gray-900 dark:text-white text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
+              className="w-full px-3 py-2 border border-input rounded-md bg-card text-foreground text-sm focus:outline-none focus:ring-2 focus:ring-ring"
               placeholder="One item per line"
             />
           </div>
@@ -436,12 +436,12 @@ export function DataSourceSettingsDialog({
             <Label htmlFor={field.key} className="text-sm">
               {field.label}
             </Label>
-            <p className="text-xs text-gray-500 dark:text-gray-400">{field.description}</p>
+            <p className="text-xs text-muted-foreground">{field.description}</p>
             <select
               id={field.key}
               value={value as string}
               onChange={(e) => handleConfigFieldChange(field.key, e.target.value)}
-              className="w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-md bg-white dark:bg-gray-800 text-gray-900 dark:text-white text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
+              className="w-full px-3 py-2 border border-input rounded-md bg-card text-foreground text-sm focus:outline-none focus:ring-2 focus:ring-ring"
             >
               {field.options?.map((opt) => (
                 <option key={opt.value} value={opt.value}>
@@ -469,13 +469,13 @@ export function DataSourceSettingsDialog({
         />
 
         {/* Dialog */}
-        <div className="relative bg-white dark:bg-gray-800 rounded-lg shadow-xl max-w-4xl w-full max-h-[90vh] overflow-hidden">
+        <div className="relative bg-card rounded-lg shadow-xl max-w-4xl w-full max-h-[90vh] overflow-hidden">
           {/* Header */}
-          <div className="flex items-center justify-between p-6 border-b border-gray-200 dark:border-gray-700">
+          <div className="flex items-center justify-between p-6 border-b border-border">
             <div className="flex items-center gap-3">
-              <div className="size-10 rounded-full bg-gradient-to-br from-blue-500 to-indigo-600 flex items-center justify-center">
+              <div className="size-10 rounded-full bg-primary flex items-center justify-center">
                 <svg
-                  className="size-5 text-white"
+                  className="size-5 text-primary-foreground"
                   fill="none"
                   viewBox="0 0 24 24"
                   strokeWidth="1.5"
@@ -494,17 +494,17 @@ export function DataSourceSettingsDialog({
                 </svg>
               </div>
               <div>
-                <h3 className="text-lg font-semibold text-gray-900 dark:text-white">
+                <h3 className="text-lg font-semibold text-foreground">
                   {dataSource?.name || 'Data Source'} Settings
                 </h3>
-                <p className="text-sm text-gray-500 dark:text-gray-400">
+                <p className="text-sm text-muted-foreground">
                   Configure tools for this data source
                 </p>
               </div>
             </div>
             <button
               onClick={onClose}
-              className="p-2 rounded-full text-gray-400 hover:text-gray-600 dark:hover:text-gray-300 hover:bg-gray-100 dark:hover:bg-gray-700 transition-colors"
+              className="p-2 rounded-full text-muted-foreground hover:text-foreground hover:bg-accent transition-colors"
             >
               <svg
                 className="size-5"
@@ -520,13 +520,13 @@ export function DataSourceSettingsDialog({
 
           {isLoading ? (
             <div className="flex items-center justify-center h-64">
-              <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-blue-600" />
+              <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-primary" />
             </div>
           ) : (
             <div className="flex h-[calc(90vh-180px)]">
               {/* Tool List (Left Sidebar) */}
-              <div className="w-64 border-r border-gray-200 dark:border-gray-700 overflow-y-auto p-4">
-                <h4 className="text-sm font-medium text-gray-500 dark:text-gray-400 uppercase tracking-wide mb-3">
+              <div className="w-64 border-r border-border overflow-y-auto p-4">
+                <h4 className="text-sm font-medium text-muted-foreground uppercase tracking-wide mb-3">
                   Available Tools
                 </h4>
                 <div className="space-y-2">
@@ -541,16 +541,16 @@ export function DataSourceSettingsDialog({
                         onClick={() => handleToolSelect(tool)}
                         className={`w-full text-left p-3 rounded-lg border transition-colors ${
                           isSelected
-                            ? 'border-blue-500 bg-blue-50 dark:bg-blue-900/20'
-                            : 'border-gray-200 dark:border-gray-700 hover:border-gray-300 dark:hover:border-gray-600'
+                            ? 'border-primary bg-primary/10'
+                            : 'border-border hover:border-input'
                         }`}
                       >
                         <div className="flex items-center justify-between mb-1">
                           <span
                             className={`font-medium text-sm ${
                               isSelected
-                                ? 'text-blue-600 dark:text-blue-400'
-                                : 'text-gray-900 dark:text-white'
+                                ? 'text-primary'
+                                : 'text-foreground'
                             }`}
                           >
                             {tool.name}
@@ -558,18 +558,18 @@ export function DataSourceSettingsDialog({
                           <span
                             className={`text-xs px-2 py-0.5 rounded ${
                               isEnabled
-                                ? 'bg-green-100 text-green-700 dark:bg-green-900/50 dark:text-green-400'
-                                : 'bg-gray-100 text-gray-500 dark:bg-gray-700 dark:text-gray-400'
+                                ? 'bg-risk-low text-risk-low-fg'
+                                : 'bg-muted text-muted-foreground'
                             }`}
                           >
                             {isEnabled ? 'On' : 'Off'}
                           </span>
                         </div>
-                        <p className="text-xs text-gray-500 dark:text-gray-400 line-clamp-2">
+                        <p className="text-xs text-muted-foreground line-clamp-2">
                           {tool.description}
                         </p>
                         {config && !config.isDefault && (
-                          <p className="text-xs text-blue-500 dark:text-blue-400 mt-1">
+                          <p className="text-xs text-primary mt-1">
                             Customized
                           </p>
                         )}
@@ -585,10 +585,10 @@ export function DataSourceSettingsDialog({
                   <div className="space-y-6">
                     {/* Tool Header */}
                     <div>
-                      <h4 className="text-lg font-medium text-gray-900 dark:text-white">
+                      <h4 className="text-lg font-medium text-foreground">
                         {selectedTool.name}
                       </h4>
-                      <p className="text-sm text-gray-500 dark:text-gray-400 mt-1">
+                      <p className="text-sm text-muted-foreground mt-1">
                         {selectedTool.description}
                       </p>
                       {selectedTool.documentationUrl && (
@@ -596,7 +596,7 @@ export function DataSourceSettingsDialog({
                           href={selectedTool.documentationUrl}
                           target="_blank"
                           rel="noopener noreferrer"
-                          className="text-sm text-blue-500 hover:text-blue-600 inline-flex items-center gap-1 mt-2"
+                          className="text-sm text-primary hover:text-primary/80 inline-flex items-center gap-1 mt-2"
                         >
                           View Documentation
                           <svg
@@ -621,8 +621,8 @@ export function DataSourceSettingsDialog({
                       <div
                         className={`p-3 rounded-md text-sm ${
                           message.type === 'success'
-                            ? 'bg-green-50 text-green-800 dark:bg-green-900/20 dark:text-green-400'
-                            : 'bg-red-50 text-red-800 dark:bg-red-900/20 dark:text-red-400'
+                            ? 'bg-risk-low text-risk-low-fg'
+                            : 'bg-risk-critical text-risk-critical-fg'
                         }`}
                       >
                         {message.text}
@@ -630,8 +630,8 @@ export function DataSourceSettingsDialog({
                     )}
 
                     {/* Common Settings */}
-                    <div className="space-y-4 border-b border-gray-200 dark:border-gray-700 pb-6">
-                      <h5 className="text-sm font-medium text-gray-700 dark:text-gray-300">
+                    <div className="space-y-4 border-b border-border pb-6">
+                      <h5 className="text-sm font-medium text-foreground">
                         Common Settings
                       </h5>
 
@@ -639,7 +639,7 @@ export function DataSourceSettingsDialog({
                       <div className="flex items-center justify-between">
                         <div>
                           <Label className="text-sm">Enabled</Label>
-                          <p className="text-xs text-gray-500 dark:text-gray-400">
+                          <p className="text-xs text-muted-foreground">
                             Enable or disable this tool
                           </p>
                         </div>
@@ -649,11 +649,11 @@ export function DataSourceSettingsDialog({
                           aria-checked={formEnabled}
                           onClick={() => setFormEnabled(!formEnabled)}
                           className={`relative inline-flex h-6 w-11 items-center rounded-full transition-colors ${
-                            formEnabled ? 'bg-blue-600' : 'bg-gray-200 dark:bg-gray-700'
+                            formEnabled ? 'bg-primary border border-primary' : 'bg-muted ring-1 ring-muted-foreground/70'
                           }`}
                         >
                           <span
-                            className={`inline-block h-4 w-4 transform rounded-full bg-white transition-transform ${
+                            className={`inline-block h-4 w-4 transform rounded-full ${formEnabled ? 'bg-primary-foreground' : 'bg-muted-foreground'} transition-transform ${
                               formEnabled ? 'translate-x-6' : 'translate-x-1'
                             }`}
                           />
@@ -665,7 +665,7 @@ export function DataSourceSettingsDialog({
                         <Label htmlFor="apiTimeoutMs" className="text-sm">
                           API Timeout (ms)
                         </Label>
-                        <p className="text-xs text-gray-500 dark:text-gray-400">
+                        <p className="text-xs text-muted-foreground">
                           Maximum time to wait for API responses
                         </p>
                         <Input
@@ -684,7 +684,7 @@ export function DataSourceSettingsDialog({
                         <Label htmlFor="severityThreshold" className="text-sm">
                           Severity Threshold ({(formSeverityThreshold * 100).toFixed(0)}%)
                         </Label>
-                        <p className="text-xs text-gray-500 dark:text-gray-400">
+                        <p className="text-xs text-muted-foreground">
                           Minimum severity level to report events
                         </p>
                         <div className="flex items-center gap-4">
@@ -698,7 +698,7 @@ export function DataSourceSettingsDialog({
                             onChange={(e) => setFormSeverityThreshold(parseFloat(e.target.value))}
                             className="flex-1"
                           />
-                          <span className="text-sm text-gray-600 dark:text-gray-400 w-12 text-right">
+                          <span className="text-sm text-muted-foreground w-12 text-right">
                             {(formSeverityThreshold * 100).toFixed(0)}%
                           </span>
                         </div>
@@ -709,7 +709,7 @@ export function DataSourceSettingsDialog({
                         <Label htmlFor="lookbackHours" className="text-sm">
                           Lookback Hours
                         </Label>
-                        <p className="text-xs text-gray-500 dark:text-gray-400">
+                        <p className="text-xs text-muted-foreground">
                           How far back to search for events
                         </p>
                         <Input
@@ -725,19 +725,19 @@ export function DataSourceSettingsDialog({
 
                     {/* API Key Settings */}
                     {(selectedTool.apiKeyEnvVar || selectedTool.requiresApiKey) && (
-                      <div className="space-y-4 border-b border-gray-200 dark:border-gray-700 pb-6">
+                      <div className="space-y-4 border-b border-border pb-6">
                         <div className="flex items-center justify-between">
-                          <h5 className="text-sm font-medium text-gray-700 dark:text-gray-300">
+                          <h5 className="text-sm font-medium text-foreground">
                             API Key Configuration
                           </h5>
                           {apiKeyStatus && (
                             <span
                               className={`text-xs px-2 py-1 rounded ${
                                 apiKeyStatus.status === 'configured' || apiKeyStatus.status === 'env_var'
-                                  ? 'bg-green-100 text-green-700 dark:bg-green-900/50 dark:text-green-400'
+                                  ? 'bg-risk-low text-risk-low-fg'
                                   : apiKeyStatus.status === 'not_required'
-                                    ? 'bg-blue-100 text-blue-700 dark:bg-blue-900/50 dark:text-blue-400'
-                                    : 'bg-yellow-100 text-yellow-700 dark:bg-yellow-900/50 dark:text-yellow-400'
+                                    ? 'bg-risk-monitoring text-risk-monitoring-fg'
+                                    : 'bg-risk-elevated text-risk-elevated-fg'
                               }`}
                             >
                               {apiKeyStatus.status === 'configured'
@@ -756,8 +756,8 @@ export function DataSourceSettingsDialog({
                           <div
                             className={`p-3 rounded-md text-sm ${
                               apiKeyMessage.type === 'success'
-                                ? 'bg-green-50 text-green-800 dark:bg-green-900/20 dark:text-green-400'
-                                : 'bg-red-50 text-red-800 dark:bg-red-900/20 dark:text-red-400'
+                                ? 'bg-risk-low text-risk-low-fg'
+                                : 'bg-risk-critical text-risk-critical-fg'
                             }`}
                           >
                             {apiKeyMessage.text}
@@ -774,9 +774,9 @@ export function DataSourceSettingsDialog({
                                 name="keySource"
                                 checked={useEnvVar}
                                 onChange={() => setUseEnvVar(true)}
-                                className="w-4 h-4 text-blue-600"
+                                className="w-4 h-4 text-primary"
                               />
-                              <span className="text-sm text-gray-700 dark:text-gray-300">
+                              <span className="text-sm text-foreground">
                                 Use environment variable
                               </span>
                             </label>
@@ -786,9 +786,9 @@ export function DataSourceSettingsDialog({
                                 name="keySource"
                                 checked={!useEnvVar}
                                 onChange={() => setUseEnvVar(false)}
-                                className="w-4 h-4 text-blue-600"
+                                className="w-4 h-4 text-primary"
                               />
-                              <span className="text-sm text-gray-700 dark:text-gray-300">
+                              <span className="text-sm text-foreground">
                                 Enter API key manually
                               </span>
                             </label>
@@ -797,9 +797,9 @@ export function DataSourceSettingsDialog({
 
                         {useEnvVar ? (
                           <div className="space-y-2">
-                            <div className="flex items-center gap-2 p-3 bg-gray-50 dark:bg-gray-900 rounded-md">
+                            <div className="flex items-center gap-2 p-3 bg-muted rounded-md">
                               <svg
-                                className="size-5 text-gray-500"
+                                className="size-5 text-muted-foreground"
                                 fill="none"
                                 viewBox="0 0 24 24"
                                 strokeWidth="1.5"
@@ -812,15 +812,17 @@ export function DataSourceSettingsDialog({
                                 />
                               </svg>
                               <div>
-                                <p className="text-sm font-medium text-gray-700 dark:text-gray-300">
-                                  Environment Variable: <code className="bg-gray-200 dark:bg-gray-700 px-1 rounded">{selectedTool.apiKeyEnvVar}</code>
+                                <p className="text-sm font-medium text-foreground">
+                                  {/* NOT bg-muted: the surrounding well is already
+                                      bg-muted, so the chip would be invisible. */}
+                                  Environment Variable: <code className="bg-muted-foreground/20 px-1 rounded">{selectedTool.apiKeyEnvVar}</code>
                                 </p>
                                 {apiKeyStatus?.envVarConfigured ? (
-                                  <p className="text-xs text-green-600 dark:text-green-400">
+                                  <p className="text-xs text-risk-low-text">
                                     ✓ Environment variable is set
                                   </p>
                                 ) : (
-                                  <p className="text-xs text-yellow-600 dark:text-yellow-400">
+                                  <p className="text-xs text-risk-elevated-text">
                                     ⚠ Environment variable not found. Add it to your .env file.
                                   </p>
                                 )}
@@ -876,7 +878,7 @@ export function DataSourceSettingsDialog({
                                 {isTestingApiKey ? 'Testing...' : 'Test'}
                               </Button>
                             </div>
-                            <p className="text-xs text-gray-500 dark:text-gray-400">
+                            <p className="text-xs text-muted-foreground">
                               The API key will be stored securely and used for API requests.
                             </p>
                             {apiKeyStatus?.status === 'configured' && (
@@ -885,7 +887,7 @@ export function DataSourceSettingsDialog({
                                 size="sm"
                                 onClick={handleClearApiKey}
                                 disabled={isSavingApiKey}
-                                className="text-red-600 hover:text-red-700 hover:bg-red-50 dark:text-red-400 dark:hover:bg-red-900/20"
+                                className="text-risk-critical-text hover:text-risk-critical-fg hover:bg-risk-critical"
                               >
                                 Clear Stored API Key
                               </Button>
@@ -895,12 +897,12 @@ export function DataSourceSettingsDialog({
 
                         {/* Last test info */}
                         {apiKeyStatus?.lastSuccessAt && (
-                          <p className="text-xs text-green-600 dark:text-green-400">
+                          <p className="text-xs text-risk-low-text">
                             Last successful test: {new Date(apiKeyStatus.lastSuccessAt).toLocaleString()}
                           </p>
                         )}
                         {apiKeyStatus?.lastErrorAt && (
-                          <p className="text-xs text-red-600 dark:text-red-400">
+                          <p className="text-xs text-risk-critical-text">
                             Last error: {apiKeyStatus.lastErrorMessage} ({new Date(apiKeyStatus.lastErrorAt).toLocaleString()})
                           </p>
                         )}
@@ -910,7 +912,7 @@ export function DataSourceSettingsDialog({
                     {/* Tool-Specific Settings */}
                     {selectedTool.configFields.length > 0 && (
                       <div className="space-y-4">
-                        <h5 className="text-sm font-medium text-gray-700 dark:text-gray-300">
+                        <h5 className="text-sm font-medium text-foreground">
                           Tool-Specific Settings
                         </h5>
                         {selectedTool.configFields.map(renderConfigField)}
@@ -919,27 +921,27 @@ export function DataSourceSettingsDialog({
 
                     {/* Status Info */}
                     {selectedConfig && (
-                      <div className="bg-gray-50 dark:bg-gray-900 rounded-lg p-4 text-sm space-y-2">
-                        <h5 className="font-medium text-gray-700 dark:text-gray-300">Status</h5>
+                      <div className="bg-muted rounded-lg p-4 text-sm space-y-2">
+                        <h5 className="font-medium text-foreground">Status</h5>
                         <div className="grid grid-cols-2 gap-4 text-xs">
                           <div>
-                            <span className="text-gray-500 dark:text-gray-400">Last Success:</span>
-                            <span className="ml-2 text-gray-700 dark:text-gray-300">
+                            <span className="text-muted-foreground">Last Success:</span>
+                            <span className="ml-2 text-foreground">
                               {selectedConfig.lastSuccessAt
                                 ? new Date(selectedConfig.lastSuccessAt).toLocaleString()
                                 : 'Never'}
                             </span>
                           </div>
                           <div>
-                            <span className="text-gray-500 dark:text-gray-400">Total Events:</span>
-                            <span className="ml-2 text-gray-700 dark:text-gray-300">
+                            <span className="text-muted-foreground">Total Events:</span>
+                            <span className="ml-2 text-foreground">
                               {selectedConfig.totalEventsFetched}
                             </span>
                           </div>
                           {selectedConfig.lastErrorAt && (
                             <div className="col-span-2">
-                              <span className="text-red-500">Last Error:</span>
-                              <span className="ml-2 text-red-600 dark:text-red-400">
+                              <span className="text-risk-critical-text">Last Error:</span>
+                              <span className="ml-2 text-risk-critical-text">
                                 {selectedConfig.lastErrorMessage || 'Unknown error'}
                               </span>
                             </div>
@@ -949,7 +951,7 @@ export function DataSourceSettingsDialog({
                     )}
                   </div>
                 ) : (
-                  <div className="flex items-center justify-center h-full text-gray-500 dark:text-gray-400">
+                  <div className="flex items-center justify-center h-full text-muted-foreground">
                     Select a tool to configure
                   </div>
                 )}
@@ -958,7 +960,7 @@ export function DataSourceSettingsDialog({
           )}
 
           {/* Footer */}
-          <div className="flex items-center justify-between p-6 border-t border-gray-200 dark:border-gray-700 bg-gray-50 dark:bg-gray-900">
+          <div className="flex items-center justify-between p-6 border-t border-border bg-muted">
             <div>
               {selectedConfig && !selectedConfig.isDefault && (
                 <Button variant="outline" onClick={handleReset} disabled={isSaving}>

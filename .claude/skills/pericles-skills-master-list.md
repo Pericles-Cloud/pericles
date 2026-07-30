@@ -38,6 +38,7 @@ repo bundle, and mirrored to Notion under *Product Docs → Build Skills*.
 
 ### Frontend
 - [x] pericles-frontend-foundations
+- [x] pericles-branding-ui
 - [x] pericles-copilot-ui
 - [x] pericles-atlas-ui
 - [x] pericles-intelligence-ui

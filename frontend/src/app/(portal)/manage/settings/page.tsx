@@ -11,6 +11,7 @@ import {
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
+import { Fillet } from '@/components/ui/fillet';
 import {
   Card,
   CardContent,
@@ -181,7 +182,7 @@ export default function SettingsPage() {
   if (isLoading) {
     return (
       <div className="flex items-center justify-center min-h-[400px]">
-        <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-blue-600" />
+        <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-primary" />
       </div>
     );
   }
@@ -198,8 +199,9 @@ export default function SettingsPage() {
     <div className="space-y-6">
       {/* Header */}
       <div>
-        <h2 className="text-2xl font-bold text-gray-900 dark:text-white">Settings</h2>
-        <p className="text-gray-600 dark:text-gray-400">
+        <h2 className="font-display text-3xl font-semibold text-foreground">Settings</h2>
+        <Fillet className="my-2" />
+        <p className="text-muted-foreground">
           Configure organization settings for agents, AI, notifications, and more.
         </p>
       </div>
@@ -209,8 +211,8 @@ export default function SettingsPage() {
         <div
           className={`p-3 rounded-md text-sm ${
             message.type === 'success'
-              ? 'bg-green-50 text-green-800 dark:bg-green-900/20 dark:text-green-400'
-              : 'bg-red-50 text-red-800 dark:bg-red-900/20 dark:text-red-400'
+              ? 'bg-risk-low text-risk-low-fg'
+              : 'bg-risk-critical text-risk-critical-fg'
           }`}
         >
           {message.text}
@@ -227,7 +229,7 @@ export default function SettingsPage() {
         </CardHeader>
         <CardContent>
           {/* Tabs */}
-          <div className="border-b border-gray-200 dark:border-gray-700 mb-6">
+          <div className="border-b border-border mb-6">
             <nav className="flex gap-4 -mb-px overflow-x-auto">
               {tabs.map((tab) => (
                 <button
@@ -235,8 +237,8 @@ export default function SettingsPage() {
                   onClick={() => setActiveTab(tab.key)}
                   className={`pb-3 px-1 text-sm font-medium border-b-2 transition-colors whitespace-nowrap ${
                     activeTab === tab.key
-                      ? 'border-blue-500 text-blue-600 dark:text-blue-400'
-                      : 'border-transparent text-gray-500 dark:text-gray-400 hover:text-gray-700 dark:hover:text-gray-300'
+                      ? 'border-primary text-primary'
+                      : 'border-transparent text-muted-foreground hover:text-foreground'
                   }`}
                 >
                   {tab.label}
@@ -252,18 +254,18 @@ export default function SettingsPage() {
               <div className="flex items-center justify-between">
                 <div>
                   <Label>Monitoring Agent</Label>
-                  <p className="text-sm text-gray-500 dark:text-gray-400">
+                  <p className="text-sm text-muted-foreground">
                     Enable or disable the monitoring agent for this organization
                   </p>
                 </div>
                 <button
                   onClick={() => updateField('monitoringAgentEnabled', !formData.monitoringAgentEnabled)}
                   className={`relative inline-flex h-6 w-11 items-center rounded-full transition-colors ${
-                    formData.monitoringAgentEnabled ? 'bg-blue-600' : 'bg-gray-200 dark:bg-gray-700'
+                    formData.monitoringAgentEnabled ? 'bg-primary border border-primary' : 'bg-muted ring-1 ring-muted-foreground/70'
                   }`}
                 >
                   <span
-                    className={`inline-block h-4 w-4 transform rounded-full bg-white transition-transform ${
+                    className={`inline-block h-4 w-4 transform rounded-full ${formData.monitoringAgentEnabled ? 'bg-primary-foreground' : 'bg-muted-foreground'} transition-transform ${
                       formData.monitoringAgentEnabled ? 'translate-x-6' : 'translate-x-1'
                     }`}
                   />
@@ -273,7 +275,7 @@ export default function SettingsPage() {
               {/* Polling Interval */}
               <div>
                 <Label htmlFor="pollingInterval">Polling Interval (seconds)</Label>
-                <p className="text-sm text-gray-500 dark:text-gray-400 mb-2">
+                <p className="text-sm text-muted-foreground mb-2">
                   How often the agent checks for new events
                 </p>
                 <div className="flex items-center gap-4">
@@ -301,7 +303,7 @@ export default function SettingsPage() {
               {/* Data Sources */}
               <div>
                 <Label>Enabled Data Sources</Label>
-                <p className="text-sm text-gray-500 dark:text-gray-400 mb-3">
+                <p className="text-sm text-muted-foreground mb-3">
                   Select which data sources the agent should monitor
                 </p>
                 <div className="grid grid-cols-2 gap-2">
@@ -314,19 +316,19 @@ export default function SettingsPage() {
                         onClick={() => toggleDataSource(source.key)}
                         className={`p-3 rounded-lg border text-left transition-colors ${
                           isEnabled
-                            ? 'border-green-200 bg-green-50 dark:border-green-800 dark:bg-green-900/20'
-                            : 'border-gray-200 bg-gray-50 dark:border-gray-700 dark:bg-gray-800 opacity-50'
+                            ? 'border-risk-low-accent/40 bg-risk-low'
+                            : 'border-border bg-muted opacity-50'
                         }`}
                       >
                         <div className="flex items-center justify-between">
-                          <span className="text-sm font-medium text-gray-900 dark:text-white">
+                          <span className="text-sm font-medium text-foreground">
                             {source.label}
                           </span>
                           <span
                             className={`text-xs px-2 py-0.5 rounded ${
                               isEnabled
-                                ? 'bg-green-100 text-green-700 dark:bg-green-900/50 dark:text-green-400'
-                                : 'bg-gray-200 text-gray-500 dark:bg-gray-700 dark:text-gray-400'
+                                ? 'bg-risk-low-accent/25 text-risk-low-fg'
+                                : 'bg-muted-foreground/20 text-muted-foreground'
                             }`}
                           >
                             {isEnabled ? 'On' : 'Off'}
@@ -357,7 +359,7 @@ export default function SettingsPage() {
                       updateField('aiModelName', newModels[0].value);
                     }
                   }}
-                  className="mt-2 block w-full rounded-md border border-gray-300 dark:border-gray-600 bg-white dark:bg-gray-800 px-3 py-2 text-gray-900 dark:text-white focus:border-blue-500 focus:ring-blue-500"
+                  className="mt-2 block w-full rounded-md border border-input bg-card px-3 py-2 text-foreground focus:border-ring focus:ring-ring"
                 >
                   {AI_PROVIDERS.map((provider) => (
                     <option key={provider.value} value={provider.value}>
@@ -374,7 +376,7 @@ export default function SettingsPage() {
                   id="aiModel"
                   value={formData.aiModelName || 'gpt-4o'}
                   onChange={(e) => updateField('aiModelName', e.target.value)}
-                  className="mt-2 block w-full rounded-md border border-gray-300 dark:border-gray-600 bg-white dark:bg-gray-800 px-3 py-2 text-gray-900 dark:text-white focus:border-blue-500 focus:ring-blue-500"
+                  className="mt-2 block w-full rounded-md border border-input bg-card px-3 py-2 text-foreground focus:border-ring focus:ring-ring"
                 >
                   {(AI_MODELS[formData.aiModelProvider || 'openai'] || []).map((model) => (
                     <option key={model.value} value={model.value}>
@@ -387,7 +389,7 @@ export default function SettingsPage() {
               {/* Temperature */}
               <div>
                 <Label htmlFor="temperature">Temperature</Label>
-                <p className="text-sm text-gray-500 dark:text-gray-400 mb-2">
+                <p className="text-sm text-muted-foreground mb-2">
                   Controls randomness in AI responses. Lower = more focused, Higher = more creative.
                 </p>
                 <div className="flex items-center gap-4">
@@ -410,7 +412,7 @@ export default function SettingsPage() {
               {/* Max Tokens */}
               <div>
                 <Label htmlFor="maxTokens">Max Tokens</Label>
-                <p className="text-sm text-gray-500 dark:text-gray-400 mb-2">
+                <p className="text-sm text-muted-foreground mb-2">
                   Maximum number of tokens in AI responses
                 </p>
                 <Input
@@ -431,22 +433,22 @@ export default function SettingsPage() {
           {activeTab === 'notifications' && (
             <div className="space-y-6">
               {/* Email Notifications */}
-              <div className="p-4 rounded-lg border border-gray-200 dark:border-gray-700">
+              <div className="p-4 rounded-lg border border-border">
                 <div className="flex items-center justify-between mb-4">
                   <div>
                     <Label>Email Notifications</Label>
-                    <p className="text-sm text-gray-500 dark:text-gray-400">
+                    <p className="text-sm text-muted-foreground">
                       Send email alerts for high-severity events
                     </p>
                   </div>
                   <button
                     onClick={() => updateField('notificationsEmailEnabled', !formData.notificationsEmailEnabled)}
                     className={`relative inline-flex h-6 w-11 items-center rounded-full transition-colors ${
-                      formData.notificationsEmailEnabled ? 'bg-blue-600' : 'bg-gray-200 dark:bg-gray-700'
+                      formData.notificationsEmailEnabled ? 'bg-primary border border-primary' : 'bg-muted ring-1 ring-muted-foreground/70'
                     }`}
                   >
                     <span
-                      className={`inline-block h-4 w-4 transform rounded-full bg-white transition-transform ${
+                      className={`inline-block h-4 w-4 transform rounded-full ${formData.notificationsEmailEnabled ? 'bg-primary-foreground' : 'bg-muted-foreground'} transition-transform ${
                         formData.notificationsEmailEnabled ? 'translate-x-6' : 'translate-x-1'
                       }`}
                     />
@@ -487,12 +489,12 @@ export default function SettingsPage() {
                         {((formData.notificationsEmailRecipients || []) as string[]).map((email) => (
                           <span
                             key={email}
-                            className="inline-flex items-center gap-1 px-2 py-1 rounded-full bg-gray-100 dark:bg-gray-800 text-sm"
+                            className="inline-flex items-center gap-1 px-2 py-1 rounded-full bg-muted text-sm"
                           >
                             {email}
                             <button
                               onClick={() => removeEmailRecipient(email)}
-                              className="text-gray-400 hover:text-gray-600 dark:hover:text-gray-300"
+                              className="text-muted-foreground hover:text-foreground"
                             >
                               &times;
                             </button>
@@ -514,22 +516,22 @@ export default function SettingsPage() {
               </div>
 
               {/* Slack Notifications */}
-              <div className="p-4 rounded-lg border border-gray-200 dark:border-gray-700">
+              <div className="p-4 rounded-lg border border-border">
                 <div className="flex items-center justify-between mb-4">
                   <div>
                     <Label>Slack Notifications</Label>
-                    <p className="text-sm text-gray-500 dark:text-gray-400">
+                    <p className="text-sm text-muted-foreground">
                       Send alerts to a Slack channel
                     </p>
                   </div>
                   <button
                     onClick={() => updateField('notificationsSlackEnabled', !formData.notificationsSlackEnabled)}
                     className={`relative inline-flex h-6 w-11 items-center rounded-full transition-colors ${
-                      formData.notificationsSlackEnabled ? 'bg-blue-600' : 'bg-gray-200 dark:bg-gray-700'
+                      formData.notificationsSlackEnabled ? 'bg-primary border border-primary' : 'bg-muted ring-1 ring-muted-foreground/70'
                     }`}
                   >
                     <span
-                      className={`inline-block h-4 w-4 transform rounded-full bg-white transition-transform ${
+                      className={`inline-block h-4 w-4 transform rounded-full ${formData.notificationsSlackEnabled ? 'bg-primary-foreground' : 'bg-muted-foreground'} transition-transform ${
                         formData.notificationsSlackEnabled ? 'translate-x-6' : 'translate-x-1'
                       }`}
                     />
@@ -565,7 +567,7 @@ export default function SettingsPage() {
               {/* Severity Threshold */}
               <div>
                 <Label htmlFor="severityThreshold">Notification Severity Threshold</Label>
-                <p className="text-sm text-gray-500 dark:text-gray-400 mb-2">
+                <p className="text-sm text-muted-foreground mb-2">
                   Only send notifications for events above this severity level ({((formData.notificationsSeverityThreshold ?? 0.7) * 100).toFixed(0)}%)
                 </p>
                 <div className="flex items-center gap-4">
@@ -586,22 +588,22 @@ export default function SettingsPage() {
               </div>
 
               {/* Digest Settings */}
-              <div className="p-4 rounded-lg border border-gray-200 dark:border-gray-700">
+              <div className="p-4 rounded-lg border border-border">
                 <div className="flex items-center justify-between mb-4">
                   <div>
                     <Label>Email Digest</Label>
-                    <p className="text-sm text-gray-500 dark:text-gray-400">
+                    <p className="text-sm text-muted-foreground">
                       Send periodic summary digests
                     </p>
                   </div>
                   <button
                     onClick={() => updateField('notificationsDigestEnabled', !formData.notificationsDigestEnabled)}
                     className={`relative inline-flex h-6 w-11 items-center rounded-full transition-colors ${
-                      formData.notificationsDigestEnabled ? 'bg-blue-600' : 'bg-gray-200 dark:bg-gray-700'
+                      formData.notificationsDigestEnabled ? 'bg-primary border border-primary' : 'bg-muted ring-1 ring-muted-foreground/70'
                     }`}
                   >
                     <span
-                      className={`inline-block h-4 w-4 transform rounded-full bg-white transition-transform ${
+                      className={`inline-block h-4 w-4 transform rounded-full ${formData.notificationsDigestEnabled ? 'bg-primary-foreground' : 'bg-muted-foreground'} transition-transform ${
                         formData.notificationsDigestEnabled ? 'translate-x-6' : 'translate-x-1'
                       }`}
                     />
@@ -615,7 +617,7 @@ export default function SettingsPage() {
                       id="digestFrequency"
                       value={formData.notificationsDigestFrequency || 'weekly'}
                       onChange={(e) => updateField('notificationsDigestFrequency', e.target.value)}
-                      className="mt-2 block w-full rounded-md border border-gray-300 dark:border-gray-600 bg-white dark:bg-gray-800 px-3 py-2 text-gray-900 dark:text-white focus:border-blue-500 focus:ring-blue-500"
+                      className="mt-2 block w-full rounded-md border border-input bg-card px-3 py-2 text-foreground focus:border-ring focus:ring-ring"
                     >
                       {DIGEST_FREQUENCIES.map((freq) => (
                         <option key={freq.value} value={freq.value}>
@@ -633,17 +635,17 @@ export default function SettingsPage() {
           {activeTab === 'integrations' && (
             <div className="space-y-6">
               {/* SAP Integration */}
-              <div className="p-4 rounded-lg border border-gray-200 dark:border-gray-700">
+              <div className="p-4 rounded-lg border border-border">
                 <div className="flex items-center justify-between mb-4">
                   <div className="flex items-center gap-3">
-                    <div className="size-10 rounded-lg bg-blue-100 dark:bg-blue-900/30 flex items-center justify-center">
-                      <svg className="size-6 text-blue-600 dark:text-blue-400" fill="none" viewBox="0 0 24 24" strokeWidth="1.5" stroke="currentColor">
+                    <div className="size-10 rounded-lg bg-risk-monitoring flex items-center justify-center">
+                      <svg className="size-6 text-primary" fill="none" viewBox="0 0 24 24" strokeWidth="1.5" stroke="currentColor">
                         <path strokeLinecap="round" strokeLinejoin="round" d="M20.25 6.375c0 2.278-3.694 4.125-8.25 4.125S3.75 8.653 3.75 6.375m16.5 0c0-2.278-3.694-4.125-8.25-4.125S3.75 4.097 3.75 6.375m16.5 0v11.25c0 2.278-3.694 4.125-8.25 4.125s-8.25-1.847-8.25-4.125V6.375m16.5 0v3.75m-16.5-3.75v3.75m16.5 0v3.75C20.25 16.153 16.556 18 12 18s-8.25-1.847-8.25-4.125v-3.75m16.5 0c0 2.278-3.694 4.125-8.25 4.125s-8.25-1.847-8.25-4.125" />
                       </svg>
                     </div>
                     <div>
-                      <h4 className="font-medium text-gray-900 dark:text-white">SAP ERP Integration</h4>
-                      <p className="text-sm text-gray-500 dark:text-gray-400">
+                      <h4 className="font-medium text-foreground">SAP ERP Integration</h4>
+                      <p className="text-sm text-muted-foreground">
                         Sync supply chain data from SAP
                       </p>
                     </div>
@@ -651,8 +653,8 @@ export default function SettingsPage() {
                   <span
                     className={`px-2 py-1 rounded text-xs font-medium ${
                       formData.integrationSapConfigured
-                        ? 'bg-green-100 text-green-700 dark:bg-green-900/50 dark:text-green-400'
-                        : 'bg-gray-100 text-gray-500 dark:bg-gray-800 dark:text-gray-400'
+                        ? 'bg-risk-low-accent/25 text-risk-low-fg'
+                        : 'bg-muted-foreground/20 text-muted-foreground'
                     }`}
                   >
                     {formData.integrationSapConfigured ? 'Connected' : 'Not Configured'}
@@ -663,7 +665,7 @@ export default function SettingsPage() {
                   <div className="space-y-4">
                     <div>
                       <Label>Last Sync</Label>
-                      <p className="text-sm text-gray-900 dark:text-white">
+                      <p className="text-sm text-foreground">
                         {settings?.integrationSapLastSync
                           ? new Date(settings.integrationSapLastSync).toLocaleString()
                           : 'Never'}
@@ -676,7 +678,7 @@ export default function SettingsPage() {
                         id="sapSyncFrequency"
                         value={formData.integrationSapSyncFrequency || 'daily'}
                         onChange={(e) => updateField('integrationSapSyncFrequency', e.target.value)}
-                        className="mt-2 block w-full rounded-md border border-gray-300 dark:border-gray-600 bg-white dark:bg-gray-800 px-3 py-2 text-gray-900 dark:text-white focus:border-blue-500 focus:ring-blue-500"
+                        className="mt-2 block w-full rounded-md border border-input bg-card px-3 py-2 text-foreground focus:border-ring focus:ring-ring"
                       >
                         {SAP_SYNC_FREQUENCIES.map((freq) => (
                           <option key={freq.value} value={freq.value}>
@@ -693,7 +695,7 @@ export default function SettingsPage() {
                 )}
 
                 {!formData.integrationSapConfigured && (
-                  <p className="text-sm text-gray-500 dark:text-gray-400">
+                  <p className="text-sm text-muted-foreground">
                     Contact your administrator to set up SAP integration.
                   </p>
                 )}
@@ -704,14 +706,14 @@ export default function SettingsPage() {
           {/* Data Retention Tab */}
           {activeTab === 'retention' && (
             <div className="space-y-6">
-              <p className="text-sm text-gray-500 dark:text-gray-400">
+              <p className="text-sm text-muted-foreground">
                 Configure how long data is retained before automatic deletion.
               </p>
 
               {/* Events Retention */}
               <div>
                 <Label htmlFor="eventRetention">Events Retention (days)</Label>
-                <p className="text-sm text-gray-500 dark:text-gray-400 mb-2">
+                <p className="text-sm text-muted-foreground mb-2">
                   How long to keep detected events
                 </p>
                 <Input
@@ -728,7 +730,7 @@ export default function SettingsPage() {
               {/* Incidents Retention */}
               <div>
                 <Label htmlFor="incidentRetention">Incidents Retention (days)</Label>
-                <p className="text-sm text-gray-500 dark:text-gray-400 mb-2">
+                <p className="text-sm text-muted-foreground mb-2">
                   How long to keep validated incidents
                 </p>
                 <Input
@@ -745,7 +747,7 @@ export default function SettingsPage() {
               {/* Audit Logs Retention */}
               <div>
                 <Label htmlFor="auditRetention">Audit Logs Retention (days)</Label>
-                <p className="text-sm text-gray-500 dark:text-gray-400 mb-2">
+                <p className="text-sm text-muted-foreground mb-2">
                   How long to keep monitoring audit logs
                 </p>
                 <Input
@@ -762,7 +764,7 @@ export default function SettingsPage() {
           )}
 
           {/* Save Button */}
-          <div className="flex justify-end pt-6 mt-6 border-t border-gray-200 dark:border-gray-700">
+          <div className="flex justify-end pt-6 mt-6 border-t border-border">
             <Button onClick={handleSave} disabled={isSaving}>
               {isSaving ? 'Saving...' : 'Save Settings'}
             </Button>

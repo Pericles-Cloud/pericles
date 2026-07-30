@@ -36,6 +36,7 @@ import {
   IncidentCard,
 } from '@/components/intelligence/event-detail';
 import { formatTypeLabel, getEventStatus, getRiskColor } from '@/lib/intelligence-utils';
+import { Fillet } from '@/components/ui/fillet';
 
 type IntelligenceView = 'feed' | 'analytics';
 
@@ -190,7 +191,7 @@ function IntelligenceContent() {
       <div className="flex items-center justify-center min-h-[400px]">
         <Card>
           <CardContent className="py-8 text-center">
-            <p className="text-gray-500">Please select an organization to view intelligence</p>
+            <p className="text-muted-foreground">Please select an organization to view intelligence</p>
           </CardContent>
         </Card>
       </div>
@@ -204,14 +205,15 @@ function IntelligenceContent() {
       {/* Header + view switcher */}
       <div className="flex items-center justify-between gap-4 flex-wrap">
         <div>
-          <h2 className="text-2xl font-bold text-gray-900 dark:text-white">Intelligence</h2>
-          <p className="text-gray-600 dark:text-gray-400">
+          <h2 className="font-display text-3xl font-semibold text-foreground">Intelligence</h2>
+          <Fillet className="my-2" />
+          <p className="text-muted-foreground">
             Monitor supply chain events and risk analysis for {currentOrganization.name}
           </p>
         </div>
 
         <div className="flex items-center gap-4">
-          <div className="text-sm text-gray-500">
+          <div className="text-sm text-muted-foreground">
             <span className="font-medium">{total}</span> total events
           </div>
           <div className="flex items-center rounded-md border overflow-hidden" role="tablist">
@@ -238,7 +240,7 @@ function IntelligenceContent() {
       {loadError && (
         <div
           role="alert"
-          className="rounded-md border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-800 dark:border-red-900 dark:bg-red-950/40 dark:text-red-300"
+          className="rounded-md border border-risk-critical-accent/40 bg-risk-critical px-4 py-3 text-sm text-risk-critical-fg"
         >
           {loadError}
         </div>
@@ -247,7 +249,7 @@ function IntelligenceContent() {
       {deepLinkMissed && (
         <div
           role="status"
-          className="rounded-md border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-900 dark:border-amber-900 dark:bg-amber-950/40 dark:text-amber-300"
+          className="rounded-md border border-risk-elevated-accent/40 bg-risk-elevated px-4 py-3 text-sm text-risk-elevated-fg"
         >
           That event is not in the current window of monitored events. Pick one from the feed.
         </div>
@@ -300,7 +302,7 @@ function IntelligenceContent() {
           <div className="grid gap-6 lg:grid-cols-3">
             {/* Event list */}
             <div className="space-y-4">
-              <h3 className="text-sm font-medium text-gray-500 dark:text-gray-400 uppercase tracking-wide">
+              <h3 className="text-sm font-medium text-muted-foreground uppercase tracking-wide">
                 {filteredEvents.length} Event{filteredEvents.length !== 1 ? 's' : ''}
               </h3>
               <div className="space-y-3 max-h-[700px] overflow-y-auto pr-2">
@@ -327,7 +329,7 @@ function IntelligenceContent() {
                 <Card>
                   <CardContent className="py-12 text-center">
                     <svg
-                      className="mx-auto h-12 w-12 text-gray-300"
+                      className="mx-auto h-12 w-12 text-muted-foreground"
                       fill="none"
                       viewBox="0 0 24 24"
                       strokeWidth="1.5"
@@ -339,7 +341,7 @@ function IntelligenceContent() {
                         d="M12 9v3.75m9-.75a9 9 0 11-18 0 9 9 0 0118 0zm-9 3.75h.008v.008H12v-.008z"
                       />
                     </svg>
-                    <p className="mt-4 text-gray-500">Select an event to view details</p>
+                    <p className="mt-4 text-muted-foreground">Select an event to view details</p>
                   </CardContent>
                 </Card>
               )}
@@ -392,7 +394,7 @@ function IntelligenceContent() {
                   </CardDescription>
                 </div>
                 <div className="text-right">
-                  <div className="text-xs text-gray-500 uppercase tracking-wide">
+                  <div className="text-xs text-muted-foreground uppercase tracking-wide">
                     Overall Risk Score
                   </div>
                   <div className={`text-2xl font-bold ${getRiskColor(overallRiskScore(events))}`}>
@@ -407,10 +409,10 @@ function IntelligenceContent() {
 
             {/* Co-Pilot prompt bar */}
             <div className="border-t p-4">
-              <div className="flex items-center gap-3 bg-gray-100 dark:bg-gray-800 rounded-lg p-2">
-                <div className="size-8 rounded-full bg-gray-300 dark:bg-gray-600 flex items-center justify-center shrink-0">
+              <div className="flex items-center gap-3 bg-muted rounded-lg p-2">
+                <div className="size-8 rounded-full bg-primary flex items-center justify-center shrink-0">
                   <svg
-                    className="size-4 text-gray-600 dark:text-gray-300"
+                    className="size-4 text-primary-foreground"
                     fill="none"
                     viewBox="0 0 24 24"
                     strokeWidth="1.5"
@@ -456,8 +458,8 @@ function LoadingState() {
   return (
     <div className="flex items-center justify-center min-h-[400px]">
       <div className="text-center">
-        <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-blue-600 mx-auto" />
-        <p className="mt-4 text-gray-500">Loading intelligence...</p>
+        <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-primary mx-auto" />
+        <p className="mt-4 text-muted-foreground">Loading intelligence...</p>
       </div>
     </div>
   );

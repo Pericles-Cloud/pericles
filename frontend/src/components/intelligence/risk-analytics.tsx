@@ -163,7 +163,7 @@ export function RiskAnalytics({ events, suppliers, shipments }: RiskAnalyticsPro
       {/* Country Risk */}
       <div>
         <h3 className="font-medium mb-3 flex items-center gap-2">
-          <svg className="size-5 text-blue-500" fill="none" viewBox="0 0 24 24" strokeWidth="1.5" stroke="currentColor">
+          <svg className="size-5 text-primary" fill="none" viewBox="0 0 24 24" strokeWidth="1.5" stroke="currentColor">
             <path
               strokeLinecap="round"
               strokeLinejoin="round"
@@ -174,7 +174,7 @@ export function RiskAnalytics({ events, suppliers, shipments }: RiskAnalyticsPro
         </h3>
         <div className="space-y-2">
           {countryRisks.length === 0 ? (
-            <p className="text-sm text-gray-500">No country data available</p>
+            <p className="text-sm text-muted-foreground">No country data available</p>
           ) : (
             countryRisks.map((country) => <CountryRiskBar key={country.country} country={country} />)
           )}
@@ -184,7 +184,7 @@ export function RiskAnalytics({ events, suppliers, shipments }: RiskAnalyticsPro
       {/* Sector Risk */}
       <div>
         <h3 className="font-medium mb-3 flex items-center gap-2">
-          <svg className="size-5 text-purple-500" fill="none" viewBox="0 0 24 24" strokeWidth="1.5" stroke="currentColor">
+          <svg className="size-5 text-primary" fill="none" viewBox="0 0 24 24" strokeWidth="1.5" stroke="currentColor">
             <path
               strokeLinecap="round"
               strokeLinejoin="round"
@@ -195,7 +195,7 @@ export function RiskAnalytics({ events, suppliers, shipments }: RiskAnalyticsPro
         </h3>
         <div className="space-y-2">
           {sectorRisks.length === 0 ? (
-            <p className="text-sm text-gray-500">No sector data available</p>
+            <p className="text-sm text-muted-foreground">No sector data available</p>
           ) : (
             sectorRisks.map((sector) => <SectorRiskBar key={sector.sector} sector={sector} />)
           )}
@@ -205,7 +205,7 @@ export function RiskAnalytics({ events, suppliers, shipments }: RiskAnalyticsPro
       {/* 30-Day Trend */}
       <div className="lg:col-span-2">
         <h3 className="font-medium mb-3 flex items-center gap-2">
-          <svg className="size-5 text-green-500" fill="none" viewBox="0 0 24 24" strokeWidth="1.5" stroke="currentColor">
+          <svg className="size-5 text-risk-low-text" fill="none" viewBox="0 0 24 24" strokeWidth="1.5" stroke="currentColor">
             <path
               strokeLinecap="round"
               strokeLinejoin="round"
@@ -237,13 +237,13 @@ function CountryRiskBar({ country }: { country: CountryRisk }) {
           {percentage.toFixed(0)}%
         </span>
       </div>
-      <div className="h-2 bg-gray-200 dark:bg-gray-700 rounded-full overflow-hidden">
+      <div className="h-2 bg-muted-foreground/25 rounded-full overflow-hidden">
         <div
           className={`h-full rounded-full transition-all ${getRiskBgColor(country.riskScore)}`}
           style={{ width: `${percentage}%` }}
         />
       </div>
-      <div className="flex items-center gap-3 mt-1 text-xs text-gray-500">
+      <div className="flex items-center gap-3 mt-1 text-xs text-muted-foreground">
         <span>{country.eventCount} events</span>
         <span>{country.supplierCount} suppliers</span>
         <span>{country.shipmentCount} shipments</span>
@@ -259,19 +259,19 @@ function SectorRiskBar({ sector }: { sector: SectorRisk }) {
     switch (sector.trend) {
       case 'up':
         return (
-          <svg className="size-3 text-red-500" fill="none" viewBox="0 0 24 24" strokeWidth="2" stroke="currentColor">
+          <svg className="size-3 text-risk-critical-text" fill="none" viewBox="0 0 24 24" strokeWidth="2" stroke="currentColor">
             <path strokeLinecap="round" strokeLinejoin="round" d="M4.5 19.5l15-15m0 0H8.25m11.25 0v11.25" />
           </svg>
         );
       case 'down':
         return (
-          <svg className="size-3 text-green-500" fill="none" viewBox="0 0 24 24" strokeWidth="2" stroke="currentColor">
+          <svg className="size-3 text-risk-low-text" fill="none" viewBox="0 0 24 24" strokeWidth="2" stroke="currentColor">
             <path strokeLinecap="round" strokeLinejoin="round" d="M4.5 4.5l15 15m0 0V8.25m0 11.25H8.25" />
           </svg>
         );
       default:
         return (
-          <svg className="size-3 text-gray-400" fill="none" viewBox="0 0 24 24" strokeWidth="2" stroke="currentColor">
+          <svg className="size-3 text-muted-foreground" fill="none" viewBox="0 0 24 24" strokeWidth="2" stroke="currentColor">
             <path strokeLinecap="round" strokeLinejoin="round" d="M17.25 8.25L21 12m0 0l-3.75 3.75M21 12H3" />
           </svg>
         );
@@ -289,13 +289,13 @@ function SectorRiskBar({ sector }: { sector: SectorRisk }) {
           {percentage.toFixed(0)}%
         </span>
       </div>
-      <div className="h-2 bg-gray-200 dark:bg-gray-700 rounded-full overflow-hidden">
+      <div className="h-2 bg-muted-foreground/25 rounded-full overflow-hidden">
         <div
           className={`h-full rounded-full transition-all ${getRiskBgColor(sector.riskScore)}`}
           style={{ width: `${percentage}%` }}
         />
       </div>
-      <div className="text-xs text-gray-500 mt-1">{sector.eventCount} events</div>
+      <div className="text-xs text-muted-foreground mt-1">{sector.eventCount} events</div>
     </div>
   );
 }
@@ -304,7 +304,7 @@ function RiskTrendChart({ trends }: { trends: RiskTrend[] }) {
   const maxScore = Math.max(...trends.map((t) => t.score), 0.1);
 
   return (
-    <div className="bg-gray-50 dark:bg-gray-800/50 rounded-lg p-4">
+    <div className="bg-muted/50 rounded-lg p-4">
       <div className="flex items-end gap-1 h-32">
         {trends.map((trend, index) => (
           <div key={trend.date} className="flex-1 flex flex-col items-center gap-1 group relative">
@@ -319,7 +319,7 @@ function RiskTrendChart({ trends }: { trends: RiskTrend[] }) {
             </div>
 
             <div className="absolute bottom-full mb-2 hidden group-hover:block z-10">
-              <div className="bg-gray-900 text-white text-xs rounded px-2 py-1 whitespace-nowrap">
+              <div className="bg-foreground text-background text-xs rounded px-2 py-1 whitespace-nowrap">
                 <div>{new Date(trend.date).toLocaleDateString()}</div>
                 <div>Risk: {(trend.score * 100).toFixed(0)}%</div>
                 <div>{trend.eventCount} events</div>
@@ -328,7 +328,7 @@ function RiskTrendChart({ trends }: { trends: RiskTrend[] }) {
 
             {/* X-axis label every 7th day. */}
             {index % 7 === 0 && (
-              <div className="text-[9px] text-gray-400 mt-1">
+              <div className="text-[9px] text-muted-foreground mt-1">
                 {new Date(trend.date).toLocaleDateString('en-US', { month: 'short', day: 'numeric' })}
               </div>
             )}

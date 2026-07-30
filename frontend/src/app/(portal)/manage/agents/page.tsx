@@ -24,6 +24,7 @@ import {
 import { MonitoringProgressDialog } from '@/components/monitoring/progress-dialog';
 import { DataSourceSettingsDialog } from '@/components/monitoring/data-source-settings-dialog';
 import { DataSourceCategory } from '@/lib/api-client';
+import { Fillet } from '@/components/ui/fillet';
 
 // Data source categories with icons
 const DATA_SOURCES: Array<{ key: DataSourceCategory; label: string; icon: string }> = [
@@ -206,15 +207,15 @@ export default function AgentsPage() {
   const getStatusColor = (s: AgentStatus['status']) => {
     switch (s) {
       case 'active':
-        return 'bg-green-500';
+        return 'bg-risk-low-accent';
       case 'idle':
-        return 'bg-yellow-500';
+        return 'bg-risk-elevated-accent';
       case 'error':
-        return 'bg-red-500';
+        return 'bg-risk-critical-accent';
       case 'stopped':
-        return 'bg-gray-400';
+        return 'bg-muted-foreground';
       default:
-        return 'bg-gray-400';
+        return 'bg-muted-foreground';
     }
   };
 
@@ -236,13 +237,13 @@ export default function AgentsPage() {
   const getLogStatusBadge = (s: string) => {
     switch (s) {
       case 'success':
-        return 'bg-green-100 text-green-700 dark:bg-green-900/30 dark:text-green-400';
+        return 'bg-risk-low text-risk-low-fg';
       case 'partial_success':
-        return 'bg-yellow-100 text-yellow-700 dark:bg-yellow-900/30 dark:text-yellow-400';
+        return 'bg-risk-elevated text-risk-elevated-fg';
       case 'failure':
-        return 'bg-red-100 text-red-700 dark:bg-red-900/30 dark:text-red-400';
+        return 'bg-risk-critical text-risk-critical-fg';
       default:
-        return 'bg-gray-100 text-gray-700 dark:bg-gray-800 dark:text-gray-400';
+        return 'bg-muted text-muted-foreground';
     }
   };
 
@@ -269,7 +270,7 @@ export default function AgentsPage() {
   if (isLoading) {
     return (
       <div className="flex items-center justify-center min-h-[400px]">
-        <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-blue-600" />
+        <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-primary" />
       </div>
     );
   }
@@ -279,8 +280,9 @@ export default function AgentsPage() {
       {/* Header */}
       <div className="flex items-center justify-between">
         <div>
-          <h2 className="text-2xl font-bold text-gray-900 dark:text-white">Agents</h2>
-          <p className="text-gray-600 dark:text-gray-400">
+          <h2 className="font-display text-3xl font-semibold text-foreground">Agents</h2>
+          <Fillet className="my-2" />
+          <p className="text-muted-foreground">
             Configure and monitor AI agents for your organization
           </p>
         </div>
@@ -297,8 +299,8 @@ export default function AgentsPage() {
         <div
           className={`p-3 rounded-md text-sm ${
             message.type === 'success'
-              ? 'bg-green-50 text-green-800 dark:bg-green-900/20 dark:text-green-400'
-              : 'bg-red-50 text-red-800 dark:bg-red-900/20 dark:text-red-400'
+              ? 'bg-risk-low text-risk-low-fg'
+              : 'bg-risk-critical text-risk-critical-fg'
           }`}
         >
           {message.text}
@@ -309,30 +311,30 @@ export default function AgentsPage() {
       <div className="grid gap-6 lg:grid-cols-3">
         {/* Agent List (Left Sidebar) */}
         <div className="space-y-4">
-          <h3 className="text-sm font-medium text-gray-500 dark:text-gray-400 uppercase tracking-wide">
+          <h3 className="text-sm font-medium text-muted-foreground uppercase tracking-wide">
             Available Agents
           </h3>
           <div className="space-y-2">
             {/* Monitoring Agent */}
             <button
-              className="w-full text-left p-4 rounded-lg border border-blue-500 bg-blue-50 dark:bg-blue-900/20 transition-colors"
+              className="w-full text-left p-4 rounded-lg border border-primary bg-primary/10 transition-colors"
             >
               <div className="flex items-center gap-3">
-                <div className="size-10 rounded-full bg-gradient-to-br from-blue-500 to-indigo-600 flex items-center justify-center shrink-0">
-                  <svg className="size-5 text-white" fill="none" viewBox="0 0 24 24" strokeWidth="1.5" stroke="currentColor">
+                <div className="size-10 rounded-full bg-primary flex items-center justify-center shrink-0">
+                  <svg className="size-5 text-primary-foreground" fill="none" viewBox="0 0 24 24" strokeWidth="1.5" stroke="currentColor">
                     <path strokeLinecap="round" strokeLinejoin="round" d="M9.75 3.104v5.714a2.25 2.25 0 0 1-.659 1.591L5 14.5M9.75 3.104c-.251.023-.501.05-.75.082m.75-.082a24.301 24.301 0 0 1 4.5 0m0 0v5.714c0 .597.237 1.17.659 1.591L19.8 15.3M14.25 3.104c.251.023.501.05.75.082M19.8 15.3l-1.57.393A9.065 9.065 0 0 1 12 15a9.065 9.065 0 0 0-6.23-.693L5 14.5m14.8.8 1.402 1.402c1.232 1.232.65 3.318-1.067 3.611A48.309 48.309 0 0 1 12 21c-2.773 0-5.491-.235-8.135-.687-1.718-.293-2.3-2.379-1.067-3.61L5 14.5" />
                   </svg>
                 </div>
                 <div className="flex-1 min-w-0">
-                  <p className="font-medium text-gray-900 dark:text-white">Monitoring Agent</p>
-                  <p className="text-xs text-gray-500 dark:text-gray-400">
+                  <p className="font-medium text-foreground">Monitoring Agent</p>
+                  <p className="text-xs text-muted-foreground">
                     Risk event detection & analysis
                   </p>
                 </div>
                 {status && (
                   <div className="flex items-center gap-1.5">
                     <span className={`size-2 rounded-full ${getStatusColor(status.status)}`} />
-                    <span className="text-xs text-gray-500 dark:text-gray-400">
+                    <span className="text-xs text-muted-foreground">
                       {getStatusText(status.status)}
                     </span>
                   </div>
@@ -341,16 +343,16 @@ export default function AgentsPage() {
             </button>
 
             {/* Placeholder for future agents */}
-            <div className="p-4 rounded-lg border border-dashed border-gray-300 dark:border-gray-700">
+            <div className="p-4 rounded-lg border border-dashed border-input">
               <div className="flex items-center gap-3 opacity-50">
-                <div className="size-10 rounded-full bg-gray-200 dark:bg-gray-700 flex items-center justify-center">
-                  <svg className="size-5 text-gray-400" fill="none" viewBox="0 0 24 24" strokeWidth="1.5" stroke="currentColor">
+                <div className="size-10 rounded-full bg-muted flex items-center justify-center">
+                  <svg className="size-5 text-muted-foreground" fill="none" viewBox="0 0 24 24" strokeWidth="1.5" stroke="currentColor">
                     <path strokeLinecap="round" strokeLinejoin="round" d="M12 4.5v15m7.5-7.5h-15" />
                   </svg>
                 </div>
                 <div>
-                  <p className="font-medium text-gray-500 dark:text-gray-400">More agents coming soon</p>
-                  <p className="text-xs text-gray-400 dark:text-gray-500">Validation, Impact Assessment...</p>
+                  <p className="font-medium text-muted-foreground">More agents coming soon</p>
+                  <p className="text-xs text-muted-foreground">Validation, Impact Assessment...</p>
                 </div>
               </div>
             </div>
@@ -364,19 +366,19 @@ export default function AgentsPage() {
               </CardHeader>
               <CardContent className="space-y-3">
                 <div className="flex justify-between">
-                  <span className="text-sm text-gray-500 dark:text-gray-400">Total Cycles</span>
+                  <span className="text-sm text-muted-foreground">Total Cycles</span>
                   <span className="font-medium">{status.totalCycles.toLocaleString()}</span>
                 </div>
                 <div className="flex justify-between">
-                  <span className="text-sm text-gray-500 dark:text-gray-400">Events Detected</span>
+                  <span className="text-sm text-muted-foreground">Events Detected</span>
                   <span className="font-medium">{status.totalEventsDetected.toLocaleString()}</span>
                 </div>
                 <div className="flex justify-between">
-                  <span className="text-sm text-gray-500 dark:text-gray-400">Events Published</span>
+                  <span className="text-sm text-muted-foreground">Events Published</span>
                   <span className="font-medium">{status.totalEventsPublished.toLocaleString()}</span>
                 </div>
                 <div className="flex justify-between">
-                  <span className="text-sm text-gray-500 dark:text-gray-400">Last Run</span>
+                  <span className="text-sm text-muted-foreground">Last Run</span>
                   <span className="font-medium">{status.lastRunAt ? formatTimeAgo(status.lastRunAt) : 'Never'}</span>
                 </div>
               </CardContent>
@@ -390,8 +392,8 @@ export default function AgentsPage() {
             <CardHeader className="flex flex-row items-start justify-between">
               <div>
                 <CardTitle className="flex items-center gap-3">
-                  <div className="size-10 rounded-full bg-gradient-to-br from-blue-500 to-indigo-600 flex items-center justify-center">
-                    <svg className="size-5 text-white" fill="none" viewBox="0 0 24 24" strokeWidth="1.5" stroke="currentColor">
+                  <div className="size-10 rounded-full bg-primary flex items-center justify-center">
+                    <svg className="size-5 text-primary-foreground" fill="none" viewBox="0 0 24 24" strokeWidth="1.5" stroke="currentColor">
                       <path strokeLinecap="round" strokeLinejoin="round" d="M9.75 3.104v5.714a2.25 2.25 0 0 1-.659 1.591L5 14.5M9.75 3.104c-.251.023-.501.05-.75.082m.75-.082a24.301 24.301 0 0 1 4.5 0m0 0v5.714c0 .597.237 1.17.659 1.591L19.8 15.3M14.25 3.104c.251.023.501.05.75.082M19.8 15.3l-1.57.393A9.065 9.065 0 0 1 12 15a9.065 9.065 0 0 0-6.23-.693L5 14.5m14.8.8 1.402 1.402c1.232 1.232.65 3.318-1.067 3.611A48.309 48.309 0 0 1 12 21c-2.773 0-5.491-.235-8.135-.687-1.718-.293-2.3-2.379-1.067-3.61L5 14.5" />
                     </svg>
                   </div>
@@ -403,7 +405,7 @@ export default function AgentsPage() {
               </div>
               <button
                 onClick={() => setShowHelpDialog(true)}
-                className="p-2 rounded-full text-gray-400 hover:text-gray-600 dark:hover:text-gray-300 hover:bg-gray-100 dark:hover:bg-gray-700 transition-colors"
+                className="p-2 rounded-full text-muted-foreground hover:text-foreground hover:bg-accent transition-colors"
                 title="How does this work?"
               >
                 <svg className="size-5" fill="none" viewBox="0 0 24 24" strokeWidth="1.5" stroke="currentColor">
@@ -413,7 +415,7 @@ export default function AgentsPage() {
             </CardHeader>
             <CardContent>
               {/* Tabs */}
-              <div className="border-b border-gray-200 dark:border-gray-700 mb-6">
+              <div className="border-b border-border mb-6">
                 <nav className="flex gap-4 -mb-px">
                   {(['overview', 'config', 'logs'] as const).map((tab) => (
                     <button
@@ -421,8 +423,8 @@ export default function AgentsPage() {
                       onClick={() => setActiveTab(tab)}
                       className={`pb-3 px-1 text-sm font-medium border-b-2 transition-colors ${
                         activeTab === tab
-                          ? 'border-blue-500 text-blue-600 dark:text-blue-400'
-                          : 'border-transparent text-gray-500 dark:text-gray-400 hover:text-gray-700 dark:hover:text-gray-300'
+                          ? 'border-primary text-primary'
+                          : 'border-transparent text-muted-foreground hover:text-foreground'
                       }`}
                     >
                       {tab.charAt(0).toUpperCase() + tab.slice(1)}
@@ -436,7 +438,7 @@ export default function AgentsPage() {
                 <div className="space-y-6">
                   {/* Data Sources */}
                   <div>
-                    <Label className="text-gray-500 dark:text-gray-400 mb-3 block">Monitoring Data Sources</Label>
+                    <Label className="text-muted-foreground mb-3 block">Monitoring Data Sources</Label>
                     <div className="grid grid-cols-2 gap-2">
                       {DATA_SOURCES.map((source) => {
                         const isEnabled =
@@ -448,19 +450,19 @@ export default function AgentsPage() {
                             key={source.key}
                             className={`p-3 rounded-lg border ${
                               isEnabled
-                                ? 'border-green-200 bg-green-50 dark:border-green-800 dark:bg-green-900/20'
-                                : 'border-gray-200 bg-gray-50 dark:border-gray-700 dark:bg-gray-800 opacity-50'
+                                ? 'border-risk-low-accent/40 bg-risk-low'
+                                : 'border-border bg-muted opacity-50'
                             }`}
                           >
                             <div className="flex items-center justify-between mb-2">
-                              <span className="text-sm font-medium text-gray-900 dark:text-white">
+                              <span className="text-sm font-medium text-foreground">
                                 {source.label}
                               </span>
                               <span
                                 className={`text-xs px-2 py-0.5 rounded ${
                                   isEnabled
-                                    ? 'bg-green-100 text-green-700 dark:bg-green-900/50 dark:text-green-400'
-                                    : 'bg-gray-200 text-gray-500 dark:bg-gray-700 dark:text-gray-400'
+                                    ? 'bg-risk-low-accent/25 text-risk-low-fg'
+                                    : 'bg-muted-foreground/20 text-muted-foreground'
                                 }`}
                               >
                                 {isEnabled ? 'Active' : 'Off'}
@@ -468,7 +470,7 @@ export default function AgentsPage() {
                             </div>
                             <button
                               onClick={() => handleOpenSettings(source.key)}
-                              className="text-xs text-blue-600 dark:text-blue-400 hover:text-blue-700 dark:hover:text-blue-300 inline-flex items-center gap-1"
+                              className="text-xs text-primary hover:text-primary/80 inline-flex items-center gap-1"
                             >
                               <svg className="size-3.5" fill="none" viewBox="0 0 24 24" strokeWidth="1.5" stroke="currentColor">
                                 <path strokeLinecap="round" strokeLinejoin="round" d="M9.594 3.94c.09-.542.56-.94 1.11-.94h2.593c.55 0 1.02.398 1.11.94l.213 1.281c.063.374.313.686.645.87.074.04.147.083.22.127.325.196.72.257 1.075.124l1.217-.456a1.125 1.125 0 0 1 1.37.49l1.296 2.247a1.125 1.125 0 0 1-.26 1.431l-1.003.827c-.293.241-.438.613-.43.992a7.723 7.723 0 0 1 0 .255c-.008.378.137.75.43.991l1.004.827c.424.35.534.955.26 1.43l-1.298 2.247a1.125 1.125 0 0 1-1.369.491l-1.217-.456c-.355-.133-.75-.072-1.076.124a6.47 6.47 0 0 1-.22.128c-.331.183-.581.495-.644.869l-.213 1.281c-.09.543-.56.94-1.11.94h-2.594c-.55 0-1.019-.398-1.11-.94l-.213-1.281c-.062-.374-.312-.686-.644-.87a6.52 6.52 0 0 1-.22-.127c-.325-.196-.72-.257-1.076-.124l-1.217.456a1.125 1.125 0 0 1-1.369-.49l-1.297-2.247a1.125 1.125 0 0 1 .26-1.431l1.004-.827c.292-.24.437-.613.43-.991a6.932 6.932 0 0 1 0-.255c.007-.38-.138-.751-.43-.992l-1.004-.827a1.125 1.125 0 0 1-.26-1.43l1.297-2.247a1.125 1.125 0 0 1 1.37-.491l1.216.456c.356.133.751.072 1.076-.124.072-.044.146-.086.22-.128.332-.183.582-.495.644-.869l.214-1.28Z" />
@@ -485,29 +487,29 @@ export default function AgentsPage() {
                   {/* Current Config Summary */}
                   {config && (
                     <div>
-                      <Label className="text-gray-500 dark:text-gray-400 mb-3 block">Current Configuration</Label>
+                      <Label className="text-muted-foreground mb-3 block">Current Configuration</Label>
                       <div className="grid grid-cols-2 gap-4">
-                        <div className="p-3 rounded-lg bg-gray-50 dark:bg-gray-800">
-                          <p className="text-xs text-gray-500 dark:text-gray-400">Polling Interval</p>
-                          <p className="text-lg font-semibold text-gray-900 dark:text-white">
+                        <div className="p-3 rounded-lg bg-muted">
+                          <p className="text-xs text-muted-foreground">Polling Interval</p>
+                          <p className="text-lg font-semibold text-foreground">
                             {(config.pollingIntervalMs / 1000).toFixed(0)}s
                           </p>
                         </div>
-                        <div className="p-3 rounded-lg bg-gray-50 dark:bg-gray-800">
-                          <p className="text-xs text-gray-500 dark:text-gray-400">Geographic Radius</p>
-                          <p className="text-lg font-semibold text-gray-900 dark:text-white">
+                        <div className="p-3 rounded-lg bg-muted">
+                          <p className="text-xs text-muted-foreground">Geographic Radius</p>
+                          <p className="text-lg font-semibold text-foreground">
                             {config.geographicFilter.radiusKm}km
                           </p>
                         </div>
-                        <div className="p-3 rounded-lg bg-gray-50 dark:bg-gray-800">
-                          <p className="text-xs text-gray-500 dark:text-gray-400">Severity Threshold</p>
-                          <p className="text-lg font-semibold text-gray-900 dark:text-white">
+                        <div className="p-3 rounded-lg bg-muted">
+                          <p className="text-xs text-muted-foreground">Severity Threshold</p>
+                          <p className="text-lg font-semibold text-foreground">
                             {(config.riskFilter.severityThreshold * 100).toFixed(0)}%
                           </p>
                         </div>
-                        <div className="p-3 rounded-lg bg-gray-50 dark:bg-gray-800">
-                          <p className="text-xs text-gray-500 dark:text-gray-400">Deduplication</p>
-                          <p className="text-lg font-semibold text-gray-900 dark:text-white">
+                        <div className="p-3 rounded-lg bg-muted">
+                          <p className="text-xs text-muted-foreground">Deduplication</p>
+                          <p className="text-lg font-semibold text-foreground">
                             {config.deduplication.lookbackWindowHours}h
                           </p>
                         </div>
@@ -524,7 +526,7 @@ export default function AgentsPage() {
                   <div className="space-y-4">
                     <div>
                       <Label htmlFor="radiusKm">Geographic Radius (km)</Label>
-                      <p className="text-sm text-gray-500 dark:text-gray-400 mb-2">
+                      <p className="text-sm text-muted-foreground mb-2">
                         Events within this radius of your supply chain locations will be monitored
                       </p>
                       <div className="flex items-center gap-4">
@@ -549,7 +551,7 @@ export default function AgentsPage() {
 
                     <div>
                       <Label htmlFor="severityThreshold">Severity Threshold</Label>
-                      <p className="text-sm text-gray-500 dark:text-gray-400 mb-2">
+                      <p className="text-sm text-muted-foreground mb-2">
                         Minimum severity (0-1) to publish events. Current: {(severityThreshold * 100).toFixed(0)}%
                       </p>
                       <div className="flex items-center gap-4">
@@ -577,7 +579,7 @@ export default function AgentsPage() {
 
                     <div>
                       <Label>Monitored Risk Types</Label>
-                      <p className="text-sm text-gray-500 dark:text-gray-400 mb-2">
+                      <p className="text-sm text-muted-foreground mb-2">
                         Leave empty to monitor all types
                       </p>
                       <div className="flex flex-wrap gap-2">
@@ -587,8 +589,11 @@ export default function AgentsPage() {
                             onClick={() => toggleRiskType(type)}
                             className={`px-3 py-1.5 rounded-full text-sm transition-colors ${
                               monitoredRiskTypes.includes(type)
-                                ? 'bg-blue-100 text-blue-700 dark:bg-blue-900/50 dark:text-blue-300'
-                                : 'bg-gray-100 text-gray-600 dark:bg-gray-800 dark:text-gray-400 hover:bg-gray-200 dark:hover:bg-gray-700'
+                                ? 'bg-risk-monitoring text-risk-monitoring-fg'
+                                // hover:text-accent-foreground is required, not
+                                // optional: purple-300 on --accent's purple-500
+                                // is 2.7:1 in dark mode.
+                                : 'bg-muted text-muted-foreground hover:bg-accent hover:text-accent-foreground'
                             }`}
                           >
                             {type.replace(/_/g, ' ')}
@@ -598,7 +603,7 @@ export default function AgentsPage() {
                     </div>
                   </div>
 
-                  <div className="flex justify-end pt-4 border-t border-gray-200 dark:border-gray-700">
+                  <div className="flex justify-end pt-4 border-t border-border">
                     <Button onClick={handleSaveConfig} disabled={isSaving}>
                       {isSaving ? 'Saving...' : 'Save Configuration'}
                     </Button>
@@ -610,7 +615,7 @@ export default function AgentsPage() {
               {activeTab === 'logs' && (
                 <div className="space-y-4">
                   <div className="flex items-center justify-between">
-                    <p className="text-sm text-gray-500 dark:text-gray-400">
+                    <p className="text-sm text-muted-foreground">
                       Recent monitoring cycle logs
                     </p>
                     <Button variant="outline" size="sm" onClick={fetchData}>
@@ -620,30 +625,30 @@ export default function AgentsPage() {
 
                   {logs.length === 0 ? (
                     <div className="text-center py-8">
-                      <svg className="mx-auto h-12 w-12 text-gray-300 dark:text-gray-600" fill="none" viewBox="0 0 24 24" strokeWidth="1.5" stroke="currentColor">
+                      <svg className="mx-auto h-12 w-12 text-muted-foreground" fill="none" viewBox="0 0 24 24" strokeWidth="1.5" stroke="currentColor">
                         <path strokeLinecap="round" strokeLinejoin="round" d="M19.5 14.25v-2.625a3.375 3.375 0 0 0-3.375-3.375h-1.5A1.125 1.125 0 0 1 13.5 7.125v-1.5a3.375 3.375 0 0 0-3.375-3.375H8.25m0 12.75h7.5m-7.5 3H12M10.5 2.25H5.625c-.621 0-1.125.504-1.125 1.125v17.25c0 .621.504 1.125 1.125 1.125h12.75c.621 0 1.125-.504 1.125-1.125V11.25a9 9 0 0 0-9-9Z" />
                       </svg>
-                      <p className="mt-4 text-gray-500 dark:text-gray-400">No logs yet</p>
-                      <p className="text-sm text-gray-400 dark:text-gray-500">Run a monitoring cycle to generate logs</p>
+                      <p className="mt-4 text-muted-foreground">No logs yet</p>
+                      <p className="text-sm text-muted-foreground">Run a monitoring cycle to generate logs</p>
                     </div>
                   ) : (
                     <div className="overflow-x-auto">
                       <table className="w-full text-sm">
                         <thead>
-                          <tr className="border-b border-gray-200 dark:border-gray-700">
-                            <th className="text-left py-2 font-medium text-gray-500 dark:text-gray-400">Time</th>
-                            <th className="text-left py-2 font-medium text-gray-500 dark:text-gray-400">Status</th>
-                            <th className="text-right py-2 font-medium text-gray-500 dark:text-gray-400">Detected</th>
-                            <th className="text-right py-2 font-medium text-gray-500 dark:text-gray-400">Published</th>
-                            <th className="text-right py-2 font-medium text-gray-500 dark:text-gray-400">Duration</th>
+                          <tr className="border-b border-border">
+                            <th className="text-left py-2 font-medium text-muted-foreground">Time</th>
+                            <th className="text-left py-2 font-medium text-muted-foreground">Status</th>
+                            <th className="text-right py-2 font-medium text-muted-foreground">Detected</th>
+                            <th className="text-right py-2 font-medium text-muted-foreground">Published</th>
+                            <th className="text-right py-2 font-medium text-muted-foreground">Duration</th>
                           </tr>
                         </thead>
                         <tbody>
                           {logs.map((log) => (
-                            <tr key={log.id} className="border-b border-gray-100 dark:border-gray-800">
+                            <tr key={log.id} className="border-b border-border">
                               <td className="py-3">
-                                <div className="text-gray-900 dark:text-white">{formatTimeAgo(log.createdAt)}</div>
-                                <div className="text-xs text-gray-500 dark:text-gray-400">
+                                <div className="text-foreground">{formatTimeAgo(log.createdAt)}</div>
+                                <div className="text-xs text-muted-foreground">
                                   {new Date(log.createdAt).toLocaleString()}
                                 </div>
                               </td>
@@ -652,13 +657,13 @@ export default function AgentsPage() {
                                   {log.status.replace('_', ' ')}
                                 </span>
                               </td>
-                              <td className="py-3 text-right text-gray-900 dark:text-white">
+                              <td className="py-3 text-right text-foreground">
                                 {log.eventsDetected}
                               </td>
-                              <td className="py-3 text-right text-gray-900 dark:text-white">
+                              <td className="py-3 text-right text-foreground">
                                 {log.eventsPublished}
                               </td>
-                              <td className="py-3 text-right text-gray-500 dark:text-gray-400">
+                              <td className="py-3 text-right text-muted-foreground">
                                 {formatDuration(log.durationMs)}
                               </td>
                             </tr>
@@ -686,14 +691,14 @@ export default function AgentsPage() {
             />
 
             {/* Dialog */}
-            <div className="relative bg-white dark:bg-gray-800 rounded-lg shadow-xl max-w-lg w-full p-6">
+            <div className="relative bg-card rounded-lg shadow-xl max-w-lg w-full p-6">
               <div className="flex items-center justify-between mb-4">
-                <h3 className="text-lg font-semibold text-gray-900 dark:text-white">
+                <h3 className="text-lg font-semibold text-foreground">
                   How the Monitoring Agent Works
                 </h3>
                 <button
                   onClick={() => setShowHelpDialog(false)}
-                  className="p-1 rounded-full text-gray-400 hover:text-gray-600 dark:hover:text-gray-300 hover:bg-gray-100 dark:hover:bg-gray-700 transition-colors"
+                  className="p-1 rounded-full text-muted-foreground hover:text-foreground hover:bg-accent transition-colors"
                 >
                   <svg className="size-5" fill="none" viewBox="0 0 24 24" strokeWidth="1.5" stroke="currentColor">
                     <path strokeLinecap="round" strokeLinejoin="round" d="M6 18 18 6M6 6l12 12" />
@@ -703,14 +708,14 @@ export default function AgentsPage() {
 
               <div className="space-y-4">
                 <div>
-                  <h4 className="font-medium text-gray-900 dark:text-white mb-2">What it does</h4>
-                  <p className="text-sm text-gray-500 dark:text-gray-400">
+                  <h4 className="font-medium text-foreground mb-2">What it does</h4>
+                  <p className="text-sm text-muted-foreground">
                     Continuously scans multiple data sources to detect supply chain risk events. Uses AI to analyze news, weather, maritime data, and more to identify potential disruptions.
                   </p>
                 </div>
                 <div>
-                  <h4 className="font-medium text-gray-900 dark:text-white mb-2">Processing Pipeline</h4>
-                  <ul className="text-sm text-gray-500 dark:text-gray-400 space-y-1">
+                  <h4 className="font-medium text-foreground mb-2">Processing Pipeline</h4>
+                  <ul className="text-sm text-muted-foreground space-y-1">
                     <li>1. Polls data sources every {config?.pollingIntervalMs ? config.pollingIntervalMs / 1000 : 15}s</li>
                     <li>2. Filters by geographic proximity</li>
                     <li>3. Deduplicates via content hashing</li>
@@ -719,8 +724,8 @@ export default function AgentsPage() {
                   </ul>
                 </div>
                 <div>
-                  <h4 className="font-medium text-gray-900 dark:text-white mb-2">Data Sources</h4>
-                  <p className="text-sm text-gray-500 dark:text-gray-400">
+                  <h4 className="font-medium text-foreground mb-2">Data Sources</h4>
+                  <p className="text-sm text-muted-foreground">
                     The agent monitors 10 categories: weather & natural disasters, political risk, cybersecurity, economic & financial markets, news & social media, maritime & logistics, labor & social events, regulatory & trade, pandemic & health, and geopolitical conflicts.
                   </p>
                 </div>

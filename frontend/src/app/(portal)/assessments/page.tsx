@@ -10,6 +10,7 @@
 
 import { useAuth } from '@/providers/auth-provider';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
+import { Fillet } from '@/components/ui/fillet';
 
 export default function AssessmentsPage() {
   const { currentOrganization } = useAuth();
@@ -19,7 +20,7 @@ export default function AssessmentsPage() {
       <div className="flex items-center justify-center min-h-[400px]">
         <Card>
           <CardContent className="py-8 text-center">
-            <p className="text-gray-500">Please select an organization to view assessments</p>
+            <p className="text-muted-foreground">Please select an organization to view assessments</p>
           </CardContent>
         </Card>
       </div>
@@ -29,8 +30,9 @@ export default function AssessmentsPage() {
   return (
     <div className="space-y-6">
       <div>
-        <h2 className="text-2xl font-bold text-gray-900 dark:text-white">Assessments</h2>
-        <p className="text-gray-600 dark:text-gray-400">
+        <h2 className="font-display text-3xl font-semibold text-foreground">Assessments</h2>
+        <Fillet className="my-2" />
+        <p className="text-muted-foreground">
           Risk profiling and assessment reports for {currentOrganization.name}
         </p>
       </div>
@@ -44,17 +46,17 @@ export default function AssessmentsPage() {
           </CardDescription>
         </CardHeader>
         <CardContent>
-          <ul className="space-y-2 text-sm text-gray-600 dark:text-gray-400">
+          <ul className="space-y-2 text-sm text-muted-foreground">
             <li className="flex items-start gap-2">
-              <span className="mt-1.5 size-1.5 rounded-full bg-gray-400 shrink-0" />
+              <span className="mt-1.5 size-1.5 rounded-full bg-muted-foreground shrink-0" />
               Risk Profile heat map across suppliers, lanes, and regions
             </li>
             <li className="flex items-start gap-2">
-              <span className="mt-1.5 size-1.5 rounded-full bg-gray-400 shrink-0" />
+              <span className="mt-1.5 size-1.5 rounded-full bg-muted-foreground shrink-0" />
               Assessment frameworks supplied by your active Industry Pack
             </li>
             <li className="flex items-start gap-2">
-              <span className="mt-1.5 size-1.5 rounded-full bg-gray-400 shrink-0" />
+              <span className="mt-1.5 size-1.5 rounded-full bg-muted-foreground shrink-0" />
               Generated assessment reports and scenario exploration
             </li>
           </ul>
