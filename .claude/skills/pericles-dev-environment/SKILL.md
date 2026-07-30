@@ -1,41 +1,63 @@
 ---
 name: pericles-dev-environment
-version: 2026.05.0
+version: 2026.07.0
 description: >
   How to set up and work in the Pericles dev environment — docker-compose services, the
   .env.local convention, the canonical npm scripts (dev:all, monitoring:start, prisma,
   mocker, jobs:cleanup), and the pre-commit gate. Use this WHENEVER onboarding a
   developer, adding a service, or wiring CI. Encodes the existing docker-compose
-  (postgres, pgadmin, mastra), the dotenv-from-repo-root pattern, and the mandatory
+  (postgres, pgadmin), the dotenv-from-repo-root pattern, and the mandatory
   lint + type-check before merge.
 doctrine_refs: [Ops §1, §2; §11]
 depends_on: [pericles-repo-conventions, pericles-tech-stack, pericles-postgres-queue]
-last_reconciled: 2026-05-28
+last_reconciled: 2026-07-30
 ---
 
 # Pericles Dev Environment (build skill)
 
-Pericles' local stack is small and deliberate: a Postgres container, pgAdmin, and the
-Mastra runtime. Everything else (the monitoring process, the auth-server, the frontend)
-runs via npm scripts that pull env from a single `.env.local` at the repo root. This
-skill keeps developer onboarding consistent and prevents drift.
+Pericles' local stack is small and deliberate: **two containers** (Postgres and pgAdmin)
+plus everything else — Mastra, the auth-server, the monitoring process, the frontend —
+running on the host via npm scripts that pull env from a single `.env.local` at the repo
+root. This skill keeps developer onboarding consistent and prevents drift.
 
 ## When to use this skill
 
 Onboarding a developer; adding/changing a docker-compose service; adding a new npm
 script; wiring CI; debugging an env-loading or local-Postgres issue.
 
+## First run (fresh clone)
+
+In order — `dev:all` fails without steps 1–3:
+
+```bash
+cp .env.example .env.local     # repo ROOT, not backend/ — then add OPENAI_API_KEY
+docker compose up -d           # Postgres + pgAdmin
+cd backend
+npm install
+npm run prisma:migrate:dev     # create the schema
+npm run prisma:seed            # seed a usable tenant
+npm run dev:all                # Mastra 4111 + auth/API 4112, on the host
+```
+
+`OPENAI_API_KEY` is required — the agent will not start without it. Ports and their
+gotchas (notably that Mastra on 3001 is a local tool, not a deployment target) are in
+`CLAUDE.md` under Service Ports.
+
 ## docker-compose services
 
-`docker-compose.yml` ships three services:
+`docker-compose.yml` ships **two** services — Postgres and pgAdmin only:
 
 - **postgres** (`postgres:16-alpine`) — the primary store; healthcheck via `pg_isready`.
   Schema is managed by Prisma (`pericles-data-model`).
 - **pgadmin** (`dpage/pgadmin4`) — convenience admin UI; depends on `postgres` being
   healthy.
-- **mastra** (`node:20-alpine`) — the Mastra runtime container for local dev.
 
 `docker compose up -d` brings them up; the healthcheck gates the dependents.
+
+**Mastra and the auth server do NOT run in Docker.** They run on the host via
+`npm run dev:all` (Mastra 4111, auth/API 4112). This skill previously listed a third
+`mastra` (`node:20-alpine`) container that `docker-compose.yml` does not define —
+expecting it is why "I ran `docker compose up -d` but nothing is on 4111" happens.
 
 ## The .env.local convention
 
@@ -107,5 +129,10 @@ creates a usable tenant; pre-commit blocks unlinted code; CI runs lint + type-ch
 
 ## Changelog
 
+- 2026.07.0 — Corrected the service list: `docker-compose.yml` ships TWO services, not
+  three — there is no `mastra` container, and Mastra runs on the host via `dev:all`.
+  Added the "First run" sequence, which existed only in `CLAUDE.md` and had no ordered
+  equivalent here. Both found reviewing the CLAUDE.md trim that made this skill the
+  authority for setup.
 - 2026.05.0 — Initial draft from `docker-compose.yml`, `backend/package.json`, and the
   `CLAUDE.md` checks; flagged the missing test wiring.
