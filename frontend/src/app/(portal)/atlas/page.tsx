@@ -339,15 +339,17 @@ export default function AtlasPage() {
       {/* Controls overlay. The wrapper ignores pointer events so map drags pass
           through the gaps between control clusters. */}
       <div className="pointer-events-none absolute left-[max(0.75rem,env(safe-area-inset-left))] right-[max(0.75rem,env(safe-area-inset-right))] top-3 z-10 flex items-start gap-3">
-        {/* min-w-0 so this cluster yields instead of pushing the fixed-width
-            Events Feed off the right edge on narrow viewports. */}
-        <div className="pointer-events-auto flex min-w-0 flex-wrap items-center gap-3 rounded-lg bg-card/90 p-2 shadow-lg backdrop-blur">
-          <form onSubmit={handleSearch} className="flex items-center gap-2">
+        {/* The Events Feed used to sit in this row at a fixed w-80. On a 393px
+            phone that left ~50px for these controls, and the w-56 input could
+            not shrink into it — the two clusters rendered on top of each other.
+            The feed is now its own bottom-anchored element below md. */}
+        <div className="pointer-events-auto flex w-full min-w-0 flex-wrap items-center gap-2 rounded-lg bg-card/90 p-2 shadow-lg backdrop-blur sm:gap-3 md:w-auto">
+          <form onSubmit={handleSearch} className="flex min-w-0 flex-1 items-center gap-2 sm:flex-none">
             <Input
               value={search}
               onChange={(e) => setSearch(e.target.value)}
               placeholder="Search country, city, or port…"
-              className="w-56"
+              className="w-full min-w-0 sm:w-56"
               aria-label="Search location"
             />
             <Button type="submit" variant="secondary" size="sm">
@@ -386,7 +388,8 @@ export default function AtlasPage() {
             ))}
           </div>
 
-          <div className="flex items-center gap-2 px-1 text-sm">
+          {/* Counts are secondary on a phone — they cost a whole wrapped row. */}
+          <div className="hidden items-center gap-2 px-1 text-sm sm:flex">
             <span className="font-semibold">{shipments.length}</span>
             <span className="text-muted-foreground">shipments</span>
             <span className="text-muted-foreground">|</span>
@@ -400,8 +403,13 @@ export default function AtlasPage() {
           {searchError && <span className="text-sm text-risk-critical-text">{searchError}</span>}
         </div>
 
-        {/* Events Feed: a bar that expands downward over the map. */}
-        <div className="pointer-events-auto ml-auto flex w-80 shrink-0 flex-col overflow-hidden rounded-lg bg-card shadow-lg">
+      </div>
+
+      {/* Events Feed. Bottom-anchored and full width on a phone — the map is
+          the point, and a fixed w-80 in the top row overlapped the controls at
+          393px. From md it returns to the top-right. Expanding grows it upward,
+          since the bottom edge is pinned. */}
+      <div className="pointer-events-auto absolute inset-x-[max(0.75rem,env(safe-area-inset-left))] bottom-[max(0.75rem,env(safe-area-inset-bottom))] z-10 flex flex-col overflow-hidden rounded-lg bg-card shadow-lg md:inset-x-auto md:bottom-auto md:right-[max(0.75rem,env(safe-area-inset-right))] md:top-3 md:w-80">
           <button
             onClick={() => setIsFeedOpen((open) => !open)}
             aria-expanded={isFeedOpen}
@@ -466,11 +474,11 @@ export default function AtlasPage() {
               )}
             </div>
           )}
-        </div>
       </div>
 
       {/* Legend (brand-aligned) */}
-      <div className="absolute bottom-4 left-4 z-10 bg-card rounded-lg shadow-lg p-3 text-sm">
+      {/* bottom-20 below md so it clears the bottom-anchored Events Feed. */}
+      <div className="absolute bottom-20 left-4 z-10 bg-card rounded-lg shadow-lg p-3 text-sm md:bottom-4">
         <div className="font-medium mb-2">Legend</div>
         <div className="space-y-1">
           <div className="flex items-center gap-2">
