@@ -57,9 +57,16 @@ const mapStylesDark: google.maps.MapTypeStyle[] = [
   { elementType: 'geometry', stylers: [{ color: '#423851' }] }, // purple-700
   { elementType: 'labels.text.stroke', stylers: [{ color: '#0F0D11' }] }, // grey-950
   { elementType: 'labels.text.fill', stylers: [{ color: '#A4A0AB' }] }, // grey-400
-  { featureType: 'water', elementType: 'geometry', stylers: [{ color: '#0F0D11' }] }, // grey-950 — 2.25:1 vs land, so coastlines read
+  // grey-950 is the darkest step there is, so 1.76:1 vs the land is the most
+  // separation a coastline can get here. (2.25:1 would need purple-600 land,
+  // which drops the dark subsidiary palette to 2.60:1 — under the 3:1 floor the
+  // whole per-mode palette exists to clear. The vessels win over the coastline.)
+  { featureType: 'water', elementType: 'geometry', stylers: [{ color: '#0F0D11' }] }, // grey-950 — 1.76:1 vs land
   { featureType: 'landscape', elementType: 'geometry', stylers: [{ color: '#423851' }] }, // purple-700 — NOT purple-600: that is the light-mode supplier-pin fill
-  { featureType: 'administrative.country', elementType: 'geometry.stroke', stylers: [{ color: '#433F4A' }] }, // grey-700
+  // grey-500, NOT grey-700: grey-700 is 1.07:1 on purple-700 land, so national
+  // borders did not render at all. grey-500 is 2.56:1, matching the 2.36:1 the
+  // light map gets from grey-400 on grey-100 land.
+  { featureType: 'administrative.country', elementType: 'geometry.stroke', stylers: [{ color: '#7D7887' }] }, // grey-500
   { featureType: 'administrative.country', elementType: 'labels.text.fill', stylers: [{ color: '#A4A0AB' }] }, // grey-400
   ...HIDDEN,
 ];
@@ -300,7 +307,11 @@ export default function AtlasPage() {
       <div className="flex h-full items-center justify-center p-6">
         <Card>
           <CardContent className="py-8 text-center">
-            <p className="text-destructive">Error loading Google Maps</p>
+            {/* risk-critical-text, not text-destructive: --destructive is the
+                button fill (white on it is 5.61:1) and measures only 2.55:1 as
+                TEXT on the dark card — this is the one message a user must be
+                able to read when the map is broken. */}
+            <p className="text-risk-critical-text">Error loading Google Maps</p>
             <p className="text-sm text-muted-foreground mt-2">Please check your API key configuration</p>
           </CardContent>
         </Card>
@@ -386,7 +397,7 @@ export default function AtlasPage() {
             <span className="text-muted-foreground">ports</span>
           </div>
 
-          {searchError && <span className="text-sm text-destructive">{searchError}</span>}
+          {searchError && <span className="text-sm text-risk-critical-text">{searchError}</span>}
         </div>
 
         {/* Events Feed: a bar that expands downward over the map. */}
@@ -604,7 +615,11 @@ export default function AtlasPage() {
             can't theme it, but the content renders inside the app DOM where
             `.dark` applies — role tokens would give near-white text on a white
             bubble. Re-scoping --foreground here would not help either: it is
-            resolved into --color-foreground at :root. */}
+            resolved into --color-foreground at :root.
+
+            grey-600 is the FLOOR on this white bubble: grey-500 is 4.28:1, under
+            AA for the 12–14px labels here. The label/value hierarchy is kept by
+            darkening the values to grey-800 rather than lightening the labels. */}
         {selectedPin && (
           <InfoWindow position={selectedPin.position} onCloseClick={() => setSelectedPin(null)}>
             <div className="p-2 min-w-[180px]">
@@ -624,14 +639,14 @@ export default function AtlasPage() {
                   : ''}
               </div>
               {selectedPin.supplier?.departurePorts?.length ? (
-                <div className="text-xs text-grey-600 mt-2">
-                  <span className="text-grey-500">Departs:</span>{' '}
+                <div className="text-xs text-grey-800 mt-2">
+                  <span className="text-grey-600">Departs:</span>{' '}
                   {selectedPin.supplier.departurePorts.slice(0, 3).join(', ')}
                 </div>
               ) : null}
               {selectedPin.supplier?.hsCodes?.length ? (
-                <div className="text-xs text-grey-600 mt-1">
-                  <span className="text-grey-500">HS:</span>{' '}
+                <div className="text-xs text-grey-800 mt-1">
+                  <span className="text-grey-600">HS:</span>{' '}
                   {selectedPin.supplier.hsCodes.slice(0, 4).join(', ')}
                 </div>
               ) : null}
@@ -648,26 +663,26 @@ export default function AtlasPage() {
               <div className="font-medium text-grey-900 font-mono text-sm">
                 {selectedRoute.shipment.bolNumber}
               </div>
-              <div className="text-sm text-grey-600 mt-2 space-y-1">
+              <div className="text-sm text-grey-800 mt-2 space-y-1">
                 <div>
-                  <span className="text-grey-500">From:</span>{' '}
+                  <span className="text-grey-600">From:</span>{' '}
                   {selectedRoute.origin?.name || selectedRoute.shipment.departurePort || 'Unknown'}
                 </div>
                 <div>
-                  <span className="text-grey-500">To:</span>{' '}
+                  <span className="text-grey-600">To:</span>{' '}
                   {selectedRoute.destination?.name ||
                     selectedRoute.shipment.destinationPort ||
                     'Unknown'}
                 </div>
                 {selectedRoute.shipment.vesselName && (
                   <div>
-                    <span className="text-grey-500">Vessel:</span>{' '}
+                    <span className="text-grey-600">Vessel:</span>{' '}
                     {selectedRoute.shipment.vesselName}
                   </div>
                 )}
                 {selectedRoute.shipment.arrivalDate && (
                   <div>
-                    <span className="text-grey-500">Arrival:</span>{' '}
+                    <span className="text-grey-600">Arrival:</span>{' '}
                     {new Date(selectedRoute.shipment.arrivalDate).toLocaleDateString()}
                   </div>
                 )}

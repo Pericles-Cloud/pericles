@@ -74,7 +74,13 @@ export function NodePalette() {
               // hover:border-ring, not hover:border-input — `--input` and
               // `--border` are the same value in both modes, so hovering to
               // `input` changed nothing at all.
-              className="flex items-center gap-3 rounded-lg border border-border bg-card p-3 cursor-grab active:cursor-grabbing hover:border-ring hover:shadow-sm transition-all"
+              //
+              // border-muted-foreground/40, not border-border: the enclosing
+              // panel is --background and the card is --card, which are the
+              // SAME colour in light mode (#FFFFFF), so the border is the only
+              // edge these drag sources have. --border is purple-100 there —
+              // 1.09:1 on white, i.e. no edge at all.
+              className="flex items-center gap-3 rounded-lg border border-muted-foreground/40 bg-card p-3 cursor-grab active:cursor-grabbing hover:border-ring hover:shadow-sm transition-all"
             >
               <div
                 // ring, because item.color is a ramp step that can land within

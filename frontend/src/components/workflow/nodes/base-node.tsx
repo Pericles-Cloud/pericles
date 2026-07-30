@@ -31,10 +31,20 @@ export const BaseNode = memo(function BaseNode({
   return (
     <div
       className={cn(
-        // /70: the node body is only 1.21:1 from the canvas in dark mode, so the
-        // border is what delineates the node. Lower alphas miss 3:1 (WCAG 1.4.11).
-        'min-w-[80px] rounded border border-muted-foreground/70 bg-card shadow-sm transition-shadow overflow-hidden',
-        selected ? 'border-primary shadow-md ring-2 ring-ring/30' : 'border-input',
+        // The node body is 1.00:1 from the canvas in light mode (--card and
+        // --background are both #FFFFFF) and 1.21:1 in dark, so the BORDER is
+        // the only thing that delineates a node. It must therefore be set on
+        // the unselected branch, not in the base string: cn() is tailwind-merge,
+        // and any border-colour later in the argument list wins outright — a
+        // base `border-muted-foreground/70` here was silently replaced by
+        // `border-input` (1.31:1 dark, 1.09:1 light) and never rendered.
+        // /80, not /70: /70 measures 3.92:1 on the dark card but only 2.80:1 on
+        // the white one, under the 3:1 non-text floor (WCAG 1.4.11). /80 is
+        // 4.13:1 light and 4.69:1 dark.
+        'min-w-[80px] rounded border bg-card shadow-sm transition-shadow overflow-hidden',
+        selected
+          ? 'border-primary shadow-md ring-2 ring-ring/30'
+          : 'border-muted-foreground/80',
         className
       )}
     >

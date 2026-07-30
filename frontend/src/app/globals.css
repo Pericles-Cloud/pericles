@@ -297,12 +297,17 @@
   /* Standalone severity text. The `-fg` tints above are ~90% lightness by
      design — correct on their own tinted surface, but on a plain card all four
      collapse into the same off-white and severity stops being readable at a
-     glance. These keep their hue AND clear 4.5:1 on the card
-     (danger 4.98, monitoring 6.00, low 6.42, elevated 7.20). */
-  --risk-critical-text:   color-mix(in oklab, var(--color-danger) 55%, var(--color-danger-light));
-  --risk-elevated-text:   color-mix(in oklab, var(--color-warning) 55%, var(--color-warning-light));
-  --risk-low-text:        color-mix(in oklab, var(--color-success) 55%, var(--color-success-light));
-  --risk-monitoring-text: color-mix(in oklab, var(--color-info) 55%, var(--color-info-light));
+     glance.
+
+     60/40, not 55/45: these land on --muted wells as well as on --card, and
+     --muted (purple-700) is the LIGHTER of the two, so it sets the floor. At
+     55% danger was 3.81:1 there. At 60% every family clears 4.5:1 on BOTH
+     surfaces — on muted: danger 4.80, info 5.60, low 5.91, elevated 6.33;
+     on card: danger 6.27, info 7.31, low 7.72, elevated 8.27. */
+  --risk-critical-text:   color-mix(in oklab, var(--color-danger) 40%, var(--color-danger-light));
+  --risk-elevated-text:   color-mix(in oklab, var(--color-warning) 40%, var(--color-warning-light));
+  --risk-low-text:        color-mix(in oklab, var(--color-success) 40%, var(--color-success-light));
+  --risk-monitoring-text: color-mix(in oklab, var(--color-info) 40%, var(--color-info-light));
 
   /* App shell — DARK. Pericles Purple at its brand base, sitting one step
      LIGHTER than the purple-900 canvas so the chrome reads as the dominant
@@ -488,6 +493,24 @@
 
 .dark .react-flow__controls-button svg {
   fill: var(--card-foreground);
+}
+
+.dark .react-flow__attribution {
+  background: color-mix(in oklab, var(--color-purple-900) 70%, transparent);
+}
+
+.dark .react-flow__attribution a {
+  color: var(--color-purple-300);
+}
+
+/* reactflow hardcodes #b1b1b7 for edges; the dragged connection line is themed
+   in workflow-canvas.tsx, so without this the line changes colour on drop. */
+.react-flow__edge-path {
+  stroke: var(--color-grey-400);
+}
+
+.dark .react-flow__edge-path {
+  stroke: var(--color-grey-600);
 }
 
 .dark .react-flow__minimap {

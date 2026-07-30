@@ -7,18 +7,23 @@ import { getEvents, getSuppliers, getShipments, Event, Supplier, Shipment } from
 import Link from 'next/link';
 import { Fillet } from '@/components/ui/fillet';
 import { RiskBadge } from '@/components/ui/risk-badge';
+import { getRiskColor, getSeverityLevel } from '@/lib/intelligence-utils';
+import { severityLabel } from '@/lib/atlas-brand';
 
 /**
  * Severity chip. Delegates to the shared RiskBadge so the icon comes along —
- * severity must never be carried by colour alone, and the four-step scale used
- * here ("High"/"Medium" both sit in the Elevated family) would otherwise be
- * indistinguishable to a colourblind user.
+ * severity must never be carried by colour alone.
+ *
+ * Boundaries come from `getSeverityLevel`, i.e. the SAME 0.33 / 0.66 table as
+ * `getRiskColor`, `getRiskBgColor` and `severityLabel` in `atlas-brand.ts`.
+ * This chip used to run its own 0.4 / 0.6 / 0.8 scale, so a 0.5-severity event
+ * showed a green "Low" tick here and an orange "Elevated" label on Atlas and in
+ * the Intelligence feed — the same event in two risk families, one screen apart.
  */
+const SEVERITY_BADGE_LEVEL = ['low', 'elevated', 'critical'] as const;
+
 function SeverityBadge({ severity }: { severity: number }) {
-  if (severity >= 0.8) return <RiskBadge level="critical" />;
-  if (severity >= 0.6) return <RiskBadge level="elevated" label="High" />;
-  if (severity >= 0.4) return <RiskBadge level="elevated" label="Medium" />;
-  return <RiskBadge level="low" />;
+  return <RiskBadge level={SEVERITY_BADGE_LEVEL[getSeverityLevel(severity) - 1]} />;
 }
 
 // Event type icon mapping
@@ -75,10 +80,13 @@ function EventTypeIcon({ type }: { type: string }) {
   }
 }
 
-// Calculate overall risk level from events
+// Calculate overall risk level from events.
+// Same 0.33 / 0.66 boundaries and the same Critical / Elevated / Low vocabulary
+// as severityLabel + getRiskColor, so this tile and the Intelligence page's
+// "Overall Risk Score" cannot name the same number two different things.
 function calculateRiskLevel(events: Event[]): { level: string; color: string; score: number } {
   if (events.length === 0) {
-    return { level: 'Low', color: 'text-risk-low-text', score: 0 };
+    return { level: 'Low', color: getRiskColor(0), score: 0 };
   }
 
   // Calculate weighted average severity
@@ -88,14 +96,7 @@ function calculateRiskLevel(events: Event[]): { level: string; color: string; sc
   // Weight: 60% max severity, 40% average severity
   const riskScore = (maxSeverity * 0.6) + (avgSeverity * 0.4);
 
-  if (riskScore >= 0.7) {
-    return { level: 'Critical', color: 'text-risk-critical-text', score: riskScore };
-  } else if (riskScore >= 0.5) {
-    return { level: 'High', color: 'text-risk-elevated-text', score: riskScore };
-  } else if (riskScore >= 0.3) {
-    return { level: 'Medium', color: 'text-risk-elevated-text', score: riskScore };
-  }
-  return { level: 'Low', color: 'text-risk-low-text', score: riskScore };
+  return { level: severityLabel(riskScore), color: getRiskColor(riskScore), score: riskScore };
 }
 
 // Format relative time

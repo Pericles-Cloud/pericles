@@ -57,11 +57,16 @@ export const STATUS_CONFIG: Record<EventStatus, StatusConfig> = {
  * RiskBadge uses and are contrast-validated in both modes (5.41–8.05:1 light,
  * 10.58–12.23:1 dark). The numeric label is always rendered alongside, so
  * severity is never carried by colour alone.
+ *
+ * The `-accent/40` border is not decoration: these render as a filled DISC, and
+ * the tinted surface is 1.20–1.30:1 against the light card, so without an edge
+ * the disc itself is not a perceivable graphic (WCAG 1.4.11). RiskBadge carries
+ * the same border for the same reason.
  */
 export const SEVERITY_CONFIG: Record<number, { label: string; color: string }> = {
-  1: { label: '1', color: 'bg-risk-low text-risk-low-fg' },
-  2: { label: '2', color: 'bg-risk-elevated text-risk-elevated-fg' },
-  3: { label: '3', color: 'bg-risk-critical text-risk-critical-fg' },
+  1: { label: '1', color: 'border border-risk-low-accent/40 bg-risk-low text-risk-low-fg' },
+  2: { label: '2', color: 'border border-risk-elevated-accent/40 bg-risk-elevated text-risk-elevated-fg' },
+  3: { label: '3', color: 'border border-risk-critical-accent/40 bg-risk-critical text-risk-critical-fg' },
 };
 
 export const TYPE_ICONS: Record<string, string> = {

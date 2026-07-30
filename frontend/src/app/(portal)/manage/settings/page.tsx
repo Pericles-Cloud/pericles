@@ -261,7 +261,7 @@ export default function SettingsPage() {
                 <button
                   onClick={() => updateField('monitoringAgentEnabled', !formData.monitoringAgentEnabled)}
                   className={`relative inline-flex h-6 w-11 items-center rounded-full transition-colors ${
-                    formData.monitoringAgentEnabled ? 'bg-primary border border-primary' : 'bg-muted border border-muted-foreground/70'
+                    formData.monitoringAgentEnabled ? 'bg-primary border border-primary' : 'bg-muted ring-1 ring-muted-foreground/70'
                   }`}
                 >
                   <span
@@ -444,7 +444,7 @@ export default function SettingsPage() {
                   <button
                     onClick={() => updateField('notificationsEmailEnabled', !formData.notificationsEmailEnabled)}
                     className={`relative inline-flex h-6 w-11 items-center rounded-full transition-colors ${
-                      formData.notificationsEmailEnabled ? 'bg-primary border border-primary' : 'bg-muted border border-muted-foreground/70'
+                      formData.notificationsEmailEnabled ? 'bg-primary border border-primary' : 'bg-muted ring-1 ring-muted-foreground/70'
                     }`}
                   >
                     <span
@@ -527,7 +527,7 @@ export default function SettingsPage() {
                   <button
                     onClick={() => updateField('notificationsSlackEnabled', !formData.notificationsSlackEnabled)}
                     className={`relative inline-flex h-6 w-11 items-center rounded-full transition-colors ${
-                      formData.notificationsSlackEnabled ? 'bg-primary border border-primary' : 'bg-muted border border-muted-foreground/70'
+                      formData.notificationsSlackEnabled ? 'bg-primary border border-primary' : 'bg-muted ring-1 ring-muted-foreground/70'
                     }`}
                   >
                     <span
@@ -599,7 +599,7 @@ export default function SettingsPage() {
                   <button
                     onClick={() => updateField('notificationsDigestEnabled', !formData.notificationsDigestEnabled)}
                     className={`relative inline-flex h-6 w-11 items-center rounded-full transition-colors ${
-                      formData.notificationsDigestEnabled ? 'bg-primary border border-primary' : 'bg-muted border border-muted-foreground/70'
+                      formData.notificationsDigestEnabled ? 'bg-primary border border-primary' : 'bg-muted ring-1 ring-muted-foreground/70'
                     }`}
                   >
                     <span

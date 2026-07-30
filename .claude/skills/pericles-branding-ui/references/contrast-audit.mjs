@@ -43,6 +43,10 @@ const RAMPS = {
 
 const AA_TEXT = 4.5;
 const AA_LARGE = 3.0; // large text (>=18.66px bold / 24px) and non-text UI
+// Not a WCAG figure: the floor at which a hairline map stroke still reads
+// against the land fill it is drawn on. Pinned here so the Atlas map style
+// array is asserted somewhere rather than only asserted in a comment.
+const MAP_LINE = 2.0;
 
 const toRgb = (token) => {
   const hex = (RAMPS[token] ?? token).replace('#', '');
@@ -77,7 +81,7 @@ const lift = (family) => over(`${family}-light`, family, 0.30);
 
 // The `-text` steps (standalone severity text on a card) lift further, 55/45,
 // because the `-fg` tints are ~90% lightness and collapse into one off-white.
-const textOf = (family) => over(`${family}-light`, family, 0.45);
+const textOf = (family) => over(`${family}-light`, family, 0.60);
 
 /** [description, foreground, background, minimum ratio] */
 const PAIRS = [
@@ -140,6 +144,18 @@ const PAIRS = [
   ['D  gold accent on card', 'gold-400', 'purple-800', AA_TEXT],
   ['D  gold CTA label', 'gold-900', 'gold-400', AA_TEXT],
   ['D  content fillet on canvas', 'gold-400', 'purple-900', AA_LARGE],
+  // -text lands on --muted wells too, and muted is the LIGHTER dark surface,
+  // so it sets the floor. Only asserting against --card missed danger at 3.81.
+  ['D  critical TEXT on muted well', textOf('danger'), 'purple-700', AA_TEXT],
+  ['D  elevated TEXT on muted well', textOf('warning'), 'purple-700', AA_TEXT],
+  ['D  low TEXT on muted well', textOf('success'), 'purple-700', AA_TEXT],
+  ['D  monitoring TEXT on muted well', textOf('info'), 'purple-700', AA_TEXT],
+  ['D  destructive error text on card', textOf('danger'), 'purple-800', AA_TEXT],
+  // `-fg` is still the right token for text on its own tinted surface — it is
+  // 9.74:1 there vs `-text`'s 5.54:1. That is now a semantic rule, not a
+  // contrast one: before -text was lifted to 60/40 it measured 4.39:1 and
+  // FAILED there, and this used to be a KNOWN_TRAP on that basis.
+  ['D  critical -fg on its own tinted surface', 'danger-light', dark('danger'), AA_TEXT],
   ['D  critical TEXT on card', textOf('danger'), 'purple-800', AA_TEXT],
   ['D  elevated TEXT on card', textOf('warning'), 'purple-800', AA_TEXT],
   ['D  low TEXT on card', textOf('success'), 'purple-800', AA_TEXT],
@@ -156,6 +172,15 @@ const PAIRS = [
   ['D  elevated icon on card', lift('warning'), 'purple-800', AA_LARGE],
   ['D  low icon on card', lift('success'), 'purple-800', AA_LARGE],
   ['D  monitoring icon on card', lift('info'), 'purple-800', AA_LARGE],
+
+  // ── Atlas dark map (mapStylesDark in atlas/page.tsx) ──────────────────────
+  // The country stroke was grey-700 on purple-700 land: 1.07:1, i.e. no
+  // national borders at all on the dark map. grey-500 is 2.56:1, matching the
+  // 2.36:1 the light map gets from grey-400 on grey-100.
+  ['MD country stroke vs land', 'grey-500', 'purple-700', MAP_LINE],
+  // Labels also carry a grey-950 text-stroke halo, so the large-text floor is
+  // the right bar here rather than AA_TEXT.
+  ['MD map labels vs land', 'grey-400', 'purple-700', AA_LARGE],
 ];
 
 /**
@@ -176,11 +201,9 @@ const KNOWN_TRAPS = [
   ['switch off-track as bare --muted (light) — invisible', 'purple-50', 'white', AA_LARGE],
   ['fixed white switch knob on the dark on-track — use --primary-foreground',
     'white', 'purple-200', AA_LARGE],
-  ['a risk -text token ON its own tinted dark surface — use -fg',
-    textOf('danger'), dark('danger'), AA_TEXT],
   ['dark --primary == --muted-foreground (purple-300) — links look like muted text',
     'purple-300', 'purple-300', AA_LARGE],
-  ['dark map land == water — no coastlines', 'purple-900', 'grey-900', AA_LARGE],
+  ['purple-900 land over grey-900 water on the dark map — no coastlines', 'purple-900', 'grey-900', AA_LARGE],
   ['dark -fg tints as standalone text — all four collapse to one off-white',
     'danger-light', 'warning-light', 1.35],
   ['light-mode supplier pin on any dark map — purple-600 cannot reach 3:1',
@@ -238,9 +261,25 @@ console.log('\nATLAS PALETTE (categorical vs semantic/brand, per mode)');
 try {
   const src = readFileSync(atlasBrand, 'utf8');
   const grab = (re) => (src.match(re)?.[1] ?? '').match(/#[0-9A-Fa-f]{6}/g)?.map((c) => c.toUpperCase()) ?? [];
+  // Semantic hexes come from RAMPS, NOT from a `SEVERITY` map in atlas-brand.ts:
+  // that map was deleted when the Atlas feed moved to the risk role tokens, and
+  // because `grab` returns [] for a pattern it cannot find, this guard silently
+  // stopped checking anything and still printed "none reserved". Anchor it to a
+  // source that cannot disappear, and fail loudly if PERICLES ever does.
+  const SEMANTIC = ['danger', 'warning', 'success', 'info']
+    .flatMap((f) => [RAMPS[f], RAMPS[`${f}-light`], RAMPS[`${f}-dark`]])
+    .map((c) => c.toUpperCase());
+  const brand = grab(/export const PERICLES = \{([\s\S]*?)\} as const/);
+  if (!brand.length) {
+    failures += 1;
+    console.log('  FAIL  no PERICLES palette found in atlas-brand.ts — did it get renamed?');
+  }
   const reserved = new Set([
-    ...grab(/export const SEVERITY = \{([\s\S]*?)\} as const/),
-    ...grab(/export const PERICLES = \{([\s\S]*?)\} as const/),
+    ...SEMANTIC,
+    ...brand,
+    // The map object colours themselves: a subsidiary drawn in the supplier-pin,
+    // port-pin or route colour is indistinguishable from those layers.
+    ...grab(/export const MAP_COLORS = \{([\s\S]*?)\} as const/),
   ]);
   // The land each palette is drawn on. A single palette CANNOT serve both:
   // 3:1 on grey-100 needs luminance <= 0.175, 3:1 on purple-700 needs >= 0.238.

@@ -1,6 +1,6 @@
 ---
 name: pericles-branding-ui
-version: 2026.07.11
+version: 2026.07.12
 description: >
   How Pericles looks and feels — the brand color system (Pericles Purple / Athenian
   Gold / warm neutral), the light + dark theme token architecture, typography, the
@@ -206,6 +206,15 @@ Name tokens by **risk meaning**, not by color — the UI says "critical", not "r
 
 Validated: light badge text 5.41–8.05:1; dark badge text 10.58–12.23:1 over the
 composited tint. Dark surfaces are `color-mix(in oklab, var(--color-danger) 18%, var(--card))`.
+
+**A role token is only validated against the surfaces you measured it on.** The
+`-text` steps were sized against `--card` and then used on `--muted` wells, where
+danger dropped to 3.81:1 — `--muted` is the LIGHTER dark surface, so it sets the floor.
+Measure a text token against the lightest surface it can land on, not the commonest.
+
+**`--destructive` is a FILL, not a text colour.** White on it is 5.61:1; as text on the
+dark card it is 2.55:1. Destructive *text* uses `--risk-critical-text`. The "Error
+loading Google Maps" message was the least legible text on the page.
 
 **A ramp step used as a fill can collide with any surface token.** Dark `--muted` is
 `purple-700`, the same step a workflow node used — the swatch measured 1.00:1 against
@@ -510,6 +519,20 @@ GitHub issue **#17** and its two attachments (`pericles-color-system.html`,
 
 ## Changelog
 
+- 2026.07.12 — Ninth round (two reviews, one with `--fix`). The `--fix` agent found
+  that my previous fix was **dead on arrival**: `border-muted-foreground/70` sat in
+  `cn()`'s base string and tailwind-merge dropped it for the `border-input` argument
+  that followed — verified with `twMerge()` directly. Border colours must go on the
+  branch that wins, not the base. Also fixed here: `--destructive` used as TEXT was
+  2.55:1 on the dark card (the map-error message); `-text` tokens on `--muted` wells
+  were below AA until lifted 55→60%; the `aria-invalid` ring was left on the un-lifted
+  `--destructive` while its border had moved to the lifted accent; switch tracks got a
+  `border` that shifted the knob off-centre (now `ring-1`, which costs no layout);
+  reactflow's attribution chip and default edge stroke were never themed. The audit
+  gained assertions for all of these — it had been measuring `-text` only against
+  `--card`, and had no light-mode fillet row at all. One trap was **retired with
+  reasoning**: `-text` on its own tinted surface no longer fails AA after the lift, so
+  the rule is now semantic (`-fg` is 9.74:1 vs 5.54:1), not a contrast failure.
 - 2026.07.11 — Eighth review (`/code-review xhigh`), 14 findings; 12 real, 1 rejected,
   1 deferred. The bad one: **`STATUS_CONFIG` paired `bg-risk-*` surfaces with `-text`
   instead of `-fg`** (critical chip 4.39:1, under AA) — my earlier `-fg`→`-text` sweep

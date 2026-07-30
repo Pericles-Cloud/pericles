@@ -378,7 +378,7 @@ export function DataSourceSettingsDialog({
               aria-checked={value as boolean}
               onClick={() => handleConfigFieldChange(field.key, !value)}
               className={`relative inline-flex h-6 w-11 items-center rounded-full transition-colors ${
-                value ? 'bg-primary border border-primary' : 'bg-muted border border-muted-foreground/70'
+                value ? 'bg-primary border border-primary' : 'bg-muted ring-1 ring-muted-foreground/70'
               }`}
             >
               <span
@@ -649,7 +649,7 @@ export function DataSourceSettingsDialog({
                           aria-checked={formEnabled}
                           onClick={() => setFormEnabled(!formEnabled)}
                           className={`relative inline-flex h-6 w-11 items-center rounded-full transition-colors ${
-                            formEnabled ? 'bg-primary border border-primary' : 'bg-muted border border-muted-foreground/70'
+                            formEnabled ? 'bg-primary border border-primary' : 'bg-muted ring-1 ring-muted-foreground/70'
                           }`}
                         >
                           <span

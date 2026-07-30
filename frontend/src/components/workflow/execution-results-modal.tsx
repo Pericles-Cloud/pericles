@@ -77,7 +77,9 @@ function ExecutionLogItem({ log }: { log: ExecutionLog }) {
           <div>
             <div className="flex items-center gap-2">
               <span className="font-medium text-foreground">{log.nodeLabel}</span>
-              <span className="rounded bg-muted px-1.5 py-0.5 text-xs text-muted-foreground">
+              {/* bg-muted-foreground/20, not bg-muted: for skipped/pending rows the
+                  wrapper is already bg-muted, so this chip would have no edge. */}
+              <span className="rounded bg-muted-foreground/20 px-1.5 py-0.5 text-xs text-muted-foreground">
                 {log.nodeType}
               </span>
               {log.simulated && (
@@ -101,7 +103,7 @@ function ExecutionLogItem({ log }: { log: ExecutionLog }) {
       )}
 
       {log.skippedReason && (
-        <div className="mt-2 rounded bg-muted p-2 text-sm text-muted-foreground">
+        <div className="mt-2 rounded bg-muted-foreground/15 p-2 text-sm text-muted-foreground">
           {log.skippedReason}
         </div>
       )}
@@ -111,7 +113,7 @@ function ExecutionLogItem({ log }: { log: ExecutionLog }) {
           <summary className="cursor-pointer text-xs text-muted-foreground hover:text-foreground">
             View result
           </summary>
-          <pre className="mt-1 max-h-32 overflow-auto rounded bg-muted p-2 text-xs text-muted-foreground">
+          <pre className="mt-1 max-h-32 overflow-auto rounded bg-muted-foreground/15 p-2 text-xs text-muted-foreground">
             {JSON.stringify(log.result, null, 2)}
           </pre>
         </details>

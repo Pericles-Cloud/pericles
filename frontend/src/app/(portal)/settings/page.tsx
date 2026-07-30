@@ -194,7 +194,7 @@ export default function SettingsPage() {
               </div>
               <button
                 type="button"
-                className="relative inline-flex h-6 w-11 items-center rounded-full bg-muted border border-muted-foreground/70 transition-colors"
+                className="relative inline-flex h-6 w-11 items-center rounded-full bg-muted ring-1 ring-muted-foreground/70 transition-colors"
                 role="switch"
                 aria-checked="false"
               >
@@ -209,7 +209,7 @@ export default function SettingsPage() {
               </div>
               <button
                 type="button"
-                className="relative inline-flex h-6 w-11 items-center rounded-full bg-muted border border-muted-foreground/70 transition-colors"
+                className="relative inline-flex h-6 w-11 items-center rounded-full bg-muted ring-1 ring-muted-foreground/70 transition-colors"
                 role="switch"
                 aria-checked="false"
               >
