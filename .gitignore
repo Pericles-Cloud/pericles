@@ -51,3 +51,13 @@ backups/
 # Python
 __pycache__/
 *.pyc
+
+# Personal Obsidian vault + the symlinks the claude-obsidian hooks resolve.
+# MUST stay ignored: the plugin's PostToolUse hook runs
+#   git add -- wiki/ .raw/ .vault-meta/ && git commit
+# on every Write/Edit, so un-ignoring these auto-commits personal notes into
+# this shared repo.
+Pericles-Wiki/
+wiki
+.vault-meta
+.raw
