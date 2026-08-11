@@ -28,6 +28,7 @@ import {
 } from './error-reporter.js';
 import { requestValidation } from './validation-client.js';
 import { publishToQueue } from './queue-client.js';
+import { findDuplicateIncident } from './incident-similarity.js';
 
 // ============================================================================
 // Global State
@@ -532,6 +533,18 @@ export async function runMonitoringCycle(
 async function storeEvent(organizationId: string, eventData: any): Promise<any> {
   const prisma = getPrismaClient();
 
+  // Same-incident check (#22) runs BEFORE the write transaction: it may make
+  // an LLM call (up to 10s), and a DB transaction must never be held open
+  // across a network call to another service. Narrowed by type/geo/time
+  // first, so this is a no-op query in the common case.
+  const fuzzyDuplicate = await findDuplicateIncident(prisma, organizationId, {
+    type: eventData.type,
+    title: eventData.title,
+    description: eventData.description,
+    event_timestamp: eventData.event_timestamp,
+    location: eventData.location,
+  });
+
   return await prisma.$transaction(async (tx) => {
     // Server-side deduplication check - verify event doesn't already exist
     // Check both by event_hash AND by content (title + source + type)
@@ -550,12 +563,16 @@ async function storeEvent(organizationId: string, eventData: any): Promise<any> 
       select: { id: true, event_hash: true },
     });
 
-    if (existingEvent) {
+    // Exact match wins over the fuzzy one if somehow both fire — it's the
+    // stronger signal and needs no extra source-tracking work.
+    const duplicate = existingEvent ?? fuzzyDuplicate;
+
+    if (duplicate) {
       // Event already exists - update EventHash occurrence count and return existing event
       await tx.eventHash.updateMany({
         where: {
           organization_id: organizationId,
-          hash: existingEvent.event_hash,
+          hash: duplicate.event_hash,
         },
         data: {
           last_seen_at: new Date(),
@@ -564,7 +581,36 @@ async function storeEvent(organizationId: string, eventData: any): Promise<any> 
         },
       });
 
-      return { ...existingEvent, _deduplicated: true };
+      // Only the fuzzy path (different wording, different source) needs this:
+      // an exact match is by definition the same source repeating, so there's
+      // no new corroborating source to record. Append rather than overwrite —
+      // several different sources can confirm the same incident over time.
+      if (!existingEvent) {
+        const current = await tx.event.findUnique({
+          where: { id: duplicate.id },
+          select: { raw_data: true },
+        });
+        const currentRawData =
+          current?.raw_data && typeof current.raw_data === 'object' && !Array.isArray(current.raw_data)
+            ? (current.raw_data as Record<string, unknown>)
+            : {};
+        const existingSources = Array.isArray(currentRawData.confirming_sources)
+          ? (currentRawData.confirming_sources as string[])
+          : [];
+        if (eventData.source && !existingSources.includes(eventData.source)) {
+          await tx.event.update({
+            where: { id: duplicate.id },
+            data: {
+              raw_data: {
+                ...currentRawData,
+                confirming_sources: [...existingSources, eventData.source],
+              },
+            },
+          });
+        }
+      }
+
+      return { ...duplicate, _deduplicated: true };
     }
 
     // Create Event record
