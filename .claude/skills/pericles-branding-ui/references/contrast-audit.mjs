@@ -351,6 +351,149 @@ try {
   console.log(`  SKIP  could not read atlas-brand.ts (${err.code ?? err.message})`);
 }
 
+// ── Workflow node header palette: five per-type colours, PER MODE (#25),
+// rendered both as each node's header (./nodes/*) and as the Plans minimap
+// legend (workflow-canvas.tsx's NODE_COLORS) — literal hex, not CSS vars,
+// same reason atlas-brand.ts and the Atlas palette check above exist.
+//
+// Mode-aware because a single fixed hex-per-type can't clear a legible 3:1
+// against the node card in BOTH modes (card is white in light, purple-800 in
+// dark). A first version of this check only asserted pairwise
+// distinguishability and header-text contrast, not header-vs-card contrast —
+// it passed a palette where the lightest colour measured 1.08:1 against the
+// white card in light mode, visibly not a coloured header at all. The
+// CARD_BY_MODE assertion below exists specifically so that regression can't
+// happen silently again.
+const workflowCanvas = resolve(
+  dirname(fileURLToPath(import.meta.url)),
+  '../../../../frontend/src/components/workflow/workflow-canvas.tsx',
+);
+const HEADER_TEXT_CANDIDATES = ['grey-100', 'purple-900'];
+const NODE_PALETTE_MIN_PAIRWISE = 1.1; // below the achievable 1.16:1 (dark) / 1.28:1 (light) optima
+const CARD_BY_MODE = { light: 'white', dark: 'purple-800' };
+
+console.log('\nNODE HEADER PALETTE (Plans minimap + node headers, #25)');
+try {
+  const src = readFileSync(workflowCanvas, 'utf8');
+  const outerBlock = src.match(/const NODE_COLORS = \{([\s\S]*?)\n\} as const/)?.[1] ?? '';
+  if (!outerBlock) {
+    failures += 1;
+    console.log('  FAIL  no NODE_COLORS found in workflow-canvas.tsx — did it get renamed?');
+  }
+  const parsedByMode = {};
+  for (const mode of ['light', 'dark']) {
+    const modeBlock = outerBlock.match(new RegExp(`${mode}:\\s*\\{([\\s\\S]*?)\\},`))?.[1] ?? '';
+    const entries = [...modeBlock.matchAll(/(\w+):\s*'(#[0-9A-Fa-f]{6})'/g)].map(([, type, hex]) => [
+      type,
+      hex.toUpperCase(),
+    ]);
+    if (!entries.length) {
+      failures += 1;
+      console.log(`  FAIL  no NODE_COLORS.${mode} entries found — did it get renamed?`);
+      continue;
+    }
+    parsedByMode[mode] = Object.fromEntries(entries);
+    const dupes = entries.filter(([, c], i) => entries.findIndex(([, c2]) => c2 === c) !== i);
+    if (dupes.length) {
+      failures += 1;
+      console.log(`  FAIL  [${mode}] duplicate node header colours: ${dupes.map(([t]) => t).join(', ')}`);
+    }
+    const noReadableText = entries.filter(
+      ([, c]) => !HEADER_TEXT_CANDIDATES.some((t) => contrast(c, t) >= AA_TEXT),
+    );
+    if (noReadableText.length) {
+      failures += 1;
+      console.log(
+        `  FAIL  [${mode}] no readable header text (grey-100 or purple-900) at 4.5:1 for: ` +
+          noReadableText.map(([t, c]) => `${t} ${c}`).join(', '),
+      );
+    }
+    const card = CARD_BY_MODE[mode];
+    const invisibleOnCard = entries.filter(([, c]) => contrast(c, card) < AA_LARGE);
+    if (invisibleOnCard.length) {
+      failures += 1;
+      console.log(
+        `  FAIL  [${mode}] under 3:1 against the ${card} card (not a visible coloured header): ` +
+          invisibleOnCard.map(([t, c]) => `${t} ${c} ${contrast(c, card).toFixed(2)}:1`).join(', '),
+      );
+    }
+    let minPair = Infinity;
+    let minPairLabel = '';
+    for (let i = 0; i < entries.length; i++) {
+      for (let j = i + 1; j < entries.length; j++) {
+        const ratio = contrast(entries[i][1], entries[j][1]);
+        if (ratio < minPair) {
+          minPair = ratio;
+          minPairLabel = `${entries[i][0]} vs ${entries[j][0]}`;
+        }
+      }
+    }
+    if (minPair < NODE_PALETTE_MIN_PAIRWISE) {
+      failures += 1;
+      console.log(
+        `  FAIL  [${mode}] weakest pair ${minPairLabel} only ${minPair.toFixed(2)}:1 ` +
+          `(min ${NODE_PALETTE_MIN_PAIRWISE}:1) — two node types will look alike on the minimap`,
+      );
+    } else if (!dupes.length && !noReadableText.length && !invisibleOnCard.length) {
+      console.log(
+        `  OK    [${mode}] ${entries.length} colours, none duplicated, all readable, all visible on ` +
+          `${card} card, weakest pair ${minPairLabel} ${minPair.toFixed(2)}:1`,
+      );
+    }
+  }
+
+  // The comments on NODE_COLORS and on headerClassName both assert this MUST
+  // hold — "a mismatch means the minimap shows a different legend from the
+  // canvas" — but until now nothing actually parsed the node files to check
+  // it; the two were free to drift apart with lint, tsc, and the rest of
+  // this very check all staying green. Read each node file directly rather
+  // than trusting the assertion.
+  const NODE_FILES = {
+    trigger: 'trigger-node.tsx',
+    action: 'action-node.tsx',
+    condition: 'condition-node.tsx',
+    notification: 'notification-node.tsx',
+    end: 'end-node.tsx',
+  };
+  const nodesDir = resolve(
+    dirname(fileURLToPath(import.meta.url)),
+    '../../../../frontend/src/components/workflow/nodes',
+  );
+  const rampHex = (name) => (RAMPS[name] ? RAMPS[name].toUpperCase() : null);
+  let mismatches = 0;
+  for (const [type, file] of Object.entries(NODE_FILES)) {
+    try {
+      const nodeSrc = readFileSync(resolve(nodesDir, file), 'utf8');
+      const headerClass = nodeSrc.match(/headerClassName="([^"]+)"/)?.[1] ?? '';
+      const lightRamp = headerClass.match(/(?:^|\s)bg-([a-z]+-\d+)/)?.[1];
+      const darkRamp = headerClass.match(/dark:bg-([a-z]+-\d+)/)?.[1];
+      if (!lightRamp || !darkRamp) {
+        failures += 1;
+        console.log(`  FAIL  ${file}: could not parse a "bg-X dark:bg-Y" headerClassName — did it change shape?`);
+        continue;
+      }
+      const [fileLight, fileDark] = [rampHex(lightRamp), rampHex(darkRamp)];
+      const [canvasLight, canvasDark] = [parsedByMode.light?.[type], parsedByMode.dark?.[type]];
+      if (fileLight !== canvasLight || fileDark !== canvasDark) {
+        mismatches += 1;
+        failures += 1;
+        console.log(
+          `  FAIL  ${type}: ${file} is bg-${lightRamp} dark:bg-${darkRamp} (${fileLight}/${fileDark}) ` +
+            `but NODE_COLORS says ${canvasLight}/${canvasDark} — minimap legend will disagree with the canvas`,
+        );
+      }
+    } catch (err) {
+      failures += 1;
+      console.log(`  FAIL  could not read ${file} (${err.code ?? err.message})`);
+    }
+  }
+  if (!mismatches) {
+    console.log(`  OK    all ${Object.keys(NODE_FILES).length} node headers match NODE_COLORS in both modes`);
+  }
+} catch (err) {
+  console.log(`  SKIP  could not read workflow-canvas.tsx (${err.code ?? err.message})`);
+}
+
 // ── Font tokens must live in `@theme inline`. next/font declares its
 // --font-* vars on <body>, so a plain @theme resolves them at :root where they
 // don't exist — the token becomes guaranteed-invalid and every heading

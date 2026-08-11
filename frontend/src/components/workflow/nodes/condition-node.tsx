@@ -10,7 +10,7 @@ export const ConditionNode = memo(function ConditionNode(props: NodeProps<Workfl
     <BaseNode
       {...props}
       typeName="Condition"
-      headerClassName="bg-purple-700"
+      headerClassName="bg-purple-700 dark:bg-purple-200"
       showSourceHandle={false}
       sourceHandles={[
         {
