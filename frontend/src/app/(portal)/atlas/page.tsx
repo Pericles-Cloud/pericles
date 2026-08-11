@@ -92,11 +92,6 @@ interface MapPin {
   shipments: Shipment[];
 }
 
-/** Shared by the geocode effect (write) and the popup render (read) so the
- * cache key can't drift between the two call sites (#11 review round 3). */
-const supplierGeocodeCacheKey = (position: { lat: number; lng: number }) =>
-  `${position.lat},${position.lng}`;
-
 type TimelinessFilter = 'all' | 'active' | 'completed';
 type MapType = 'roadmap' | 'hybrid';
 
@@ -125,11 +120,25 @@ export default function AtlasPage() {
   // pipeline never populates `address` — so this is reverse-geocoded from the
   // supplier's own lat/lng on demand when its pin is opened, using the same
   // Google Maps script Atlas already loads (no new vendor, no extra library
-  // param: Geocoder is part of the core Maps JS API). Cached per lat/lng pair
+  // param: Geocoder is part of the core Maps JS API). Cached per supplier id
+  // (not position — see mapPins' colocated-pin nudge, which intentionally
+  // offsets the *displayed* position of colliding pins, but must not affect
+  // which real-world coordinates get geocoded or how the result is cached)
   // so reopening the same pin in one session doesn't re-call the API.
   const [supplierCities, setSupplierCities] = useState<Record<string, string | null>>({});
   const geocoderRef = useRef<google.maps.Geocoder | null>(null);
   const pendingGeocodesRef = useRef<Set<string>>(new Set());
+  // Component-lifetime, not per-effect-run: a per-run `let isMounted` local
+  // goes stale as soon as the SAME supplier pin is closed and reopened
+  // before its original geocode call resolves — the original run's closure
+  // still has isMounted=false even though the component (and that supplier's
+  // pending request) is very much still live, so the result was silently
+  // dropped and the popup stayed on "Locating…" forever. A single ref tied
+  // to true unmount avoids that.
+  const isMountedRef = useRef(true);
+  useEffect(() => () => {
+    isMountedRef.current = false;
+  }, []);
 
   const mapRef = useRef<google.maps.Map | null>(null);
 
@@ -318,42 +327,50 @@ export default function AtlasPage() {
   );
 
   useEffect(() => {
-    if (!isLoaded || !selectedPin || selectedPin.type !== 'supplier') return;
-    const cacheKey = supplierGeocodeCacheKey(selectedPin.position);
+    if (!isLoaded || !selectedPin || selectedPin.type !== 'supplier' || !selectedPin.supplier) return;
+    const supplier = selectedPin.supplier;
+    if (supplier.latitude == null || supplier.longitude == null) return;
+    // Geocode the supplier's real coordinates and cache by supplier id — NOT
+    // selectedPin.position, which for a colocated supplier has been nudged
+    // a few hundred meters by mapPins' declutter pass purely so its Marker
+    // gets its own click target. Geocoding the nudged position could return
+    // a neighboring town's name, and keying the cache by a position that
+    // shifts whenever the nudge index changes would also spuriously discard
+    // already-resolved results.
+    const cacheKey = supplier.id;
     // Also guard against an in-flight request for the same key (e.g. the pin
     // is closed and reopened before the first geocode call resolves) — the
     // cache alone can't catch that since it isn't written until the
     // callback fires.
     if (cacheKey in supplierCities || pendingGeocodesRef.current.has(cacheKey)) return;
 
-    // Matches the isMounted-guard pattern the data-fetch effect above uses:
-    // if this component unmounts (client-side nav away from Atlas) before
-    // the geocode resolves or its timeout fires, don't update state on an
-    // unmounted component.
-    let isMounted = true;
-
     if (!geocoderRef.current) {
       geocoderRef.current = new google.maps.Geocoder();
     }
     pendingGeocodesRef.current.add(cacheKey);
+    const geocodeTarget = { lat: supplier.latitude, lng: supplier.longitude };
 
     // The Geocoder API takes a callback, not a Promise/AbortSignal, so a
     // stalled response is timed out manually — required per this repo's
     // external-call convention (CLAUDE.md's "External API Integration
-    // Pattern").
+    // Pattern"). Deliberately never cancelled: the timeout is what
+    // eventually deletes cacheKey from pendingGeocodesRef even if the
+    // browser/network silently drops the request with no callback at all —
+    // cancelling it early would leave that key stuck pending forever,
+    // permanently blocking any retry for that supplier.
     const timeoutId = setTimeout(() => {
       if (!pendingGeocodesRef.current.has(cacheKey)) return;
       pendingGeocodesRef.current.delete(cacheKey);
-      if (isMounted) setSupplierCities((prev) => ({ ...prev, [cacheKey]: null }));
+      if (isMountedRef.current) setSupplierCities((prev) => ({ ...prev, [cacheKey]: null }));
     }, 8000);
 
     geocoderRef.current.geocode(
-      { location: selectedPin.position },
+      { location: geocodeTarget },
       (results, status) => {
         if (!pendingGeocodesRef.current.has(cacheKey)) return; // already timed out
         clearTimeout(timeoutId);
         pendingGeocodesRef.current.delete(cacheKey);
-        if (!isMounted) return;
+        if (!isMountedRef.current) return;
         if (status !== google.maps.GeocoderStatus.OK || !results?.length) {
           setSupplierCities((prev) => ({ ...prev, [cacheKey]: null }));
           return;
@@ -364,18 +381,6 @@ export default function AtlasPage() {
         setSupplierCities((prev) => ({ ...prev, [cacheKey]: cityComponent?.long_name ?? null }));
       }
     );
-
-    // Deliberately does NOT clearTimeout(timeoutId): the timeout is what
-    // eventually deletes cacheKey from pendingGeocodesRef (whether the
-    // geocode call resolves, errors, or is silently dropped by the browser/
-    // network with no callback at all). Cancelling it on cleanup — e.g. the
-    // popup closes, or the component unmounts, before the 8s elapses — would
-    // leave that key stuck in pendingGeocodesRef forever, permanently
-    // blocking any future retry for that supplier. isMounted alone is
-    // enough to stop a stale setState.
-    return () => {
-      isMounted = false;
-    };
   }, [isLoaded, selectedPin, supplierCities]);
 
   const openEvents = useMemo(
@@ -774,7 +779,7 @@ export default function AtlasPage() {
                 {selectedPin.type === 'supplier' ? 'Supplier' : 'Destination Port'}
               </div>
               {selectedPin.type === 'supplier' && selectedPin.supplier && (() => {
-                const cacheKey = supplierGeocodeCacheKey(selectedPin.position);
+                const cacheKey = selectedPin.supplier.id;
                 const isGeocodePending = !(cacheKey in supplierCities);
                 const parts = [supplierCities[cacheKey], selectedPin.supplier.country].filter(Boolean);
                 return (
