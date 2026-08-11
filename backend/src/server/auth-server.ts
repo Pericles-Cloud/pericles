@@ -3390,9 +3390,14 @@ app.post('/api/events/:id/ask', eventQaRateLimit, async (req: Request, res: Resp
         : null,
     ].filter((line): line is string => line !== null);
 
+    // The question itself sits right next to the closing tag, so it needs
+    // the same escaping as the feed-derived fields above — otherwise a
+    // question containing a literal "</event_context>" reopens the exact
+    // boundary-break this function's escaping exists to prevent, just from
+    // the other side of the tag instead of from inside it.
     const prompt =
       `<event_context>\n${contextLines.join('\n')}\n</event_context>\n\n` +
-      `User question: ${question}`;
+      `User question: ${escapeForPromptContext(question)}`;
 
     const agent = mastra.getAgent('eventQaAgent');
     if (!agent) {
