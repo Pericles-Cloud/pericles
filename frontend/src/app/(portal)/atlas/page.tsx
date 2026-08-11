@@ -358,10 +358,12 @@ export default function AtlasPage() {
     // browser/network silently drops the request with no callback at all —
     // cancelling it early would leave that key stuck pending forever,
     // permanently blocking any retry for that supplier.
+    // Times out (below) without ever writing to the cache — deliberately.
+    // Writing `null` here would permanently mark this supplier as
+    // "unavailable" for the rest of the session even on a purely transient
+    // stall, with no way to retry short of a page reload.
     const timeoutId = setTimeout(() => {
-      if (!pendingGeocodesRef.current.has(cacheKey)) return;
       pendingGeocodesRef.current.delete(cacheKey);
-      if (isMountedRef.current) setSupplierCities((prev) => ({ ...prev, [cacheKey]: null }));
     }, 8000);
 
     geocoderRef.current.geocode(
@@ -371,10 +373,16 @@ export default function AtlasPage() {
         clearTimeout(timeoutId);
         pendingGeocodesRef.current.delete(cacheKey);
         if (!isMountedRef.current) return;
-        if (status !== google.maps.GeocoderStatus.OK || !results?.length) {
+        // Only ZERO_RESULTS is a genuine, cacheable "no city here" answer.
+        // Every other failure status (OVER_QUERY_LIMIT, UNKNOWN_ERROR,
+        // REQUEST_DENIED, ...) is left uncached so reopening the same pin
+        // retries instead of showing "Location unavailable" for the rest of
+        // the session on what may have been one rate-limited/transient call.
+        if (status === google.maps.GeocoderStatus.ZERO_RESULTS || !results?.length) {
           setSupplierCities((prev) => ({ ...prev, [cacheKey]: null }));
           return;
         }
+        if (status !== google.maps.GeocoderStatus.OK) return;
         const cityComponent = results
           .flatMap((r) => r.address_components)
           .find((c) => c.types.includes('locality') || c.types.includes('postal_town'));
