@@ -111,7 +111,7 @@ export default function AtlasPage() {
   const [mapType, setMapType] = useState<MapType>('roadmap');
   const [search, setSearch] = useState('');
   const [searchError, setSearchError] = useState<string | null>(null);
-  const [selectedPin, setSelectedPin] = useState<MapPin | null>(null);
+  const [selectedPinId, setSelectedPinId] = useState<string | null>(null);
   const [selectedRoute, setSelectedRoute] = useState<ShipmentRoute | null>(null);
   // Collapsed by default so the map reads as the whole surface (GH #8).
   const [isFeedOpen, setIsFeedOpen] = useState(false);
@@ -128,48 +128,6 @@ export default function AtlasPage() {
   const mapRef = useRef<google.maps.Map | null>(null);
 
   const { isLoaded, loadError } = useJsApiLoader({ googleMapsApiKey: GOOGLE_MAPS_API_KEY });
-
-  useEffect(() => {
-    if (!isLoaded || !selectedPin || selectedPin.type !== 'supplier') return;
-    const cacheKey = `${selectedPin.position.lat},${selectedPin.position.lng}`;
-    // Also guard against an in-flight request for the same key (e.g. the pin
-    // is closed and reopened before the first geocode call resolves) — the
-    // cache alone can't catch that since it isn't written until the
-    // callback fires.
-    if (cacheKey in supplierCities || pendingGeocodesRef.current.has(cacheKey)) return;
-
-    if (!geocoderRef.current) {
-      geocoderRef.current = new google.maps.Geocoder();
-    }
-    pendingGeocodesRef.current.add(cacheKey);
-
-    // The Geocoder API takes a callback, not a Promise/AbortSignal, so a
-    // stalled response is timed out manually — required per this repo's
-    // external-call convention (CLAUDE.md's "External API Integration
-    // Pattern").
-    const timeoutId = setTimeout(() => {
-      if (!pendingGeocodesRef.current.has(cacheKey)) return;
-      pendingGeocodesRef.current.delete(cacheKey);
-      setSupplierCities((prev) => ({ ...prev, [cacheKey]: null }));
-    }, 8000);
-
-    geocoderRef.current.geocode(
-      { location: selectedPin.position },
-      (results, status) => {
-        if (!pendingGeocodesRef.current.has(cacheKey)) return; // already timed out
-        clearTimeout(timeoutId);
-        pendingGeocodesRef.current.delete(cacheKey);
-        if (status !== google.maps.GeocoderStatus.OK || !results?.length) {
-          setSupplierCities((prev) => ({ ...prev, [cacheKey]: null }));
-          return;
-        }
-        const cityComponent = results
-          .flatMap((r) => r.address_components)
-          .find((c) => c.types.includes('locality') || c.types.includes('postal_town'));
-        setSupplierCities((prev) => ({ ...prev, [cacheKey]: cityComponent?.long_name ?? null }));
-      }
-    );
-  }, [isLoaded, selectedPin, supplierCities]);
 
   // Live vessel positions: mock-simulated motion over real BOL lanes today;
   // swaps to Terminal49 + AISstream when TRACKING_MODE=live, no UI change.
@@ -314,6 +272,57 @@ export default function AtlasPage() {
     return Array.from(pins.values());
   }, [filteredRoutes, suppliers]);
 
+  // Derived, not its own state: re-reads mapPins every render so the open
+  // popup's shipment list/count always reflects the current timeliness
+  // filter, and auto-closes (becomes null) if the filter removes every
+  // shipment that placed this pin on the map (#11 review round 2).
+  const selectedPin = useMemo(
+    () => (selectedPinId ? (mapPins.find((p) => p.id === selectedPinId) ?? null) : null),
+    [mapPins, selectedPinId]
+  );
+
+  useEffect(() => {
+    if (!isLoaded || !selectedPin || selectedPin.type !== 'supplier') return;
+    const cacheKey = `${selectedPin.position.lat},${selectedPin.position.lng}`;
+    // Also guard against an in-flight request for the same key (e.g. the pin
+    // is closed and reopened before the first geocode call resolves) — the
+    // cache alone can't catch that since it isn't written until the
+    // callback fires.
+    if (cacheKey in supplierCities || pendingGeocodesRef.current.has(cacheKey)) return;
+
+    if (!geocoderRef.current) {
+      geocoderRef.current = new google.maps.Geocoder();
+    }
+    pendingGeocodesRef.current.add(cacheKey);
+
+    // The Geocoder API takes a callback, not a Promise/AbortSignal, so a
+    // stalled response is timed out manually — required per this repo's
+    // external-call convention (CLAUDE.md's "External API Integration
+    // Pattern").
+    const timeoutId = setTimeout(() => {
+      if (!pendingGeocodesRef.current.has(cacheKey)) return;
+      pendingGeocodesRef.current.delete(cacheKey);
+      setSupplierCities((prev) => ({ ...prev, [cacheKey]: null }));
+    }, 8000);
+
+    geocoderRef.current.geocode(
+      { location: selectedPin.position },
+      (results, status) => {
+        if (!pendingGeocodesRef.current.has(cacheKey)) return; // already timed out
+        clearTimeout(timeoutId);
+        pendingGeocodesRef.current.delete(cacheKey);
+        if (status !== google.maps.GeocoderStatus.OK || !results?.length) {
+          setSupplierCities((prev) => ({ ...prev, [cacheKey]: null }));
+          return;
+        }
+        const cityComponent = results
+          .flatMap((r) => r.address_components)
+          .find((c) => c.types.includes('locality') || c.types.includes('postal_town'));
+        setSupplierCities((prev) => ({ ...prev, [cacheKey]: cityComponent?.long_name ?? null }));
+      }
+    );
+  }, [isLoaded, selectedPin, supplierCities]);
+
   const openEvents = useMemo(
     () =>
       events
@@ -333,9 +342,9 @@ export default function AtlasPage() {
   // refuses to preserve the memoization when they're omitted; listing them is
   // semantically identical.
   const handleMapClick = useCallback(() => {
-    setSelectedPin(null);
+    setSelectedPinId(null);
     setSelectedRoute(null);
-  }, [setSelectedPin, setSelectedRoute]);
+  }, [setSelectedPinId, setSelectedRoute]);
 
   // Location search (§3.1.1): geocode the query and recenter the map.
   const handleSearch = useCallback(
@@ -672,7 +681,7 @@ export default function AtlasPage() {
           <Marker
             key={pin.id}
             position={pin.position}
-            onClick={() => setSelectedPin(pin)}
+            onClick={() => setSelectedPinId(pin.id)}
             icon={{
               path: google.maps.SymbolPath.CIRCLE,
               scale: 8 + Math.min(pin.shipmentCount * 2, 10),
@@ -695,32 +704,41 @@ export default function AtlasPage() {
             AA for the 12–14px labels here. The label/value hierarchy is kept by
             darkening the values to grey-800 rather than lightening the labels. */}
         {selectedPin && (
-          <InfoWindow position={selectedPin.position} onCloseClick={() => setSelectedPin(null)}>
+          <InfoWindow position={selectedPin.position} onCloseClick={() => setSelectedPinId(null)}>
             <div className="p-2 w-[260px]">
               <div className="font-medium text-grey-900">{selectedPin.name}</div>
               <div className="text-sm text-grey-600 mt-1">
                 {selectedPin.type === 'supplier' ? 'Supplier' : 'Destination Port'}
               </div>
-              {selectedPin.type === 'supplier' && selectedPin.supplier && (
-                <div className="text-sm text-grey-600 mt-1">
-                  {[
-                    supplierCities[`${selectedPin.position.lat},${selectedPin.position.lng}`],
-                    selectedPin.supplier.country,
-                  ]
-                    .filter(Boolean)
-                    .join(', ') || 'Location unavailable'}
-                </div>
-              )}
+              {selectedPin.type === 'supplier' && selectedPin.supplier && (() => {
+                const cacheKey = `${selectedPin.position.lat},${selectedPin.position.lng}`;
+                const isGeocodePending = !(cacheKey in supplierCities);
+                const parts = [supplierCities[cacheKey], selectedPin.supplier.country].filter(Boolean);
+                return (
+                  <div className="text-sm text-grey-600 mt-1">
+                    {parts.length > 0
+                      ? parts.join(', ')
+                      : isGeocodePending
+                        ? 'Locating…'
+                        : 'Location unavailable'}
+                  </div>
+                );
+              })()}
               {/* "Showing" vs "total": the map only ever plots shipments that
                   resolved to a route (both origin and destination coordinates
                   known — see shipmentRoutes above), which can be fewer than the
                   supplier's org-wide shipment count. Previously worded as
                   "N on map · M total", which read as two unrelated numbers
-                  rather than a subset-of relationship (#11). */}
+                  rather than a subset-of relationship (#11). totalShipments
+                  falls back on a truthy check, not `??`: a supplier whose
+                  stored total_shipments is 0 (never backfilled — see
+                  MapPin.shipments' own doc comment) but has real shipments
+                  plotted here should show "N of N", not the self-contradicting
+                  "N of 0". */}
               <div className="text-sm text-grey-600 mt-1">
                 Showing {selectedPin.shipmentCount} of{' '}
-                {selectedPin.supplier?.totalShipments ?? selectedPin.shipmentCount} total shipment
-                {(selectedPin.supplier?.totalShipments ?? selectedPin.shipmentCount) !== 1 ? 's' : ''}
+                {selectedPin.supplier?.totalShipments || selectedPin.shipmentCount} total shipment
+                {(selectedPin.supplier?.totalShipments || selectedPin.shipmentCount) !== 1 ? 's' : ''}
               </div>
 
               <div className="mt-2 max-h-40 overflow-y-auto border-t border-grey-200 pt-2 space-y-2">
