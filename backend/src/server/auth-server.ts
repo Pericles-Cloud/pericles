@@ -87,16 +87,22 @@ setInterval(() => {
   }
 }, 5 * 60 * 1000);
 
-function getRateLimitKey(req: Request): string {
+function getRateLimitKey(req: Request, routeKey?: string): string {
   const forwarded = req.headers['x-forwarded-for'];
   const ip = forwarded
     ? (Array.isArray(forwarded) ? forwarded[0] : forwarded.split(',')[0]).trim()
     : req.ip || 'unknown';
-  return `rate:${ip}:${req.path}`;
+  // req.path is the RESOLVED request path (e.g. /api/events/abc123/ask), not
+  // the route pattern (/api/events/:id/ask) — every existing caller of this
+  // function is a static path, so that's harmless there, but a route with a
+  // dynamic segment gets a separate bucket PER segment value, not one bucket
+  // per client. routeKey lets a caller with a dynamic path opt into a fixed
+  // logical name instead (see eventQaRateLimit below).
+  return `rate:${ip}:${routeKey ?? req.path}`;
 }
 
-function checkRateLimit(req: Request, res: Response, maxRequests: number): boolean {
-  const key = getRateLimitKey(req);
+function checkRateLimit(req: Request, res: Response, maxRequests: number, routeKey?: string): boolean {
+  const key = getRateLimitKey(req, routeKey);
   const now = Date.now();
   const entry = rateLimitStore.get(key);
 
@@ -139,10 +145,13 @@ function authRateLimit(req: Request, res: Response, next: () => void): void {
 
 // Rate limit for the event Q&A endpoint (#23) — every request triggers a
 // real LLM call, unlike most other routes in this file which are plain DB
-// reads/writes with no per-request external cost.
+// reads/writes with no per-request external cost. Fixed routeKey ('event-qa'),
+// NOT the default req.path: this route has a dynamic :id segment, and without
+// a fixed key each distinct event id gets its own independent 10-request
+// bucket — trivially bypassing the cap by round-robining event ids.
 const RATE_LIMIT_EVENT_QA_MAX = 10;
 function eventQaRateLimit(req: Request, res: Response, next: () => void): void {
-  if (checkRateLimit(req, res, RATE_LIMIT_EVENT_QA_MAX)) {
+  if (checkRateLimit(req, res, RATE_LIMIT_EVENT_QA_MAX, 'event-qa')) {
     next();
   }
 }
