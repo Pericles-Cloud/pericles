@@ -25,6 +25,11 @@ const logger = toolLoggers.incidentLookup;
 const TIME_WINDOW_MS = 24 * 60 * 60 * 1000; // ±24h
 const GEO_RADIUS_KM = 250;
 const MAX_CANDIDATES = 5;
+// A finite stand-in for "no distance available" (missing coordinates),
+// used only as a sort key so coordinate-less candidates sort after every
+// geo-matched one. Not Infinity: Infinity - Infinity is NaN, and a sort
+// comparator returning NaN is not reliably well-defined.
+const NO_DISTANCE_SENTINEL = Number.MAX_SAFE_INTEGER;
 const LLM_TIMEOUT_MS = 10000;
 const SAME_INCIDENT_CONFIDENCE_THRESHOLD = 0.7;
 
@@ -109,16 +114,28 @@ export async function findDuplicateIncident(
       take: 20, // cap the pre-filter query before geo-narrowing below
     });
 
+    // Sorted closest-first before capping to MAX_CANDIDATES, not left in
+    // the query's recency order: without this, a truly nearby (and likely
+    // more relevant) candidate could lose its slot to a merely more recent
+    // but farther-away one once the cap is applied, letting a real
+    // duplicate go undetected and get stored as a fresh event instead of
+    // being linked.
     const geoNarrowed = candidates
-      .filter((c) => {
+      .map((c) => {
         // Missing coordinates on either side: don't exclude on geography,
-        // fall back to type + time + LLM judgment alone.
-        if (typeof lat !== 'number' || typeof lon !== 'number' || typeof c.latitude !== 'number' || typeof c.longitude !== 'number') {
-          return true;
-        }
-        return calculateDistance(lat, lon, c.latitude, c.longitude) <= GEO_RADIUS_KM;
+        // fall back to type + time + LLM judgment alone — sorts after every
+        // geo-matched candidate (see NO_DISTANCE_SENTINEL below), preserving
+        // their original recency order relative to each other.
+        const distanceKm =
+          typeof lat === 'number' && typeof lon === 'number' && typeof c.latitude === 'number' && typeof c.longitude === 'number'
+            ? calculateDistance(lat, lon, c.latitude, c.longitude)
+            : null;
+        return { candidate: c, distanceKm };
       })
-      .slice(0, MAX_CANDIDATES);
+      .filter(({ distanceKm }) => distanceKm === null || distanceKm <= GEO_RADIUS_KM)
+      .sort((a, b) => (a.distanceKm ?? NO_DISTANCE_SENTINEL) - (b.distanceKm ?? NO_DISTANCE_SENTINEL))
+      .slice(0, MAX_CANDIDATES)
+      .map(({ candidate }) => candidate);
 
     // Classified in PARALLEL, not sequentially: MAX_CANDIDATES (5) sequential
     // calls at LLM_TIMEOUT_MS (10s) each is a ~50s worst case for one event,
