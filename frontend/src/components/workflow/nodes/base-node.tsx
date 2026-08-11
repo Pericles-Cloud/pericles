@@ -9,6 +9,10 @@ interface BaseNodeProps extends NodeProps<WorkflowNodeData> {
   typeName: string;
   className?: string;
   headerClassName?: string;
+  /** Defaults to light text. The five per-type header colours (#25) span the
+   * full ramp for distinguishability, so the two lightest need dark text
+   * instead — see the NODE HEADER PALETTE check in contrast-audit.mjs. */
+  headerTextClassName?: string;
   showSourceHandle?: boolean;
   showTargetHandle?: boolean;
   sourceHandles?: Array<{ id: string; position: Position; label?: string; className?: string }>;
@@ -22,6 +26,7 @@ export const BaseNode = memo(function BaseNode({
   typeName,
   className,
   headerClassName,
+  headerTextClassName = 'text-grey-100',
   showSourceHandle = true,
   showTargetHandle = true,
   sourceHandles,
@@ -31,9 +36,10 @@ export const BaseNode = memo(function BaseNode({
   return (
     <div
       className={cn(
-        // The node body is 1.00:1 from the canvas in light mode (--card and
-        // --background are both #FFFFFF) and 1.21:1 in dark, so the BORDER is
-        // the only thing that delineates a node. It must therefore be set on
+        // The node body is 1.03:1 from the canvas in light mode (--card is
+        // white, --background is grey-50 — barely distinct, see #31) and
+        // 1.21:1 in dark, so the BORDER is the only thing that delineates a
+        // node. It must therefore be set on
         // the unselected branch, not in the base string: cn() is tailwind-merge,
         // and any border-colour later in the argument list wins outright — a
         // base `border-muted-foreground/70` here was silently replaced by
@@ -71,7 +77,8 @@ export const BaseNode = memo(function BaseNode({
       {/* Header with type name */}
       <div
         className={cn(
-          'px-2 py-1 text-[10px] font-medium text-grey-100 text-center',
+          'px-2 py-1 text-[10px] font-medium text-center',
+          headerTextClassName,
           headerClassName
         )}
       >

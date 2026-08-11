@@ -10,7 +10,7 @@ export const EndNode = memo(function EndNode(props: NodeProps<WorkflowNodeData>)
     <BaseNode
       {...props}
       typeName="End"
-      headerClassName="bg-grey-800"
+      headerClassName="bg-grey-950"
       showSourceHandle={false}
     />
   );

@@ -10,7 +10,8 @@ export const ActionNode = memo(function ActionNode(props: NodeProps<WorkflowNode
     <BaseNode
       {...props}
       typeName="Action"
-      headerClassName="bg-purple-500"
+      headerClassName="bg-purple-300"
+      headerTextClassName="text-purple-900"
     />
   );
 });

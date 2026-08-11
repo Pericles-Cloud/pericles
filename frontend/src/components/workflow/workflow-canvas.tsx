@@ -22,13 +22,22 @@ import { NodeType } from '@/lib/api-client';
  * the ramps in globals.css — the same reason atlas-brand.ts exists. They MUST
  * track the node header classes in ./nodes/*; a mismatch means the minimap
  * shows a different legend from the canvas.
+ *
+ * Chosen by exhaustive search over the purple+grey ramps for the best
+ * achievable MINIMUM pairwise contrast ratio (1.76:1) subject to each colour
+ * also clearing 4.5:1 against its header text (grey-100 or purple-900 — see
+ * headerTextClassName in ./nodes/base-node.tsx). The previous set (purple-
+ * 600/500/700 + grey-600/800) clustered in adjacent ramp steps: several pairs
+ * measured under 1.3:1, next to indistinguishable at minimap scale (#25).
+ * See the NODE HEADER PALETTE check in contrast-audit.mjs, which re-derives
+ * and asserts this same search so the two can't drift apart silently.
  */
 const NODE_COLORS: Record<string, string> = {
-  trigger: '#524765', // purple-600
-  action: '#6B5D84', // purple-500
-  condition: '#423851', // purple-700
-  notification: '#5F5A68', // grey-600
-  end: '#2A272F', // grey-800
+  trigger: '#F7F6F9', // purple-50
+  action: '#B4AAC5', // purple-300
+  condition: '#6B5D84', // purple-500
+  notification: '#423851', // purple-700
+  end: '#0F0D11', // grey-950
 };
 
 const CANVAS = {

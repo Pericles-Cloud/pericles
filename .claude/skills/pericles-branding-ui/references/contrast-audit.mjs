@@ -351,6 +351,75 @@ try {
   console.log(`  SKIP  could not read atlas-brand.ts (${err.code ?? err.message})`);
 }
 
+// ── Workflow node header palette: five per-type colours (#25) rendered both
+// as each node's header (./nodes/*) and as the Plans minimap legend
+// (workflow-canvas.tsx's NODE_COLORS) — literal hex, not CSS vars, same
+// reason atlas-brand.ts and the Atlas palette check above exist. The
+// original set clustered in adjacent ramp steps (several pairs under 1.3:1,
+// next to indistinguishable at minimap scale); this asserts no regression to
+// that, plus that every colour still holds readable header text.
+const workflowCanvas = resolve(
+  dirname(fileURLToPath(import.meta.url)),
+  '../../../../frontend/src/components/workflow/workflow-canvas.tsx',
+);
+const HEADER_TEXT_CANDIDATES = ['grey-100', 'purple-900'];
+const NODE_PALETTE_MIN_PAIRWISE = 1.5; // below the achievable 1.76:1 optimum, above the old 1.12:1 worst pair
+
+console.log('\nNODE HEADER PALETTE (Plans minimap + node headers, #25)');
+try {
+  const src = readFileSync(workflowCanvas, 'utf8');
+  const block = src.match(/const NODE_COLORS: Record<string, string> = \{([\s\S]*?)\};/)?.[1] ?? '';
+  const entries = [...block.matchAll(/(\w+):\s*'(#[0-9A-Fa-f]{6})'/g)].map(([, type, hex]) => [
+    type,
+    hex.toUpperCase(),
+  ]);
+  if (!entries.length) {
+    failures += 1;
+    console.log('  FAIL  no NODE_COLORS found in workflow-canvas.tsx — did it get renamed?');
+  } else {
+    const dupes = entries.filter(([, c], i) => entries.findIndex(([, c2]) => c2 === c) !== i);
+    if (dupes.length) {
+      failures += 1;
+      console.log(`  FAIL  duplicate node header colours: ${dupes.map(([t]) => t).join(', ')}`);
+    }
+    const noReadableText = entries.filter(
+      ([, c]) => !HEADER_TEXT_CANDIDATES.some((t) => contrast(c, t) >= AA_TEXT),
+    );
+    if (noReadableText.length) {
+      failures += 1;
+      console.log(
+        `  FAIL  no readable header text (grey-100 or purple-900) at 4.5:1 for: ` +
+          noReadableText.map(([t, c]) => `${t} ${c}`).join(', '),
+      );
+    }
+    let minPair = Infinity;
+    let minPairLabel = '';
+    for (let i = 0; i < entries.length; i++) {
+      for (let j = i + 1; j < entries.length; j++) {
+        const ratio = contrast(entries[i][1], entries[j][1]);
+        if (ratio < minPair) {
+          minPair = ratio;
+          minPairLabel = `${entries[i][0]} vs ${entries[j][0]}`;
+        }
+      }
+    }
+    if (minPair < NODE_PALETTE_MIN_PAIRWISE) {
+      failures += 1;
+      console.log(
+        `  FAIL  weakest pair ${minPairLabel} only ${minPair.toFixed(2)}:1 ` +
+          `(min ${NODE_PALETTE_MIN_PAIRWISE}:1) — two node types will look alike on the minimap`,
+      );
+    } else if (!dupes.length && !noReadableText.length) {
+      console.log(
+        `  OK    ${entries.length} colours, none duplicated, all readable, weakest pair ` +
+          `${minPairLabel} ${minPair.toFixed(2)}:1`,
+      );
+    }
+  }
+} catch (err) {
+  console.log(`  SKIP  could not read workflow-canvas.tsx (${err.code ?? err.message})`);
+}
+
 // ── Font tokens must live in `@theme inline`. next/font declares its
 // --font-* vars on <body>, so a plain @theme resolves them at :root where they
 // don't exist — the token becomes guaranteed-invalid and every heading
