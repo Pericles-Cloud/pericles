@@ -94,6 +94,32 @@ export async function findDuplicateIncident(
     const lat = eventData.location?.latitude;
     const lon = eventData.location?.longitude;
 
+    // A rough bounding-box prefilter, applied in the DB query itself — not
+    // just in the geoNarrowed JS filter below. Without this, `take: 20`
+    // caps the query by recency alone before any geography is considered:
+    // for a globally-monitored org with 20+ same-type events worldwide in
+    // the ±24h window, a genuinely nearby duplicate ranked 21st-or-later by
+    // recency would never even be fetched, let alone reach the geo/LLM
+    // narrowing step. ~1 degree latitude ≈ 111km; longitude degrees shrink
+    // toward the poles by cos(latitude), so widen (not narrow) the box by
+    // clamping that factor away from 0 rather than risk excluding real
+    // candidates near high latitudes. This is a superset of the true
+    // GEO_RADIUS_KM circle — geoNarrowed below still applies the exact
+    // Haversine radius — so it can only ever admit more candidates for the
+    // precise filter to consider, never wrongly exclude one.
+    const boundingBox =
+      typeof lat === 'number' && typeof lon === 'number'
+        ? (() => {
+            const latDeltaDeg = GEO_RADIUS_KM / 111;
+            const lonShrinkFactor = Math.max(Math.cos((lat * Math.PI) / 180), 0.1);
+            const lonDeltaDeg = GEO_RADIUS_KM / (111 * lonShrinkFactor);
+            return {
+              latitude: { gte: lat - latDeltaDeg, lte: lat + latDeltaDeg },
+              longitude: { gte: lon - lonDeltaDeg, lte: lon + lonDeltaDeg },
+            };
+          })()
+        : null;
+
     const candidates = await client.event.findMany({
       where: {
         organization_id: organizationId,
@@ -108,6 +134,12 @@ export async function findDuplicateIncident(
         // feed (GET /api/events excludes 'duplicate' by default) — a real
         // incident silently shadowed by an already-dismissed one.
         validation_status: { notIn: ['duplicate', 'rejected'] },
+        ...(boundingBox
+          ? // Events with no coordinates at all still pass through
+            // (fall back to type + time + LLM judgment alone), matching
+            // geoNarrowed's own missing-coordinate behavior below.
+            { OR: [{ latitude: null }, { longitude: null }, boundingBox] }
+          : {}),
       },
       select: { id: true, event_hash: true, title: true, description: true, latitude: true, longitude: true },
       orderBy: { event_timestamp: 'desc' },
