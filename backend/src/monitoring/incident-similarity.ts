@@ -94,6 +94,10 @@ export async function findDuplicateIncident(
         organization_id: organizationId,
         type: eventData.type,
         event_timestamp: { gte: windowStart, lte: windowEnd },
+        // Exclude events already marked as duplicates of something else, so
+        // a match always links to the canonical primary rather than
+        // chaining duplicate -> duplicate -> duplicate.
+        validation_status: { not: 'duplicate' },
       },
       select: { id: true, event_hash: true, title: true, description: true, latitude: true, longitude: true },
       orderBy: { event_timestamp: 'desc' },
