@@ -13,6 +13,7 @@ import {
   Supplier,
   Carrier,
 } from '@/lib/api-client';
+import { formatCurrencyUsd, formatShortDate } from '@/lib/format';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
@@ -127,15 +128,6 @@ export default function ShipmentsPage() {
     s.vesselName?.toLowerCase().includes(searchQuery.toLowerCase())
   );
 
-  const formatDate = (dateStr: string | null) => {
-    if (!dateStr) return '-';
-    return new Date(dateStr).toLocaleDateString();
-  };
-
-  const formatCurrency = (value: number | null) => {
-    if (value === null) return '-';
-    return new Intl.NumberFormat('en-US', { style: 'currency', currency: 'USD' }).format(value);
-  };
 
   const handleCreate = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -365,7 +357,7 @@ export default function ShipmentsPage() {
                         {shipment.supplier?.name || 'No supplier'} &rarr; {shipment.destinationPort || 'Unknown'}
                       </p>
                       <p className="text-xs text-muted-foreground mt-1">
-                        {shipment.arrivalDate ? formatDate(shipment.arrivalDate) : 'No arrival date'}
+                        {shipment.arrivalDate ? formatShortDate(shipment.arrivalDate) : 'No arrival date'}
                       </p>
                     </div>
                     {shipment.containersCount && (
@@ -424,7 +416,7 @@ export default function ShipmentsPage() {
                     </div>
                     <div>
                       <Label className="text-muted-foreground">Value</Label>
-                      <p className="font-medium">{formatCurrency(selectedShipment.valueUsd)}</p>
+                      <p className="font-medium">{formatCurrencyUsd(selectedShipment.valueUsd)}</p>
                     </div>
                     <div>
                       <Label className="text-muted-foreground">Containers</Label>
@@ -476,11 +468,11 @@ export default function ShipmentsPage() {
                     </div>
                     <div>
                       <Label className="text-muted-foreground">Arrival Date</Label>
-                      <p className="font-medium">{formatDate(selectedShipment.arrivalDate)}</p>
+                      <p className="font-medium">{formatShortDate(selectedShipment.arrivalDate)}</p>
                     </div>
                     <div>
                       <Label className="text-muted-foreground">Est. Arrival</Label>
-                      <p className="font-medium">{formatDate(selectedShipment.estimatedArrivalDate)}</p>
+                      <p className="font-medium">{formatShortDate(selectedShipment.estimatedArrivalDate)}</p>
                     </div>
                   </div>
                 </CardContent>

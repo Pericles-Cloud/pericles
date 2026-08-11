@@ -277,7 +277,35 @@ export default function AtlasPage() {
         }));
       }
     });
-    return Array.from(pins.values());
+
+    const result = Array.from(pins.values());
+
+    // Colocated supplier pins (#11 review round 5): two distinct suppliers
+    // can share the same city-level lat/lng (BOL/ImportYeti geocodes
+    // origins at city granularity), and since pins are now keyed by
+    // supplierId rather than coordinates, that produces two separate
+    // Markers stacked at the identical position. Google Maps only routes
+    // click events to the topmost one, making every other supplier there
+    // permanently unreachable via the map. Nudge every pin past the first
+    // at a shared position onto a small spiral around it — a few hundred
+    // meters, invisible at any zoom level useful on a global map, but
+    // enough to give each one its own click target.
+    const seenAtPosition = new Map<string, number>();
+    for (const pin of result) {
+      if (pin.type !== 'supplier') continue;
+      const key = `${pin.position.lat},${pin.position.lng}`;
+      const index = seenAtPosition.get(key) ?? 0;
+      seenAtPosition.set(key, index + 1);
+      if (index === 0) continue;
+      const angle = (index * 137.5 * Math.PI) / 180; // golden angle — no grid alignment
+      const radiusDegrees = 0.0015 * Math.sqrt(index); // ~150m per ring step
+      pin.position = {
+        lat: pin.position.lat + radiusDegrees * Math.cos(angle),
+        lng: pin.position.lng + radiusDegrees * Math.sin(angle),
+      };
+    }
+
+    return result;
   }, [filteredRoutes, suppliers]);
 
   // Derived, not its own state: re-reads mapPins every render so the open
@@ -337,9 +365,16 @@ export default function AtlasPage() {
       }
     );
 
+    // Deliberately does NOT clearTimeout(timeoutId): the timeout is what
+    // eventually deletes cacheKey from pendingGeocodesRef (whether the
+    // geocode call resolves, errors, or is silently dropped by the browser/
+    // network with no callback at all). Cancelling it on cleanup — e.g. the
+    // popup closes, or the component unmounts, before the 8s elapses — would
+    // leave that key stuck in pendingGeocodesRef forever, permanently
+    // blocking any future retry for that supplier. isMounted alone is
+    // enough to stop a stale setState.
     return () => {
       isMounted = false;
-      clearTimeout(timeoutId);
     };
   }, [isLoaded, selectedPin, supplierCities]);
 
