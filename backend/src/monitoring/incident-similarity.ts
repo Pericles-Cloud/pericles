@@ -124,26 +124,10 @@ export async function findDuplicateIncident(
           `Report B: "${candidate.title}" — ${candidate.description}\n\n` +
           'Are Report A and Report B describing the same real-world incident?';
 
-        // Promise.race, not AbortSignal.timeout() — a deliberate deviation
-        // from this repo's usual external-call convention (CLAUDE.md's
-        // "External API Integration Pattern"). Mastra's Agent.generate()
-        // (installed @mastra/core v0.24.9) takes no abort/signal parameter,
-        // so there is no way to actually cancel the underlying OpenAI
-        // request through this SDK call today. On timeout, this race's
-        // loser branch stops this function from waiting on the call, but
-        // the HTTP request itself keeps running in the background until
-        // OpenAI responds or its own connection times out — a known,
-        // currently-unavoidable leak of one in-flight request per timeout,
-        // not a full cancellation. Revisit if @mastra/core adds signal
-        // support.
-        const result = await Promise.race([
-          similarityAgent.generate(prompt, { structuredOutput: { schema: SimilarityResultSchema } }),
-          new Promise<never>((_, reject) => {
-            setTimeout(() => {
-              reject(new Error('incident similarity check timed out'));
-            }, LLM_TIMEOUT_MS);
-          }),
-        ]);
+        const result = await similarityAgent.generate(prompt, {
+          structuredOutput: { schema: SimilarityResultSchema },
+          abortSignal: AbortSignal.timeout(LLM_TIMEOUT_MS),
+        });
 
         return { candidate, verdict: result.object };
       })
