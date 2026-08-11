@@ -995,6 +995,20 @@ export async function updateEventValidation(
   });
 }
 
+/**
+ * Ask a question about a specific event (#23) — the per-event Q&A box under
+ * Intelligence's Analysis tab. Answers are scoped to that one event's data.
+ */
+export async function askEventQuestion(
+  id: string,
+  question: string
+): Promise<ApiResponse<{ answer: string }>> {
+  return apiRequest<{ answer: string }>(`/api/events/${id}/ask`, {
+    method: 'POST',
+    body: { question },
+  });
+}
+
 // ============================================
 // MONITORING AGENT API
 // ============================================

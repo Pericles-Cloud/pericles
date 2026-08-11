@@ -41,6 +41,7 @@ import {
 import { getPositionFeed, getOrganizationPositions } from '../integrations/tracking/index.js';
 import { OAuth2Client } from 'google-auth-library';
 import { createWorkflowExecutionService, type ExecutionMode as WorkflowExecutionMode } from '../workflow/index.js';
+import { mastra } from '../mastra/index.js';
 
 const app = express();
 const prisma = new PrismaClient();
@@ -132,6 +133,16 @@ function strictRateLimit(req: Request, res: Response, next: () => void): void {
 // Rate limit middleware for general auth endpoints
 function authRateLimit(req: Request, res: Response, next: () => void): void {
   if (checkRateLimit(req, res, RATE_LIMIT_MAX_REQUESTS)) {
+    next();
+  }
+}
+
+// Rate limit for the event Q&A endpoint (#23) — every request triggers a
+// real LLM call, unlike most other routes in this file which are plain DB
+// reads/writes with no per-request external cost.
+const RATE_LIMIT_EVENT_QA_MAX = 10;
+function eventQaRateLimit(req: Request, res: Response, next: () => void): void {
+  if (checkRateLimit(req, res, RATE_LIMIT_EVENT_QA_MAX)) {
     next();
   }
 }
@@ -3295,6 +3306,105 @@ app.get('/api/events/:id', async (req: Request, res: Response) => {
     });
   } catch (error) {
     console.error('Get event error:', error);
+    res.status(500).json({ success: false, error: { code: 'INTERNAL_ERROR', message: 'An unexpected error occurred' } });
+  }
+});
+
+// Ask a question about one specific event (#23) — the per-event Q&A box
+// under Intelligence's Analysis tab.
+const AskEventQuestionSchema = z.object({
+  question: z.string().min(1).max(1000),
+});
+const EventQaAnswerSchema = z.object({
+  answer: z.string(),
+});
+const EVENT_QA_TIMEOUT_MS = 20000;
+
+app.post('/api/events/:id/ask', eventQaRateLimit, async (req: Request, res: Response) => {
+  try {
+    const tokenPayload = authenticateRequest(req);
+    if (!tokenPayload) {
+      res.status(401).json({ success: false, error: { code: 'UNAUTHORIZED', message: 'Authentication required' } });
+      return;
+    }
+
+    const parseResult = AskEventQuestionSchema.safeParse(req.body);
+    if (!parseResult.success) {
+      res.status(400).json({ success: false, error: { code: 'VALIDATION_ERROR', message: parseResult.error.errors[0].message } });
+      return;
+    }
+    const { question } = parseResult.data;
+
+    const eventId = getParam(req.params.id);
+    const event = await prisma.event.findUnique({
+      where: { id: eventId },
+      include: { incident: true },
+    });
+
+    if (!event) {
+      res.status(404).json({ success: false, error: { code: 'NOT_FOUND', message: 'Event not found' } });
+      return;
+    }
+
+    // Same read-access model as GET /api/events/:id above: a question about
+    // an event a user can already see shouldn't be gated more strictly than
+    // viewing the event itself.
+    const access = await checkOrganizationAccess(tokenPayload.userId, event.organization_id);
+    if (!access.hasAccess) {
+      res.status(403).json({ success: false, error: { code: 'FORBIDDEN', message: 'Access denied to this event' } });
+      return;
+    }
+
+    // The event's own fields originate from external monitored feeds and
+    // are untrusted per pericles-prompts — boundary-marked here, and the
+    // agent's own instructions (event-qa-agent.ts) tell it to treat this
+    // block as data, never as instructions.
+    const contextLines = [
+      `Title: ${event.title}`,
+      `Description: ${event.description}`,
+      `Type: ${event.type}`,
+      `Severity: ${event.severity.toFixed(2)} (0-1 scale)`,
+      `Confidence: ${event.confidence.toFixed(2)} (0-1 scale)`,
+      event.location_name ? `Location: ${event.location_name}` : null,
+      `Risk factors: ${event.risk_factors.join(', ') || 'none recorded'}`,
+      `Affected domains: ${event.affected_domains.join(', ') || 'none recorded'}`,
+      `Event occurred: ${event.event_timestamp.toISOString()}`,
+      `Detected by Pericles: ${event.detected_at.toISOString()}`,
+      `Validation status: ${event.validation_status}`,
+      event.incident
+        ? `Linked incident: ${event.incident.incident_number}, status ${event.incident.status}, priority ${event.incident.priority}`
+        : null,
+    ].filter((line): line is string => line !== null);
+
+    const prompt =
+      `<event_context>\n${contextLines.join('\n')}\n</event_context>\n\n` +
+      `User question: ${question}`;
+
+    const agent = mastra.getAgent('eventQaAgent');
+    if (!agent) {
+      res.status(500).json({ success: false, error: { code: 'INTERNAL_ERROR', message: 'Q&A agent unavailable' } });
+      return;
+    }
+
+    let result;
+    try {
+      result = await Promise.race([
+        agent.generate(prompt, { structuredOutput: { schema: EventQaAnswerSchema } }),
+        new Promise<never>((_, reject) => {
+          setTimeout(() => {
+            reject(new Error('event Q&A timed out'));
+          }, EVENT_QA_TIMEOUT_MS);
+        }),
+      ]);
+    } catch (err) {
+      console.error('Event Q&A agent error:', err);
+      res.status(502).json({ success: false, error: { code: 'UPSTREAM_ERROR', message: 'Failed to generate an answer. Please try again.' } });
+      return;
+    }
+
+    res.status(200).json({ success: true, data: { answer: result.object.answer } });
+  } catch (error) {
+    console.error('Event Q&A error:', error);
     res.status(500).json({ success: false, error: { code: 'INTERNAL_ERROR', message: 'An unexpected error occurred' } });
   }
 });

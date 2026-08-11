@@ -2,6 +2,7 @@
 import { Mastra } from '@mastra/core/mastra';
 import { PinoLogger } from '@mastra/loggers';
 import { monitoringAgent } from './agents/monitoring-agent.js';
+import { eventQaAgent } from './agents/event-qa-agent.js';
 import { relevanceScorer, severityAccuracyScorer, deduplicationScorer } from './scorers/monitoring-scorer.js';
 import { getPostgresStore } from '../monitoring/db-client.js';
 
@@ -14,7 +15,7 @@ if (!storage) {
 // Build Mastra config with optional storage
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
 const mastraConfig: any = {
-  agents: { monitoringAgent },
+  agents: { monitoringAgent, eventQaAgent },
   scorers: {
     relevanceScorer,
     severityAccuracyScorer,

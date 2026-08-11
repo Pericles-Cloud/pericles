@@ -1,8 +1,9 @@
 'use client';
 
 import { useState } from 'react';
-import type { Event } from '@/lib/api-client';
+import { askEventQuestion, type Event } from '@/lib/api-client';
 import { Button } from '@/components/ui/button';
+import { Input } from '@/components/ui/input';
 import { getRiskColor } from '@/lib/intelligence-utils';
 
 export type AnalysisTab = 'timeline' | 'analysis' | 'impact' | 'notes';
@@ -119,6 +120,7 @@ function AnalysisContent({ event, activeTab }: { event: Event; activeTab: Analys
               </>
             )}
           </div>
+          <EventQaBox eventId={event.id} />
         </div>
       );
 
@@ -182,6 +184,95 @@ function AnalysisContent({ event, activeTab }: { event: Event; activeTab: Analys
         </div>
       );
   }
+}
+
+interface QaTurn {
+  question: string;
+  answer: string | null;
+  error: string | null;
+}
+
+/**
+ * Per-event Q&A box (#23) — scoped to the one event whose Analysis tab it's
+ * rendered under, not the full cross-event Insights chat described in the
+ * Intelligence PRD. Turns live in component state only; nothing is
+ * persisted, matching the ticket's ask for a lightweight per-event box
+ * rather than a session-backed research surface.
+ */
+function EventQaBox({ eventId }: { eventId: string }) {
+  const [question, setQuestion] = useState('');
+  const [turns, setTurns] = useState<QaTurn[]>([]);
+  const [isAsking, setIsAsking] = useState(false);
+
+  const handleAsk = async () => {
+    const trimmed = question.trim();
+    if (!trimmed || isAsking) return;
+
+    setIsAsking(true);
+    setQuestion('');
+    const turnIndex = turns.length;
+    setTurns((prev) => [...prev, { question: trimmed, answer: null, error: null }]);
+
+    try {
+      const response = await askEventQuestion(eventId, trimmed);
+      setTurns((prev) =>
+        prev.map((t, i) =>
+          i === turnIndex
+            ? {
+                ...t,
+                answer: response.success ? response.data?.answer ?? null : null,
+                error: response.success ? null : response.error?.message || 'Failed to get an answer',
+              }
+            : t
+        )
+      );
+    } catch {
+      setTurns((prev) =>
+        prev.map((t, i) => (i === turnIndex ? { ...t, error: 'Failed to get an answer' } : t))
+      );
+    } finally {
+      setIsAsking(false);
+    }
+  };
+
+  return (
+    <div className="mt-6 border-t border-border pt-4">
+      <h4 className="text-sm font-medium mb-2">Ask about this event</h4>
+      {turns.length > 0 && (
+        <div className="space-y-3 mb-3 max-h-64 overflow-y-auto">
+          {turns.map((turn, i) => (
+            <div key={i} className="text-sm">
+              <div className="font-medium text-foreground">{turn.question}</div>
+              {turn.answer && <div className="text-muted-foreground mt-1">{turn.answer}</div>}
+              {turn.error && <div className="text-risk-critical-text mt-1">{turn.error}</div>}
+              {!turn.answer && !turn.error && (
+                <div className="text-muted-foreground mt-1 italic">Thinking…</div>
+              )}
+            </div>
+          ))}
+        </div>
+      )}
+      <div className="flex gap-2">
+        <Input
+          value={question}
+          onChange={(e) => setQuestion(e.target.value)}
+          onKeyDown={(e) => {
+            if (e.key === 'Enter' && !e.shiftKey) {
+              e.preventDefault();
+              void handleAsk();
+            }
+          }}
+          placeholder="Ask a question about this event…"
+          aria-label="Ask a question about this event"
+          disabled={isAsking}
+          className="text-sm"
+        />
+        <Button size="sm" onClick={() => void handleAsk()} disabled={isAsking || !question.trim()}>
+          {isAsking ? 'Asking…' : 'Ask'}
+        </Button>
+      </div>
+    </div>
+  );
 }
 
 function TimelineItem({ label, time, description }: { label: string; time: string; description: string }) {
