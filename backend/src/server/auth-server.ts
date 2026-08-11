@@ -5219,37 +5219,62 @@ function formatWorkflow(
   };
 }
 
-// Helper to check org access and role for the workflow routes below.
+// Two access helpers for the workflow routes below — deliberately NOT one.
 //
-// Used to do its own direct-membership-only Prisma query instead of calling
-// the shared checkOrganizationAccess (already used by /api/suppliers,
-// /api/shipments, /api/events, etc.) — so a root-org user, or a user whose
-// membership is on a PARENT org viewing a subsidiary via the hierarchy
-// rollup, got a bare 404 "Organization not found" here while every sibling
-// endpoint on the same page let them through (#40). Delegates to the shared
-// helper now, matching the pattern documented at the /api/events access
-// check above. Kept the same name/signature/return shape so every call site
-// below needed no changes.
-//
-// Error code also now follows this codebase's actual convention (see
-// checkOrganizationAccess's other callers): 403 FORBIDDEN, not 404 — a 404
-// on an access check leaks whether the org exists at all.
-async function checkOrgMembership(
+// A single earlier version delegated every workflow route (reads AND writes)
+// to the shared checkOrganizationAccess (already used by /api/suppliers,
+// /api/shipments, /api/events, etc.), fixing the read-side bug (#40: a
+// root-org user, or a user whose membership is on a PARENT org viewing a
+// subsidiary via the hierarchy rollup, got a bare 404 "Organization not
+// found" browsing Plans while every sibling endpoint on the same page let
+// them through). But checkOrganizationAccess's root/ancestor branches return
+// the role from the GRANTING org, not the target org, and only check that
+// grant is active — never whether the user has an explicit (e.g. suspended)
+// row on the TARGET org itself. Applied uniformly, that would have let a
+// parent-org ADMIN with zero membership in a subsidiary create/publish/
+// **execute** workflows there (execute can have real side effects in 'run'
+// mode — see pericles-execution-node), and let an active ancestor-org
+// membership bypass an explicit suspension scoped to the target org. Read
+// visibility rollup is the established, accepted pattern here; silently
+// broadening WRITE/EXECUTE the same way is a different risk this ticket
+// didn't ask for, so it's scoped out — reads get the fix, writes keep
+// requiring direct membership on the target org, exactly as before.
+
+// Reads (list/get/executions): hierarchy + root rollup, no role requirement
+// (matches how the read-only sibling endpoints already use this helper).
+async function checkOrgReadAccess(
+  userId: string,
+  orgId: string
+): Promise<{ error: { status: number; code: string; message: string } | null }> {
+  const access = await checkOrganizationAccess(userId, orgId);
+  if (!access.hasAccess) {
+    return { error: { status: 403, code: 'FORBIDDEN', message: 'Access denied to this organization' } };
+  }
+  return { error: null };
+}
+
+// Writes (create/update/save-state/delete/publish/archive/execute): direct
+// membership on the target org only — unchanged from before this ticket,
+// aside from the error code (403, not 404 — see checkOrganizationAccess's
+// other callers: a 404 on an access check leaks whether the org exists).
+async function checkOrgWriteMembership(
   userId: string,
   orgId: string,
-  requiredRoles?: string[]
-): Promise<{ membership: { role: string } | null; error: { status: number; code: string; message: string } | null }> {
-  const access = await checkOrganizationAccess(userId, orgId);
+  requiredRoles: string[]
+): Promise<{ error: { status: number; code: string; message: string } | null }> {
+  const membership = await prisma.userOrganization.findUnique({
+    where: { user_id_organization_id: { user_id: userId, organization_id: orgId } },
+  });
 
-  if (!access.hasAccess) {
-    return { membership: null, error: { status: 403, code: 'FORBIDDEN', message: 'Access denied to this organization' } };
+  if (membership?.status !== 'active') {
+    return { error: { status: 403, code: 'FORBIDDEN', message: 'Access denied to this organization' } };
   }
 
-  if (requiredRoles && !requiredRoles.includes(access.membership.role)) {
-    return { membership: null, error: { status: 403, code: 'FORBIDDEN', message: 'Insufficient permissions' } };
+  if (!requiredRoles.includes(membership.role)) {
+    return { error: { status: 403, code: 'FORBIDDEN', message: 'Insufficient permissions' } };
   }
 
-  return { membership: access.membership, error: null };
+  return { error: null };
 }
 
 // List workflows for an organization
@@ -5262,7 +5287,7 @@ app.get('/api/organizations/:orgId/workflows', async (req: Request, res: Respons
     }
 
     const orgId = getParam(req.params.orgId);
-    const { membership: _membership, error } = await checkOrgMembership(tokenPayload.userId, orgId);
+    const { error } = await checkOrgReadAccess(tokenPayload.userId, orgId);
     if (error) {
       res.status(error.status).json({ success: false, error: { code: error.code, message: error.message } });
       return;
@@ -5300,7 +5325,7 @@ app.post('/api/organizations/:orgId/workflows', async (req: Request, res: Respon
     }
 
     const orgId = getParam(req.params.orgId);
-    const { error } = await checkOrgMembership(tokenPayload.userId, orgId, ['OWNER', 'ADMIN']);
+    const { error } = await checkOrgWriteMembership(tokenPayload.userId, orgId, ['OWNER', 'ADMIN']);
     if (error) {
       res.status(error.status).json({ success: false, error: { code: error.code, message: error.message } });
       return;
@@ -5428,7 +5453,7 @@ app.get('/api/organizations/:orgId/workflows/:workflowId', async (req: Request, 
 
     const orgId = getParam(req.params.orgId);
     const workflowId = getParam(req.params.workflowId);
-    const { error } = await checkOrgMembership(tokenPayload.userId, orgId);
+    const { error } = await checkOrgReadAccess(tokenPayload.userId, orgId);
     if (error) {
       res.status(error.status).json({ success: false, error: { code: error.code, message: error.message } });
       return;
@@ -5469,7 +5494,7 @@ app.patch('/api/organizations/:orgId/workflows/:workflowId', async (req: Request
 
     const orgId = getParam(req.params.orgId);
     const workflowId = getParam(req.params.workflowId);
-    const { error } = await checkOrgMembership(tokenPayload.userId, orgId, ['OWNER', 'ADMIN']);
+    const { error } = await checkOrgWriteMembership(tokenPayload.userId, orgId, ['OWNER', 'ADMIN']);
     if (error) {
       res.status(error.status).json({ success: false, error: { code: error.code, message: error.message } });
       return;
@@ -5534,7 +5559,7 @@ app.put('/api/organizations/:orgId/workflows/:workflowId/state', async (req: Req
 
     const orgId = getParam(req.params.orgId);
     const workflowId = getParam(req.params.workflowId);
-    const { error } = await checkOrgMembership(tokenPayload.userId, orgId, ['OWNER', 'ADMIN']);
+    const { error } = await checkOrgWriteMembership(tokenPayload.userId, orgId, ['OWNER', 'ADMIN']);
     if (error) {
       res.status(error.status).json({ success: false, error: { code: error.code, message: error.message } });
       return;
@@ -5643,7 +5668,7 @@ app.delete('/api/organizations/:orgId/workflows/:workflowId', async (req: Reques
 
     const orgId = getParam(req.params.orgId);
     const workflowId = getParam(req.params.workflowId);
-    const { error } = await checkOrgMembership(tokenPayload.userId, orgId, ['OWNER', 'ADMIN']);
+    const { error } = await checkOrgWriteMembership(tokenPayload.userId, orgId, ['OWNER', 'ADMIN']);
     if (error) {
       res.status(error.status).json({ success: false, error: { code: error.code, message: error.message } });
       return;
@@ -5675,7 +5700,7 @@ app.post('/api/organizations/:orgId/workflows/:workflowId/publish', async (req: 
 
     const orgId = getParam(req.params.orgId);
     const workflowId = getParam(req.params.workflowId);
-    const { error } = await checkOrgMembership(tokenPayload.userId, orgId, ['OWNER', 'ADMIN']);
+    const { error } = await checkOrgWriteMembership(tokenPayload.userId, orgId, ['OWNER', 'ADMIN']);
     if (error) {
       res.status(error.status).json({ success: false, error: { code: error.code, message: error.message } });
       return;
@@ -5729,7 +5754,7 @@ app.post('/api/organizations/:orgId/workflows/:workflowId/archive', async (req: 
 
     const orgId = getParam(req.params.orgId);
     const workflowId = getParam(req.params.workflowId);
-    const { error } = await checkOrgMembership(tokenPayload.userId, orgId, ['OWNER', 'ADMIN']);
+    const { error } = await checkOrgWriteMembership(tokenPayload.userId, orgId, ['OWNER', 'ADMIN']);
     if (error) {
       res.status(error.status).json({ success: false, error: { code: error.code, message: error.message } });
       return;
@@ -5767,7 +5792,7 @@ app.post('/api/organizations/:orgId/workflows/:workflowId/execute', async (req: 
 
     const orgId = getParam(req.params.orgId);
     const workflowId = getParam(req.params.workflowId);
-    const { error } = await checkOrgMembership(tokenPayload.userId, orgId, ['OWNER', 'ADMIN']);
+    const { error } = await checkOrgWriteMembership(tokenPayload.userId, orgId, ['OWNER', 'ADMIN']);
     if (error) {
       res.status(error.status).json({ success: false, error: { code: error.code, message: error.message } });
       return;
@@ -5835,7 +5860,7 @@ app.get('/api/organizations/:orgId/workflows/:workflowId/executions', async (req
 
     const orgId = getParam(req.params.orgId);
     const workflowId = getParam(req.params.workflowId);
-    const { error } = await checkOrgMembership(tokenPayload.userId, orgId);
+    const { error } = await checkOrgReadAccess(tokenPayload.userId, orgId);
     if (error) {
       res.status(error.status).json({ success: false, error: { code: error.code, message: error.message } });
       return;
