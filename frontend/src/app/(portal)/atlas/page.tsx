@@ -91,6 +91,11 @@ interface MapPin {
   shipments: Shipment[];
 }
 
+/** Shared by the geocode effect (write) and the popup render (read) so the
+ * cache key can't drift between the two call sites (#11 review round 3). */
+const supplierGeocodeCacheKey = (position: { lat: number; lng: number }) =>
+  `${position.lat},${position.lng}`;
+
 type TimelinessFilter = 'all' | 'active' | 'completed';
 type MapType = 'roadmap' | 'hybrid';
 
@@ -234,7 +239,12 @@ export default function AtlasPage() {
     const pins = new Map<string, MapPin>();
     filteredRoutes.forEach((route) => {
       if (route.origin) {
-        const key = `supplier-${route.origin.lat}-${route.origin.lng}`;
+        // Keyed by supplier id, not coordinates (#11 review round 3): two
+        // distinct suppliers can geocode to the same city-level lat/lng
+        // (BOL/ImportYeti ingestion resolves origins at city granularity),
+        // and merging them into one pin would misattribute one supplier's
+        // BOL/value/ETA list to another's name in the popup.
+        const key = `supplier-${route.shipment.supplierId}`;
         const existing = pins.get(key);
         if (existing) {
           existing.shipmentCount++;
@@ -283,7 +293,7 @@ export default function AtlasPage() {
 
   useEffect(() => {
     if (!isLoaded || !selectedPin || selectedPin.type !== 'supplier') return;
-    const cacheKey = `${selectedPin.position.lat},${selectedPin.position.lng}`;
+    const cacheKey = supplierGeocodeCacheKey(selectedPin.position);
     // Also guard against an in-flight request for the same key (e.g. the pin
     // is closed and reopened before the first geocode call resolves) — the
     // cache alone can't catch that since it isn't written until the
@@ -711,7 +721,7 @@ export default function AtlasPage() {
                 {selectedPin.type === 'supplier' ? 'Supplier' : 'Destination Port'}
               </div>
               {selectedPin.type === 'supplier' && selectedPin.supplier && (() => {
-                const cacheKey = `${selectedPin.position.lat},${selectedPin.position.lng}`;
+                const cacheKey = supplierGeocodeCacheKey(selectedPin.position);
                 const isGeocodePending = !(cacheKey in supplierCities);
                 const parts = [supplierCities[cacheKey], selectedPin.supplier.country].filter(Boolean);
                 return (
