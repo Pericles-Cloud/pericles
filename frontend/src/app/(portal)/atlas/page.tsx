@@ -128,7 +128,17 @@ export default function AtlasPage() {
   // so reopening the same pin in one session doesn't re-call the API.
   const [supplierCities, setSupplierCities] = useState<Record<string, string | null>>({});
   const geocoderRef = useRef<google.maps.Geocoder | null>(null);
-  const pendingGeocodesRef = useRef<Set<string>>(new Set());
+  // Maps cacheKey -> a generation number for whichever geocode attempt is
+  // currently "the one that counts" for that key — not just a Set of
+  // pending keys. A plain Set can't tell an in-flight request's own timeout
+  // firing apart from a DIFFERENT, newer request for the same key: request
+  // #1 stalls past its 8s timeout (deleting the key), a re-render starts
+  // request #2 for the same key (re-adding it), then #1's late callback
+  // arrives and sees the key present again — with a Set it wrongly treats
+  // itself as still current and clobbers #2's bookkeeping/result. Comparing
+  // against a generation captured at request-start time closes that gap.
+  const pendingGeocodesRef = useRef<Map<string, number>>(new Map());
+  const geocodeGenerationRef = useRef(0);
   // Component-lifetime, not per-effect-run: a per-run `let isMounted` local
   // goes stale as soon as the SAME supplier pin is closed and reopened
   // before its original geocode call resolves — the original run's closure
@@ -355,14 +365,18 @@ export default function AtlasPage() {
     if (!geocoderRef.current) {
       geocoderRef.current = new google.maps.Geocoder();
     }
-    pendingGeocodesRef.current.add(cacheKey);
+    // This attempt's own generation — captured in the closures below so
+    // each one can tell "am I still the current attempt for this key?"
+    // apart from "is *some* attempt for this key still pending?".
+    const generation = ++geocodeGenerationRef.current;
+    pendingGeocodesRef.current.set(cacheKey, generation);
     const geocodeTarget = { lat: supplier.latitude, lng: supplier.longitude };
 
     // The Geocoder API takes a callback, not a Promise/AbortSignal, so a
     // stalled response is timed out manually — required per this repo's
     // external-call convention (CLAUDE.md's "External API Integration
     // Pattern"). Deliberately never cancelled: the timeout is what
-    // eventually deletes cacheKey from pendingGeocodesRef even if the
+    // eventually clears this key from pendingGeocodesRef even if the
     // browser/network silently drops the request with no callback at all —
     // cancelling it early would leave that key stuck pending forever,
     // permanently blocking any retry for that supplier.
@@ -371,13 +385,24 @@ export default function AtlasPage() {
     // "unavailable" for the rest of the session even on a purely transient
     // stall, with no way to retry short of a page reload.
     const timeoutId = setTimeout(() => {
-      pendingGeocodesRef.current.delete(cacheKey);
+      // Only clear if we're still the current attempt: if a later request
+      // for this same key already started (because this one appeared to
+      // have "timed out" from the effect's perspective), clearing here
+      // would delete THAT request's bookkeeping instead of this stale one's.
+      if (pendingGeocodesRef.current.get(cacheKey) === generation) {
+        pendingGeocodesRef.current.delete(cacheKey);
+      }
     }, 8000);
 
     geocoderRef.current.geocode(
       { location: geocodeTarget },
       (results, status) => {
-        if (!pendingGeocodesRef.current.has(cacheKey)) return; // already timed out
+        // Not just "am I still pending" — am I still the CURRENT pending
+        // attempt for this key. A late callback from an attempt that
+        // already timed out (and was superseded by a newer attempt for the
+        // same key) must not clear the newer attempt's state or write a
+        // stale result over it.
+        if (pendingGeocodesRef.current.get(cacheKey) !== generation) return;
         clearTimeout(timeoutId);
         pendingGeocodesRef.current.delete(cacheKey);
         if (!isMountedRef.current) return;
