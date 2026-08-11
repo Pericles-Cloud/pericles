@@ -533,17 +533,39 @@ export async function runMonitoringCycle(
 async function storeEvent(organizationId: string, eventData: any): Promise<any> {
   const prisma = getPrismaClient();
 
+  // Cheap exact-match pre-check, mirroring the transaction's own check below,
+  // gates the fuzzy/LLM path: the common case is the SAME article re-fetched
+  // on a later monitoring cycle, which is an exact match and needs no
+  // semantic judgment call. Skipping the LLM check here isn't just an
+  // optimization for that case, it's the whole point of doing this check at
+  // all — routine re-ingestion must stay free. This pre-check is advisory
+  // only (a race against a concurrent insert is possible); the transaction's
+  // own exact-match check below is what's actually authoritative.
+  const exactMatchPreCheck = await prisma.event.findFirst({
+    where: {
+      organization_id: organizationId,
+      OR: [
+        { event_hash: eventData.event_hash },
+        { title: eventData.title, source: eventData.source, type: eventData.type },
+      ],
+    },
+    select: { id: true },
+  });
+
   // Same-incident check (#22) runs BEFORE the write transaction: it may make
   // an LLM call (up to 10s), and a DB transaction must never be held open
   // across a network call to another service. Narrowed by type/geo/time
-  // first, so this is a no-op query in the common case.
-  const fuzzyDuplicate = await findDuplicateIncident(prisma, organizationId, {
-    type: eventData.type,
-    title: eventData.title,
-    description: eventData.description,
-    event_timestamp: eventData.event_timestamp,
-    location: eventData.location,
-  });
+  // first, so this is a no-op query in the common case — and skipped
+  // entirely when the cheap pre-check above already found an exact match.
+  const fuzzyDuplicate = exactMatchPreCheck
+    ? null
+    : await findDuplicateIncident(prisma, organizationId, {
+        type: eventData.type,
+        title: eventData.title,
+        description: eventData.description,
+        event_timestamp: eventData.event_timestamp,
+        location: eventData.location,
+      });
 
   return await prisma.$transaction(async (tx) => {
     // Server-side deduplication check - verify event doesn't already exist
