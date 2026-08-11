@@ -220,7 +220,12 @@ function EventQaBox({ eventId }: { eventId: string }) {
           i === turnIndex
             ? {
                 ...t,
-                answer: response.success ? response.data?.answer ?? null : null,
+                // A successful response with an empty-string answer is
+                // schema-valid (EventQaAnswerSchema has no .min(1)) but
+                // renders identically to "not yet answered" (both are
+                // falsy) — without this fallback the turn is stuck showing
+                // "Thinking…" forever despite the request having completed.
+                answer: response.success ? response.data?.answer || 'No answer was returned.' : null,
                 error: response.success ? null : response.error?.message || 'Failed to get an answer',
               }
             : t
