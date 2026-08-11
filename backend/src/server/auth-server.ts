@@ -3400,13 +3400,18 @@ app.post('/api/events/:id/ask', eventQaRateLimit, async (req: Request, res: Resp
         : null,
     ].filter((line): line is string => line !== null);
 
+    // <untrusted_content> is the boundary tag pericles-prompts documents for
+    // any external-feed/customer content entering a prompt (the skill's own
+    // example) — used here rather than a one-off tag name so a future
+    // injection test/audit can check for one consistent convention across
+    // every prompt in the codebase, not a different tag per call site.
     // The question itself sits right next to the closing tag, so it needs
     // the same escaping as the event block above — otherwise a question
-    // containing a literal "</event_context>" reopens the exact boundary-
-    // break this function's escaping exists to prevent, just from the other
-    // side of the tag instead of from inside it.
+    // containing a literal "</untrusted_content>" reopens the exact
+    // boundary-break this function's escaping exists to prevent, just from
+    // the other side of the tag instead of from inside it.
     const prompt =
-      `<event_context>\n${escapeForPromptContext(contextLines.join('\n'))}\n</event_context>\n\n` +
+      `<untrusted_content>\n${escapeForPromptContext(contextLines.join('\n'))}\n</untrusted_content>\n\n` +
       `User question: ${escapeForPromptContext(question)}`;
 
     const agent = mastra.getAgent('eventQaAgent');
