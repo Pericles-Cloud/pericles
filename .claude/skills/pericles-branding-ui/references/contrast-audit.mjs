@@ -367,7 +367,7 @@ const globalsCss = resolve(
 // printed "all checks pass". Parse the real values and assert the assumptions.
 const ASSUMED = {
   root: { '--primary': 'purple-600', '--muted-foreground': 'grey-600', '--sidebar': 'purple-100',
-          '--sidebar-primary': 'purple-300', '--sidebar-fillet': 'gold-800' },
+          '--sidebar-primary': 'purple-300', '--sidebar-fillet': 'gold-800', '--background': 'grey-50' },
   dark: { '--primary': 'purple-200', '--muted-foreground': 'purple-300', '--background': 'purple-900',
           '--card': 'purple-800', '--muted': 'purple-700', '--sidebar': 'purple-600',
           '--sidebar-primary': 'purple-800', '--sidebar-fillet': 'gold-300' },

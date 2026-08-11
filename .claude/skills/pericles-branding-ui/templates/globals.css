@@ -132,7 +132,12 @@
      starts 1px under the header instead of flush against its border. */
   --app-header-h: calc(4rem + 1px + env(safe-area-inset-top));
 
-  --background: #FFFFFF;
+  /* One step off white, not white itself — a card that is IDENTICAL to the
+     canvas has no elevation cue besides `shadow-sm`, which reads as barely
+     there against an equal-color backdrop. grey-50 (not purple-50, which
+     --muted already owns) keeps the canvas neutral while --card stays pure
+     white and visibly raised, mirroring dark mode's card-above-canvas step. */
+  --background: var(--color-grey-50);
   --foreground: var(--color-grey-900);
 
   --card: #FFFFFF;
