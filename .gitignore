@@ -61,3 +61,8 @@ Pericles-Wiki/
 wiki
 .vault-meta
 .raw
+
+# Personal Obsidian vault used via the pericles-obsidian MCP server (Local
+# REST API plugin). Same rationale as above: never let personal notes land
+# in the shared repo.
+Pericles-Obsidian/
