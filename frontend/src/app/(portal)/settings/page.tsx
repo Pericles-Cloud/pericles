@@ -1,6 +1,6 @@
 'use client';
 
-import { useState } from 'react';
+import { useRef, useState } from 'react';
 import { useTheme } from 'next-themes';
 import { useAuth } from '@/providers/auth-provider';
 import { useMounted } from '@/lib/use-mounted';
@@ -30,6 +30,49 @@ export default function SettingsPage() {
   // theme is undefined server-side; without this the selected option would
   // differ between server and client markup.
   const mounted = useMounted();
+  const themeOptionRefs = useRef<(HTMLButtonElement | null)[]>([]);
+  // -1 (theme undefined, pre-mount) clamps to option 0 — same fallback the
+  // tabIndex roving needs regardless of mount state, so no separate branch.
+  const selectedThemeIndex = Math.max(
+    0,
+    THEME_OPTIONS.findIndex((o) => o.value === theme),
+  );
+
+  // WAI-ARIA APG radiogroup pattern: Left/Up selects the previous option,
+  // Right/Down the next, both wrapping; Home/End jump to the first/last.
+  // Selecting also moves focus, matching how a native <input type="radio">
+  // group behaves.
+  const selectThemeByOffset = (fromIndex: number, offset: number) => {
+    const nextIndex =
+      (fromIndex + offset + THEME_OPTIONS.length) % THEME_OPTIONS.length;
+    setTheme(THEME_OPTIONS[nextIndex].value);
+    themeOptionRefs.current[nextIndex]?.focus();
+  };
+
+  const handleThemeKeyDown = (e: React.KeyboardEvent, index: number) => {
+    switch (e.key) {
+      case 'ArrowRight':
+      case 'ArrowDown':
+        e.preventDefault();
+        selectThemeByOffset(index, 1);
+        break;
+      case 'ArrowLeft':
+      case 'ArrowUp':
+        e.preventDefault();
+        selectThemeByOffset(index, -1);
+        break;
+      case 'Home':
+        e.preventDefault();
+        setTheme(THEME_OPTIONS[0].value);
+        themeOptionRefs.current[0]?.focus();
+        break;
+      case 'End':
+        e.preventDefault();
+        setTheme(THEME_OPTIONS[THEME_OPTIONS.length - 1].value);
+        themeOptionRefs.current[THEME_OPTIONS.length - 1]?.focus();
+        break;
+    }
+  };
 
   // Password form state
   const [currentPassword, setCurrentPassword] = useState('');
@@ -226,29 +269,50 @@ export default function SettingsPage() {
           </CardHeader>
           <CardContent className="space-y-4">
             <div>
-              <Label className="mb-3 block">Theme</Label>
+              <Label id="theme-picker-label" className="mb-3 block">Theme</Label>
               {/* Wired to the same next-themes store as the header toggle, so
                   the two can't disagree. The swatches are literal light/dark
-                  previews, so they use the ramp, not role tokens. */}
-              <div className="flex gap-3">
-                {THEME_OPTIONS.map(({ value, label, swatch }) => (
-                  <button
-                    key={value}
-                    type="button"
-                    onClick={() => setTheme(value)}
-                    aria-pressed={mounted && theme === value}
-                    className={`flex-1 rounded-lg p-3 text-center transition-colors pointer-coarse:min-h-11 ${
-                      mounted && theme === value
-                        // border-2 on BOTH: switching selection must not change
-                        // the border width, or the row shifts by 1px.
-                        ? 'border-2 border-primary bg-primary/10'
-                        : 'border-2 border-border bg-card hover:bg-accent'
-                    }`}
-                  >
-                    <div className={`mx-auto mb-2 size-8 rounded border border-grey-300 ${swatch}`} />
-                    <span className="text-sm font-medium text-foreground">{label}</span>
-                  </button>
-                ))}
+                  previews, so they use the ramp, not role tokens.
+
+                  role="radiogroup"/"radio" + aria-checked, NOT aria-pressed on
+                  three independent buttons (#33): aria-pressed is a toggle —
+                  a screen reader announced this as three unrelated on/off
+                  buttons instead of one mutually-exclusive choice. Roving
+                  tabIndex + arrow-key nav (handleThemeKeyDown) follows the
+                  WAI-ARIA APG radiogroup pattern, matching how a native
+                  <input type="radio"> group behaves. */}
+              <div
+                role="radiogroup"
+                aria-labelledby="theme-picker-label"
+                className="flex gap-3"
+              >
+                {THEME_OPTIONS.map(({ value, label, swatch }, index) => {
+                  const checked = mounted && theme === value;
+                  return (
+                    <button
+                      key={value}
+                      ref={(el) => {
+                        themeOptionRefs.current[index] = el;
+                      }}
+                      type="button"
+                      role="radio"
+                      aria-checked={checked}
+                      tabIndex={index === selectedThemeIndex ? 0 : -1}
+                      onClick={() => setTheme(value)}
+                      onKeyDown={(e) => handleThemeKeyDown(e, index)}
+                      className={`flex-1 rounded-lg p-3 text-center transition-colors pointer-coarse:min-h-11 ${
+                        checked
+                          // border-2 on BOTH: switching selection must not change
+                          // the border width, or the row shifts by 1px.
+                          ? 'border-2 border-primary bg-primary/10'
+                          : 'border-2 border-border bg-card hover:bg-accent'
+                      }`}
+                    >
+                      <div className={`mx-auto mb-2 size-8 rounded border border-grey-300 ${swatch}`} />
+                      <span className="text-sm font-medium text-foreground">{label}</span>
+                    </button>
+                  );
+                })}
               </div>
             </div>
           </CardContent>
