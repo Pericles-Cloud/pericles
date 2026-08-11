@@ -55,13 +55,46 @@ const toRgb = (token) => {
 const toHex = (rgb) =>
   '#' + rgb.map((v) => Math.round(v).toString(16).padStart(2, '0')).join('').toUpperCase();
 
-/** Composite `fg` over `bg` at alpha `a` — mirrors color-mix(in oklab, X n%, Y). */
-const over = (fg, bg, a) => {
-  const [f, b] = [toRgb(fg), toRgb(bg)];
-  return toHex([0, 1, 2].map((i) => a * f[i] + (1 - a) * b[i]));
+const linear = (v) => (v <= 0.03928 ? v / 12.92 : ((v + 0.055) / 1.055) ** 2.4);
+const gamma = (v) => (v <= 0.0031308 ? v * 12.92 : 1.055 * v ** (1 / 2.4) - 0.055);
+const clamp01 = (v) => Math.min(1, Math.max(0, v));
+
+// sRGB (0-255) <-> OKLab, per Björn Ottosson's reference conversion. CSS
+// `color-mix(in oklab, …)` interpolates L/a/b linearly in THIS space, not raw
+// sRGB — mixing 0-255 channel values directly (the previous `over()`) gives a
+// different, generally lower-contrast result than what the browser renders,
+// so a pair the audit called PASS could still fail on screen and vice versa.
+const rgbToOklab = ([r8, g8, b8]) => {
+  const [r, g, b] = [r8, g8, b8].map((v) => linear(v / 255));
+  const l = 0.4122214708 * r + 0.5363325363 * g + 0.0514459929 * b;
+  const m = 0.2119034982 * r + 0.6806995451 * g + 0.1073969566 * b;
+  const s = 0.0883024619 * r + 0.2817188376 * g + 0.6299787005 * b;
+  const [l_, m_, s_] = [l, m, s].map((v) => Math.cbrt(v));
+  return [
+    0.2104542553 * l_ + 0.7936177850 * m_ - 0.0040720468 * s_,
+    1.9779984951 * l_ - 2.4285922050 * m_ + 0.4505937099 * s_,
+    0.0259040371 * l_ + 0.7827717662 * m_ - 0.8086757660 * s_,
+  ];
+};
+const oklabToRgb = ([L, a, b]) => {
+  const l_ = L + 0.3963377774 * a + 0.2158037573 * b;
+  const m_ = L - 0.1055613458 * a - 0.0638541728 * b;
+  const s_ = L - 0.0894841775 * a - 1.2914855480 * b;
+  const [l, m, s] = [l_, m_, s_].map((v) => v ** 3);
+  const lin = [
+    +4.0767416621 * l - 3.3077115913 * m + 0.2309699292 * s,
+    -1.2684380046 * l + 2.6097574011 * m - 0.3413193965 * s,
+    -0.0041960863 * l - 0.7034186147 * m + 1.7076147010 * s,
+  ];
+  return lin.map((v) => Math.round(clamp01(gamma(v)) * 255));
 };
 
-const linear = (v) => (v <= 0.03928 ? v / 12.92 : ((v + 0.055) / 1.055) ** 2.4);
+/** Composite `fg` over `bg` at alpha `a` — mirrors color-mix(in oklab, X n%, Y). */
+const over = (fg, bg, a) => {
+  const [labF, labB] = [rgbToOklab(toRgb(fg)), rgbToOklab(toRgb(bg))];
+  const mixed = [0, 1, 2].map((i) => a * labF[i] + (1 - a) * labB[i]);
+  return toHex(oklabToRgb(mixed));
+};
 const luminance = (token) => {
   const [r, g, b] = toRgb(token).map((v) => v / 255);
   return 0.2126 * linear(r) + 0.7152 * linear(g) + 0.0722 * linear(b);
