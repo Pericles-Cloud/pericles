@@ -10,6 +10,7 @@
  * 4. Repeat (with error handling and backoff)
  */
 
+import type { Prisma } from '@prisma/client';
 import { mastra } from '../mastra/index.js';
 import { type MonitoringConfig } from './config.js';
 import { getPrismaClient } from './db-client.js';
@@ -530,6 +531,20 @@ export async function runMonitoringCycle(
  * @returns Stored event record
  */
 // eslint-disable-next-line @typescript-eslint/no-explicit-any -- Dynamic event data from agent, typed at Prisma layer
+function exactMatchWhere(organizationId: string, eventData: any): Prisma.EventWhereInput {
+  // Shared by the pre-check and the transaction's own check below — was
+  // duplicated verbatim between the two, so a future change to match
+  // criteria applied to only one would silently drift from the other.
+  return {
+    organization_id: organizationId,
+    OR: [
+      { event_hash: eventData.event_hash },
+      { title: eventData.title, source: eventData.source, type: eventData.type },
+    ],
+  };
+}
+
+// eslint-disable-next-line @typescript-eslint/no-explicit-any -- Dynamic event data from agent, typed at Prisma layer
 async function storeEvent(organizationId: string, eventData: any): Promise<any> {
   const prisma = getPrismaClient();
 
@@ -542,13 +557,7 @@ async function storeEvent(organizationId: string, eventData: any): Promise<any> 
   // only (a race against a concurrent insert is possible); the transaction's
   // own exact-match check below is what's actually authoritative.
   const exactMatchPreCheck = await prisma.event.findFirst({
-    where: {
-      organization_id: organizationId,
-      OR: [
-        { event_hash: eventData.event_hash },
-        { title: eventData.title, source: eventData.source, type: eventData.type },
-      ],
-    },
+    where: exactMatchWhere(organizationId, eventData),
     select: { id: true },
   });
 
@@ -557,6 +566,22 @@ async function storeEvent(organizationId: string, eventData: any): Promise<any> 
   // across a network call to another service. Narrowed by type/geo/time
   // first, so this is a no-op query in the common case — and skipped
   // entirely when the cheap pre-check above already found an exact match.
+  //
+  // KNOWN LIMITATION: this pre-check (and the LLM check it gates) runs
+  // outside any lock, and nothing in this codebase serializes monitoring
+  // cycles for the SAME organization — runCycles() only guarantees cycles
+  // run sequentially ACROSS orgs in one batch, not that a manually-triggered
+  // cycle (POST /api/monitoring/trigger) can't overlap the scheduled one for
+  // the same org. Two overlapping cycles that both detect the same new
+  // incident, worded differently, can each find no duplicate and each
+  // create their own Event. This is a real gap, not unique to this feature
+  // — the codebase has no per-org run-lock anywhere — but it does mean the
+  // fuzzy path isn't fully race-safe the way the exact-match path partly is
+  // (the DB's own @@unique constraints reject a truly-identical concurrent
+  // insert; fuzzy matches are non-identical rows by definition, so no
+  // constraint catches them). Fixing this needs a per-org lock (e.g. a
+  // Postgres advisory lock or a KeyValueStore-backed mutex), which is
+  // infrastructure work beyond this ticket's scope.
   const fuzzyDuplicate = exactMatchPreCheck
     ? null
     : await findDuplicateIncident(prisma, organizationId, {
@@ -571,31 +596,15 @@ async function storeEvent(organizationId: string, eventData: any): Promise<any> 
     // Server-side deduplication check - verify event doesn't already exist
     // Check both by event_hash AND by content (title + source + type)
     const existingEvent = await tx.event.findFirst({
-      where: {
-        organization_id: organizationId,
-        OR: [
-          { event_hash: eventData.event_hash },
-          {
-            title: eventData.title,
-            source: eventData.source,
-            type: eventData.type,
-          },
-        ],
-      },
+      where: exactMatchWhere(organizationId, eventData),
       select: { id: true, event_hash: true },
     });
 
-    // Exact match wins over the fuzzy one if somehow both fire — it's the
-    // stronger signal and needs no extra source-tracking work.
-    const duplicate = existingEvent ?? fuzzyDuplicate;
-
-    if (duplicate) {
-      // Event already exists - update EventHash occurrence count and return existing event
+    if (existingEvent) {
+      // Exact match: this really is the same article re-fetched. Bump the
+      // EventHash and return the existing row — no new data to preserve.
       await tx.eventHash.updateMany({
-        where: {
-          organization_id: organizationId,
-          hash: duplicate.event_hash,
-        },
+        where: { organization_id: organizationId, hash: existingEvent.event_hash },
         data: {
           last_seen_at: new Date(),
           occurrence_count: { increment: 1 },
@@ -603,36 +612,74 @@ async function storeEvent(organizationId: string, eventData: any): Promise<any> 
         },
       });
 
-      // Only the fuzzy path (different wording, different source) needs this:
-      // an exact match is by definition the same source repeating, so there's
-      // no new corroborating source to record. Append rather than overwrite —
-      // several different sources can confirm the same incident over time.
-      if (!existingEvent) {
-        const current = await tx.event.findUnique({
-          where: { id: duplicate.id },
-          select: { raw_data: true },
-        });
-        const currentRawData =
-          current?.raw_data && typeof current.raw_data === 'object' && !Array.isArray(current.raw_data)
-            ? (current.raw_data as Record<string, unknown>)
-            : {};
-        const existingSources = Array.isArray(currentRawData.confirming_sources)
-          ? (currentRawData.confirming_sources as string[])
-          : [];
-        if (eventData.source && !existingSources.includes(eventData.source)) {
-          await tx.event.update({
-            where: { id: duplicate.id },
-            data: {
-              raw_data: {
-                ...currentRawData,
-                confirming_sources: [...existingSources, eventData.source],
-              },
-            },
-          });
-        }
-      }
+      return { ...existingEvent, _deduplicated: true };
+    }
 
-      return { ...duplicate, _deduplicated: true };
+    // Fuzzy match: a probabilistic LLM verdict, not a certainty. Unlike the
+    // exact-match branch above, this does NOT skip event creation — an LLM
+    // false positive here must never be able to permanently and silently
+    // drop a genuinely new incident with no recovery path. Instead this
+    // creates a normal Event row (full audit trail, its own EventHash so a
+    // later re-fetch of THIS article is a cheap exact match next time, not
+    // another LLM call) but marks it validation_status: 'duplicate' — the
+    // status this schema already has for exactly this ("pending, validated,
+    // rejected, duplicate" — see the Event model's own doc comment) — and
+    // links it to the primary via raw_data.duplicate_of_event_id on the NEW
+    // row only. The primary event's own raw_data is never touched, so there
+    // is no risk of clobbering its original audit-trail payload.
+    // GET /api/events excludes validation_status: 'duplicate' by default, so
+    // this still satisfies "events should only show once" without deleting
+    // or hiding the underlying data if the LLM judgment turns out wrong.
+    if (fuzzyDuplicate) {
+      await tx.eventHash.updateMany({
+        where: { organization_id: organizationId, hash: fuzzyDuplicate.event_hash },
+        data: {
+          last_seen_at: new Date(),
+          occurrence_count: { increment: 1 },
+          expires_at: new Date(Date.now() + 7 * 24 * 60 * 60 * 1000),
+        },
+      });
+
+      const duplicateEvent = await tx.event.create({
+        data: {
+          organization_id: organizationId,
+          event_hash: eventData.event_hash,
+          type: eventData.type,
+          source: eventData.source,
+          title: eventData.title,
+          description: eventData.description,
+          location_name: eventData.location?.name,
+          latitude: eventData.location?.latitude,
+          longitude: eventData.location?.longitude,
+          event_timestamp: new Date(eventData.event_timestamp),
+          severity: eventData.severity,
+          confidence: eventData.confidence,
+          risk_factors: eventData.risk_factors || [],
+          affected_domains: eventData.affected_domains || [],
+          validation_status: 'duplicate',
+          raw_data: { ...(eventData.raw_data || {}), duplicate_of_event_id: fuzzyDuplicate.id },
+        },
+      });
+
+      await tx.eventHash.upsert({
+        where: { organization_id_hash: { organization_id: organizationId, hash: eventData.event_hash } },
+        create: {
+          organization_id: organizationId,
+          hash: eventData.event_hash,
+          first_seen_at: new Date(),
+          last_seen_at: new Date(),
+          occurrence_count: 1,
+          original_event_id: duplicateEvent.id,
+          expires_at: new Date(Date.now() + 7 * 24 * 60 * 60 * 1000),
+        },
+        update: {
+          last_seen_at: new Date(),
+          occurrence_count: { increment: 1 },
+          expires_at: new Date(Date.now() + 7 * 24 * 60 * 60 * 1000),
+        },
+      });
+
+      return { ...duplicateEvent, _deduplicated: true, _fuzzyDuplicateOf: fuzzyDuplicate.id };
     }
 
     // Create Event record

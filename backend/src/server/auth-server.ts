@@ -3166,7 +3166,13 @@ app.get('/api/events', async (req: Request, res: Response) => {
 
     // Build query filters
     const where: Prisma.EventWhereInput = { organization_id: { in: orgIds } };
-    if (validationStatus) where.validation_status = validationStatus;
+    // Default excludes validation_status: 'duplicate' (#22) — those rows are
+    // real Events (same-incident detection creates them normally rather than
+    // suppressing storage, so an LLM false positive can't destroy data), but
+    // showing them alongside the primary event they were matched to is
+    // exactly the "same incident appears twice" bug this status exists to
+    // prevent. Pass ?validationStatus=duplicate explicitly to see them.
+    where.validation_status = validationStatus || { not: 'duplicate' };
     if (type) where.type = type;
     if (source) where.source = source;
 
