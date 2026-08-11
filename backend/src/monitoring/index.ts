@@ -537,17 +537,22 @@ function exactMatchWhere(organizationId: string, eventData: any): Prisma.EventWh
   // criteria applied to only one would silently drift from the other.
   //
   // eventData is untyped (agent-produced JSON, not schema-validated per
-  // event) — if event_hash were ever missing, `{ event_hash: undefined }`
-  // would have Prisma drop that key entirely, collapsing the OR branch to
-  // `{}` and matching every event in the org, which the transaction below
-  // would then treat as "this event already exists" and silently drop a
-  // genuinely new one. Only include the hash branch when there's an actual
-  // hash to match on.
-  const orConditions: Prisma.EventWhereInput[] = [
-    { title: eventData.title, source: eventData.source, type: eventData.type },
-  ];
-  if (typeof eventData.event_hash === 'string' && eventData.event_hash.length > 0) {
-    orConditions.unshift({ event_hash: eventData.event_hash });
+  // event) — if any of these fields were ever missing, Prisma would drop
+  // the corresponding undefined key from its object entirely, narrowing
+  // that OR branch into matching on fewer fields than intended (in the
+  // worst case, `event_hash: undefined` alone collapsing to `{}` and
+  // matching every event in the org). The transaction below would then
+  // treat that spurious match as "this event already exists" and silently
+  // drop a genuinely new one. Only include a branch when every field it
+  // needs is actually present.
+  const isNonEmptyString = (v: unknown): v is string => typeof v === 'string' && v.length > 0;
+
+  const orConditions: Prisma.EventWhereInput[] = [];
+  if (isNonEmptyString(eventData.event_hash)) {
+    orConditions.push({ event_hash: eventData.event_hash });
+  }
+  if (isNonEmptyString(eventData.title) && isNonEmptyString(eventData.source) && isNonEmptyString(eventData.type)) {
+    orConditions.push({ title: eventData.title, source: eventData.source, type: eventData.type });
   }
 
   return {
