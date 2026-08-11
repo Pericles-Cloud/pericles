@@ -3113,6 +3113,18 @@ app.delete('/api/shipments/:id', async (req: Request, res: Response) => {
 // EVENT API ENDPOINTS
 // ============================================
 
+// The only place a fuzzy-dedup match (#22) is recorded — without exposing
+// this, an operator auditing ?validationStatus=duplicate results (as the
+// collection endpoint's own default-filter comment below tells them to) has
+// no way to see which primary event the LLM matched a duplicate to.
+function duplicateOfEventId(rawData: unknown): string | null {
+  if (rawData && typeof rawData === 'object' && 'duplicate_of_event_id' in rawData) {
+    const value = (rawData as { duplicate_of_event_id?: unknown }).duplicate_of_event_id;
+    return typeof value === 'string' ? value : null;
+  }
+  return null;
+}
+
 // Get events for organization
 app.get('/api/events', async (req: Request, res: Response) => {
   try {
@@ -3210,6 +3222,7 @@ app.get('/api/events', async (req: Request, res: Response) => {
           riskFactors: e.risk_factors,
           affectedDomains: e.affected_domains,
           validationStatus: e.validation_status,
+          duplicateOfEventId: duplicateOfEventId(e.raw_data),
           validatedAt: e.validated_at?.toISOString() || null,
           incident: e.incident
             ? {
