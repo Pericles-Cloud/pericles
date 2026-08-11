@@ -429,7 +429,10 @@ export default function AtlasPage() {
       const query = search.trim();
       if (!query || !mapRef.current) return;
       setSearchError(null);
-      new google.maps.Geocoder().geocode({ address: query }, (results, status) => {
+      if (!geocoderRef.current) {
+        geocoderRef.current = new google.maps.Geocoder();
+      }
+      geocoderRef.current.geocode({ address: query }, (results, status) => {
         if (status === 'OK' && results && results[0]) {
           mapRef.current?.panTo(results[0].geometry.location);
           mapRef.current?.setZoom(6);
@@ -820,7 +823,7 @@ export default function AtlasPage() {
                   render "Showing N of M" with N > M. */}
               {(() => {
                 const shown = selectedPin.shipments.length;
-                const total = Math.max(selectedPin.supplier?.totalShipments || 0, shown);
+                const total = Math.max(selectedPin.supplier?.totalShipments ?? 0, shown);
                 return (
                   <div className="text-sm text-grey-600 mt-1">
                     Showing {shown} of {total} total shipment
