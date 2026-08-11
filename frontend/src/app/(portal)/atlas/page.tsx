@@ -26,6 +26,7 @@ import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { cn } from '@/lib/utils';
 import { useShipmentPositions } from '@/lib/useShipmentPositions';
+import { formatCurrencyUsd, formatShortDate } from '@/lib/format';
 import { useResolvedDark } from '@/lib/use-resolved-dark';
 
 const GOOGLE_MAPS_API_KEY = process.env.NEXT_PUBLIC_GOOGLE_MAPS_API_KEY || '';
@@ -237,6 +238,15 @@ export default function AtlasPage() {
   // filter is actually showing on the map (#11 review finding).
   const mapPins = useMemo((): MapPin[] => {
     const pins = new Map<string, MapPin>();
+    const addToPin = (key: string, shipment: Shipment, build: () => MapPin) => {
+      const existing = pins.get(key);
+      if (existing) {
+        existing.shipmentCount++;
+        existing.shipments.push(shipment);
+      } else {
+        pins.set(key, build());
+      }
+    };
     filteredRoutes.forEach((route) => {
       if (route.origin) {
         // Keyed by supplier id, not coordinates (#11 review round 3): two
@@ -245,38 +255,26 @@ export default function AtlasPage() {
         // and merging them into one pin would misattribute one supplier's
         // BOL/value/ETA list to another's name in the popup.
         const key = `supplier-${route.shipment.supplierId}`;
-        const existing = pins.get(key);
-        if (existing) {
-          existing.shipmentCount++;
-          existing.shipments.push(route.shipment);
-        } else {
-          pins.set(key, {
-            id: key,
-            position: { lat: route.origin.lat, lng: route.origin.lng },
-            type: 'supplier',
-            name: route.origin.name,
-            shipmentCount: 1,
-            supplier: suppliers.find((s) => s.id === route.shipment.supplierId),
-            shipments: [route.shipment],
-          });
-        }
+        addToPin(key, route.shipment, () => ({
+          id: key,
+          position: { lat: route.origin!.lat, lng: route.origin!.lng },
+          type: 'supplier',
+          name: route.origin!.name,
+          shipmentCount: 1,
+          supplier: suppliers.find((s) => s.id === route.shipment.supplierId),
+          shipments: [route.shipment],
+        }));
       }
       if (route.destination) {
         const key = `port-${route.destination.lat}-${route.destination.lng}`;
-        const existing = pins.get(key);
-        if (existing) {
-          existing.shipmentCount++;
-          existing.shipments.push(route.shipment);
-        } else {
-          pins.set(key, {
-            id: key,
-            position: { lat: route.destination.lat, lng: route.destination.lng },
-            type: 'port',
-            name: route.destination.name,
-            shipmentCount: 1,
-            shipments: [route.shipment],
-          });
-        }
+        addToPin(key, route.shipment, () => ({
+          id: key,
+          position: { lat: route.destination!.lat, lng: route.destination!.lng },
+          type: 'port',
+          name: route.destination!.name,
+          shipmentCount: 1,
+          shipments: [route.shipment],
+        }));
       }
     });
     return Array.from(pins.values());
@@ -300,6 +298,12 @@ export default function AtlasPage() {
     // callback fires.
     if (cacheKey in supplierCities || pendingGeocodesRef.current.has(cacheKey)) return;
 
+    // Matches the isMounted-guard pattern the data-fetch effect above uses:
+    // if this component unmounts (client-side nav away from Atlas) before
+    // the geocode resolves or its timeout fires, don't update state on an
+    // unmounted component.
+    let isMounted = true;
+
     if (!geocoderRef.current) {
       geocoderRef.current = new google.maps.Geocoder();
     }
@@ -312,7 +316,7 @@ export default function AtlasPage() {
     const timeoutId = setTimeout(() => {
       if (!pendingGeocodesRef.current.has(cacheKey)) return;
       pendingGeocodesRef.current.delete(cacheKey);
-      setSupplierCities((prev) => ({ ...prev, [cacheKey]: null }));
+      if (isMounted) setSupplierCities((prev) => ({ ...prev, [cacheKey]: null }));
     }, 8000);
 
     geocoderRef.current.geocode(
@@ -321,6 +325,7 @@ export default function AtlasPage() {
         if (!pendingGeocodesRef.current.has(cacheKey)) return; // already timed out
         clearTimeout(timeoutId);
         pendingGeocodesRef.current.delete(cacheKey);
+        if (!isMounted) return;
         if (status !== google.maps.GeocoderStatus.OK || !results?.length) {
           setSupplierCities((prev) => ({ ...prev, [cacheKey]: null }));
           return;
@@ -331,6 +336,11 @@ export default function AtlasPage() {
         setSupplierCities((prev) => ({ ...prev, [cacheKey]: cityComponent?.long_name ?? null }));
       }
     );
+
+    return () => {
+      isMounted = false;
+      clearTimeout(timeoutId);
+    };
   }, [isLoaded, selectedPin, supplierCities]);
 
   const openEvents = useMemo(
@@ -448,7 +458,15 @@ export default function AtlasPage() {
                 key={f}
                 size="sm"
                 variant={timeliness === f ? 'default' : 'outline'}
-                onClick={() => setTimeliness(f)}
+                onClick={() => {
+                  setTimeliness(f);
+                  // Close any open popup rather than leave its id dangling —
+                  // switching filters can remove its pin from mapPins, and
+                  // switching back would otherwise silently reopen the same
+                  // popup with no click, since pin ids are deterministic
+                  // (#11 review round 4).
+                  setSelectedPinId(null);
+                }}
               >
                 {f === 'all' ? 'All' : f === 'active' ? 'In Transit' : 'Arrived'}
               </Button>
@@ -739,17 +757,23 @@ export default function AtlasPage() {
                   known — see shipmentRoutes above), which can be fewer than the
                   supplier's org-wide shipment count. Previously worded as
                   "N on map · M total", which read as two unrelated numbers
-                  rather than a subset-of relationship (#11). totalShipments
-                  falls back on a truthy check, not `??`: a supplier whose
-                  stored total_shipments is 0 (never backfilled — see
-                  MapPin.shipments' own doc comment) but has real shipments
-                  plotted here should show "N of N", not the self-contradicting
-                  "N of 0". */}
-              <div className="text-sm text-grey-600 mt-1">
-                Showing {selectedPin.shipmentCount} of{' '}
-                {selectedPin.supplier?.totalShipments || selectedPin.shipmentCount} total shipment
-                {(selectedPin.supplier?.totalShipments || selectedPin.shipmentCount) !== 1 ? 's' : ''}
-              </div>
+                  rather than a subset-of relationship (#11). Total is clamped
+                  to at least shipmentCount: supplier.totalShipments is an
+                  independently-seeded ERP/BOL figure that can be stale (0, or
+                  simply behind what's actually plotted this session) — never
+                  render "Showing N of M" with N > M. */}
+              {(() => {
+                const total = Math.max(
+                  selectedPin.supplier?.totalShipments || 0,
+                  selectedPin.shipmentCount
+                );
+                return (
+                  <div className="text-sm text-grey-600 mt-1">
+                    Showing {selectedPin.shipmentCount} of {total} total shipment
+                    {total !== 1 ? 's' : ''}
+                  </div>
+                );
+              })()}
 
               <div className="mt-2 max-h-40 overflow-y-auto border-t border-grey-200 pt-2 space-y-2">
                 {selectedPin.shipments.map((shipment) => (
@@ -757,12 +781,11 @@ export default function AtlasPage() {
                     <div className="font-mono text-grey-900">{shipment.bolNumber}</div>
                     <div className="text-grey-600">
                       {shipment.destinationPort ?? 'Destination unknown'}
-                      {shipment.valueUsd != null &&
-                        ` · ${shipment.valueUsd.toLocaleString('en-US', { style: 'currency', currency: 'USD', maximumFractionDigits: 0 })}`}
+                      {shipment.valueUsd != null && ` · ${formatCurrencyUsd(shipment.valueUsd)}`}
                     </div>
                     {(shipment.estimatedArrivalDate || shipment.arrivalDate) && (
                       <div className="text-grey-600">
-                        ETA: {new Date(shipment.estimatedArrivalDate ?? shipment.arrivalDate!).toLocaleDateString()}
+                        ETA: {formatShortDate(shipment.estimatedArrivalDate ?? shipment.arrivalDate)}
                       </div>
                     )}
                   </div>
