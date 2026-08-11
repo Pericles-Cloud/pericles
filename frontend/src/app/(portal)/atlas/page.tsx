@@ -85,6 +85,10 @@ interface MapPin {
   name: string;
   shipmentCount: number;
   supplier?: Supplier;
+  /** The actual shipments contributing to this pin (#11) — distinct from
+   * supplier.totalShipments, which is the org-wide count from the ERP/BOL
+   * source regardless of what's plotted on THIS map right now. */
+  shipments: Shipment[];
 }
 
 type TimelinessFilter = 'all' | 'active' | 'completed';
@@ -111,10 +115,41 @@ export default function AtlasPage() {
   const [selectedRoute, setSelectedRoute] = useState<ShipmentRoute | null>(null);
   // Collapsed by default so the map reads as the whole surface (GH #8).
   const [isFeedOpen, setIsFeedOpen] = useState(false);
+  // Supplier city (#11): no city field exists on Supplier — the BOL/ImportYeti
+  // pipeline never populates `address` — so this is reverse-geocoded from the
+  // supplier's own lat/lng on demand when its pin is opened, using the same
+  // Google Maps script Atlas already loads (no new vendor, no extra library
+  // param: Geocoder is part of the core Maps JS API). Cached per lat/lng pair
+  // so reopening the same pin in one session doesn't re-call the API.
+  const [supplierCities, setSupplierCities] = useState<Record<string, string | null>>({});
+  const geocoderRef = useRef<google.maps.Geocoder | null>(null);
 
   const mapRef = useRef<google.maps.Map | null>(null);
 
   const { isLoaded, loadError } = useJsApiLoader({ googleMapsApiKey: GOOGLE_MAPS_API_KEY });
+
+  useEffect(() => {
+    if (!isLoaded || !selectedPin || selectedPin.type !== 'supplier') return;
+    const cacheKey = `${selectedPin.position.lat},${selectedPin.position.lng}`;
+    if (cacheKey in supplierCities) return;
+
+    if (!geocoderRef.current) {
+      geocoderRef.current = new google.maps.Geocoder();
+    }
+    geocoderRef.current.geocode(
+      { location: selectedPin.position },
+      (results, status) => {
+        if (status !== google.maps.GeocoderStatus.OK || !results?.length) {
+          setSupplierCities((prev) => ({ ...prev, [cacheKey]: null }));
+          return;
+        }
+        const cityComponent = results
+          .flatMap((r) => r.address_components)
+          .find((c) => c.types.includes('locality') || c.types.includes('postal_town'));
+        setSupplierCities((prev) => ({ ...prev, [cacheKey]: cityComponent?.long_name ?? null }));
+      }
+    );
+  }, [isLoaded, selectedPin, supplierCities]);
 
   // Live vessel positions: mock-simulated motion over real BOL lanes today;
   // swaps to Terminal49 + AISstream when TRACKING_MODE=live, no UI change.
@@ -209,8 +244,10 @@ export default function AtlasPage() {
       if (route.origin) {
         const key = `supplier-${route.origin.lat}-${route.origin.lng}`;
         const existing = pins.get(key);
-        if (existing) existing.shipmentCount++;
-        else
+        if (existing) {
+          existing.shipmentCount++;
+          existing.shipments.push(route.shipment);
+        } else {
           pins.set(key, {
             id: key,
             position: { lat: route.origin.lat, lng: route.origin.lng },
@@ -218,20 +255,26 @@ export default function AtlasPage() {
             name: route.origin.name,
             shipmentCount: 1,
             supplier: suppliers.find((s) => s.id === route.shipment.supplierId),
+            shipments: [route.shipment],
           });
+        }
       }
       if (route.destination) {
         const key = `port-${route.destination.lat}-${route.destination.lng}`;
         const existing = pins.get(key);
-        if (existing) existing.shipmentCount++;
-        else
+        if (existing) {
+          existing.shipmentCount++;
+          existing.shipments.push(route.shipment);
+        } else {
           pins.set(key, {
             id: key,
             position: { lat: route.destination.lat, lng: route.destination.lng },
             type: 'port',
             name: route.destination.name,
             shipmentCount: 1,
+            shipments: [route.shipment],
           });
+        }
       }
     });
     return Array.from(pins.values());
@@ -630,22 +673,53 @@ export default function AtlasPage() {
             darkening the values to grey-800 rather than lightening the labels. */}
         {selectedPin && (
           <InfoWindow position={selectedPin.position} onCloseClick={() => setSelectedPin(null)}>
-            <div className="p-2 min-w-[180px]">
+            <div className="p-2 w-[260px]">
               <div className="font-medium text-grey-900">{selectedPin.name}</div>
               <div className="text-sm text-grey-600 mt-1">
                 {selectedPin.type === 'supplier' ? 'Supplier' : 'Destination Port'}
               </div>
-              {selectedPin.supplier?.country && (
+              {selectedPin.type === 'supplier' && selectedPin.supplier && (
                 <div className="text-sm text-grey-600 mt-1">
-                  {selectedPin.supplier.country}
+                  {[
+                    supplierCities[`${selectedPin.position.lat},${selectedPin.position.lng}`],
+                    selectedPin.supplier.country,
+                  ]
+                    .filter(Boolean)
+                    .join(', ') || 'Location unavailable'}
                 </div>
               )}
+              {/* "Showing" vs "total": the map only ever plots shipments that
+                  resolved to a route (both origin and destination coordinates
+                  known — see shipmentRoutes above), which can be fewer than the
+                  supplier's org-wide shipment count. Previously worded as
+                  "N on map · M total", which read as two unrelated numbers
+                  rather than a subset-of relationship (#11). */}
               <div className="text-sm text-grey-600 mt-1">
-                {selectedPin.shipmentCount} shipment{selectedPin.shipmentCount !== 1 ? 's' : ''} on map
-                {selectedPin.supplier?.totalShipments
-                  ? ` · ${selectedPin.supplier.totalShipments} total`
-                  : ''}
+                Showing {selectedPin.shipmentCount} of{' '}
+                {selectedPin.supplier?.totalShipments ?? selectedPin.shipmentCount} total shipment
+                {(selectedPin.supplier?.totalShipments ?? selectedPin.shipmentCount) !== 1 ? 's' : ''}
               </div>
+
+              {selectedPin.shipments.length > 0 && (
+                <div className="mt-2 max-h-40 overflow-y-auto border-t border-grey-200 pt-2 space-y-2">
+                  {selectedPin.shipments.map((shipment) => (
+                    <div key={shipment.id} className="text-xs">
+                      <div className="font-mono text-grey-900">{shipment.bolNumber}</div>
+                      <div className="text-grey-600">
+                        {shipment.destinationPort ?? 'Destination unknown'}
+                        {shipment.valueUsd != null &&
+                          ` · ${shipment.valueUsd.toLocaleString('en-US', { style: 'currency', currency: 'USD', maximumFractionDigits: 0 })}`}
+                      </div>
+                      {(shipment.estimatedArrivalDate || shipment.arrivalDate) && (
+                        <div className="text-grey-600">
+                          ETA: {new Date(shipment.estimatedArrivalDate ?? shipment.arrivalDate!).toLocaleDateString()}
+                        </div>
+                      )}
+                    </div>
+                  ))}
+                </div>
+              )}
+
               {selectedPin.supplier?.departurePorts?.length ? (
                 <div className="text-xs text-grey-800 mt-2">
                   <span className="text-grey-600">Departs:</span>{' '}
