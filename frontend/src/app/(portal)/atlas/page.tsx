@@ -123,6 +123,7 @@ export default function AtlasPage() {
   // so reopening the same pin in one session doesn't re-call the API.
   const [supplierCities, setSupplierCities] = useState<Record<string, string | null>>({});
   const geocoderRef = useRef<google.maps.Geocoder | null>(null);
+  const pendingGeocodesRef = useRef<Set<string>>(new Set());
 
   const mapRef = useRef<google.maps.Map | null>(null);
 
@@ -131,14 +132,33 @@ export default function AtlasPage() {
   useEffect(() => {
     if (!isLoaded || !selectedPin || selectedPin.type !== 'supplier') return;
     const cacheKey = `${selectedPin.position.lat},${selectedPin.position.lng}`;
-    if (cacheKey in supplierCities) return;
+    // Also guard against an in-flight request for the same key (e.g. the pin
+    // is closed and reopened before the first geocode call resolves) — the
+    // cache alone can't catch that since it isn't written until the
+    // callback fires.
+    if (cacheKey in supplierCities || pendingGeocodesRef.current.has(cacheKey)) return;
 
     if (!geocoderRef.current) {
       geocoderRef.current = new google.maps.Geocoder();
     }
+    pendingGeocodesRef.current.add(cacheKey);
+
+    // The Geocoder API takes a callback, not a Promise/AbortSignal, so a
+    // stalled response is timed out manually — required per this repo's
+    // external-call convention (CLAUDE.md's "External API Integration
+    // Pattern").
+    const timeoutId = setTimeout(() => {
+      if (!pendingGeocodesRef.current.has(cacheKey)) return;
+      pendingGeocodesRef.current.delete(cacheKey);
+      setSupplierCities((prev) => ({ ...prev, [cacheKey]: null }));
+    }, 8000);
+
     geocoderRef.current.geocode(
       { location: selectedPin.position },
       (results, status) => {
+        if (!pendingGeocodesRef.current.has(cacheKey)) return; // already timed out
+        clearTimeout(timeoutId);
+        pendingGeocodesRef.current.delete(cacheKey);
         if (status !== google.maps.GeocoderStatus.OK || !results?.length) {
           setSupplierCities((prev) => ({ ...prev, [cacheKey]: null }));
           return;
@@ -237,10 +257,24 @@ export default function AtlasPage() {
       .filter((route) => route.origin || route.destination);
   }, [shipments, suppliers]);
 
-  // Pins, deduplicated by location; supplier pins carry the Supplier for detail.
+  const filteredRoutes = useMemo(() => {
+    if (timeliness === 'all') return shipmentRoutes;
+    return shipmentRoutes.filter((route) => {
+      const hasArrived =
+        route.shipment.arrivalDate && new Date(route.shipment.arrivalDate) < new Date();
+      if (timeliness === 'completed') return hasArrived;
+      if (timeliness === 'active') return !hasArrived;
+      return true;
+    });
+  }, [shipmentRoutes, timeliness]);
+
+  // Pins, deduplicated by location; supplier pins carry the Supplier for
+  // detail. Built from filteredRoutes (not the full shipmentRoutes), so the
+  // popup's shipment list/count always matches what the active timeliness
+  // filter is actually showing on the map (#11 review finding).
   const mapPins = useMemo((): MapPin[] => {
     const pins = new Map<string, MapPin>();
-    shipmentRoutes.forEach((route) => {
+    filteredRoutes.forEach((route) => {
       if (route.origin) {
         const key = `supplier-${route.origin.lat}-${route.origin.lng}`;
         const existing = pins.get(key);
@@ -278,18 +312,7 @@ export default function AtlasPage() {
       }
     });
     return Array.from(pins.values());
-  }, [shipmentRoutes, suppliers]);
-
-  const filteredRoutes = useMemo(() => {
-    if (timeliness === 'all') return shipmentRoutes;
-    return shipmentRoutes.filter((route) => {
-      const hasArrived =
-        route.shipment.arrivalDate && new Date(route.shipment.arrivalDate) < new Date();
-      if (timeliness === 'completed') return hasArrived;
-      if (timeliness === 'active') return !hasArrived;
-      return true;
-    });
-  }, [shipmentRoutes, timeliness]);
+  }, [filteredRoutes, suppliers]);
 
   const openEvents = useMemo(
     () =>
@@ -700,25 +723,23 @@ export default function AtlasPage() {
                 {(selectedPin.supplier?.totalShipments ?? selectedPin.shipmentCount) !== 1 ? 's' : ''}
               </div>
 
-              {selectedPin.shipments.length > 0 && (
-                <div className="mt-2 max-h-40 overflow-y-auto border-t border-grey-200 pt-2 space-y-2">
-                  {selectedPin.shipments.map((shipment) => (
-                    <div key={shipment.id} className="text-xs">
-                      <div className="font-mono text-grey-900">{shipment.bolNumber}</div>
-                      <div className="text-grey-600">
-                        {shipment.destinationPort ?? 'Destination unknown'}
-                        {shipment.valueUsd != null &&
-                          ` · ${shipment.valueUsd.toLocaleString('en-US', { style: 'currency', currency: 'USD', maximumFractionDigits: 0 })}`}
-                      </div>
-                      {(shipment.estimatedArrivalDate || shipment.arrivalDate) && (
-                        <div className="text-grey-600">
-                          ETA: {new Date(shipment.estimatedArrivalDate ?? shipment.arrivalDate!).toLocaleDateString()}
-                        </div>
-                      )}
+              <div className="mt-2 max-h-40 overflow-y-auto border-t border-grey-200 pt-2 space-y-2">
+                {selectedPin.shipments.map((shipment) => (
+                  <div key={shipment.id} className="text-xs">
+                    <div className="font-mono text-grey-900">{shipment.bolNumber}</div>
+                    <div className="text-grey-600">
+                      {shipment.destinationPort ?? 'Destination unknown'}
+                      {shipment.valueUsd != null &&
+                        ` · ${shipment.valueUsd.toLocaleString('en-US', { style: 'currency', currency: 'USD', maximumFractionDigits: 0 })}`}
                     </div>
-                  ))}
-                </div>
-              )}
+                    {(shipment.estimatedArrivalDate || shipment.arrivalDate) && (
+                      <div className="text-grey-600">
+                        ETA: {new Date(shipment.estimatedArrivalDate ?? shipment.arrivalDate!).toLocaleDateString()}
+                      </div>
+                    )}
+                  </div>
+                ))}
+              </div>
 
               {selectedPin.supplier?.departurePorts?.length ? (
                 <div className="text-xs text-grey-800 mt-2">
