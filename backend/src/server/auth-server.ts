@@ -3329,6 +3329,15 @@ const EventQaAnswerSchema = z.object({
 });
 const EVENT_QA_TIMEOUT_MS = 20000;
 
+// Module-scope, not a per-request closure: a pure function of its argument,
+// so allocating a fresh copy on every /ask call was pointless — and this is
+// the first implementation anywhere in the codebase of the boundary-marking
+// pericles-prompts calls for whenever untrusted content enters a prompt, so
+// keeping it at module scope (rather than buried in one handler) is what
+// makes it importable the next time a route needs the same protection.
+const escapeForPromptContext = (value: string): string =>
+  value.replace(/</g, '‹').replace(/>/g, '›');
+
 app.post('/api/events/:id/ask', eventQaRateLimit, async (req: Request, res: Response) => {
   try {
     const tokenPayload = authenticateRequest(req);
@@ -3367,11 +3376,9 @@ app.post('/api/events/:id/ask', eventQaRateLimit, async (req: Request, res: Resp
     // The event's own fields originate from external monitored feeds and
     // are untrusted per pericles-prompts — boundary-marked here, and the
     // agent's own instructions (event-qa-agent.ts) tell it to treat this
-    // block as data, never as instructions. Angle brackets are neutralized
-    // so a feed item can't break out of <event_context> with a crafted
-    // "</event_context>" (or similar) sequence in its title/description.
-    const escapeForPromptContext = (value: string): string =>
-      value.replace(/</g, '‹').replace(/>/g, '›');
+    // block as data, never as instructions. escapeForPromptContext (module
+    // scope, above) neutralizes angle brackets so a feed item can't break
+    // out of <event_context> with a crafted "</event_context>" sequence.
 
     const contextLines = [
       `Title: ${escapeForPromptContext(event.title)}`,

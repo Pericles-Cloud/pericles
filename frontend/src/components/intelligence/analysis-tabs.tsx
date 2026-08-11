@@ -186,11 +186,16 @@ function AnalysisContent({ event, activeTab }: { event: Event; activeTab: Analys
   }
 }
 
-interface QaTurn {
-  question: string;
-  answer: string | null;
-  error: string | null;
-}
+// A discriminated union, not two independently-nullable fields: the old
+// {answer: string|null, error: string|null} shape let "pending" only be
+// inferred at render time via !answer && !error — the exact ambiguity that
+// let a successful-but-empty answer render identically to "not yet
+// answered" (both falsy) and get stuck on "Thinking…" forever. status makes
+// each turn's state explicit and exhaustive instead of derived.
+type QaTurn =
+  | { question: string; status: 'pending' }
+  | { question: string; status: 'answered'; answer: string }
+  | { question: string; status: 'error'; error: string };
 
 /**
  * Per-event Q&A box (#23) — scoped to the one event whose Analysis tab it's
@@ -211,30 +216,23 @@ function EventQaBox({ eventId }: { eventId: string }) {
     setIsAsking(true);
     setQuestion('');
     const turnIndex = turns.length;
-    setTurns((prev) => [...prev, { question: trimmed, answer: null, error: null }]);
+    setTurns((prev) => [...prev, { question: trimmed, status: 'pending' }]);
+
+    const settle = (turn: QaTurn) =>
+      setTurns((prev) => prev.map((t, i) => (i === turnIndex ? turn : t)));
 
     try {
       const response = await askEventQuestion(eventId, trimmed);
-      setTurns((prev) =>
-        prev.map((t, i) =>
-          i === turnIndex
-            ? {
-                ...t,
-                // A successful response with an empty-string answer is
-                // schema-valid (EventQaAnswerSchema has no .min(1)) but
-                // renders identically to "not yet answered" (both are
-                // falsy) — without this fallback the turn is stuck showing
-                // "Thinking…" forever despite the request having completed.
-                answer: response.success ? response.data?.answer || 'No answer was returned.' : null,
-                error: response.success ? null : response.error?.message || 'Failed to get an answer',
-              }
-            : t
-        )
-      );
+      if (response.success) {
+        // An empty-string answer is schema-valid server-side (no .min(1) on
+        // EventQaAnswerSchema) — still a real 'answered' turn, just with a
+        // placeholder string, never re-inferred as pending.
+        settle({ question: trimmed, status: 'answered', answer: response.data?.answer || 'No answer was returned.' });
+      } else {
+        settle({ question: trimmed, status: 'error', error: response.error?.message || 'Failed to get an answer' });
+      }
     } catch {
-      setTurns((prev) =>
-        prev.map((t, i) => (i === turnIndex ? { ...t, error: 'Failed to get an answer' } : t))
-      );
+      settle({ question: trimmed, status: 'error', error: 'Failed to get an answer' });
     } finally {
       setIsAsking(false);
     }
@@ -248,9 +246,13 @@ function EventQaBox({ eventId }: { eventId: string }) {
           {turns.map((turn, i) => (
             <div key={i} className="text-sm">
               <div className="font-medium text-foreground">{turn.question}</div>
-              {turn.answer && <div className="text-muted-foreground mt-1">{turn.answer}</div>}
-              {turn.error && <div className="text-risk-critical-text mt-1">{turn.error}</div>}
-              {!turn.answer && !turn.error && (
+              {turn.status === 'answered' && (
+                <div className="text-muted-foreground mt-1">{turn.answer}</div>
+              )}
+              {turn.status === 'error' && (
+                <div className="text-risk-critical-text mt-1">{turn.error}</div>
+              )}
+              {turn.status === 'pending' && (
                 <div className="text-muted-foreground mt-1 italic">Thinking…</div>
               )}
             </div>
