@@ -40,7 +40,19 @@ export function AnalysisTabs({ event }: { event: Event | null }) {
 
       <div className="flex-1 overflow-y-auto p-4" role="tabpanel">
         {event ? (
-          <AnalysisContent event={event} activeTab={activeTab} />
+          <>
+            <AnalysisContent event={event} activeTab={activeTab} />
+            {/* Rendered here, not inside AnalysisContent's per-tab switch:
+                that switch unmounts its returned subtree on every tab
+                change, which was silently wiping the Q&A conversation (and
+                discarding any in-flight answer) every time a user checked
+                Timeline/Impact/Notes and came back to Analysis. Kept
+                mounted across tab switches via CSS visibility instead —
+                only event changes (key={event.id}) should reset it. */}
+            <div className={activeTab === 'analysis' ? undefined : 'hidden'}>
+              <EventQaBox key={event.id} eventId={event.id} />
+            </div>
+          </>
         ) : (
           <div className="text-center text-muted-foreground">
             <p>Select an event to view analysis</p>
@@ -120,7 +132,6 @@ function AnalysisContent({ event, activeTab }: { event: Event; activeTab: Analys
               </>
             )}
           </div>
-          <EventQaBox key={event.id} eventId={event.id} />
         </div>
       );
 
