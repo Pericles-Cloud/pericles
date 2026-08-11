@@ -3367,16 +3367,21 @@ app.post('/api/events/:id/ask', eventQaRateLimit, async (req: Request, res: Resp
     // The event's own fields originate from external monitored feeds and
     // are untrusted per pericles-prompts — boundary-marked here, and the
     // agent's own instructions (event-qa-agent.ts) tell it to treat this
-    // block as data, never as instructions.
+    // block as data, never as instructions. Angle brackets are neutralized
+    // so a feed item can't break out of <event_context> with a crafted
+    // "</event_context>" (or similar) sequence in its title/description.
+    const escapeForPromptContext = (value: string): string =>
+      value.replace(/</g, '‹').replace(/>/g, '›');
+
     const contextLines = [
-      `Title: ${event.title}`,
-      `Description: ${event.description}`,
+      `Title: ${escapeForPromptContext(event.title)}`,
+      `Description: ${escapeForPromptContext(event.description)}`,
       `Type: ${event.type}`,
       `Severity: ${event.severity.toFixed(2)} (0-1 scale)`,
       `Confidence: ${event.confidence.toFixed(2)} (0-1 scale)`,
-      event.location_name ? `Location: ${event.location_name}` : null,
-      `Risk factors: ${event.risk_factors.join(', ') || 'none recorded'}`,
-      `Affected domains: ${event.affected_domains.join(', ') || 'none recorded'}`,
+      event.location_name ? `Location: ${escapeForPromptContext(event.location_name)}` : null,
+      `Risk factors: ${event.risk_factors.length ? escapeForPromptContext(event.risk_factors.join(', ')) : 'none recorded'}`,
+      `Affected domains: ${event.affected_domains.length ? escapeForPromptContext(event.affected_domains.join(', ')) : 'none recorded'}`,
       `Event occurred: ${event.event_timestamp.toISOString()}`,
       `Detected by Pericles: ${event.detected_at.toISOString()}`,
       `Validation status: ${event.validation_status}`,
@@ -3397,14 +3402,10 @@ app.post('/api/events/:id/ask', eventQaRateLimit, async (req: Request, res: Resp
 
     let result;
     try {
-      result = await Promise.race([
-        agent.generate(prompt, { structuredOutput: { schema: EventQaAnswerSchema } }),
-        new Promise<never>((_, reject) => {
-          setTimeout(() => {
-            reject(new Error('event Q&A timed out'));
-          }, EVENT_QA_TIMEOUT_MS);
-        }),
-      ]);
+      result = await agent.generate(prompt, {
+        structuredOutput: { schema: EventQaAnswerSchema },
+        abortSignal: AbortSignal.timeout(EVENT_QA_TIMEOUT_MS),
+      });
     } catch (err) {
       console.error('Event Q&A agent error:', err);
       res.status(502).json({ success: false, error: { code: 'UPSTREAM_ERROR', message: 'Failed to generate an answer. Please try again.' } });

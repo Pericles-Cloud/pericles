@@ -120,7 +120,7 @@ function AnalysisContent({ event, activeTab }: { event: Event; activeTab: Analys
               </>
             )}
           </div>
-          <EventQaBox eventId={event.id} />
+          <EventQaBox key={event.id} eventId={event.id} />
         </div>
       );
 
