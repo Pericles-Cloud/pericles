@@ -128,7 +128,6 @@ export default function ShipmentsPage() {
     s.vesselName?.toLowerCase().includes(searchQuery.toLowerCase())
   );
 
-
   const handleCreate = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!currentOrganization?.id || !newShipment.bolNumber.trim()) return;

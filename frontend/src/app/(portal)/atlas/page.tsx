@@ -837,10 +837,12 @@ export default function AtlasPage() {
                       {shipment.destinationPort ?? 'Destination unknown'}
                       {shipment.valueUsd != null && ` · ${formatCurrencyUsd(shipment.valueUsd)}`}
                     </div>
-                    {(shipment.estimatedArrivalDate || shipment.arrivalDate) && (
-                      <div className="text-grey-600">
-                        ETA: {formatShortDate(shipment.estimatedArrivalDate ?? shipment.arrivalDate)}
-                      </div>
+                    {shipment.estimatedArrivalDate ? (
+                      <div className="text-grey-600">ETA: {formatShortDate(shipment.estimatedArrivalDate)}</div>
+                    ) : (
+                      shipment.arrivalDate && (
+                        <div className="text-grey-600">Arrived: {formatShortDate(shipment.arrivalDate)}</div>
+                      )
                     )}
                   </div>
                 ))}
