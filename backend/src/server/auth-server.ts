@@ -3376,7 +3376,7 @@ app.post('/api/events/:id/ask', eventQaRateLimit, async (req: Request, res: Resp
     const contextLines = [
       `Title: ${escapeForPromptContext(event.title)}`,
       `Description: ${escapeForPromptContext(event.description)}`,
-      `Type: ${event.type}`,
+      `Type: ${escapeForPromptContext(event.type)}`,
       `Severity: ${event.severity.toFixed(2)} (0-1 scale)`,
       `Confidence: ${event.confidence.toFixed(2)} (0-1 scale)`,
       event.location_name ? `Location: ${escapeForPromptContext(event.location_name)}` : null,
