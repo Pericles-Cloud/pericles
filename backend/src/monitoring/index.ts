@@ -415,10 +415,24 @@ export async function runMonitoringCycle(
         // Check if this was a duplicate (server-side deduplication)
         if (storedEvent._deduplicated) {
           metrics.duplicatesFiltered = (metrics.duplicatesFiltered || 0) + 1;
-          cycleLogger.debug(
-            { eventId: storedEvent.id, hash: eventData.event_hash },
-            '[Cycle] Duplicate event skipped (server-side deduplication)'
-          );
+          // Two different things share this flag: an exact-match re-fetch
+          // (nothing new stored, this row already existed) vs. a fuzzy LLM
+          // match (a brand-new Event/EventHash/RiskAssessment row WAS
+          // created, just marked validation_status: 'duplicate'). Logging
+          // both as "skipped" is actively misleading for anyone grepping
+          // logs to triage a specific event_hash — the fuzzy case's row is
+          // real and retrievable via GET /api/events?validationStatus=duplicate.
+          if (storedEvent._fuzzyDuplicateOf) {
+            cycleLogger.debug(
+              { eventId: storedEvent.id, hash: eventData.event_hash, matchedPrimaryId: storedEvent._fuzzyDuplicateOf },
+              '[Cycle] Stored as a fuzzy duplicate (new row, validation_status: duplicate)'
+            );
+          } else {
+            cycleLogger.debug(
+              { eventId: storedEvent.id, hash: eventData.event_hash },
+              '[Cycle] Exact-match duplicate skipped — no new row stored'
+            );
+          }
           continue;
         }
 

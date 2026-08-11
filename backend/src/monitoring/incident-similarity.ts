@@ -4,7 +4,7 @@ import type { Prisma } from '@prisma/client';
 import { calculateDistance } from '../mastra/tools/weather-disaster-monitor-tool.js';
 import { toolLoggers } from '../mastra/tools/tool-logger.js';
 
-const logger = toolLoggers.incidentLookup;
+const logger = toolLoggers.incidentSimilarity;
 
 /**
  * Same-incident detection for events that describe the same real-world
@@ -107,16 +107,35 @@ export async function findDuplicateIncident(
     // GEO_RADIUS_KM circle — geoNarrowed below still applies the exact
     // Haversine radius — so it can only ever admit more candidates for the
     // precise filter to consider, never wrongly exclude one.
-    const boundingBox =
+    const boundingBox: Prisma.EventWhereInput | null =
       typeof lat === 'number' && typeof lon === 'number'
         ? (() => {
             const latDeltaDeg = GEO_RADIUS_KM / 111;
             const lonShrinkFactor = Math.max(Math.cos((lat * Math.PI) / 180), 0.1);
             const lonDeltaDeg = GEO_RADIUS_KM / (111 * lonShrinkFactor);
-            return {
-              latitude: { gte: lat - latDeltaDeg, lte: lat + latDeltaDeg },
-              longitude: { gte: lon - lonDeltaDeg, lte: lon + lonDeltaDeg },
-            };
+            const latCondition = { gte: lat - latDeltaDeg, lte: lat + latDeltaDeg };
+
+            const lonMin = lon - lonDeltaDeg;
+            const lonMax = lon + lonDeltaDeg;
+            // Antimeridian wraparound: a naive [lonMin, lonMax] range breaks
+            // for events near +/-180 degrees longitude (e.g. Fiji, Bering
+            // Strait shipping lanes) — two points 50km apart there can sit
+            // on opposite sides of the +180/-180 seam, and a single range
+            // would never span both. Split into two ranges instead whenever
+            // the box would cross the seam.
+            if (lonMax > 180) {
+              return {
+                latitude: latCondition,
+                OR: [{ longitude: { gte: lonMin } }, { longitude: { lte: lonMax - 360 } }],
+              };
+            }
+            if (lonMin < -180) {
+              return {
+                latitude: latCondition,
+                OR: [{ longitude: { gte: lonMin + 360 } }, { longitude: { lte: lonMax } }],
+              };
+            }
+            return { latitude: latCondition, longitude: { gte: lonMin, lte: lonMax } };
           })()
         : null;
 

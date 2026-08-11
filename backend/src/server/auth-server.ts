@@ -3360,10 +3360,30 @@ app.patch('/api/events/:id/validation', async (req: Request, res: Response) => {
       return;
     }
 
+    // An operator overriding validationStatus AWAY FROM 'duplicate' (e.g. the
+    // LLM's fuzzy match was wrong, this is really a new incident) must also
+    // clear raw_data.duplicate_of_event_id — otherwise the field's own doc
+    // comment ("Set only when validationStatus is 'duplicate'") goes stale:
+    // every later GET keeps reporting this now-confirmed-real event as
+    // still linked to a primary it was just un-marked as a duplicate of.
+    const rawData = event.raw_data;
+    const clearedRawData: Prisma.InputJsonValue | undefined =
+      validationStatus !== 'duplicate' &&
+      rawData &&
+      typeof rawData === 'object' &&
+      !Array.isArray(rawData) &&
+      'duplicate_of_event_id' in rawData
+        ? (() => {
+            const { duplicate_of_event_id: _removed, ...rest } = rawData as Record<string, unknown>;
+            return rest as Prisma.InputJsonValue;
+          })()
+        : undefined;
+
     const updatedEvent = await prisma.event.update({
       where: { id: eventId },
       data: {
         validation_status: validationStatus,
+        ...(clearedRawData !== undefined ? { raw_data: clearedRawData } : {}),
         validated_at: validationStatus === 'validated' ? new Date() : null,
       },
       include: { incident: true },
