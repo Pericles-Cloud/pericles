@@ -631,15 +631,15 @@ async function storeEvent(organizationId: string, eventData: any): Promise<any> 
     // this still satisfies "events should only show once" without deleting
     // or hiding the underlying data if the LLM judgment turns out wrong.
     if (fuzzyDuplicate) {
-      await tx.eventHash.updateMany({
-        where: { organization_id: organizationId, hash: fuzzyDuplicate.event_hash },
-        data: {
-          last_seen_at: new Date(),
-          occurrence_count: { increment: 1 },
-          expires_at: new Date(Date.now() + 7 * 24 * 60 * 60 * 1000),
-        },
-      });
-
+      // Deliberately does NOT bump the primary's own EventHash (unlike the
+      // exact-match branch above): occurrence_count on a hash is meant to
+      // track how many times THAT EXACT hash was re-detected, and this new
+      // article has a different hash (eventData.event_hash, upserted below)
+      // by definition — that's the whole reason an LLM had to be consulted.
+      // Bumping the primary's count here would inflate a figure
+      // incident-lookup-tool.ts surfaces to the Monitoring Agent as "number
+      // of times this event has been detected," which becomes wrong the
+      // moment a fuzzy (non-identical) match occurs.
       const duplicateEvent = await tx.event.create({
         data: {
           organization_id: organizationId,
@@ -676,6 +676,30 @@ async function storeEvent(organizationId: string, eventData: any): Promise<any> 
           last_seen_at: new Date(),
           occurrence_count: { increment: 1 },
           expires_at: new Date(Date.now() + 7 * 24 * 60 * 60 * 1000),
+        },
+      });
+
+      // Every other Event-create path in this function pairs the Event with
+      // a RiskAssessment row (schema treats it as optional, but nothing else
+      // in the codebase expects an Event to be missing one) — the fuzzy-
+      // duplicate branch was the one place that invariant silently stopped
+      // holding.
+      await tx.riskAssessment.create({
+        data: {
+          organization_id: organizationId,
+          event_id: duplicateEvent.id,
+          severity_score: eventData.severity,
+          confidence_score: eventData.confidence,
+          risk_category: eventData.type,
+          risk_type: eventData.type,
+          geographic_impact: eventData.location || {},
+          supply_chain_impact: {
+            affected_domains: eventData.affected_domains,
+            risk_factors: eventData.risk_factors,
+          },
+          risk_factors: eventData.risk_factors || [],
+          affected_domains: eventData.affected_domains || [],
+          mitigation_suggestions: [],
         },
       });
 
