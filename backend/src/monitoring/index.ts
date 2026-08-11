@@ -535,12 +535,24 @@ function exactMatchWhere(organizationId: string, eventData: any): Prisma.EventWh
   // Shared by the pre-check and the transaction's own check below — was
   // duplicated verbatim between the two, so a future change to match
   // criteria applied to only one would silently drift from the other.
+  //
+  // eventData is untyped (agent-produced JSON, not schema-validated per
+  // event) — if event_hash were ever missing, `{ event_hash: undefined }`
+  // would have Prisma drop that key entirely, collapsing the OR branch to
+  // `{}` and matching every event in the org, which the transaction below
+  // would then treat as "this event already exists" and silently drop a
+  // genuinely new one. Only include the hash branch when there's an actual
+  // hash to match on.
+  const orConditions: Prisma.EventWhereInput[] = [
+    { title: eventData.title, source: eventData.source, type: eventData.type },
+  ];
+  if (typeof eventData.event_hash === 'string' && eventData.event_hash.length > 0) {
+    orConditions.unshift({ event_hash: eventData.event_hash });
+  }
+
   return {
     organization_id: organizationId,
-    OR: [
-      { event_hash: eventData.event_hash },
-      { title: eventData.title, source: eventData.source, type: eventData.type },
-    ],
+    OR: orConditions,
   };
 }
 

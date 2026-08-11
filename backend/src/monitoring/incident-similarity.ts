@@ -94,10 +94,15 @@ export async function findDuplicateIncident(
         organization_id: organizationId,
         type: eventData.type,
         event_timestamp: { gte: windowStart, lte: windowEnd },
-        // Exclude events already marked as duplicates of something else, so
+        // Exclude events already marked as duplicates of something else (so
         // a match always links to the canonical primary rather than
-        // chaining duplicate -> duplicate -> duplicate.
-        validation_status: { not: 'duplicate' },
+        // chaining duplicate -> duplicate -> duplicate) AND events already
+        // rejected as noise — otherwise a genuinely new incident can fuzzy-
+        // match against a known-bad event, get stored as validation_status:
+        // 'duplicate' linked to it, and become invisible in the default
+        // feed (GET /api/events excludes 'duplicate' by default) — a real
+        // incident silently shadowed by an already-dismissed one.
+        validation_status: { notIn: ['duplicate', 'rejected'] },
       },
       select: { id: true, event_hash: true, title: true, description: true, latitude: true, longitude: true },
       orderBy: { event_timestamp: 'desc' },
