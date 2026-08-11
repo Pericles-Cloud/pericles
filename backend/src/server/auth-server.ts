@@ -3296,6 +3296,7 @@ app.get('/api/events/:id', async (req: Request, res: Response) => {
         riskFactors: event.risk_factors,
         affectedDomains: event.affected_domains,
         validationStatus: event.validation_status,
+        duplicateOfEventId: duplicateOfEventId(event.raw_data),
         validatedAt: event.validated_at?.toISOString() || null,
         incident: event.incident
           ? {
@@ -3388,6 +3389,7 @@ app.patch('/api/events/:id/validation', async (req: Request, res: Response) => {
         riskFactors: updatedEvent.risk_factors,
         affectedDomains: updatedEvent.affected_domains,
         validationStatus: updatedEvent.validation_status,
+        duplicateOfEventId: duplicateOfEventId(updatedEvent.raw_data),
         validatedAt: updatedEvent.validated_at?.toISOString() || null,
         incident: updatedEvent.incident
           ? {

@@ -942,6 +942,9 @@ export interface Event {
   riskFactors: string[];
   affectedDomains: string[];
   validationStatus: 'pending' | 'validated' | 'rejected' | 'duplicate';
+  /** Set only when validationStatus is 'duplicate' (#22) — the primary
+   * event this one was fuzzy-matched to. */
+  duplicateOfEventId: string | null;
   validatedAt: string | null;
   incident: EventIncident | null;
   createdAt: string;
