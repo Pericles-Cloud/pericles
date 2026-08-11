@@ -23,22 +23,45 @@ import { NodeType } from '@/lib/api-client';
  * track the node header classes in ./nodes/*; a mismatch means the minimap
  * shows a different legend from the canvas.
  *
- * Chosen by exhaustive search over the purple+grey ramps for the best
- * achievable MINIMUM pairwise contrast ratio (1.76:1) subject to each colour
- * also clearing 4.5:1 against its header text (grey-100 or purple-900 — see
- * headerTextClassName in ./nodes/base-node.tsx). The previous set (purple-
- * 600/500/700 + grey-600/800) clustered in adjacent ramp steps: several pairs
- * measured under 1.3:1, next to indistinguishable at minimap scale (#25).
+ * Mode-aware, like CANVAS below: a single fixed hex-per-type can't clear a
+ * legible 3:1 against the node card in BOTH modes, since the card itself
+ * flips between white (light) and purple-800 (dark) — near-opposite ends of
+ * the ramp. An earlier version tried one shared palette and passed review on
+ * pairwise distinguishability alone; a second review pass caught that the
+ * lightest pick (purple-50) measured 1.08:1 against the white card in light
+ * mode — visually not a coloured header at all (#25).
+ *
+ * Each mode's five colours are chosen independently by exhaustive search over
+ * the purple+grey ramps for the best achievable MINIMUM pairwise contrast,
+ * subject to every colour clearing BOTH 4.5:1 against its header text
+ * (grey-100 or purple-900 — see headerTextClassName in ./nodes/base-node.tsx)
+ * AND 3:1 against its own mode's card. Light: 1.28:1 minimum pairwise.
+ * Dark: 1.16:1 minimum pairwise — lower, because the card-contrast
+ * requirement leaves only 9 ramp steps eligible in dark mode vs. 10 in
+ * light. base-node.tsx's header now also carries a black/white overlay
+ * border as a second, fill-colour-independent way to read as a distinct
+ * region, since neither figure is a wide margin on its own.
+ *
  * See the NODE HEADER PALETTE check in contrast-audit.mjs, which re-derives
- * and asserts this same search so the two can't drift apart silently.
+ * and asserts both searches (including the card-contrast floor this file's
+ * history shows is easy to forget) so the two can't drift apart silently.
  */
-const NODE_COLORS: Record<string, string> = {
-  trigger: '#F7F6F9', // purple-50
-  action: '#B4AAC5', // purple-300
-  condition: '#6B5D84', // purple-500
-  notification: '#423851', // purple-700
-  end: '#0F0D11', // grey-950
-};
+const NODE_COLORS = {
+  light: {
+    trigger: '#6B5D84', // purple-500
+    action: '#524765', // purple-600
+    condition: '#423851', // purple-700
+    notification: '#2E273A', // purple-800
+    end: '#0F0D11', // grey-950
+  },
+  dark: {
+    trigger: '#FBFBFC', // grey-50
+    action: '#ECE9F1', // purple-100
+    condition: '#D7D1E0', // purple-200
+    notification: '#B4AAC5', // purple-300
+    end: '#A4A0AB', // grey-400
+  },
+} as const satisfies Record<'light' | 'dark', Record<string, string>>;
 
 const CANVAS = {
   light: { dots: '#E8E6EA', connection: '#A4A0AB', mask: 'rgba(25,23,28,0.10)' },
@@ -54,8 +77,10 @@ function WorkflowCanvasInner({ onNodeSelect }: WorkflowCanvasProps) {
   const { setViewport, project } = useReactFlow();
   const reactFlowInstance = useRef<ReactFlowInstance | null>(null);
   // Correct on the first paint: a dark-mode user would otherwise get the light
-  // dot grid and minimap mask, then a repaint.
-  const canvas = useResolvedDark() ? CANVAS.dark : CANVAS.light;
+  // dot grid, minimap mask, and node-header legend, then a repaint.
+  const isDark = useResolvedDark();
+  const canvas = isDark ? CANVAS.dark : CANVAS.light;
+  const nodeColors = isDark ? NODE_COLORS.dark : NODE_COLORS.light;
 
   const {
     nodes,
@@ -222,7 +247,7 @@ function WorkflowCanvasInner({ onNodeSelect }: WorkflowCanvasProps) {
           className="!bottom-4 !right-4"
           // `||`, not `??`: reactflow reports an untyped node as '', which `??`
           // would pass through to the lookup and miss.
-          nodeColor={(node) => NODE_COLORS[node.type || 'action'] ?? canvas.connection}
+          nodeColor={(node) => nodeColors[(node.type || 'action') as keyof typeof nodeColors] ?? canvas.connection}
           maskColor={canvas.mask}
         />
       </ReactFlow>

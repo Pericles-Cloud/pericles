@@ -8,11 +8,18 @@ import { WorkflowNodeData } from '@/stores/workflow-store';
 interface BaseNodeProps extends NodeProps<WorkflowNodeData> {
   typeName: string;
   className?: string;
+  /** e.g. "bg-purple-500 dark:bg-grey-50" — mode-aware. A single fixed hex
+   * can't clear 3:1 against the card in BOTH modes (card is white in light,
+   * purple-800 in dark — near-opposite ends of the ramp), so the five
+   * per-type colours (#25) are two independently-chosen sets, one per mode,
+   * selected via Tailwind's dark: variant. See NODE_COLORS in
+   * workflow-canvas.tsx (the minimap legend, which MUST track these) and the
+   * NODE HEADER PALETTE check in contrast-audit.mjs. */
   headerClassName?: string;
-  /** Defaults to light text. The five per-type header colours (#25) span the
-   * full ramp for distinguishability, so the two lightest need dark text
-   * instead — see the NODE HEADER PALETTE check in contrast-audit.mjs. */
-  headerTextClassName?: string;
+  /** e.g. "text-grey-100 dark:text-purple-900" — pairs with headerClassName;
+   * no shared default, since which text colour reads depends on which of
+   * the two mode-specific header colours is showing. */
+  headerTextClassName: string;
   showSourceHandle?: boolean;
   showTargetHandle?: boolean;
   sourceHandles?: Array<{ id: string; position: Position; label?: string; className?: string }>;
@@ -26,7 +33,7 @@ export const BaseNode = memo(function BaseNode({
   typeName,
   className,
   headerClassName,
-  headerTextClassName = 'text-grey-100',
+  headerTextClassName,
   showSourceHandle = true,
   showTargetHandle = true,
   sourceHandles,
@@ -74,10 +81,17 @@ export const BaseNode = memo(function BaseNode({
         />
       ))}
 
-      {/* Header with type name */}
+      {/* Header with type name. border-b is a relative black/white overlay
+          (not a role token), so it stays visibly present as a header/body
+          seam regardless of which of the five header colours is showing —
+          the same reason the outer card uses a BORDER rather than relying on
+          fill contrast against the canvas (see above). Belt-and-suspenders
+          with headerClassName's own contrast, not a replacement for it: the
+          NODE HEADER PALETTE check in contrast-audit.mjs still requires each
+          header colour to clear 3:1 against its own mode's card. */}
       <div
         className={cn(
-          'px-2 py-1 text-[10px] font-medium text-center',
+          'px-2 py-1 text-[10px] font-medium text-center border-b border-black/10 dark:border-white/10',
           headerTextClassName,
           headerClassName
         )}

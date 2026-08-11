@@ -10,7 +10,8 @@ export const NotificationNode = memo(function NotificationNode(props: NodeProps<
     <BaseNode
       {...props}
       typeName="Notification"
-      headerClassName="bg-purple-700"
+      headerClassName="bg-purple-800 dark:bg-purple-300"
+      headerTextClassName="text-grey-100 dark:text-purple-900"
     />
   );
 });
