@@ -120,6 +120,10 @@ const textOf = (family) => over(`${family}-light`, family, 0.60);
 const PAIRS = [
   // ── Light mode ────────────────────────────────────────────────────────────
   ['L  body text', 'grey-900', 'white', AA_TEXT],
+  // --background moved off pure white to grey-50 so --card reads as raised
+  // (#31) — assert body text still clears AA on the canvas itself, not just
+  // on a card.
+  ['L  body text on canvas (grey-50)', 'grey-900', 'grey-50', AA_TEXT],
   ['L  muted text', 'grey-600', 'white', AA_TEXT],
   ['L  muted text on grey-50', 'grey-600', 'grey-50', AA_TEXT],
   ['L  primary button label', 'grey-50', 'purple-600', AA_TEXT],
