@@ -3417,6 +3417,16 @@ app.post('/api/events/:id/ask', eventQaRateLimit, async (req: Request, res: Resp
       return;
     }
 
+    // result.object is typed optional by the SDK (a resolved call can still
+    // fail structured-output extraction, e.g. the model's response doesn't
+    // parse against EventQaAnswerSchema) — that's a real failure to report
+    // as 502, not a TypeError to let fall through to the generic 500 below.
+    if (!result.object) {
+      console.error('Event Q&A agent error: structured output missing from a resolved call');
+      res.status(502).json({ success: false, error: { code: 'UPSTREAM_ERROR', message: 'Failed to generate an answer. Please try again.' } });
+      return;
+    }
+
     res.status(200).json({ success: true, data: { answer: result.object.answer } });
   } catch (error) {
     console.error('Event Q&A error:', error);
