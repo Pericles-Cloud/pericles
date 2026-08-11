@@ -3376,19 +3376,22 @@ app.post('/api/events/:id/ask', eventQaRateLimit, async (req: Request, res: Resp
     // The event's own fields originate from external monitored feeds and
     // are untrusted per pericles-prompts — boundary-marked here, and the
     // agent's own instructions (event-qa-agent.ts) tell it to treat this
-    // block as data, never as instructions. escapeForPromptContext (module
-    // scope, above) neutralizes angle brackets so a feed item can't break
-    // out of <event_context> with a crafted "</event_context>" sequence.
-
+    // block as data, never as instructions. Escaped ONCE on the fully
+    // assembled block below, rather than per field: none of the literal
+    // label text here ("Title: ", ": ", "\n") contains '<'/'>', so escaping
+    // commutes with concatenation — and escaping the whole block means a
+    // field added later (this already happened once with `event.type`) is
+    // protected automatically instead of relying on every future line
+    // remembering to wrap itself individually.
     const contextLines = [
-      `Title: ${escapeForPromptContext(event.title)}`,
-      `Description: ${escapeForPromptContext(event.description)}`,
-      `Type: ${escapeForPromptContext(event.type)}`,
+      `Title: ${event.title}`,
+      `Description: ${event.description}`,
+      `Type: ${event.type}`,
       `Severity: ${event.severity.toFixed(2)} (0-1 scale)`,
       `Confidence: ${event.confidence.toFixed(2)} (0-1 scale)`,
-      event.location_name ? `Location: ${escapeForPromptContext(event.location_name)}` : null,
-      `Risk factors: ${event.risk_factors.length ? escapeForPromptContext(event.risk_factors.join(', ')) : 'none recorded'}`,
-      `Affected domains: ${event.affected_domains.length ? escapeForPromptContext(event.affected_domains.join(', ')) : 'none recorded'}`,
+      event.location_name ? `Location: ${event.location_name}` : null,
+      `Risk factors: ${event.risk_factors.length ? event.risk_factors.join(', ') : 'none recorded'}`,
+      `Affected domains: ${event.affected_domains.length ? event.affected_domains.join(', ') : 'none recorded'}`,
       `Event occurred: ${event.event_timestamp.toISOString()}`,
       `Detected by Pericles: ${event.detected_at.toISOString()}`,
       `Validation status: ${event.validation_status}`,
@@ -3398,12 +3401,12 @@ app.post('/api/events/:id/ask', eventQaRateLimit, async (req: Request, res: Resp
     ].filter((line): line is string => line !== null);
 
     // The question itself sits right next to the closing tag, so it needs
-    // the same escaping as the feed-derived fields above — otherwise a
-    // question containing a literal "</event_context>" reopens the exact
-    // boundary-break this function's escaping exists to prevent, just from
-    // the other side of the tag instead of from inside it.
+    // the same escaping as the event block above — otherwise a question
+    // containing a literal "</event_context>" reopens the exact boundary-
+    // break this function's escaping exists to prevent, just from the other
+    // side of the tag instead of from inside it.
     const prompt =
-      `<event_context>\n${contextLines.join('\n')}\n</event_context>\n\n` +
+      `<event_context>\n${escapeForPromptContext(contextLines.join('\n'))}\n</event_context>\n\n` +
       `User question: ${escapeForPromptContext(question)}`;
 
     const agent = mastra.getAgent('eventQaAgent');
