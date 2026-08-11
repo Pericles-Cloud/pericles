@@ -5219,25 +5219,37 @@ function formatWorkflow(
   };
 }
 
-// Helper to check org membership and role
+// Helper to check org access and role for the workflow routes below.
+//
+// Used to do its own direct-membership-only Prisma query instead of calling
+// the shared checkOrganizationAccess (already used by /api/suppliers,
+// /api/shipments, /api/events, etc.) — so a root-org user, or a user whose
+// membership is on a PARENT org viewing a subsidiary via the hierarchy
+// rollup, got a bare 404 "Organization not found" here while every sibling
+// endpoint on the same page let them through (#40). Delegates to the shared
+// helper now, matching the pattern documented at the /api/events access
+// check above. Kept the same name/signature/return shape so every call site
+// below needed no changes.
+//
+// Error code also now follows this codebase's actual convention (see
+// checkOrganizationAccess's other callers): 403 FORBIDDEN, not 404 — a 404
+// on an access check leaks whether the org exists at all.
 async function checkOrgMembership(
   userId: string,
   orgId: string,
   requiredRoles?: string[]
 ): Promise<{ membership: { role: string } | null; error: { status: number; code: string; message: string } | null }> {
-  const membership = await prisma.userOrganization.findUnique({
-    where: { user_id_organization_id: { user_id: userId, organization_id: orgId } },
-  });
+  const access = await checkOrganizationAccess(userId, orgId);
 
-  if (membership?.status !== 'active') {
-    return { membership: null, error: { status: 404, code: 'NOT_FOUND', message: 'Organization not found' } };
+  if (!access.hasAccess) {
+    return { membership: null, error: { status: 403, code: 'FORBIDDEN', message: 'Access denied to this organization' } };
   }
 
-  if (requiredRoles && !requiredRoles.includes(membership.role)) {
+  if (requiredRoles && !requiredRoles.includes(access.membership.role)) {
     return { membership: null, error: { status: 403, code: 'FORBIDDEN', message: 'Insufficient permissions' } };
   }
 
-  return { membership, error: null };
+  return { membership: access.membership, error: null };
 }
 
 // List workflows for an organization
