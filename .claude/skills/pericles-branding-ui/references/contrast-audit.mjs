@@ -380,6 +380,7 @@ try {
     failures += 1;
     console.log('  FAIL  no NODE_COLORS found in workflow-canvas.tsx — did it get renamed?');
   }
+  const parsedByMode = {};
   for (const mode of ['light', 'dark']) {
     const modeBlock = outerBlock.match(new RegExp(`${mode}:\\s*\\{([\\s\\S]*?)\\},`))?.[1] ?? '';
     const entries = [...modeBlock.matchAll(/(\w+):\s*'(#[0-9A-Fa-f]{6})'/g)].map(([, type, hex]) => [
@@ -391,6 +392,7 @@ try {
       console.log(`  FAIL  no NODE_COLORS.${mode} entries found — did it get renamed?`);
       continue;
     }
+    parsedByMode[mode] = Object.fromEntries(entries);
     const dupes = entries.filter(([, c], i) => entries.findIndex(([, c2]) => c2 === c) !== i);
     if (dupes.length) {
       failures += 1;
@@ -438,6 +440,55 @@ try {
           `${card} card, weakest pair ${minPairLabel} ${minPair.toFixed(2)}:1`,
       );
     }
+  }
+
+  // The comments on NODE_COLORS and on headerClassName both assert this MUST
+  // hold — "a mismatch means the minimap shows a different legend from the
+  // canvas" — but until now nothing actually parsed the node files to check
+  // it; the two were free to drift apart with lint, tsc, and the rest of
+  // this very check all staying green. Read each node file directly rather
+  // than trusting the assertion.
+  const NODE_FILES = {
+    trigger: 'trigger-node.tsx',
+    action: 'action-node.tsx',
+    condition: 'condition-node.tsx',
+    notification: 'notification-node.tsx',
+    end: 'end-node.tsx',
+  };
+  const nodesDir = resolve(
+    dirname(fileURLToPath(import.meta.url)),
+    '../../../../frontend/src/components/workflow/nodes',
+  );
+  const rampHex = (name) => (RAMPS[name] ? RAMPS[name].toUpperCase() : null);
+  let mismatches = 0;
+  for (const [type, file] of Object.entries(NODE_FILES)) {
+    try {
+      const nodeSrc = readFileSync(resolve(nodesDir, file), 'utf8');
+      const headerClass = nodeSrc.match(/headerClassName="([^"]+)"/)?.[1] ?? '';
+      const lightRamp = headerClass.match(/(?:^|\s)bg-([a-z]+-\d+)/)?.[1];
+      const darkRamp = headerClass.match(/dark:bg-([a-z]+-\d+)/)?.[1];
+      if (!lightRamp || !darkRamp) {
+        failures += 1;
+        console.log(`  FAIL  ${file}: could not parse a "bg-X dark:bg-Y" headerClassName — did it change shape?`);
+        continue;
+      }
+      const [fileLight, fileDark] = [rampHex(lightRamp), rampHex(darkRamp)];
+      const [canvasLight, canvasDark] = [parsedByMode.light?.[type], parsedByMode.dark?.[type]];
+      if (fileLight !== canvasLight || fileDark !== canvasDark) {
+        mismatches += 1;
+        failures += 1;
+        console.log(
+          `  FAIL  ${type}: ${file} is bg-${lightRamp} dark:bg-${darkRamp} (${fileLight}/${fileDark}) ` +
+            `but NODE_COLORS says ${canvasLight}/${canvasDark} — minimap legend will disagree with the canvas`,
+        );
+      }
+    } catch (err) {
+      failures += 1;
+      console.log(`  FAIL  could not read ${file} (${err.code ?? err.message})`);
+    }
+  }
+  if (!mismatches) {
+    console.log(`  OK    all ${Object.keys(NODE_FILES).length} node headers match NODE_COLORS in both modes`);
   }
 } catch (err) {
   console.log(`  SKIP  could not read workflow-canvas.tsx (${err.code ?? err.message})`);

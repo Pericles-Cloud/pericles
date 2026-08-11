@@ -16,10 +16,13 @@ interface BaseNodeProps extends NodeProps<WorkflowNodeData> {
    * workflow-canvas.tsx (the minimap legend, which MUST track these) and the
    * NODE HEADER PALETTE check in contrast-audit.mjs. */
   headerClassName?: string;
-  /** e.g. "text-grey-100 dark:text-purple-900" — pairs with headerClassName;
-   * no shared default, since which text colour reads depends on which of
-   * the two mode-specific header colours is showing. */
-  headerTextClassName: string;
+  /** e.g. "text-grey-100 dark:text-purple-900" — pairs with headerClassName.
+   * All five current node types resolve to the same value (light-half
+   * palette all takes light text, dark-half all takes dark text — see
+   * NODE_COLORS in workflow-canvas.tsx), so it defaults rather than being
+   * repeated identically at every call site; override it if a future
+   * header colour needs different text. */
+  headerTextClassName?: string;
   showSourceHandle?: boolean;
   showTargetHandle?: boolean;
   sourceHandles?: Array<{ id: string; position: Position; label?: string; className?: string }>;
@@ -33,7 +36,7 @@ export const BaseNode = memo(function BaseNode({
   typeName,
   className,
   headerClassName,
-  headerTextClassName,
+  headerTextClassName = 'text-grey-100 dark:text-purple-900',
   showSourceHandle = true,
   showTargetHandle = true,
   sourceHandles,
