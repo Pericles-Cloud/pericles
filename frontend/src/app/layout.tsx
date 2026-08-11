@@ -42,12 +42,12 @@ export const viewport: Viewport = {
   // Drives the Android Chrome address bar and iOS Safari chrome. These match
   // --sidebar per mode, because the shell now flips with the theme.
   //
-  // KNOWN LIMITATION: this keys on the OS preference, while the app theme is
-  // chosen in-app via next-themes. A user whose OS is light but who picks Dark
-  // in-app gets a light address bar above a purple-600 header. Fixing it
-  // properly needs a runtime <meta name="theme-color"> update from the theme
-  // provider; the static value is right for everyone whose choice matches
-  // their OS, which is the common case.
+  // Correct for first paint (before React hydrates) for the common case
+  // where the in-app choice matches the OS preference. For every render
+  // after that, ThemeColorSync (mounted inside ThemeProvider) overwrites
+  // both tags below with the actual resolved app theme's color, so an
+  // in-app choice that diverges from the OS preference — e.g. OS light,
+  // app Dark — stops showing the wrong browser chrome color (#32).
   themeColor: [
     { media: '(prefers-color-scheme: light)', color: '#ECE9F1' }, // purple-100
     { media: '(prefers-color-scheme: dark)', color: '#524765' }, // purple-600

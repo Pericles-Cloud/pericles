@@ -5,6 +5,8 @@
 import * as React from 'react';
 import { ThemeProvider as NextThemesProvider } from 'next-themes';
 
+import { ThemeColorSync } from './theme-color-sync';
+
 type ThemeProviderProps = React.ComponentProps<typeof NextThemesProvider>;
 
 /**
@@ -19,6 +21,9 @@ type ThemeProviderProps = React.ComponentProps<typeof NextThemesProvider>;
  *
  * The parent <html> MUST carry suppressHydrationWarning — next-themes writes
  * the class before React hydrates.
+ *
+ * ThemeColorSync must render INSIDE NextThemesProvider (not beside it) since
+ * it calls useTheme(), which needs the context this component supplies.
  */
 export const ThemeProvider: React.FC<ThemeProviderProps> = ({ children, ...props }) => (
   <NextThemesProvider
@@ -28,6 +33,7 @@ export const ThemeProvider: React.FC<ThemeProviderProps> = ({ children, ...props
     disableTransitionOnChange
     {...props}
   >
+    <ThemeColorSync />
     {children}
   </NextThemesProvider>
 );
