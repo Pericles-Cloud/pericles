@@ -84,11 +84,12 @@ interface MapPin {
   position: { lat: number; lng: number };
   type: 'supplier' | 'port';
   name: string;
-  shipmentCount: number;
   supplier?: Supplier;
   /** The actual shipments contributing to this pin (#11) — distinct from
    * supplier.totalShipments, which is the org-wide count from the ERP/BOL
-   * source regardless of what's plotted on THIS map right now. */
+   * source regardless of what's plotted on THIS map right now. Count is
+   * always shipments.length, not a separately-tracked field — two numbers
+   * for one fact is a state-sync bug waiting to happen. */
   shipments: Shipment[];
 }
 
@@ -136,8 +137,18 @@ export default function AtlasPage() {
   // dropped and the popup stayed on "Locating…" forever. A single ref tied
   // to true unmount avoids that.
   const isMountedRef = useRef(true);
-  useEffect(() => () => {
-    isMountedRef.current = false;
+  useEffect(() => {
+    // The setup body must reset this to true, not just declare the initial
+    // ref value — React StrictMode's dev-only mount -> cleanup -> remount
+    // cycle runs the cleanup below once before the "real" mount settles.
+    // Without resetting here, isMountedRef stays false for the component's
+    // entire actual lifetime in dev, silently discarding every geocode
+    // result forever (they'd all hit the `if (!isMountedRef.current) return`
+    // guard below).
+    isMountedRef.current = true;
+    return () => {
+      isMountedRef.current = false;
+    };
   }, []);
 
   const mapRef = useRef<google.maps.Map | null>(null);
@@ -250,7 +261,6 @@ export default function AtlasPage() {
     const addToPin = (key: string, shipment: Shipment, build: () => MapPin) => {
       const existing = pins.get(key);
       if (existing) {
-        existing.shipmentCount++;
         existing.shipments.push(shipment);
       } else {
         pins.set(key, build());
@@ -269,7 +279,6 @@ export default function AtlasPage() {
           position: { lat: route.origin!.lat, lng: route.origin!.lng },
           type: 'supplier',
           name: route.origin!.name,
-          shipmentCount: 1,
           supplier: suppliers.find((s) => s.id === route.shipment.supplierId),
           shipments: [route.shipment],
         }));
@@ -281,7 +290,6 @@ export default function AtlasPage() {
           position: { lat: route.destination!.lat, lng: route.destination!.lng },
           type: 'port',
           name: route.destination!.name,
-          shipmentCount: 1,
           shipments: [route.shipment],
         }));
       }
@@ -760,7 +768,7 @@ export default function AtlasPage() {
             onClick={() => setSelectedPinId(pin.id)}
             icon={{
               path: google.maps.SymbolPath.CIRCLE,
-              scale: 8 + Math.min(pin.shipmentCount * 2, 10),
+              scale: 8 + Math.min(pin.shipments.length * 2, 10),
               fillColor: pin.type === 'supplier' ? mapPalette.supplier : mapPalette.port,
               fillOpacity: 1,
               strokeColor: PERICLES.white,
@@ -806,18 +814,16 @@ export default function AtlasPage() {
                   supplier's org-wide shipment count. Previously worded as
                   "N on map · M total", which read as two unrelated numbers
                   rather than a subset-of relationship (#11). Total is clamped
-                  to at least shipmentCount: supplier.totalShipments is an
+                  to at least the plotted count: supplier.totalShipments is an
                   independently-seeded ERP/BOL figure that can be stale (0, or
                   simply behind what's actually plotted this session) — never
                   render "Showing N of M" with N > M. */}
               {(() => {
-                const total = Math.max(
-                  selectedPin.supplier?.totalShipments || 0,
-                  selectedPin.shipmentCount
-                );
+                const shown = selectedPin.shipments.length;
+                const total = Math.max(selectedPin.supplier?.totalShipments || 0, shown);
                 return (
                   <div className="text-sm text-grey-600 mt-1">
-                    Showing {selectedPin.shipmentCount} of {total} total shipment
+                    Showing {shown} of {total} total shipment
                     {total !== 1 ? 's' : ''}
                   </div>
                 );
@@ -885,7 +891,7 @@ export default function AtlasPage() {
                 {selectedRoute.shipment.arrivalDate && (
                   <div>
                     <span className="text-grey-600">Arrival:</span>{' '}
-                    {new Date(selectedRoute.shipment.arrivalDate).toLocaleDateString()}
+                    {formatShortDate(selectedRoute.shipment.arrivalDate)}
                   </div>
                 )}
               </div>
