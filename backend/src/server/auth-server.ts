@@ -3146,6 +3146,18 @@ app.delete('/api/shipments/:id', async (req: Request, res: Response) => {
 // EVENT API ENDPOINTS
 // ============================================
 
+// The only place a fuzzy-dedup match (#22) is recorded — without exposing
+// this, an operator auditing ?validationStatus=duplicate results (as the
+// collection endpoint's own default-filter comment below tells them to) has
+// no way to see which primary event the LLM matched a duplicate to.
+function duplicateOfEventId(rawData: unknown): string | null {
+  if (rawData && typeof rawData === 'object' && 'duplicate_of_event_id' in rawData) {
+    const value = (rawData as { duplicate_of_event_id?: unknown }).duplicate_of_event_id;
+    return typeof value === 'string' ? value : null;
+  }
+  return null;
+}
+
 // Get events for organization
 app.get('/api/events', async (req: Request, res: Response) => {
   try {
@@ -3199,7 +3211,13 @@ app.get('/api/events', async (req: Request, res: Response) => {
 
     // Build query filters
     const where: Prisma.EventWhereInput = { organization_id: { in: orgIds } };
-    if (validationStatus) where.validation_status = validationStatus;
+    // Default excludes validation_status: 'duplicate' (#22) — those rows are
+    // real Events (same-incident detection creates them normally rather than
+    // suppressing storage, so an LLM false positive can't destroy data), but
+    // showing them alongside the primary event they were matched to is
+    // exactly the "same incident appears twice" bug this status exists to
+    // prevent. Pass ?validationStatus=duplicate explicitly to see them.
+    where.validation_status = validationStatus || { not: 'duplicate' };
     if (type) where.type = type;
     if (source) where.source = source;
 
@@ -3237,6 +3255,7 @@ app.get('/api/events', async (req: Request, res: Response) => {
           riskFactors: e.risk_factors,
           affectedDomains: e.affected_domains,
           validationStatus: e.validation_status,
+          duplicateOfEventId: duplicateOfEventId(e.raw_data),
           validatedAt: e.validated_at?.toISOString() || null,
           incident: e.incident
             ? {
@@ -3310,6 +3329,7 @@ app.get('/api/events/:id', async (req: Request, res: Response) => {
         riskFactors: event.risk_factors,
         affectedDomains: event.affected_domains,
         validationStatus: event.validation_status,
+        duplicateOfEventId: duplicateOfEventId(event.raw_data),
         validatedAt: event.validated_at?.toISOString() || null,
         incident: event.incident
           ? {
@@ -3499,11 +3519,32 @@ app.patch('/api/events/:id/validation', async (req: Request, res: Response) => {
     }
 
     const eventId = getParam(req.params.id);
-    const { validationStatus } = req.body;
+    const { validationStatus, duplicateOfEventId: requestedDuplicateOfEventId } = req.body;
 
     if (!validationStatus || !['pending', 'validated', 'rejected', 'duplicate'].includes(validationStatus)) {
       res.status(400).json({ success: false, error: { code: 'BAD_REQUEST', message: 'Invalid validation status' } });
       return;
+    }
+
+    // Manually setting 'duplicate' (the LLM-driven fuzzy-dedup path missed
+    // one) requires naming the primary — otherwise the row ends up
+    // 'duplicate' with no duplicateOfEventId, which is exactly the
+    // untraceable state the #22 auditing feature was built to prevent.
+    if (validationStatus === 'duplicate') {
+      if (typeof requestedDuplicateOfEventId !== 'string' || requestedDuplicateOfEventId.length === 0) {
+        res.status(400).json({
+          success: false,
+          error: { code: 'BAD_REQUEST', message: 'duplicateOfEventId is required when setting validationStatus to duplicate' },
+        });
+        return;
+      }
+      if (requestedDuplicateOfEventId === eventId) {
+        res.status(400).json({
+          success: false,
+          error: { code: 'BAD_REQUEST', message: 'An event cannot be a duplicate of itself' },
+        });
+        return;
+      }
     }
 
     const event = await prisma.event.findUnique({
@@ -3530,10 +3571,76 @@ app.patch('/api/events/:id/validation', async (req: Request, res: Response) => {
       return;
     }
 
+    // Manually marking 'duplicate' must point at a real primary in the same
+    // org — otherwise duplicateOfEventId (GET /api/events/:id) resolves to
+    // a 404 or a cross-tenant id, the same dangling-reference problem
+    // exposing this field was meant to make visible, not create.
+    if (validationStatus === 'duplicate') {
+      const primary = await prisma.event.findUnique({
+        where: { id: requestedDuplicateOfEventId },
+        select: { id: true, organization_id: true, validation_status: true },
+      });
+      if (primary?.organization_id !== event.organization_id) {
+        res.status(400).json({
+          success: false,
+          error: { code: 'BAD_REQUEST', message: 'duplicateOfEventId must reference an existing event in the same organization' },
+        });
+        return;
+      }
+      // An event cannot be a duplicate of itself: the row would be hidden
+      // from the default feed and following its own duplicateOfEventId would
+      // loop straight back to it.
+      if (primary.id === event.id) {
+        res.status(400).json({
+          success: false,
+          error: { code: 'BAD_REQUEST', message: 'An event cannot be marked as a duplicate of itself' },
+        });
+        return;
+      }
+      // The primary must be a canonical event, matching the constraint the
+      // automated path enforces in its candidate query (findDuplicateIncident
+      // excludes validation_status notIn ['duplicate', 'rejected']). Without
+      // this the manual path can build exactly what the automated one
+      // deliberately forbids: B marked duplicate-of-A where A is itself a
+      // duplicate of C, or was rejected as noise. Both B and A are then
+      // hidden from the default feed, and following B's duplicateOfEventId
+      // lands on a row that is itself hidden — the untraceable state
+      // surfacing this field was meant to prevent.
+      if (primary.validation_status === 'duplicate' || primary.validation_status === 'rejected') {
+        res.status(400).json({
+          success: false,
+          error: {
+            code: 'BAD_REQUEST',
+            message: `duplicateOfEventId must reference a canonical event (the referenced event is itself '${primary.validation_status}')`,
+          },
+        });
+        return;
+      }
+    }
+
+    // raw_data.duplicate_of_event_id is set when an operator manually marks
+    // 'duplicate' (merged into existing raw_data, matching the shape the
+    // automated fuzzy-dedup path in storeEvent writes) and cleared when
+    // overriding AWAY FROM 'duplicate' (e.g. the LLM's fuzzy match — or a
+    // prior manual call — was wrong, this is really a new incident) —
+    // otherwise the field's own doc comment ("Set only when validationStatus
+    // is 'duplicate'") goes stale in either direction.
+    const rawData = event.raw_data;
+    const existingRawDataObject: Record<string, unknown> =
+      typeof rawData === 'object' && rawData !== null && !Array.isArray(rawData) ? (rawData as Record<string, unknown>) : {};
+    let nextRawData: Prisma.InputJsonValue | undefined;
+    if (validationStatus === 'duplicate') {
+      nextRawData = { ...existingRawDataObject, duplicate_of_event_id: requestedDuplicateOfEventId } as Prisma.InputJsonValue;
+    } else if ('duplicate_of_event_id' in existingRawDataObject) {
+      const { duplicate_of_event_id: _removed, ...rest } = existingRawDataObject;
+      nextRawData = rest as Prisma.InputJsonValue;
+    }
+
     const updatedEvent = await prisma.event.update({
       where: { id: eventId },
       data: {
         validation_status: validationStatus,
+        ...(nextRawData !== undefined ? { raw_data: nextRawData } : {}),
         validated_at: validationStatus === 'validated' ? new Date() : null,
       },
       include: { incident: true },
@@ -3559,6 +3666,7 @@ app.patch('/api/events/:id/validation', async (req: Request, res: Response) => {
         riskFactors: updatedEvent.risk_factors,
         affectedDomains: updatedEvent.affected_domains,
         validationStatus: updatedEvent.validation_status,
+        duplicateOfEventId: duplicateOfEventId(updatedEvent.raw_data),
         validatedAt: updatedEvent.validated_at?.toISOString() || null,
         incident: updatedEvent.incident
           ? {

@@ -74,11 +74,15 @@ export async function runDataRetentionCleanup(
     const eventCutoff = new Date(
       Date.now() - RETENTION_CONFIG.eventDays * 24 * 60 * 60 * 1000
     );
-    // Only delete events that have been validated or rejected (not pending)
+    // Only delete events that have reached a terminal status (not pending,
+    // which still needs review). 'duplicate' events never go through
+    // validated/rejected — they're marked at detection time (#22) and are
+    // just as terminal/resolved as either, so without listing it here they
+    // were silently exempt from retention and would accumulate forever.
     const eventResult = await prisma.event.deleteMany({
       where: {
         created_at: { lt: eventCutoff },
-        validation_status: { in: ['validated', 'rejected'] },
+        validation_status: { in: ['validated', 'rejected', 'duplicate'] },
       },
     });
     result.events = eventResult.count;

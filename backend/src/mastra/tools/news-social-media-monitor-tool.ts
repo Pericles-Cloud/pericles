@@ -34,6 +34,25 @@ const logger = toolLoggers.newsSocialMedia;
 const THENEWSAPI_KEY = process.env.THENEWSAPI_API_KEY;
 const TWITTERAPIIO_KEY = process.env.TWITTERAPIIO_API_KEY;
 
+/**
+ * Domains excluded from news monitoring because they publish opinion/editorial
+ * content rather than reported news (#22) — TheNewsAPI has no source-quality
+ * signal of its own, so nothing stopped an opinion outlet from being treated
+ * as a raw event source. `article.source` (TheNewsAPIArticle.source) is a
+ * bare domain, matching this list's format.
+ *
+ * Curated against the company's approved-sources list (Notion: "Data
+ * Sources" > Newswires — AA, AFP, ANP, ANSA, AP, BNO, DPA, EFE, JTA, KNW, PA,
+ * Reuters). This is deliberately a small, sourced denylist rather than an
+ * allowlist restricted to that newswire table: several of those wires'
+ * TheNewsAPI-facing domains aren't confidently known, and a mistyped
+ * allowlist entry fails silently (coverage just quietly narrows) whereas a
+ * denylist miss is at least a bounded, visible gap. Add entries here as
+ * further non-news sources are identified — do not restrict to only the
+ * newswires above without confirming each one's actual TheNewsAPI domain.
+ */
+const EXCLUDED_NEWS_DOMAINS = ['zerohedge.com'];
+
 // Geographic location schema for supply chain locations
 const SupplyChainLocationSchema = z.object({
   name: z.string().describe('Location name (e.g., plant name, warehouse name)'),
@@ -293,6 +312,9 @@ async function fetchNewsArticles(
     url.searchParams.set('limit', '50');
     // Focus on business/tech categories for supply chain relevance
     url.searchParams.set('categories', 'business,tech,general');
+    // Opinion/editorial sources aren't raw news (#22) — exclude at the API
+    // level so they never consume a result slot in the first place.
+    url.searchParams.set('exclude_domains', EXCLUDED_NEWS_DOMAINS.join(','));
 
     // Apply geographic filtering if regions are specified
     // TheNewsAPI uses 'locale' parameter with comma-separated country codes
@@ -324,6 +346,14 @@ async function fetchNewsArticles(
     logger.info({ articleCount: data.data.length }, 'Found articles from TheNewsAPI');
 
     for (const article of data.data) {
+      // Defense in depth: exclude_domains above should already have kept
+      // these out, but don't rely solely on an external API honoring a
+      // request param (#22) — check the actual returned source too.
+      const sourceDomain = (article.source || '').toLowerCase();
+      if (EXCLUDED_NEWS_DOMAINS.some(d => sourceDomain === d || sourceDomain.endsWith(`.${d}`))) {
+        continue;
+      }
+
       // Perform sentiment analysis on title + description
       const sentiment = analyzeSentiment(article.title, article.description);
 

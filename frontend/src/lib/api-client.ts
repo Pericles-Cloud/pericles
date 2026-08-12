@@ -942,6 +942,9 @@ export interface Event {
   riskFactors: string[];
   affectedDomains: string[];
   validationStatus: 'pending' | 'validated' | 'rejected' | 'duplicate';
+  /** Set only when validationStatus is 'duplicate' (#22) — the primary
+   * event this one was fuzzy-matched to. */
+  duplicateOfEventId: string | null;
   validatedAt: string | null;
   incident: EventIncident | null;
   createdAt: string;
@@ -987,7 +990,12 @@ export async function getEvent(id: string): Promise<ApiResponse<Event>> {
  */
 export async function updateEventValidation(
   id: string,
-  data: { validationStatus: 'pending' | 'validated' | 'rejected' | 'duplicate' }
+  data: {
+    validationStatus: 'pending' | 'validated' | 'rejected' | 'duplicate';
+    /** Required by the backend when validationStatus is 'duplicate' — the
+     * primary event this one duplicates. */
+    duplicateOfEventId?: string;
+  }
 ): Promise<ApiResponse<Event>> {
   return apiRequest<Event>(`/api/events/${id}/validation`, {
     method: 'PATCH',

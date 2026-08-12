@@ -65,6 +65,7 @@ export const toolLoggers = {
   geopoliticalConflict: createToolLogger('geopolitical-conflict-monitor'),
   erpContext: createToolLogger('erp-context'),
   incidentLookup: createToolLogger('incident-lookup'),
+  incidentSimilarity: createToolLogger('incident-similarity'),
   organizationLookup: createToolLogger('organization-lookup'),
   sapErpData: createToolLogger('sap-erp-data'),
 } as const;

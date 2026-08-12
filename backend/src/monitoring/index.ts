@@ -10,6 +10,7 @@
  * 4. Repeat (with error handling and backoff)
  */
 
+import type { Prisma } from '@prisma/client';
 import { mastra } from '../mastra/index.js';
 import { type MonitoringConfig } from './config.js';
 import { getPrismaClient } from './db-client.js';
@@ -28,6 +29,11 @@ import {
 } from './error-reporter.js';
 import { requestValidation } from './validation-client.js';
 import { publishToQueue } from './queue-client.js';
+import {
+  findDuplicateIncident,
+  DEFAULT_FUZZY_DEDUP_CALL_BUDGET,
+  type FuzzyDedupBudget,
+} from './incident-similarity.js';
 
 // ============================================================================
 // Global State
@@ -405,18 +411,43 @@ export async function runMonitoringCycle(
       eventsDetected: metrics.eventsDetected,
     });
 
-    // Process and store detected events
+    // Process and store detected events.
+    //
+    // One budget object shared across the whole cycle, so the fuzzy-dedup
+    // classifier's fan-out is bounded per cycle rather than per event: each
+    // event can consume up to MAX_CANDIDATES calls, and storeEvent is awaited
+    // sequentially here, so an unbounded version turns a busy news day into
+    // both uncapped spend and a cycle that overruns its own polling interval
+    // several times over. Past the budget the fuzzy path degrades to "no
+    // duplicate found" (and says so in the log) — events are still stored,
+    // just without the LLM second opinion.
+    const dedupBudget: FuzzyDedupBudget = { remaining: DEFAULT_FUZZY_DEDUP_CALL_BUDGET };
+
     for (const eventData of detectedEvents) {
       try {
-        const storedEvent = await storeEvent(config.organizationId, eventData);
+        const storedEvent = await storeEvent(config.organizationId, eventData, dedupBudget);
 
         // Check if this was a duplicate (server-side deduplication)
         if (storedEvent._deduplicated) {
           metrics.duplicatesFiltered = (metrics.duplicatesFiltered || 0) + 1;
-          cycleLogger.debug(
-            { eventId: storedEvent.id, hash: eventData.event_hash },
-            '[Cycle] Duplicate event skipped (server-side deduplication)'
-          );
+          // Two different things share this flag: an exact-match re-fetch
+          // (nothing new stored, this row already existed) vs. a fuzzy LLM
+          // match (a brand-new Event/EventHash/RiskAssessment row WAS
+          // created, just marked validation_status: 'duplicate'). Logging
+          // both as "skipped" is actively misleading for anyone grepping
+          // logs to triage a specific event_hash — the fuzzy case's row is
+          // real and retrievable via GET /api/events?validationStatus=duplicate.
+          if (storedEvent._fuzzyDuplicateOf) {
+            cycleLogger.debug(
+              { eventId: storedEvent.id, hash: eventData.event_hash, matchedPrimaryId: storedEvent._fuzzyDuplicateOf },
+              '[Cycle] Stored as a fuzzy duplicate (new row, validation_status: duplicate)'
+            );
+          } else {
+            cycleLogger.debug(
+              { eventId: storedEvent.id, hash: eventData.event_hash },
+              '[Cycle] Exact-match duplicate skipped — no new row stored'
+            );
+          }
           continue;
         }
 
@@ -529,34 +560,102 @@ export async function runMonitoringCycle(
  * @returns Stored event record
  */
 // eslint-disable-next-line @typescript-eslint/no-explicit-any -- Dynamic event data from agent, typed at Prisma layer
-async function storeEvent(organizationId: string, eventData: any): Promise<any> {
+function exactMatchWhere(organizationId: string, eventData: any): Prisma.EventWhereInput {
+  // Shared by the pre-check and the transaction's own check below — was
+  // duplicated verbatim between the two, so a future change to match
+  // criteria applied to only one would silently drift from the other.
+  //
+  // eventData is untyped (agent-produced JSON, not schema-validated per
+  // event) — if any of these fields were ever missing, Prisma would drop
+  // the corresponding undefined key from its object entirely, narrowing
+  // that OR branch into matching on fewer fields than intended (in the
+  // worst case, `event_hash: undefined` alone collapsing to `{}` and
+  // matching every event in the org). The transaction below would then
+  // treat that spurious match as "this event already exists" and silently
+  // drop a genuinely new one. Only include a branch when every field it
+  // needs is actually present.
+  const isNonEmptyString = (v: unknown): v is string => typeof v === 'string' && v.length > 0;
+
+  const orConditions: Prisma.EventWhereInput[] = [];
+  if (isNonEmptyString(eventData.event_hash)) {
+    orConditions.push({ event_hash: eventData.event_hash });
+  }
+  if (isNonEmptyString(eventData.title) && isNonEmptyString(eventData.source) && isNonEmptyString(eventData.type)) {
+    orConditions.push({ title: eventData.title, source: eventData.source, type: eventData.type });
+  }
+
+  return {
+    organization_id: organizationId,
+    OR: orConditions,
+  };
+}
+
+// eslint-disable-next-line @typescript-eslint/no-explicit-any -- Dynamic event data from agent, typed at Prisma layer
+async function storeEvent(organizationId: string, eventData: any, dedupBudget?: FuzzyDedupBudget): Promise<any> {
   const prisma = getPrismaClient();
+
+  // Cheap exact-match pre-check, mirroring the transaction's own check below,
+  // gates the fuzzy/LLM path: the common case is the SAME article re-fetched
+  // on a later monitoring cycle, which is an exact match and needs no
+  // semantic judgment call. Skipping the LLM check here isn't just an
+  // optimization for that case, it's the whole point of doing this check at
+  // all — routine re-ingestion must stay free. This pre-check is advisory
+  // only (a race against a concurrent insert is possible); the transaction's
+  // own exact-match check below is what's actually authoritative.
+  const exactMatchPreCheck = await prisma.event.findFirst({
+    where: exactMatchWhere(organizationId, eventData),
+    select: { id: true },
+  });
+
+  // Same-incident check (#22) runs BEFORE the write transaction: it may make
+  // an LLM call (up to 10s), and a DB transaction must never be held open
+  // across a network call to another service. Narrowed by type/geo/time
+  // first, so this is a no-op query in the common case — and skipped
+  // entirely when the cheap pre-check above already found an exact match.
+  //
+  // KNOWN LIMITATION: this pre-check (and the LLM check it gates) runs
+  // outside any lock, and nothing in this codebase serializes monitoring
+  // cycles for the SAME organization — runCycles() only guarantees cycles
+  // run sequentially ACROSS orgs in one batch, not that a manually-triggered
+  // cycle (POST /api/monitoring/trigger) can't overlap the scheduled one for
+  // the same org. Two overlapping cycles that both detect the same new
+  // incident, worded differently, can each find no duplicate and each
+  // create their own Event. This is a real gap, not unique to this feature
+  // — the codebase has no per-org run-lock anywhere — but it does mean the
+  // fuzzy path isn't fully race-safe the way the exact-match path partly is
+  // (the DB's own @@unique constraints reject a truly-identical concurrent
+  // insert; fuzzy matches are non-identical rows by definition, so no
+  // constraint catches them). Fixing this needs a per-org lock (e.g. a
+  // Postgres advisory lock or a KeyValueStore-backed mutex), which is
+  // infrastructure work beyond this ticket's scope.
+  const fuzzyDuplicate = exactMatchPreCheck
+    ? null
+    : await findDuplicateIncident(
+        prisma,
+        organizationId,
+        {
+          type: eventData.type,
+          title: eventData.title,
+          description: eventData.description,
+          event_timestamp: eventData.event_timestamp,
+          location: eventData.location,
+        },
+        dedupBudget
+      );
 
   return await prisma.$transaction(async (tx) => {
     // Server-side deduplication check - verify event doesn't already exist
     // Check both by event_hash AND by content (title + source + type)
     const existingEvent = await tx.event.findFirst({
-      where: {
-        organization_id: organizationId,
-        OR: [
-          { event_hash: eventData.event_hash },
-          {
-            title: eventData.title,
-            source: eventData.source,
-            type: eventData.type,
-          },
-        ],
-      },
+      where: exactMatchWhere(organizationId, eventData),
       select: { id: true, event_hash: true },
     });
 
     if (existingEvent) {
-      // Event already exists - update EventHash occurrence count and return existing event
+      // Exact match: this really is the same article re-fetched. Bump the
+      // EventHash and return the existing row — no new data to preserve.
       await tx.eventHash.updateMany({
-        where: {
-          organization_id: organizationId,
-          hash: existingEvent.event_hash,
-        },
+        where: { organization_id: organizationId, hash: existingEvent.event_hash },
         data: {
           last_seen_at: new Date(),
           occurrence_count: { increment: 1 },
@@ -567,75 +666,136 @@ async function storeEvent(organizationId: string, eventData: any): Promise<any> 
       return { ...existingEvent, _deduplicated: true };
     }
 
-    // Create Event record
-    const event = await tx.event.create({
-      data: {
-        organization_id: organizationId,
-        event_hash: eventData.event_hash,
-        type: eventData.type,
-        source: eventData.source,
-        title: eventData.title,
-        description: eventData.description,
-        location_name: eventData.location?.name,
-        latitude: eventData.location?.latitude,
-        longitude: eventData.location?.longitude,
-        event_timestamp: new Date(eventData.event_timestamp),
-        severity: eventData.severity,
-        confidence: eventData.confidence,
-        risk_factors: eventData.risk_factors || [],
-        affected_domains: eventData.affected_domains || [],
-        validation_status: 'pending',
-        raw_data: eventData.raw_data || {},
-      },
-    });
-
-    // Create/Update EventHash record (for deduplication)
-    const expiresAt = new Date(Date.now() + 7 * 24 * 60 * 60 * 1000); // 7 days from now
-    await tx.eventHash.upsert({
-      where: {
-        organization_id_hash: {
-          organization_id: organizationId,
-          hash: eventData.event_hash,
+    // Fuzzy match: a probabilistic LLM verdict, not a certainty. Unlike the
+    // exact-match branch above, this does NOT skip event creation — an LLM
+    // false positive here must never be able to permanently and silently
+    // drop a genuinely new incident with no recovery path. Instead this
+    // creates a normal Event row (full audit trail, its own EventHash so a
+    // later re-fetch of THIS article is a cheap exact match next time, not
+    // another LLM call) but marks it validation_status: 'duplicate' — the
+    // status this schema already has for exactly this ("pending, validated,
+    // rejected, duplicate" — see the Event model's own doc comment) — and
+    // links it to the primary via raw_data.duplicate_of_event_id on the NEW
+    // row only. The primary event's own raw_data is never touched, so there
+    // is no risk of clobbering its original audit-trail payload.
+    // GET /api/events excludes validation_status: 'duplicate' by default, so
+    // this still satisfies "events should only show once" without deleting
+    // or hiding the underlying data if the LLM judgment turns out wrong.
+    if (fuzzyDuplicate) {
+      // Deliberately does NOT bump the primary's own EventHash (unlike the
+      // exact-match branch above): occurrence_count on a hash is meant to
+      // track how many times THAT EXACT hash was re-detected, and this new
+      // article has a different hash (eventData.event_hash, upserted inside
+      // createEventWithRiskAssessment) by definition — that's the whole
+      // reason an LLM had to be consulted. Bumping the primary's count here
+      // would inflate a figure incident-lookup-tool.ts surfaces to the
+      // Monitoring Agent as "number of times this event has been detected,"
+      // which becomes wrong the moment a fuzzy (non-identical) match occurs.
+      const duplicateEvent = await createEventWithRiskAssessment(tx, organizationId, eventData, {
+        validationStatus: 'duplicate',
+        // The confidence and the model's stated reason are persisted next to
+        // the link, not just logged: an operator looking at an event hidden
+        // as a duplicate needs to see WHY from the row itself, and logs age
+        // out long before events do.
+        rawData: {
+          ...(eventData.raw_data || {}),
+          duplicate_of_event_id: fuzzyDuplicate.id,
+          duplicate_match_confidence: fuzzyDuplicate.confidence,
+          duplicate_match_reason: fuzzyDuplicate.reason,
         },
-      },
-      create: {
-        organization_id: organizationId,
-        hash: eventData.event_hash,
-        first_seen_at: new Date(),
-        last_seen_at: new Date(),
-        occurrence_count: 1,
-        original_event_id: event.id,
-        expires_at: expiresAt,
-      },
-      update: {
-        last_seen_at: new Date(),
-        occurrence_count: { increment: 1 },
-        expires_at: expiresAt, // Extend TTL
-      },
-    });
+      });
 
-    // Create RiskAssessment record
-    await tx.riskAssessment.create({
-      data: {
-        organization_id: organizationId,
-        event_id: event.id,
-        severity_score: eventData.severity,
-        confidence_score: eventData.confidence,
-        risk_category: eventData.type,
-        risk_type: eventData.type,
-        geographic_impact: eventData.location || {},
-        supply_chain_impact: {
-          affected_domains: eventData.affected_domains,
-          risk_factors: eventData.risk_factors,
-        },
-        risk_factors: eventData.risk_factors || [],
-        affected_domains: eventData.affected_domains || [],
-        mitigation_suggestions: [], // To be filled by Impact Assessment Agent
-      },
+      return { ...duplicateEvent, _deduplicated: true, _fuzzyDuplicateOf: fuzzyDuplicate.id };
+    }
+
+    const event = await createEventWithRiskAssessment(tx, organizationId, eventData, {
+      validationStatus: 'pending',
+      rawData: eventData.raw_data || {},
     });
 
     return event;
   });
+}
+
+// Shared by both storeEvent branches that create a brand-new Event row (the
+// fresh-incident path and the fuzzy-duplicate path) — was two ~50-line
+// near-identical blocks differing only in validation_status/raw_data, which
+// already caused one real bug (the fuzzy-duplicate branch was initially
+// missing its RiskAssessment.create call, since there was no single place
+// enforcing "every new Event gets one"). A future field addition or
+// default-value fix now only has to be applied here once.
+async function createEventWithRiskAssessment(
+  tx: Prisma.TransactionClient,
+  organizationId: string,
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any -- Dynamic event data from agent, typed at Prisma layer
+  eventData: any,
+  options: { validationStatus: string; rawData: Prisma.InputJsonValue }
+) {
+  const event = await tx.event.create({
+    data: {
+      organization_id: organizationId,
+      event_hash: eventData.event_hash,
+      type: eventData.type,
+      source: eventData.source,
+      title: eventData.title,
+      description: eventData.description,
+      location_name: eventData.location?.name,
+      latitude: eventData.location?.latitude,
+      longitude: eventData.location?.longitude,
+      event_timestamp: new Date(eventData.event_timestamp),
+      severity: eventData.severity,
+      confidence: eventData.confidence,
+      risk_factors: eventData.risk_factors || [],
+      affected_domains: eventData.affected_domains || [],
+      validation_status: options.validationStatus,
+      raw_data: options.rawData,
+    },
+  });
+
+  const expiresAt = new Date(Date.now() + 7 * 24 * 60 * 60 * 1000); // 7 days from now
+  await tx.eventHash.upsert({
+    where: {
+      organization_id_hash: {
+        organization_id: organizationId,
+        hash: eventData.event_hash,
+      },
+    },
+    create: {
+      organization_id: organizationId,
+      hash: eventData.event_hash,
+      first_seen_at: new Date(),
+      last_seen_at: new Date(),
+      occurrence_count: 1,
+      original_event_id: event.id,
+      expires_at: expiresAt,
+    },
+    update: {
+      last_seen_at: new Date(),
+      occurrence_count: { increment: 1 },
+      expires_at: expiresAt, // Extend TTL
+    },
+  });
+
+  await tx.riskAssessment.create({
+    data: {
+      organization_id: organizationId,
+      event_id: event.id,
+      severity_score: eventData.severity,
+      confidence_score: eventData.confidence,
+      risk_category: eventData.type,
+      risk_type: eventData.type,
+      geographic_impact: eventData.location || {},
+      supply_chain_impact: {
+        affected_domains: eventData.affected_domains,
+        risk_factors: eventData.risk_factors,
+      },
+      risk_factors: eventData.risk_factors || [],
+      affected_domains: eventData.affected_domains || [],
+      mitigation_suggestions: [], // To be filled by Impact Assessment Agent
+    },
+  });
+
+  return event;
 }
 
 // ============================================================================
