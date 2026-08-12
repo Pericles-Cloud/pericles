@@ -29,7 +29,11 @@ import {
 } from './error-reporter.js';
 import { requestValidation } from './validation-client.js';
 import { publishToQueue } from './queue-client.js';
-import { findDuplicateIncident } from './incident-similarity.js';
+import {
+  findDuplicateIncident,
+  DEFAULT_FUZZY_DEDUP_CALL_BUDGET,
+  type FuzzyDedupBudget,
+} from './incident-similarity.js';
 
 // ============================================================================
 // Global State
@@ -407,10 +411,21 @@ export async function runMonitoringCycle(
       eventsDetected: metrics.eventsDetected,
     });
 
-    // Process and store detected events
+    // Process and store detected events.
+    //
+    // One budget object shared across the whole cycle, so the fuzzy-dedup
+    // classifier's fan-out is bounded per cycle rather than per event: each
+    // event can consume up to MAX_CANDIDATES calls, and storeEvent is awaited
+    // sequentially here, so an unbounded version turns a busy news day into
+    // both uncapped spend and a cycle that overruns its own polling interval
+    // several times over. Past the budget the fuzzy path degrades to "no
+    // duplicate found" (and says so in the log) — events are still stored,
+    // just without the LLM second opinion.
+    const dedupBudget: FuzzyDedupBudget = { remaining: DEFAULT_FUZZY_DEDUP_CALL_BUDGET };
+
     for (const eventData of detectedEvents) {
       try {
-        const storedEvent = await storeEvent(config.organizationId, eventData);
+        const storedEvent = await storeEvent(config.organizationId, eventData, dedupBudget);
 
         // Check if this was a duplicate (server-side deduplication)
         if (storedEvent._deduplicated) {
@@ -576,7 +591,7 @@ function exactMatchWhere(organizationId: string, eventData: any): Prisma.EventWh
 }
 
 // eslint-disable-next-line @typescript-eslint/no-explicit-any -- Dynamic event data from agent, typed at Prisma layer
-async function storeEvent(organizationId: string, eventData: any): Promise<any> {
+async function storeEvent(organizationId: string, eventData: any, dedupBudget?: FuzzyDedupBudget): Promise<any> {
   const prisma = getPrismaClient();
 
   // Cheap exact-match pre-check, mirroring the transaction's own check below,
@@ -615,13 +630,18 @@ async function storeEvent(organizationId: string, eventData: any): Promise<any> 
   // infrastructure work beyond this ticket's scope.
   const fuzzyDuplicate = exactMatchPreCheck
     ? null
-    : await findDuplicateIncident(prisma, organizationId, {
-        type: eventData.type,
-        title: eventData.title,
-        description: eventData.description,
-        event_timestamp: eventData.event_timestamp,
-        location: eventData.location,
-      });
+    : await findDuplicateIncident(
+        prisma,
+        organizationId,
+        {
+          type: eventData.type,
+          title: eventData.title,
+          description: eventData.description,
+          event_timestamp: eventData.event_timestamp,
+          location: eventData.location,
+        },
+        dedupBudget
+      );
 
   return await prisma.$transaction(async (tx) => {
     // Server-side deduplication check - verify event doesn't already exist
@@ -673,7 +693,16 @@ async function storeEvent(organizationId: string, eventData: any): Promise<any> 
       // which becomes wrong the moment a fuzzy (non-identical) match occurs.
       const duplicateEvent = await createEventWithRiskAssessment(tx, organizationId, eventData, {
         validationStatus: 'duplicate',
-        rawData: { ...(eventData.raw_data || {}), duplicate_of_event_id: fuzzyDuplicate.id },
+        // The confidence and the model's stated reason are persisted next to
+        // the link, not just logged: an operator looking at an event hidden
+        // as a duplicate needs to see WHY from the row itself, and logs age
+        // out long before events do.
+        rawData: {
+          ...(eventData.raw_data || {}),
+          duplicate_of_event_id: fuzzyDuplicate.id,
+          duplicate_match_confidence: fuzzyDuplicate.confidence,
+          duplicate_match_reason: fuzzyDuplicate.reason,
+        },
       });
 
       return { ...duplicateEvent, _deduplicated: true, _fuzzyDuplicateOf: fuzzyDuplicate.id };

@@ -3388,12 +3388,41 @@ app.patch('/api/events/:id/validation', async (req: Request, res: Response) => {
     if (validationStatus === 'duplicate') {
       const primary = await prisma.event.findUnique({
         where: { id: requestedDuplicateOfEventId },
-        select: { id: true, organization_id: true },
+        select: { id: true, organization_id: true, validation_status: true },
       });
       if (primary?.organization_id !== event.organization_id) {
         res.status(400).json({
           success: false,
           error: { code: 'BAD_REQUEST', message: 'duplicateOfEventId must reference an existing event in the same organization' },
+        });
+        return;
+      }
+      // An event cannot be a duplicate of itself: the row would be hidden
+      // from the default feed and following its own duplicateOfEventId would
+      // loop straight back to it.
+      if (primary.id === event.id) {
+        res.status(400).json({
+          success: false,
+          error: { code: 'BAD_REQUEST', message: 'An event cannot be marked as a duplicate of itself' },
+        });
+        return;
+      }
+      // The primary must be a canonical event, matching the constraint the
+      // automated path enforces in its candidate query (findDuplicateIncident
+      // excludes validation_status notIn ['duplicate', 'rejected']). Without
+      // this the manual path can build exactly what the automated one
+      // deliberately forbids: B marked duplicate-of-A where A is itself a
+      // duplicate of C, or was rejected as noise. Both B and A are then
+      // hidden from the default feed, and following B's duplicateOfEventId
+      // lands on a row that is itself hidden — the untraceable state
+      // surfacing this field was meant to prevent.
+      if (primary.validation_status === 'duplicate' || primary.validation_status === 'rejected') {
+        res.status(400).json({
+          success: false,
+          error: {
+            code: 'BAD_REQUEST',
+            message: `duplicateOfEventId must reference a canonical event (the referenced event is itself '${primary.validation_status}')`,
+          },
         });
         return;
       }
