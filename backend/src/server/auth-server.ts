@@ -87,7 +87,7 @@ setInterval(() => {
   }
 }, 5 * 60 * 1000);
 
-function getRateLimitKey(req: Request, routeKey?: string): string {
+function getRateLimitKey(req: Request, routeKey?: string, identity?: string): string {
   const forwarded = req.headers['x-forwarded-for'];
   const ip = forwarded
     ? (Array.isArray(forwarded) ? forwarded[0] : forwarded.split(',')[0]).trim()
@@ -97,12 +97,26 @@ function getRateLimitKey(req: Request, routeKey?: string): string {
   // function is a static path, so that's harmless there, but a route with a
   // dynamic segment gets a separate bucket PER segment value, not one bucket
   // per client. routeKey lets a caller with a dynamic path opt into a fixed
-  // logical name instead (see eventQaRateLimit below).
-  return `rate:${ip}:${routeKey ?? req.path}`;
+  // logical name instead (see the event Q&A route below).
+  //
+  // identity replaces the IP half of the bucket. The IP is derived from the
+  // client-supplied X-Forwarded-For header (no `trust proxy` is configured),
+  // so a caller can mint an unlimited number of fresh buckets just by varying
+  // that header — fine for the best-effort throttles on the auth routes, but
+  // useless as a cost cap on a route that spends money per request. A caller
+  // that has already authenticated should pass the user id instead, which the
+  // client cannot forge.
+  return `rate:${identity ?? ip}:${routeKey ?? req.path}`;
 }
 
-function checkRateLimit(req: Request, res: Response, maxRequests: number, routeKey?: string): boolean {
-  const key = getRateLimitKey(req, routeKey);
+function checkRateLimit(
+  req: Request,
+  res: Response,
+  maxRequests: number,
+  routeKey?: string,
+  identity?: string
+): boolean {
+  const key = getRateLimitKey(req, routeKey, identity);
   const now = Date.now();
   const entry = rateLimitStore.get(key);
 
@@ -145,16 +159,15 @@ function authRateLimit(req: Request, res: Response, next: () => void): void {
 
 // Rate limit for the event Q&A endpoint (#23) — every request triggers a
 // real LLM call, unlike most other routes in this file which are plain DB
-// reads/writes with no per-request external cost. Fixed routeKey ('event-qa'),
-// NOT the default req.path: this route has a dynamic :id segment, and without
-// a fixed key each distinct event id gets its own independent 10-request
-// bucket — trivially bypassing the cap by round-robining event ids.
+// reads/writes with no per-request external cost. Applied INSIDE the handler
+// (not as middleware) once the caller is authenticated, so the bucket can be
+// keyed on the authenticated user id: keyed on the IP it would be both
+// bypassable (X-Forwarded-For is client-supplied) and over-restrictive (every
+// user behind one office NAT would share a single 10/min budget, and
+// unauthenticated 401s would burn it). Fixed routeKey ('event-qa') rather
+// than the default req.path, since this route has a dynamic :id segment and
+// would otherwise give each event id its own independent bucket.
 const RATE_LIMIT_EVENT_QA_MAX = 10;
-function eventQaRateLimit(req: Request, res: Response, next: () => void): void {
-  if (checkRateLimit(req, res, RATE_LIMIT_EVENT_QA_MAX, 'event-qa')) {
-    next();
-  }
-}
 
 // Google OAuth config
 const GOOGLE_CLIENT_ID = process.env.GOOGLE_CLIENT_ID;
@@ -3322,7 +3335,10 @@ app.get('/api/events/:id', async (req: Request, res: Response) => {
 // Ask a question about one specific event (#23) — the per-event Q&A box
 // under Intelligence's Analysis tab.
 const AskEventQuestionSchema = z.object({
-  question: z.string().min(1).max(1000),
+  // .trim() BEFORE the length checks: without it a whitespace-only question
+  // ("   ") satisfies min(1) and buys a real LLM call that asks the model
+  // nothing. The UI trims too, but the API is reachable directly.
+  question: z.string().trim().min(1).max(1000),
 });
 const EventQaAnswerSchema = z.object({
   answer: z.string(),
@@ -3338,11 +3354,25 @@ const EVENT_QA_TIMEOUT_MS = 20000;
 const escapeForPromptContext = (value: string): string =>
   value.replace(/</g, '‹').replace(/>/g, '›');
 
-app.post('/api/events/:id/ask', eventQaRateLimit, async (req: Request, res: Response) => {
+// Free-text event fields are unbounded in the schema; keep any single one from
+// dominating the prompt.
+const EVENT_QA_MAX_FIELD_CHARS = 4000;
+const truncateForPromptContext = (value: string): string =>
+  value.length > EVENT_QA_MAX_FIELD_CHARS
+    ? `${value.slice(0, EVENT_QA_MAX_FIELD_CHARS)}… [truncated]`
+    : value;
+
+app.post('/api/events/:id/ask', async (req: Request, res: Response) => {
   try {
     const tokenPayload = authenticateRequest(req);
     if (!tokenPayload) {
       res.status(401).json({ success: false, error: { code: 'UNAUTHORIZED', message: 'Authentication required' } });
+      return;
+    }
+
+    // Per-user, post-auth: see RATE_LIMIT_EVENT_QA_MAX above for why this
+    // isn't a plain IP-keyed middleware.
+    if (!checkRateLimit(req, res, RATE_LIMIT_EVENT_QA_MAX, 'event-qa', tokenPayload.userId)) {
       return;
     }
 
@@ -3385,7 +3415,11 @@ app.post('/api/events/:id/ask', eventQaRateLimit, async (req: Request, res: Resp
     // remembering to wrap itself individually.
     const contextLines = [
       `Title: ${event.title}`,
-      `Description: ${event.description}`,
+      // description is an unbounded @db.Text column filled from external
+      // monitored feeds — capped here so one pathological feed item can't
+      // blow up token spend or overflow the model's context (which would
+      // surface to the user as a blanket 502).
+      `Description: ${truncateForPromptContext(event.description)}`,
       `Type: ${event.type}`,
       `Severity: ${event.severity.toFixed(2)} (0-1 scale)`,
       `Confidence: ${event.confidence.toFixed(2)} (0-1 scale)`,
@@ -3414,8 +3448,14 @@ app.post('/api/events/:id/ask', eventQaRateLimit, async (req: Request, res: Resp
       `<untrusted_content>\n${escapeForPromptContext(contextLines.join('\n'))}\n</untrusted_content>\n\n` +
       `User question: ${escapeForPromptContext(question)}`;
 
-    const agent = mastra.getAgent('eventQaAgent');
-    if (!agent) {
+    // getAgent THROWS a MastraError when the name isn't registered — it never
+    // returns undefined — so the misconfiguration case has to be caught, not
+    // null-checked, or it falls through to the generic 500 with no clue why.
+    let agent;
+    try {
+      agent = mastra.getAgent('eventQaAgent');
+    } catch (err) {
+      console.error('Event Q&A agent unavailable:', err);
       res.status(500).json({ success: false, error: { code: 'INTERNAL_ERROR', message: 'Q&A agent unavailable' } });
       return;
     }

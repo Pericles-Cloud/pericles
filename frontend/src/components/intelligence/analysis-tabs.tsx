@@ -257,8 +257,11 @@ function EventQaBox({ eventId }: { eventId: string }) {
           {turns.map((turn, i) => (
             <div key={i} className="text-sm">
               <div className="font-medium text-foreground">{turn.question}</div>
+              {/* whitespace-pre-wrap: model answers routinely come back with
+                  paragraph/list line breaks, which HTML would otherwise
+                  collapse into one run-on block. */}
               {turn.status === 'answered' && (
-                <div className="text-muted-foreground mt-1">{turn.answer}</div>
+                <div className="text-muted-foreground mt-1 whitespace-pre-wrap">{turn.answer}</div>
               )}
               {turn.status === 'error' && (
                 <div className="text-risk-critical-text mt-1">{turn.error}</div>
@@ -281,6 +284,9 @@ function EventQaBox({ eventId }: { eventId: string }) {
             }
           }}
           placeholder="Ask a question about this event…"
+          // Matches the server's max(1000); without it a longer question is
+          // only rejected after a round trip, as a raw Zod message.
+          maxLength={1000}
           aria-label="Ask a question about this event"
           disabled={isAsking}
           className="text-sm"
