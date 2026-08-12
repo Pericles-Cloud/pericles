@@ -990,7 +990,12 @@ export async function getEvent(id: string): Promise<ApiResponse<Event>> {
  */
 export async function updateEventValidation(
   id: string,
-  data: { validationStatus: 'pending' | 'validated' | 'rejected' | 'duplicate' }
+  data: {
+    validationStatus: 'pending' | 'validated' | 'rejected' | 'duplicate';
+    /** Required by the backend when validationStatus is 'duplicate' — the
+     * primary event this one duplicates. */
+    duplicateOfEventId?: string;
+  }
 ): Promise<ApiResponse<Event>> {
   return apiRequest<Event>(`/api/events/${id}/validation`, {
     method: 'PATCH',

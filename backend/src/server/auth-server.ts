@@ -3329,11 +3329,32 @@ app.patch('/api/events/:id/validation', async (req: Request, res: Response) => {
     }
 
     const eventId = getParam(req.params.id);
-    const { validationStatus } = req.body;
+    const { validationStatus, duplicateOfEventId: requestedDuplicateOfEventId } = req.body;
 
     if (!validationStatus || !['pending', 'validated', 'rejected', 'duplicate'].includes(validationStatus)) {
       res.status(400).json({ success: false, error: { code: 'BAD_REQUEST', message: 'Invalid validation status' } });
       return;
+    }
+
+    // Manually setting 'duplicate' (the LLM-driven fuzzy-dedup path missed
+    // one) requires naming the primary — otherwise the row ends up
+    // 'duplicate' with no duplicateOfEventId, which is exactly the
+    // untraceable state the #22 auditing feature was built to prevent.
+    if (validationStatus === 'duplicate') {
+      if (typeof requestedDuplicateOfEventId !== 'string' || requestedDuplicateOfEventId.length === 0) {
+        res.status(400).json({
+          success: false,
+          error: { code: 'BAD_REQUEST', message: 'duplicateOfEventId is required when setting validationStatus to duplicate' },
+        });
+        return;
+      }
+      if (requestedDuplicateOfEventId === eventId) {
+        res.status(400).json({
+          success: false,
+          error: { code: 'BAD_REQUEST', message: 'An event cannot be a duplicate of itself' },
+        });
+        return;
+      }
     }
 
     const event = await prisma.event.findUnique({
@@ -3360,30 +3381,47 @@ app.patch('/api/events/:id/validation', async (req: Request, res: Response) => {
       return;
     }
 
-    // An operator overriding validationStatus AWAY FROM 'duplicate' (e.g. the
-    // LLM's fuzzy match was wrong, this is really a new incident) must also
-    // clear raw_data.duplicate_of_event_id — otherwise the field's own doc
-    // comment ("Set only when validationStatus is 'duplicate'") goes stale:
-    // every later GET keeps reporting this now-confirmed-real event as
-    // still linked to a primary it was just un-marked as a duplicate of.
+    // Manually marking 'duplicate' must point at a real primary in the same
+    // org — otherwise duplicateOfEventId (GET /api/events/:id) resolves to
+    // a 404 or a cross-tenant id, the same dangling-reference problem
+    // exposing this field was meant to make visible, not create.
+    if (validationStatus === 'duplicate') {
+      const primary = await prisma.event.findUnique({
+        where: { id: requestedDuplicateOfEventId },
+        select: { id: true, organization_id: true },
+      });
+      if (primary?.organization_id !== event.organization_id) {
+        res.status(400).json({
+          success: false,
+          error: { code: 'BAD_REQUEST', message: 'duplicateOfEventId must reference an existing event in the same organization' },
+        });
+        return;
+      }
+    }
+
+    // raw_data.duplicate_of_event_id is set when an operator manually marks
+    // 'duplicate' (merged into existing raw_data, matching the shape the
+    // automated fuzzy-dedup path in storeEvent writes) and cleared when
+    // overriding AWAY FROM 'duplicate' (e.g. the LLM's fuzzy match — or a
+    // prior manual call — was wrong, this is really a new incident) —
+    // otherwise the field's own doc comment ("Set only when validationStatus
+    // is 'duplicate'") goes stale in either direction.
     const rawData = event.raw_data;
-    const clearedRawData: Prisma.InputJsonValue | undefined =
-      validationStatus !== 'duplicate' &&
-      rawData &&
-      typeof rawData === 'object' &&
-      !Array.isArray(rawData) &&
-      'duplicate_of_event_id' in rawData
-        ? (() => {
-            const { duplicate_of_event_id: _removed, ...rest } = rawData as Record<string, unknown>;
-            return rest as Prisma.InputJsonValue;
-          })()
-        : undefined;
+    const existingRawDataObject: Record<string, unknown> =
+      typeof rawData === 'object' && rawData !== null && !Array.isArray(rawData) ? (rawData as Record<string, unknown>) : {};
+    let nextRawData: Prisma.InputJsonValue | undefined;
+    if (validationStatus === 'duplicate') {
+      nextRawData = { ...existingRawDataObject, duplicate_of_event_id: requestedDuplicateOfEventId } as Prisma.InputJsonValue;
+    } else if ('duplicate_of_event_id' in existingRawDataObject) {
+      const { duplicate_of_event_id: _removed, ...rest } = existingRawDataObject;
+      nextRawData = rest as Prisma.InputJsonValue;
+    }
 
     const updatedEvent = await prisma.event.update({
       where: { id: eventId },
       data: {
         validation_status: validationStatus,
-        ...(clearedRawData !== undefined ? { raw_data: clearedRawData } : {}),
+        ...(nextRawData !== undefined ? { raw_data: nextRawData } : {}),
         validated_at: validationStatus === 'validated' ? new Date() : null,
       },
       include: { incident: true },
