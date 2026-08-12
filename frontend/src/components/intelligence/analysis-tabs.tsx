@@ -1,8 +1,9 @@
 'use client';
 
 import { useState } from 'react';
-import type { Event } from '@/lib/api-client';
+import { askEventQuestion, type Event } from '@/lib/api-client';
 import { Button } from '@/components/ui/button';
+import { Input } from '@/components/ui/input';
 import { getRiskColor } from '@/lib/intelligence-utils';
 
 export type AnalysisTab = 'timeline' | 'analysis' | 'impact' | 'notes';
@@ -39,7 +40,19 @@ export function AnalysisTabs({ event }: { event: Event | null }) {
 
       <div className="flex-1 overflow-y-auto p-4" role="tabpanel">
         {event ? (
-          <AnalysisContent event={event} activeTab={activeTab} />
+          <>
+            <AnalysisContent event={event} activeTab={activeTab} />
+            {/* Rendered here, not inside AnalysisContent's per-tab switch:
+                that switch unmounts its returned subtree on every tab
+                change, which was silently wiping the Q&A conversation (and
+                discarding any in-flight answer) every time a user checked
+                Timeline/Impact/Notes and came back to Analysis. Kept
+                mounted across tab switches via CSS visibility instead —
+                only event changes (key={event.id}) should reset it. */}
+            <div className={activeTab === 'analysis' ? undefined : 'hidden'}>
+              <EventQaBox key={event.id} eventId={event.id} />
+            </div>
+          </>
         ) : (
           <div className="text-center text-muted-foreground">
             <p>Select an event to view analysis</p>
@@ -182,6 +195,108 @@ function AnalysisContent({ event, activeTab }: { event: Event; activeTab: Analys
         </div>
       );
   }
+}
+
+// A discriminated union, not two independently-nullable fields: the old
+// {answer: string|null, error: string|null} shape let "pending" only be
+// inferred at render time via !answer && !error — the exact ambiguity that
+// let a successful-but-empty answer render identically to "not yet
+// answered" (both falsy) and get stuck on "Thinking…" forever. status makes
+// each turn's state explicit and exhaustive instead of derived.
+type QaTurn =
+  | { question: string; status: 'pending' }
+  | { question: string; status: 'answered'; answer: string }
+  | { question: string; status: 'error'; error: string };
+
+/**
+ * Per-event Q&A box (#23) — scoped to the one event whose Analysis tab it's
+ * rendered under, not the full cross-event Insights chat described in the
+ * Intelligence PRD. Turns live in component state only; nothing is
+ * persisted, matching the ticket's ask for a lightweight per-event box
+ * rather than a session-backed research surface.
+ */
+function EventQaBox({ eventId }: { eventId: string }) {
+  const [question, setQuestion] = useState('');
+  const [turns, setTurns] = useState<QaTurn[]>([]);
+  const [isAsking, setIsAsking] = useState(false);
+
+  const handleAsk = async () => {
+    const trimmed = question.trim();
+    if (!trimmed || isAsking) return;
+
+    setIsAsking(true);
+    setQuestion('');
+    const turnIndex = turns.length;
+    setTurns((prev) => [...prev, { question: trimmed, status: 'pending' }]);
+
+    const settle = (turn: QaTurn) =>
+      setTurns((prev) => prev.map((t, i) => (i === turnIndex ? turn : t)));
+
+    try {
+      const response = await askEventQuestion(eventId, trimmed);
+      if (response.success) {
+        // An empty-string answer is schema-valid server-side (no .min(1) on
+        // EventQaAnswerSchema) — still a real 'answered' turn, just with a
+        // placeholder string, never re-inferred as pending.
+        settle({ question: trimmed, status: 'answered', answer: response.data?.answer || 'No answer was returned.' });
+      } else {
+        settle({ question: trimmed, status: 'error', error: response.error?.message || 'Failed to get an answer' });
+      }
+    } catch {
+      settle({ question: trimmed, status: 'error', error: 'Failed to get an answer' });
+    } finally {
+      setIsAsking(false);
+    }
+  };
+
+  return (
+    <div className="mt-6 border-t border-border pt-4">
+      <h4 className="text-sm font-medium mb-2">Ask about this event</h4>
+      {turns.length > 0 && (
+        <div className="space-y-3 mb-3 max-h-64 overflow-y-auto">
+          {turns.map((turn, i) => (
+            <div key={i} className="text-sm">
+              <div className="font-medium text-foreground">{turn.question}</div>
+              {/* whitespace-pre-wrap: model answers routinely come back with
+                  paragraph/list line breaks, which HTML would otherwise
+                  collapse into one run-on block. */}
+              {turn.status === 'answered' && (
+                <div className="text-muted-foreground mt-1 whitespace-pre-wrap">{turn.answer}</div>
+              )}
+              {turn.status === 'error' && (
+                <div className="text-risk-critical-text mt-1">{turn.error}</div>
+              )}
+              {turn.status === 'pending' && (
+                <div className="text-muted-foreground mt-1 italic">Thinking…</div>
+              )}
+            </div>
+          ))}
+        </div>
+      )}
+      <div className="flex gap-2">
+        <Input
+          value={question}
+          onChange={(e) => setQuestion(e.target.value)}
+          onKeyDown={(e) => {
+            if (e.key === 'Enter' && !e.shiftKey) {
+              e.preventDefault();
+              void handleAsk();
+            }
+          }}
+          placeholder="Ask a question about this event…"
+          // Matches the server's max(1000); without it a longer question is
+          // only rejected after a round trip, as a raw Zod message.
+          maxLength={1000}
+          aria-label="Ask a question about this event"
+          disabled={isAsking}
+          className="text-sm"
+        />
+        <Button size="sm" onClick={() => void handleAsk()} disabled={isAsking || !question.trim()}>
+          {isAsking ? 'Asking…' : 'Ask'}
+        </Button>
+      </div>
+    </div>
+  );
 }
 
 function TimelineItem({ label, time, description }: { label: string; time: string; description: string }) {

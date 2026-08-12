@@ -41,6 +41,7 @@ import {
 import { getPositionFeed, getOrganizationPositions } from '../integrations/tracking/index.js';
 import { OAuth2Client } from 'google-auth-library';
 import { createWorkflowExecutionService, type ExecutionMode as WorkflowExecutionMode } from '../workflow/index.js';
+import { mastra } from '../mastra/index.js';
 
 const app = express();
 const prisma = new PrismaClient();
@@ -86,16 +87,36 @@ setInterval(() => {
   }
 }, 5 * 60 * 1000);
 
-function getRateLimitKey(req: Request): string {
+function getRateLimitKey(req: Request, routeKey?: string, identity?: string): string {
   const forwarded = req.headers['x-forwarded-for'];
   const ip = forwarded
     ? (Array.isArray(forwarded) ? forwarded[0] : forwarded.split(',')[0]).trim()
     : req.ip || 'unknown';
-  return `rate:${ip}:${req.path}`;
+  // req.path is the RESOLVED request path (e.g. /api/events/abc123/ask), not
+  // the route pattern (/api/events/:id/ask) — every existing caller of this
+  // function is a static path, so that's harmless there, but a route with a
+  // dynamic segment gets a separate bucket PER segment value, not one bucket
+  // per client. routeKey lets a caller with a dynamic path opt into a fixed
+  // logical name instead (see the event Q&A route below).
+  //
+  // identity replaces the IP half of the bucket. The IP is derived from the
+  // client-supplied X-Forwarded-For header (no `trust proxy` is configured),
+  // so a caller can mint an unlimited number of fresh buckets just by varying
+  // that header — fine for the best-effort throttles on the auth routes, but
+  // useless as a cost cap on a route that spends money per request. A caller
+  // that has already authenticated should pass the user id instead, which the
+  // client cannot forge.
+  return `rate:${identity ?? ip}:${routeKey ?? req.path}`;
 }
 
-function checkRateLimit(req: Request, res: Response, maxRequests: number): boolean {
-  const key = getRateLimitKey(req);
+function checkRateLimit(
+  req: Request,
+  res: Response,
+  maxRequests: number,
+  routeKey?: string,
+  identity?: string
+): boolean {
+  const key = getRateLimitKey(req, routeKey, identity);
   const now = Date.now();
   const entry = rateLimitStore.get(key);
 
@@ -135,6 +156,18 @@ function authRateLimit(req: Request, res: Response, next: () => void): void {
     next();
   }
 }
+
+// Rate limit for the event Q&A endpoint (#23) — every request triggers a
+// real LLM call, unlike most other routes in this file which are plain DB
+// reads/writes with no per-request external cost. Applied INSIDE the handler
+// (not as middleware) once the caller is authenticated, so the bucket can be
+// keyed on the authenticated user id: keyed on the IP it would be both
+// bypassable (X-Forwarded-For is client-supplied) and over-restrictive (every
+// user behind one office NAT would share a single 10/min budget, and
+// unauthenticated 401s would burn it). Fixed routeKey ('event-qa') rather
+// than the default req.path, since this route has a dynamic :id segment and
+// would otherwise give each event id its own independent bucket.
+const RATE_LIMIT_EVENT_QA_MAX = 10;
 
 // Google OAuth config
 const GOOGLE_CLIENT_ID = process.env.GOOGLE_CLIENT_ID;
@@ -3295,6 +3328,163 @@ app.get('/api/events/:id', async (req: Request, res: Response) => {
     });
   } catch (error) {
     console.error('Get event error:', error);
+    res.status(500).json({ success: false, error: { code: 'INTERNAL_ERROR', message: 'An unexpected error occurred' } });
+  }
+});
+
+// Ask a question about one specific event (#23) — the per-event Q&A box
+// under Intelligence's Analysis tab.
+const AskEventQuestionSchema = z.object({
+  // .trim() BEFORE the length checks: without it a whitespace-only question
+  // ("   ") satisfies min(1) and buys a real LLM call that asks the model
+  // nothing. The UI trims too, but the API is reachable directly.
+  question: z.string().trim().min(1).max(1000),
+});
+const EventQaAnswerSchema = z.object({
+  answer: z.string(),
+});
+const EVENT_QA_TIMEOUT_MS = 20000;
+
+// Module-scope, not a per-request closure: a pure function of its argument,
+// so allocating a fresh copy on every /ask call was pointless — and this is
+// the first implementation anywhere in the codebase of the boundary-marking
+// pericles-prompts calls for whenever untrusted content enters a prompt, so
+// keeping it at module scope (rather than buried in one handler) is what
+// makes it importable the next time a route needs the same protection.
+const escapeForPromptContext = (value: string): string =>
+  value.replace(/</g, '‹').replace(/>/g, '›');
+
+// Free-text event fields are unbounded in the schema; keep any single one from
+// dominating the prompt.
+const EVENT_QA_MAX_FIELD_CHARS = 4000;
+const truncateForPromptContext = (value: string): string =>
+  value.length > EVENT_QA_MAX_FIELD_CHARS
+    ? `${value.slice(0, EVENT_QA_MAX_FIELD_CHARS)}… [truncated]`
+    : value;
+
+app.post('/api/events/:id/ask', async (req: Request, res: Response) => {
+  try {
+    const tokenPayload = authenticateRequest(req);
+    if (!tokenPayload) {
+      res.status(401).json({ success: false, error: { code: 'UNAUTHORIZED', message: 'Authentication required' } });
+      return;
+    }
+
+    // Per-user, post-auth: see RATE_LIMIT_EVENT_QA_MAX above for why this
+    // isn't a plain IP-keyed middleware.
+    if (!checkRateLimit(req, res, RATE_LIMIT_EVENT_QA_MAX, 'event-qa', tokenPayload.userId)) {
+      return;
+    }
+
+    const parseResult = AskEventQuestionSchema.safeParse(req.body);
+    if (!parseResult.success) {
+      res.status(400).json({ success: false, error: { code: 'VALIDATION_ERROR', message: parseResult.error.errors[0].message } });
+      return;
+    }
+    const { question } = parseResult.data;
+
+    const eventId = getParam(req.params.id);
+    const event = await prisma.event.findUnique({
+      where: { id: eventId },
+      include: { incident: true },
+    });
+
+    if (!event) {
+      res.status(404).json({ success: false, error: { code: 'NOT_FOUND', message: 'Event not found' } });
+      return;
+    }
+
+    // Same read-access model as GET /api/events/:id above: a question about
+    // an event a user can already see shouldn't be gated more strictly than
+    // viewing the event itself.
+    const access = await checkOrganizationAccess(tokenPayload.userId, event.organization_id);
+    if (!access.hasAccess) {
+      res.status(403).json({ success: false, error: { code: 'FORBIDDEN', message: 'Access denied to this event' } });
+      return;
+    }
+
+    // The event's own fields originate from external monitored feeds and
+    // are untrusted per pericles-prompts — boundary-marked here, and the
+    // agent's own instructions (event-qa-agent.ts) tell it to treat this
+    // block as data, never as instructions. Escaped ONCE on the fully
+    // assembled block below, rather than per field: none of the literal
+    // label text here ("Title: ", ": ", "\n") contains '<'/'>', so escaping
+    // commutes with concatenation — and escaping the whole block means a
+    // field added later (this already happened once with `event.type`) is
+    // protected automatically instead of relying on every future line
+    // remembering to wrap itself individually.
+    const contextLines = [
+      `Title: ${event.title}`,
+      // description is an unbounded @db.Text column filled from external
+      // monitored feeds — capped here so one pathological feed item can't
+      // blow up token spend or overflow the model's context (which would
+      // surface to the user as a blanket 502).
+      `Description: ${truncateForPromptContext(event.description)}`,
+      `Type: ${event.type}`,
+      `Severity: ${event.severity.toFixed(2)} (0-1 scale)`,
+      `Confidence: ${event.confidence.toFixed(2)} (0-1 scale)`,
+      event.location_name ? `Location: ${event.location_name}` : null,
+      `Risk factors: ${event.risk_factors.length ? event.risk_factors.join(', ') : 'none recorded'}`,
+      `Affected domains: ${event.affected_domains.length ? event.affected_domains.join(', ') : 'none recorded'}`,
+      `Event occurred: ${event.event_timestamp.toISOString()}`,
+      `Detected by Pericles: ${event.detected_at.toISOString()}`,
+      `Validation status: ${event.validation_status}`,
+      event.incident
+        ? `Linked incident: ${event.incident.incident_number}, status ${event.incident.status}, priority ${event.incident.priority}`
+        : null,
+    ].filter((line): line is string => line !== null);
+
+    // <untrusted_content> is the boundary tag pericles-prompts documents for
+    // any external-feed/customer content entering a prompt (the skill's own
+    // example) — used here rather than a one-off tag name so a future
+    // injection test/audit can check for one consistent convention across
+    // every prompt in the codebase, not a different tag per call site.
+    // The question itself sits right next to the closing tag, so it needs
+    // the same escaping as the event block above — otherwise a question
+    // containing a literal "</untrusted_content>" reopens the exact
+    // boundary-break this function's escaping exists to prevent, just from
+    // the other side of the tag instead of from inside it.
+    const prompt =
+      `<untrusted_content>\n${escapeForPromptContext(contextLines.join('\n'))}\n</untrusted_content>\n\n` +
+      `User question: ${escapeForPromptContext(question)}`;
+
+    // getAgent THROWS a MastraError when the name isn't registered — it never
+    // returns undefined — so the misconfiguration case has to be caught, not
+    // null-checked, or it falls through to the generic 500 with no clue why.
+    let agent;
+    try {
+      agent = mastra.getAgent('eventQaAgent');
+    } catch (err) {
+      console.error('Event Q&A agent unavailable:', err);
+      res.status(500).json({ success: false, error: { code: 'INTERNAL_ERROR', message: 'Q&A agent unavailable' } });
+      return;
+    }
+
+    let result;
+    try {
+      result = await agent.generate(prompt, {
+        structuredOutput: { schema: EventQaAnswerSchema },
+        abortSignal: AbortSignal.timeout(EVENT_QA_TIMEOUT_MS),
+      });
+    } catch (err) {
+      console.error('Event Q&A agent error:', err);
+      res.status(502).json({ success: false, error: { code: 'UPSTREAM_ERROR', message: 'Failed to generate an answer. Please try again.' } });
+      return;
+    }
+
+    // result.object is typed optional by the SDK (a resolved call can still
+    // fail structured-output extraction, e.g. the model's response doesn't
+    // parse against EventQaAnswerSchema) — that's a real failure to report
+    // as 502, not a TypeError to let fall through to the generic 500 below.
+    if (!result.object) {
+      console.error('Event Q&A agent error: structured output missing from a resolved call');
+      res.status(502).json({ success: false, error: { code: 'UPSTREAM_ERROR', message: 'Failed to generate an answer. Please try again.' } });
+      return;
+    }
+
+    res.status(200).json({ success: true, data: { answer: result.object.answer } });
+  } catch (error) {
+    console.error('Event Q&A error:', error);
     res.status(500).json({ success: false, error: { code: 'INTERNAL_ERROR', message: 'An unexpected error occurred' } });
   }
 });
