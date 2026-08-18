@@ -28,6 +28,7 @@ import {
   ErrorSeverity,
 } from './error-reporter.js';
 import { requestValidation } from './validation-client.js';
+import { calculateDistance } from '../mastra/tools/weather-disaster-monitor-tool.js';
 import { publishToQueue } from './queue-client.js';
 import {
   findDuplicateIncident,
@@ -405,6 +406,54 @@ export async function runMonitoringCycle(
       cycleLogger.warn({ error: parseError }, '[Cycle] Failed to parse agent response as JSON');
     }
 
+    // Validate that detected events have location data — required for
+    // geographic dedup (incident-similarity.ts) and Atlas positioning.
+    // Missing coords degrade dedup (type+time only, 0.9 confidence threshold)
+    // and cause Atlas to show no position.
+    let eventsWithoutLocation = 0;
+    for (const ev of detectedEvents) {
+      const hasLocation = ev?.location && typeof ev.location.latitude === 'number' && typeof ev.location.longitude === 'number';
+      if (!hasLocation) {
+        eventsWithoutLocation++;
+        cycleLogger.warn(
+          { event: ev },
+          '[Cycle] Detected event missing latitude/longitude in location object — dedup will degrade and Atlas will not position'
+        );
+      }
+    }
+    if (eventsWithoutLocation > 0) {
+      cycleLogger.info(
+        { total: detectedEvents.length, missing: eventsWithoutLocation },
+        '[Cycle] Events without location data'
+      );
+    }
+
+    // Filter events classified as opinion or commentary — these are not
+    // genuine supply chain risk events and should not be stored or fed
+    // into dedup/Atlas. The monitoring prompt now requires
+    // "event_classification": "fact" | "opinion" | "commentary".
+    let opinionEvents: any[] = [];
+    for (const ev of detectedEvents) {
+      const classification = ev?.event_classification;
+      if (classification === 'opinion' || classification === 'commentary') {
+        opinionEvents.push(ev);
+        cycleLogger.info(
+          { event: ev, classification },
+          '[Cycle] Filtering out ' + classification + '-classified event (not a supply chain risk event)'
+        );
+      }
+    }
+    const filteredOutCount = opinionEvents.length;
+    const remainingEvents = detectedEvents.filter(
+      (ev) => ev?.event_classification !== 'opinion' && ev?.event_classification !== 'commentary'
+    );
+
+    // Update metrics to reflect filtered events
+    metrics.eventsDetected = remainingEvents.length;
+    if (filteredOutCount > 0) {
+      metrics.duplicatesFiltered = (metrics.duplicatesFiltered || 0) + filteredOutCount;
+    }
+
     emitProgress({
       phase: 'processing_events',
       message: `Found ${metrics.eventsDetected} events, storing...`,
@@ -423,9 +472,12 @@ export async function runMonitoringCycle(
     // just without the LLM second opinion.
     const dedupBudget: FuzzyDedupBudget = { remaining: DEFAULT_FUZZY_DEDUP_CALL_BUDGET };
 
+    const storedEvents: any[] = [];
+
     for (const eventData of detectedEvents) {
       try {
         const storedEvent = await storeEvent(config.organizationId, eventData, dedupBudget);
+        storedEvents.push(storedEvent);
 
         // Check if this was a duplicate (server-side deduplication)
         if (storedEvent._deduplicated) {
@@ -500,6 +552,139 @@ export async function runMonitoringCycle(
           error: (error as Error).message,
           timestamp: new Date(),
         });
+      }
+    }
+
+    // === Phase 3: Topic Aggregation ===
+    // Group detected events by topic to cluster related incidents.
+    // Events are grouped by: geographic proximity (Haversine distance), same risk type,
+    // temporal proximity (within same monitoring cycle), and headline keyword overlap
+    // (actor/target). Each cluster receives a topic_cluster_id stored in raw_data
+    // for downstream use (Atlas positioning, workflow proposals, report generation).
+    let topicsCreated = 0;
+    let eventsClustered = 0;
+
+    if (storedEvents.length > 0) {
+      // Build a clustering key for each event: type + first 3 words of headline
+      // + geographic bucket (rounded coordinates) + temporal bucket
+      const clusteringKeys = storedEvents.map((ev, i) => {
+        const type = ev.type || 'unknown';
+        const headline = ev.headline || ev.title || '';
+        const firstWords = headline
+          .split(/\s+/)
+          .slice(0, 3)
+          .join(' ');
+        const location = ev.location;
+        let geoBucket = 'unknown';
+        if (location?.latitude !== undefined && location?.longitude !== undefined) {
+          // Round to ~50km buckets for clustering
+          const latBucket = Math.round(location.latitude * 2) / 2;
+          const lonBucket = Math.round(location.longitude * 2) / 2;
+          geoBucket = `${latBucket},${lonBucket}`;
+        }
+        const temporalBucket = ev.event_timestamp
+          ? new Date(ev.event_timestamp).getTime() / (1000 * 60 * 5) // 5-min buckets
+          : 0;
+
+        return {
+          index: i,
+          type,
+          firstWords,
+          geoBucket,
+          temporalBucket,
+          event: ev,
+        };
+      });
+
+      // Cluster events: simple greedy approach
+      // - Sort by event_timestamp to process oldest first
+      // - For each unclustered event, find all events matching on type + geo bucket
+      // - Expand cluster by also checking headline keyword overlap
+      const clusterAssignments = new Map<number, number>(); // eventIndex -> clusterId
+      let clusterId = 0;
+
+      // Sort by event_timestamp (oldest first) for deterministic clustering
+      const sortedIndices = clusteringKeys
+        .map(k => k.index)
+        .sort((a, b) => {
+          const ta = storedEvents[a]?.event_timestamp ? new Date(storedEvents[a]?.event_timestamp).getTime() : 0;
+          const tb = storedEvents[b]?.event_timestamp ? new Date(storedEvents[b]?.event_timestamp).getTime() : 0;
+          return ta - tb;
+        });
+
+      const clustered = new Set<number>();
+
+      for (const idx of sortedIndices) {
+        if (clustered.has(idx)) continue;
+
+        // Start a new cluster
+        clusterId++;
+        clusterAssignments.set(idx, clusterId);
+        clustered.add(idx);
+
+        const baseKey = clusteringKeys[idx];
+        const baseEvent = storedEvents[idx];
+
+        // Expand cluster: find all unclustered events that match
+        for (const otherIdx of sortedIndices) {
+          if (clustered.has(otherIdx)) continue;
+          if (otherIdx === idx) continue;
+
+          const otherKey = clusteringKeys[otherIdx];
+          const otherEvent = storedEvents[otherIdx];
+
+          // Check type match
+          if (baseKey.type !== otherKey.type) continue;
+
+          // Check geographic proximity (Haversine ≤ 100km)
+          const hasLocationA = baseEvent.location && typeof baseEvent.location.latitude === 'number' && typeof baseEvent.location.longitude === 'number';
+          const hasLocationB = otherEvent.location && typeof otherEvent.location.latitude === 'number' && typeof otherEvent.location.longitude === 'number';
+
+          let geoMatch = false;
+          if (hasLocationA && hasLocationB) {
+            const dist = calculateDistance(
+              baseEvent.location.latitude, baseEvent.location.longitude,
+              otherEvent.location.latitude, otherEvent.location.longitude
+            );
+            geoMatch = dist <= 100; // 100km threshold
+          }
+
+          // Check headline keyword overlap (at least 2 of 3 first words match)
+          const baseWords = baseKey.firstWords.split(/\s+/).filter((w: string) => w.length > 0);
+          const otherWords = otherKey.firstWords.split(/\s+/).filter((w: string) => w.length > 0);
+          const wordOverlap = baseWords.filter((w: string) => otherWords.includes(w)).length;
+          const keywordMatch = wordOverlap >= 2;
+
+          // Check temporal proximity (within same 5-min bucket)
+          const temporalMatch = baseKey.temporalBucket === otherKey.temporalBucket;
+
+          if (geoMatch || keywordMatch) {
+            clusterAssignments.set(otherIdx, clusterId);
+            clustered.add(otherIdx);
+            eventsClustered++;
+          }
+        }
+      }
+
+      // Apply cluster IDs to events and update raw_data in the database
+      for (const [eventIndex, clusterIdValue] of clusterAssignments) {
+        const ev = storedEvents[eventIndex];
+        const existingRawData = ev.raw_data || {};
+        const newRawData = {
+          ...existingRawData,
+          topic_cluster_id: `topic-${clusterIdValue}`,
+        };
+
+        // Update the event in the database
+        const prisma = getPrismaClient();
+        await prisma.event.update({
+          where: { id: ev.id },
+          data: {
+            raw_data: newRawData,
+          },
+        });
+
+        topicsCreated++;
       }
     }
 
@@ -854,7 +1039,41 @@ Configuration:
 - Confidence Threshold: ${config.riskFilter.confidenceThreshold}
 - Monitored Risk Types: ${config.riskFilter.monitoredRiskTypes.length > 0 ? config.riskFilter.monitoredRiskTypes.join(', ') : 'All types'}
 
-Return detected events in JSON format as specified in your instructions.`;
+Return detected events in JSON. Each event MUST include:
+- "headline": formatted as "Actor + Action + Target + Location" (e.g., "Houthi forces strike vessel in southern Red Sea") — this is the event summary, not a story headline
+- "source_url": link to the original article/wire source (not the platform that republished it)
+- "event_classification": "fact" | "opinion" | "commentary"
+- "location": object with "name" (string), "latitude" (number 0.0-1.0), "longitude" (number -180.0 to +180.0)
+
+Events classified as "opinion" or "commentary" will be filtered out before storage.
+
+Return ONLY a JSON object with "detected_events" array and "total_events_detected" count. Do not include any other top-level keys. Example:
+{
+  "detected_events": [
+    {
+      "event_hash": "sha256...",
+      "type": "flood",
+      "source": "NOAA",
+      "headline": "Houthi forces strike vessel in southern Red Sea",
+      "source_url": "https://www.reuters.com/...",
+      "event_classification": "fact",
+      "title": "Flood event title",
+      "description": "Event description",
+      "location": {
+        "name": "City Name",
+        "latitude": 34.05,
+        "longitude": -118.25
+      },
+      "severity": 0.7,
+      "confidence": 0.8,
+      "risk_factors": ["rain", "storm"],
+      "affected_domains": ["logistics"],
+      "event_timestamp": "2024-01-15T10:30:00Z",
+      "raw_data": {}
+    }
+  ],
+  "total_events_detected": 1
+}`;
 }
 
 /**
