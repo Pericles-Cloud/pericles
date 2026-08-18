@@ -29,6 +29,7 @@ import {
 
 // Import scorers
 import { monitoringScorers } from '../scorers/monitoring-scorer.js';
+import { factualityScorer } from '../scorers/factuality-scorer.js';
 
 /**
  * Monitoring Agent
@@ -276,6 +277,13 @@ export const monitoringAgent = new Agent({
       sampling: {
         type: 'ratio',
         rate: 0.1, // Sample 10% of runs (deduplication is expensive to evaluate)
+      },
+    },
+    factuality: {
+      scorer: monitoringScorers.factualityScorer,
+      sampling: {
+        type: 'ratio',
+        rate: 0.2, // Sample 20% of runs (factuality check is lightweight)
       },
     },
   },

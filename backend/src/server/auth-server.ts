@@ -3158,6 +3158,14 @@ function duplicateOfEventId(rawData: unknown): string | null {
   return null;
 }
 
+function sourceUrlFromRawData(rawData: unknown): string | undefined {
+  if (rawData && typeof rawData === 'object' && 'source_url' in rawData) {
+    const value = (rawData as { source_url?: unknown }).source_url;
+    return typeof value === 'string' ? value : undefined;
+  }
+  return undefined;
+}
+
 // Get events for organization
 app.get('/api/events', async (req: Request, res: Response) => {
   try {
@@ -3256,6 +3264,7 @@ app.get('/api/events', async (req: Request, res: Response) => {
           affectedDomains: e.affected_domains,
           validationStatus: e.validation_status,
           duplicateOfEventId: duplicateOfEventId(e.raw_data),
+          sourceUrl: sourceUrlFromRawData(e.raw_data),
           validatedAt: e.validated_at?.toISOString() || null,
           incident: e.incident
             ? {
@@ -3268,8 +3277,6 @@ app.get('/api/events', async (req: Request, res: Response) => {
                 responsePlanId: e.incident.response_plan_id,
               }
             : null,
-          createdAt: e.created_at.toISOString(),
-          updatedAt: e.updated_at.toISOString(),
         })),
         total,
       },

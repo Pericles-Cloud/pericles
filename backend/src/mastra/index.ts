@@ -4,6 +4,7 @@ import { PinoLogger } from '@mastra/loggers';
 import { monitoringAgent } from './agents/monitoring-agent.js';
 import { eventQaAgent } from './agents/event-qa-agent.js';
 import { relevanceScorer, severityAccuracyScorer, deduplicationScorer } from './scorers/monitoring-scorer.js';
+import { factualityScorer } from './scorers/factuality-scorer';
 import { getPostgresStore } from '../monitoring/db-client.js';
 
 // Get storage - may be undefined in serverless environments with cold start issues
@@ -19,7 +20,8 @@ const mastraConfig: any = {
   scorers: {
     relevanceScorer,
     severityAccuracyScorer,
-    deduplicationScorer
+    deduplicationScorer,
+    factualityScorer
   },
   logger: new PinoLogger({
     name: 'Mastra',

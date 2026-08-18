@@ -5,6 +5,7 @@
 
 import { z } from 'zod';
 import { createScorer } from '@mastra/core/scores';
+import { factualityScorer } from './factuality-scorer';
 
 /**
  * Monitoring Agent Scorers
@@ -288,4 +289,5 @@ export const monitoringScorers = {
   relevanceScorer,
   severityAccuracyScorer,
   deduplicationScorer,
+  factualityScorer,
 };
