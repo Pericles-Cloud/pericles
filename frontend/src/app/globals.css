@@ -121,15 +121,16 @@
   color-scheme: light;
   --radius: 0.625rem; /* 10px cards; 6px chips via --radius-sm */
 
-  /* Single source of truth for the sticky header's real height. The bar is
-     4rem tall but also carries pt-safe, so under viewportFit: 'cover' on a
-     notched iOS device it is taller. Anything that sits below the header
-     (the nav rail, the drawer scrim, full-bleed page heights) MUST offset by
-     this, not by a bare 4rem — otherwise the header overlaps the nav and
-     full-bleed pages overflow by the inset.
-     The trailing 1px is the header's own `border-b`: leave it out and the
-     full-bleed main is 1px taller than the space left for it, and the nav rail
-     starts 1px under the header instead of flush against its border. */
+  /* App-shell vertical budget. The header OWNS this property: it publishes its
+     MEASURED height here (see components/layout/header.tsx, GH #34), so the
+     nav rail, drawer scrim, full-bleed <main> and Atlas feed max-height can
+     never desync from the real box. Change the header's own classes (h-16,
+     pt-safe, border-b) and a ResizeObserver republishes — do NOT edit this
+     fallback to chase a header-height change.
+     This calc is only the pre-measurement value for first paint / SSR:
+     `pt-safe` makes the bar taller than 4rem on a notched iOS device under
+     viewportFit: 'cover', and the trailing 1px is the header's `border-b` —
+     leave either out and full-bleed pages overflow by that amount. */
   --app-header-h: calc(4rem + 1px + env(safe-area-inset-top));
 
   /* One step off white, not white itself — a card that is IDENTICAL to the
