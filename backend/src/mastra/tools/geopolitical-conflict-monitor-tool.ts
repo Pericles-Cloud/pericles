@@ -361,7 +361,18 @@ function findLocationForCountry(
   countryCode: string
 ): { latitude: number; longitude: number; name: string } | undefined {
   const normalizedCode = countryCode?.toUpperCase();
-  return locations.find(loc => loc.country_code?.toUpperCase() === normalizedCode);
+  const found = locations.find(loc => loc.country_code?.toUpperCase() === normalizedCode);
+  if (found) return found;
+
+  // Country code not found in locations list.
+  // Return a default location indicating the country was not mapped.
+  // Using coordinates for a neutral location (latitude 0, longitude 0)
+  // with a name that reflects the unmapped country code.
+  return {
+    latitude: 0,
+    longitude: 0,
+    name: `Country code ${normalizedCode || 'null'} not found in locations`,
+  };
 }
 
 function hashString(str: string): string {
