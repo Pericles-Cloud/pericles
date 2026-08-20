@@ -7,6 +7,7 @@ import {
   Shipment,
   Supplier,
   Event,
+  TransportMode,
   getShipments,
   getSuppliers,
   getEvents,
@@ -17,10 +18,12 @@ import {
   Marker,
   Polyline,
   InfoWindow,
+  OverlayView,
 } from '@react-google-maps/api';
 import { findPortCoordinates, generateCurvedPath } from '@/lib/port-coordinates';
 import { PERICLES, mapColors, severityLabel, subsidiaryColor } from '@/lib/atlas-brand';
 import { getRiskBgColor, getRiskColor } from '@/lib/intelligence-utils';
+import { TRANSPORT_MODES, MODE_MARKER_MODES, transportModeInfo } from '@/lib/transport-mode';
 import { Card, CardContent } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
@@ -263,6 +266,25 @@ export default function AtlasPage() {
       return true;
     });
   }, [shipmentRoutes, timeliness]);
+
+  // Non-maritime mode icons at route origins (GH #10). One icon per
+  // supplier+mode pair so overlapping air/rail/road legs from one supplier
+  // don't stack badges. Maritime is the ocean-BOL default and reads via the
+  // sea-route arcs + vessel layer, so it gets no origin marker.
+  const modeMarkers = useMemo(() => {
+    const seen = new Set<string>();
+    const markers: { key: string; position: { lat: number; lng: number }; mode: TransportMode }[] = [];
+    for (const route of filteredRoutes) {
+      const mode = route.shipment.modeOfTransport;
+      if (!MODE_MARKER_MODES.includes(mode)) continue;
+      if (!route.origin) continue;
+      const key = `${route.shipment.supplierId ?? 'no-supplier'}:${mode}`;
+      if (seen.has(key)) continue;
+      seen.add(key);
+      markers.push({ key, position: { lat: route.origin.lat, lng: route.origin.lng }, mode });
+    }
+    return markers;
+  }, [filteredRoutes]);
 
   // Pins, deduplicated by location; supplier pins carry the Supplier for
   // detail. Built from filteredRoutes (not the full shipmentRoutes), so the
@@ -706,6 +728,21 @@ export default function AtlasPage() {
           </div>
         </div>
 
+        <div className="mt-2 pt-2 border-t border-border">
+          <div className="font-medium mb-1">Transport mode</div>
+          <div className="space-y-1">
+            {TRANSPORT_MODES.map((m) => {
+              const Icon = m.icon;
+              return (
+                <div key={m.mode} className="flex items-center gap-2">
+                  <Icon className="h-3.5 w-3.5 text-muted-foreground shrink-0" aria-hidden />
+                  <span>{m.label}</span>
+                </div>
+              );
+            })}
+          </div>
+        </div>
+
         {subsidiaries.length > 1 && (
           <div className="mt-2 pt-2 border-t border-border">
             <div className="font-medium mb-1">Subsidiaries · vessels</div>
@@ -844,6 +881,26 @@ export default function AtlasPage() {
           );
         })}
 
+
+        {modeMarkers.map((marker) => {
+          const info = transportModeInfo(marker.mode);
+          const Icon = info.icon;
+          return (
+            <OverlayView
+              key={`mode-${marker.key}`}
+              position={marker.position}
+              mapPaneName={OverlayView.OVERLAY_MOUSE_TARGET}
+              getPixelPositionOffset={(width, height) => ({ x: width / 2 + 18, y: -(height / 2) })}
+            >
+              <div
+                title={`${info.label} leg`}
+                className="pointer-events-none flex h-5 w-5 items-center justify-center rounded-full border border-border bg-card shadow-md"
+              >
+                <Icon className="h-3.5 w-3.5 text-muted-foreground" aria-hidden />
+              </div>
+            </OverlayView>
+          );
+        })}
 
         {mapPins.map((pin) => (
           <Marker

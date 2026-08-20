@@ -6,6 +6,7 @@
  */
 
 import { PrismaClient } from '@prisma/client';
+import type { TransportMode } from '@prisma/client';
 import type { MockerConfig, MockerResult, ShipmentStatus } from './types.js';
 import { DEFAULT_MOCKER_CONFIG } from './types.js';
 import {
@@ -20,6 +21,19 @@ import {
 } from './data.js';
 
 const prisma = new PrismaClient();
+
+/**
+ * Weighted transport-mode picker for the mock fleet (GH #10). Ocean BOLs are
+ * maritime by default, so that stays the bulk; air/rail/road get enough share
+ * that Atlas mode icons are visibly exercised in dev.
+ */
+function pickTransportMode(): TransportMode {
+  const roll = Math.random();
+  if (roll < 0.6) return 'MARITIME';
+  if (roll < 0.72) return 'AIR';
+  if (roll < 0.85) return 'RAIL';
+  return 'ROAD';
+}
 
 // ============================================================================
 // GENERATOR CLASS
@@ -322,6 +336,7 @@ export class MockShipmentGenerator {
       const route = randomElement(routes);
       const product = randomElement(MOCK_PRODUCTS);
       const status = statuses[i % statuses.length];
+      const mode = pickTransportMode();
 
       // Calculate dates based on status
       const now = new Date();
@@ -362,9 +377,10 @@ export class MockShipmentGenerator {
           departure_port: route.departurePort.name,
           departure_port_code: route.departurePort.portCode,
           last_visit_foreign_port: route.transshipmentPorts?.[0]?.name || null,
-          vessel_name: randomElement(MOCK_CARRIERS.find((c) => c.scacCode === carrier.scac_code?.replace(this.config.idPrefix, ''))?.vesselNames || ['Unknown Vessel']),
-          vessel_code: `V${randomBetween(100, 999)}`,
-          voyage: `${randomBetween(1, 52)}W`,
+          vessel_name: mode === 'MARITIME' ? randomElement(MOCK_CARRIERS.find((c) => c.scacCode === carrier.scac_code?.replace(this.config.idPrefix, ''))?.vesselNames || ['Unknown Vessel']) : null,
+          vessel_code: mode === 'MARITIME' ? `V${randomBetween(100, 999)}` : null,
+          voyage: mode === 'MARITIME' ? `${randomBetween(1, 52)}W` : null,
+          mode_of_transport: mode,
           container_ids: containerIds,
           container_sizes: containerSizes,
           container_types: containerTypes,

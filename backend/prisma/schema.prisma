@@ -460,6 +460,10 @@ model Shipment {
   containers_count        Int?
   shipping_route          String?  @db.Text
 
+  // Mode of transportation. Ocean BOL data is maritime by definition, but
+  // air/rail/road legs (GH #10) surface as distinct modes on Atlas.
+  mode_of_transport       TransportMode @default(MARITIME)
+
   // Financial
   value_usd               Float?
 
@@ -746,6 +750,13 @@ enum WorkflowStatus {
   DRAFT
   PUBLISHED
   ARCHIVED
+}
+
+enum TransportMode {
+  MARITIME
+  RAIL
+  ROAD
+  AIR
 }
 
 enum ExecutionMode {

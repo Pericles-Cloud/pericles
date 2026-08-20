@@ -88,7 +88,10 @@ export async function getOrganizationPositions(
   const nameById = new Map(orgs.map((o) => [o.id, o.name]));
 
   const shipments = await prisma.shipment.findMany({
-    where: { organization_id: { in: orgs.map((o) => o.id) } },
+    // Only maritime legs get simulated/published vessel positions. Air/rail/
+    // road shipments (GH #10) have no vessel to track — their Atlas presence is
+    // the mode icon at the origin, not a dot on an ocean lane.
+    where: { organization_id: { in: orgs.map((o) => o.id) }, mode_of_transport: 'MARITIME' },
     select: {
       id: true,
       organization_id: true,

@@ -719,6 +719,8 @@ export interface ShipmentCarrier {
   scacCode: string;
 }
 
+export type TransportMode = 'MARITIME' | 'RAIL' | 'ROAD' | 'AIR';
+
 export interface Shipment {
   id: string;
   organizationId: string;
@@ -730,6 +732,7 @@ export interface Shipment {
   masterBolNumber: string | null;
   containersCount: number | null;
   shippingRoute: string | null;
+  modeOfTransport: TransportMode;
   valueUsd: number | null;
   arrivalDate: string | null;
   estimatedArrivalDate: string | null;
@@ -769,6 +772,7 @@ export interface CreateShipmentData {
   carrierId?: string;
   containersCount?: number;
   shippingRoute?: string;
+  modeOfTransport?: TransportMode;
   valueUsd?: number;
   arrivalDate?: string;
   estimatedArrivalDate?: string;
@@ -801,6 +805,7 @@ export interface UpdateShipmentData {
   carrierId?: string | null;
   containersCount?: number | null;
   shippingRoute?: string | null;
+  modeOfTransport?: TransportMode;
   valueUsd?: number | null;
   arrivalDate?: string | null;
   estimatedArrivalDate?: string | null;
