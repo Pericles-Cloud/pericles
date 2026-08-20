@@ -9,6 +9,12 @@ RUN apt-get update \
     && apt-get install -y --no-install-recommends openssl ca-certificates curl \
     && rm -rf /var/lib/apt/lists/*
 
+# node:20-slim ships npm 10, which rejects lockfiles written by npm 11
+# ("Missing: esbuild@0.28.2 from lock file" — npm 11 omits the nested
+# vitest esbuild tree npm 10 still expects). Pin the SAME major as local
+# tooling so the build accepts both npm-10- and npm-11-generated lockfiles.
+RUN npm install -g npm@11
+
 WORKDIR /app
 
 # Install ALL deps: tsx (the runtime) and the prisma CLI are devDependencies but
