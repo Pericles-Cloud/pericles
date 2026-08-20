@@ -176,17 +176,19 @@ export function Sidebar() {
   const isModalOpen = isExpanded && isModal;
 
   // Collapse/expand affordance (GH #24): on every expanded surface a small
-  // arrow collapses the rail; on the Atlas rail an expand arrow sits near the
-  // top. The click always writes the persisted preference, matching the icon
-  // that is showing rather than the underlying preference — so on the Atlas
-  // rail, clicking the collapse arrow while a peek has it open pins it closed,
-  // and clicking the expand arrow pins it open.
+  // arrow collapses the rail; on the collapsed Atlas rail an expand arrow sits
+  // near the top. The arrow reflects the PERSISTED rail choice (`isExpanded`),
+  // not the effective on-screen state — a hover peek must not flip it into a
+  // collapse chevron, or the expand arrow would become unreachable the moment
+  // the pointer lands on the rail to click it. Clicking always writes the
+  // persisted preference: expand pins the Atlas rail open, collapse pins it
+  // closed.
   const handleToggleExpanded = () => {
     if (isBelowLg) {
       setDrawerOpen(!drawerOpen);
       return;
     }
-    setExpanded(surface, !effectiveExpanded);
+    setExpanded(surface, !isExpanded);
   };
 
   const isActive = (href: string) => {
@@ -301,15 +303,15 @@ export function Sidebar() {
             <button
               type="button"
               onClick={handleToggleExpanded}
-              aria-label={effectiveExpanded ? 'Collapse sidebar' : 'Expand sidebar'}
-              aria-expanded={effectiveExpanded}
-              title={effectiveExpanded ? 'Collapse sidebar' : 'Expand sidebar'}
+              aria-label={isExpanded ? 'Collapse sidebar' : 'Expand sidebar'}
+              aria-expanded={isExpanded}
+              title={isExpanded ? 'Collapse sidebar' : 'Expand sidebar'}
               className={cn(
                 'mb-1 flex items-center rounded-md p-2 text-sidebar-muted-foreground transition-colors hover:bg-sidebar-accent hover:text-sidebar-accent-foreground',
-                effectiveExpanded ? 'justify-end pr-1' : 'justify-center',
+                isExpanded ? 'justify-end pr-1' : 'justify-center',
               )}
             >
-              {effectiveExpanded ? (
+              {isExpanded ? (
                 // Chevron-left — the expanded sidebar pulls in.
                 <svg className="size-4" fill="none" viewBox="0 0 24 24" strokeWidth="1.5" stroke="currentColor">
                   <path strokeLinecap="round" strokeLinejoin="round" d="M15.75 19.5L8.25 12l7.5-7.5" />
