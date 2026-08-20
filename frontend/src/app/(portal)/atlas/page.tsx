@@ -890,7 +890,7 @@ export default function AtlasPage() {
               key={`mode-${marker.key}`}
               position={marker.position}
               mapPaneName={OverlayView.OVERLAY_MOUSE_TARGET}
-              getPixelPositionOffset={(width, height) => ({ x: width / 2 + 14, y: -(height / 2) })}
+              getPixelPositionOffset={(width, height) => ({ x: width / 2 + 18, y: -(height / 2) })}
             >
               <div
                 title={`${info.label} leg`}
