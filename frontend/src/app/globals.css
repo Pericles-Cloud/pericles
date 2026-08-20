@@ -171,9 +171,6 @@
      is only 2.49:1 — a fill needs the gold-600 border to have an edge, and
      gold TEXT must be gold-700. */
   --brand-accent: var(--color-gold-500);
-  --brand-accent-foreground: var(--color-purple-900); /* 6.98:1 on gold-500 */
-  --brand-accent-border: var(--color-gold-600);        /* 3.38:1 on white */
-  --brand-accent-text: var(--color-gold-700);          /* 4.82:1 on white */
 
   --ring: var(--color-purple-600);
   --destructive: var(--color-danger);
@@ -201,7 +198,6 @@
   --risk-critical-text:   var(--color-danger-dark);
   --risk-elevated-text:   var(--color-warning-dark);
   --risk-low-text:        var(--color-success-dark);
-  --risk-monitoring-text: var(--color-info-dark);
 
   /* App shell — LIGHT. The whole design goes light together: a light purple
      tint, not a dark slab. The shell flips with the mode (see .dark). */
@@ -211,7 +207,6 @@
   /* active fill and hover surface must differ, or hovering an inactive item
      makes it look active */
   --sidebar-primary: var(--color-purple-300);           /* active fill */
-  --sidebar-primary-foreground: var(--color-purple-900);
   /* --sidebar-fillet, NOT --sidebar-accent: shadcn's contract defines
      --sidebar-accent as the nav hover/active SURFACE, and any future
      `shadcn add sidebar` would emit `hover:bg-sidebar-accent` — painting a
@@ -222,9 +217,12 @@
   --sidebar-accent: var(--color-purple-200);
   --sidebar-accent-foreground: var(--color-purple-900);
   --sidebar-border: var(--color-purple-200);
-  --sidebar-ring: var(--color-gold-800);
 
-  /* Charts — purple→gold sequential. Replaces the shadcn rainbow. */
+  /* Charts — purple→gold sequential. Replaces the shadcn rainbow.
+     Intentionally pre-declared: no charting surface ships yet (#37 review
+     finding), but these keep the ramp intent pinned so the first chart lands
+     on brand hues instead of the shadcn rainbow. Safe to delete only once a
+     real consumer exists. */
   --chart-1: var(--color-purple-600);
   --chart-2: var(--color-purple-400);
   --chart-3: var(--color-gold-600);
@@ -269,9 +267,6 @@
   --accent-foreground: var(--color-purple-50); /* 5.53:1 */
 
   --brand-accent: var(--color-gold-400);              /* 8.60:1 on card */
-  --brand-accent-foreground: var(--color-gold-900);   /* 5.40:1 on gold-400 */
-  --brand-accent-border: var(--color-gold-400);
-  --brand-accent-text: var(--color-gold-400);
 
   --ring: var(--color-purple-200);
   --destructive: var(--color-danger);
@@ -312,7 +307,6 @@
   --risk-critical-text:   color-mix(in oklab, var(--color-danger) 40%, var(--color-danger-light));
   --risk-elevated-text:   color-mix(in oklab, var(--color-warning) 40%, var(--color-warning-light));
   --risk-low-text:        color-mix(in oklab, var(--color-success) 40%, var(--color-success-light));
-  --risk-monitoring-text: color-mix(in oklab, var(--color-info) 40%, var(--color-info-light));
 
   /* App shell — DARK. Pericles Purple at its brand base, sitting one step
      LIGHTER than the purple-900 canvas so the chrome reads as the dominant
@@ -321,7 +315,6 @@
   --sidebar-foreground: var(--color-grey-50);           /* 8.30:1 */
   --sidebar-muted-foreground: var(--color-purple-200);  /* 5.75:1 */
   --sidebar-primary: var(--color-purple-800);           /* active fill (recessed) */
-  --sidebar-primary-foreground: var(--color-grey-50);
   /* gold-300, NOT gold-400: on purple-600 gold-400 is only 4.15:1 and fails AA
      as text. gold-300 is 5.02:1. Gold lightens as its backdrop darkens —
      the mirror of the gold-800 used on the light shell. */
@@ -329,7 +322,6 @@
   --sidebar-accent: var(--color-purple-500);
   --sidebar-accent-foreground: var(--color-purple-50);
   --sidebar-border: var(--color-purple-700);
-  --sidebar-ring: var(--color-gold-300);
 
 
   --chart-1: var(--color-purple-300);
@@ -371,9 +363,6 @@
   --color-accent: var(--accent);
   --color-accent-foreground: var(--accent-foreground);
   --color-brand-accent: var(--brand-accent);
-  --color-brand-accent-foreground: var(--brand-accent-foreground);
-  --color-brand-accent-border: var(--brand-accent-border);
-  --color-brand-accent-text: var(--brand-accent-text);
   --color-ring: var(--ring);
   --color-destructive: var(--destructive);
 
@@ -392,18 +381,15 @@
   --color-risk-critical-text: var(--risk-critical-text);
   --color-risk-elevated-text: var(--risk-elevated-text);
   --color-risk-low-text: var(--risk-low-text);
-  --color-risk-monitoring-text: var(--risk-monitoring-text);
 
   --color-sidebar: var(--sidebar);
   --color-sidebar-foreground: var(--sidebar-foreground);
   --color-sidebar-muted-foreground: var(--sidebar-muted-foreground);
   --color-sidebar-primary: var(--sidebar-primary);
-  --color-sidebar-primary-foreground: var(--sidebar-primary-foreground);
   --color-sidebar-accent: var(--sidebar-accent);
   --color-sidebar-accent-foreground: var(--sidebar-accent-foreground);
   --color-sidebar-fillet: var(--sidebar-fillet);
   --color-sidebar-border: var(--sidebar-border);
-  --color-sidebar-ring: var(--sidebar-ring);
 
   --color-chart-1: var(--chart-1);
   --color-chart-2: var(--chart-2);

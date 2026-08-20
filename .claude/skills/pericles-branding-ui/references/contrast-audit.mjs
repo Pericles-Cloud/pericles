@@ -129,9 +129,6 @@ const PAIRS = [
   ['L  primary button label', 'grey-50', 'purple-600', AA_TEXT],
   ['L  primary vs canvas', 'purple-600', 'white', AA_LARGE],
   ['L  link / interactive text', 'purple-600', 'white', AA_TEXT],
-  ['L  gold CTA label', 'purple-900', 'gold-500', AA_TEXT],
-  ['L  gold CTA border (--brand-accent-border)', 'gold-600', 'white', AA_LARGE],
-  ['L  gold text (--brand-accent-text)', 'gold-700', 'white', AA_TEXT],
   ['D  primary text on card', 'purple-200', 'purple-800', AA_TEXT],
   ['D  primary button label', 'purple-900', 'purple-200', AA_TEXT],
   ['L  hover (--accent) label', 'purple-900', 'purple-200', AA_TEXT],
@@ -179,7 +176,6 @@ const PAIRS = [
   ['D  muted text on canvas', 'purple-300', 'purple-900', AA_TEXT],
   ['D  muted text on card', 'purple-300', 'purple-800', AA_TEXT],
   ['D  gold accent on card', 'gold-400', 'purple-800', AA_TEXT],
-  ['D  gold CTA label', 'gold-900', 'gold-400', AA_TEXT],
   ['D  content fillet on canvas', 'gold-400', 'purple-900', AA_LARGE],
   // -text lands on --muted wells too, and muted is the LIGHTER dark surface,
   // so it sets the floor. Only asserting against --card missed danger at 3.81.
@@ -285,7 +281,7 @@ console.log(
 // ── Atlas map palette: categorical colours must not collide with semantic or
 // brand ones. Not a contrast check — an identity check — but it belongs here
 // because it is the same class of bug and equally invisible in a diff.
-import { readFileSync } from 'node:fs';
+import { readFileSync, readdirSync, statSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
 import { dirname, resolve } from 'node:path';
 
@@ -548,6 +544,46 @@ try {
   }
 } catch (err) {
   console.log(`  SKIP  could not read globals.css (${err.code ?? err.message})`);
+}
+
+console.log('\nEXPORTED ROLE TOKENS (must have a consumer in src/)');
+try {
+  const css = readFileSync(globalsCss, 'utf8');
+  const inlineBlock = css.match(/@theme inline \{([\s\S]*?)\n\}/)?.[1] ?? '';
+  const exported = [...inlineBlock.matchAll(/--color-([a-z0-9-]+):/g)].map((m) => m[1]);
+  if (!exported.length) {
+    failures += 1;
+    console.log('  FAIL  no --color-* found in @theme inline — did the block get renamed?');
+  }
+  // Grep TS/TSX only. globals.css itself would count a token's own declaration
+  // lines as "used" and prove nothing; the point is a *consumer*. A token is
+  // consumed as a Tailwind class, so its name always follows a utility family
+  // and a hyphen (`text-sidebar-foreground`, `bg-card`, `ring-ring`).
+  const srcDir = resolve(dirname(globalsCss), '..');
+  const files = [];
+  const collect = (dir) => {
+    for (const entry of readdirSync(dir)) {
+      const p = resolve(dir, entry);
+      if (statSync(p).isDirectory()) collect(p);
+      else if (/\.tsx?$/.test(entry)) files.push(p);
+    }
+  };
+  collect(srcDir);
+  const haystack = files.map((f) => readFileSync(f, 'utf8')).join('\n');
+  const dead = exported.filter(
+    (name) =>
+      !name.startsWith('chart-') &&
+      !new RegExp(`-${name}(?:[^a-z0-9-]|$)`).test(haystack),
+  );
+  if (dead.length) {
+    failures += 1;
+    console.log(`  FAIL  exported but never consumed: ${dead.join(', ')}`);
+    console.log('        delete each token from :root, .dark AND @theme inline (see GH #37)');
+  } else {
+    console.log(`  OK    ${exported.length} exported role tokens, all consumed`);
+  }
+} catch (err) {
+  console.log(`  SKIP  could not scan consumers (${err.code ?? err.message})`);
 }
 
 console.log(
