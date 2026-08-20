@@ -6,7 +6,8 @@
  *   4.5:1 for body text, 3.0:1 for large text and non-text UI boundaries.
  *
  * Run after ANY change to the ramps or role tokens in
- * `templates/globals.css` (or `frontend/src/app/globals.css` once landed):
+ * `frontend/src/app/globals.css` (the single authoritative copy; the old
+ * `templates/*` duplicates were removed — GH #35):
  *
  *   node .claude/skills/pericles-branding-ui/references/contrast-audit.mjs
  *

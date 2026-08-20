@@ -47,6 +47,10 @@ The migration described below has **landed**. Current state:
 - Fonts: Geist Sans (UI) + Cormorant Garamond (display) + IBM Plex Mono (data).
 - Stack: Tailwind **v4** (`@tailwindcss/postcss`, no `tailwind.config.js`), shadcn
   "new-york" with `cssVariables: true`, Next.js 16 App Router, React 19.
+- **No template copies** (GH #35): the duplicated `templates/*` files were deleted —
+  the shipped files this skill references are the single authoritative copy. When a
+  ramp or role token moves, edit `frontend/src/app/globals.css` once; never re-create
+  a copy.
 
 **Two sanctioned raw-hex exceptions**, both because the consumer cannot read CSS
 custom properties: `src/lib/atlas-brand.ts` (Google Maps markers, routes, and the
@@ -76,14 +80,15 @@ Layer 3  UTILITIES      bg-background, text-muted-foreground, border-border
 a marketing surface. If you write `bg-purple-800` inside a card, you have hardcoded a
 mode and it will break in the other one.
 
-The full copy-paste file is `templates/globals.css`. Ramps and rationale are in
+The authoritative theme file is `frontend/src/app/globals.css` — edit it in
+place; there is no copy to keep in sync (GH #35). Ramps and rationale are in
 `references/palette.md`.
 
 ### Layer 1 — the ramps
 
 Purple 50–900 (base **600**), Gold 50–900 (base **500**), Grey 50–950, and four
 semantic families with `-light` / base / `-dark` steps. Exact hexes in
-`references/palette.md` and `templates/globals.css`.
+`references/palette.md` and `frontend/src/app/globals.css`.
 
 Two notes that matter:
 
@@ -277,7 +282,7 @@ The palette alone won't de-genericize the UI; the type pairing does most of that
 | Data / eyebrow | **IBM Plex Mono** 400/500 | Metrics, hex/IDs, timestamps, uppercase eyebrows at 11px / `0.18em` tracking. |
 
 Replace `Geist_Mono` with `IBM_Plex_Mono` and add `Cormorant_Garamond` via
-`next/font/google` (see `templates/layout.tsx`). Never render a serif display face
+`next/font/google` (see `frontend/src/app/layout.tsx`). Never render a serif display face
 below 20px, and never set body copy in the serif.
 
 ## The fillet (brand device)
@@ -322,8 +327,8 @@ Non-negotiables:
   the first toggle to expose ugly pairs. Migrate them to role tokens (below) rather
   than patching `dark:` variants.
 
-Templates: `templates/theme-provider.tsx`, `templates/theme-toggle.tsx`,
-`templates/layout.tsx`.
+Reference implementations: `frontend/src/providers/theme-provider.tsx`,
+`frontend/src/components/layout/theme-toggle.tsx`, `frontend/src/app/layout.tsx`.
 
 ## Responsive & device rules
 
@@ -368,7 +373,8 @@ looks right.
 
 ## Migration path (staged — do not big-bang 1,372 classes)
 
-1. **Land the token layer.** Replace `globals.css` with `templates/globals.css`. Ramps
+1. **Land the token layer.** Ship the token system in `frontend/src/app/globals.css` —
+   the shipped file is the reference, there is no template copy (GH #35). Ramps
    are additive; nothing breaks.
 2. **Alias `gray` → brand grey.** Setting `--color-gray-*` to the brand grey values
    re-hues all 226+125+… existing `text-gray-*` usages to the warm neutral **with zero

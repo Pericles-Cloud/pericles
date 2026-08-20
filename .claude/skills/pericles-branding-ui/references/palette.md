@@ -96,7 +96,7 @@ light semantic tints are too light for white text to pass accessibility contrast
 
 A 2px `gold-500` rule above a 1px `gold-500 @ 50%` rule, 64px wide under the wordmark and
 full-width under section heads. The brand's signature divider — see
-`templates/fillet.tsx`.
+`frontend/src/components/ui/fillet.tsx`.
 
 ## Measured contrast
 
