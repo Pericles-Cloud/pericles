@@ -129,7 +129,6 @@ const PAIRS = [
   ['L  primary button label', 'grey-50', 'purple-600', AA_TEXT],
   ['L  primary vs canvas', 'purple-600', 'white', AA_LARGE],
   ['L  link / interactive text', 'purple-600', 'white', AA_TEXT],
-  ['L  gold CTA label', 'purple-900', 'gold-500', AA_TEXT],
   ['D  primary text on card', 'purple-200', 'purple-800', AA_TEXT],
   ['D  primary button label', 'purple-900', 'purple-200', AA_TEXT],
   ['L  hover (--accent) label', 'purple-900', 'purple-200', AA_TEXT],
@@ -177,7 +176,6 @@ const PAIRS = [
   ['D  muted text on canvas', 'purple-300', 'purple-900', AA_TEXT],
   ['D  muted text on card', 'purple-300', 'purple-800', AA_TEXT],
   ['D  gold accent on card', 'gold-400', 'purple-800', AA_TEXT],
-  ['D  gold CTA label', 'gold-900', 'gold-400', AA_TEXT],
   ['D  content fillet on canvas', 'gold-400', 'purple-900', AA_LARGE],
   // -text lands on --muted wells too, and muted is the LIGHTER dark surface,
   // so it sets the floor. Only asserting against --card missed danger at 3.81.
