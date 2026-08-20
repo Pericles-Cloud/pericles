@@ -11,13 +11,17 @@ import { ThemeProvider } from '@/providers/theme-provider';
 // already-wired equivalent (see SKILL.md open questions).
 const geistSans = Geist({ variable: '--font-geist-sans', subsets: ['latin'] });
 
-// Display. Page titles and section heads, often italic. Never below 20px,
-// never in body copy.
+// Display. Page titles and section heads. Never below 20px, never in body
+// copy. The variant list here must match what actually renders (GH #36):
+// every font-display call site is font-semibold in normal style, so weight
+// 500 and italic are NOT preloaded. The colour-system doc calls for italic
+// section heads — add 'italic' (or '500') in the same commit as its first
+// real use, never ahead of it.
 const cormorant = Cormorant_Garamond({
   variable: '--font-cormorant',
   subsets: ['latin'],
-  weight: ['500', '600'],
-  style: ['normal', 'italic'],
+  weight: ['600'],
+  style: ['normal'],
 });
 
 // Data / eyebrows. Metrics, IDs, timestamps, uppercase labels.
