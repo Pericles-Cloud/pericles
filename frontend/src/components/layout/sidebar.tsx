@@ -1,10 +1,14 @@
 'use client';
 
-import { useEffect, useRef } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import Link from 'next/link';
 import { usePathname } from 'next/navigation';
 import { cn } from '@/lib/utils';
-import { useSidebarExpanded, useSidebarStore } from '@/stores/sidebar-store';
+import {
+  useIsBelowLg,
+  useSidebarExpanded,
+  useSidebarStore,
+} from '@/stores/sidebar-store';
 import { Fillet } from '@/components/ui/fillet';
 
 interface NavItem {
@@ -139,14 +143,53 @@ export const SIDEBAR_WIDTH = { expanded: 'w-64', collapsed: 'w-16' } as const;
 
 export function Sidebar() {
   const pathname = usePathname();
-  const { isExpanded, isModal, drawerOpen, collapse } = useSidebarExpanded(pathname);
+  const { surface, isExpanded, isModal, drawerOpen, collapse } = useSidebarExpanded(pathname);
   const setDrawerOpen = useSidebarStore((state) => state.setDrawerOpen);
+  const setExpanded = useSidebarStore((state) => state.setExpanded);
   const asideRef = useRef<HTMLElement>(null);
+  const isBelowLg = useIsBelowLg();
+
+  // Hover-to-peek on the Atlas rail (GH #24): the map surface is collapsed by
+  // default, and hovering the rail temporarily expands it. This is display-only
+  // state — the persisted preference (`isExpanded`) is untouched, so a peek
+  // never changes what the user sees next time, and it never engages the modal
+  // focus trap/scrim the way a deliberate click does. Standard surfaces are
+  // docked and expanded, so there is nothing to peek at.
+  // Keyed to the pathname (not a bare boolean) so a stale peek can't survive
+  // navigation: returning to Atlas with the pointer elsewhere shows the
+  // collapsed rail, not a leftover expansion from the previous visit — the
+  // pointer never left the aside, so no onMouseLeave would fire to clear it.
+  const [peek, setPeek] = useState<{ pathname: string; active: boolean }>({
+    pathname,
+    active: false,
+  });
+  const isHoverPeek = peek.active && peek.pathname === pathname;
+  const isPeeking = isExpanded ? false : isHoverPeek && surface === 'map';
+
+  // What is on screen right now: the persisted rail choice, widened by a peek.
+  const effectiveExpanded = isExpanded || isPeeking;
 
   // Only trap/scrim when the nav actually floats above content: the Atlas
   // overlay (GH #8) or the below-lg drawer. As a docked rail it is part of the
   // page, and trapping Tab there would strand keyboard users inside the nav.
+  // A hover peek is also excluded — hovering must not steal focus.
   const isModalOpen = isExpanded && isModal;
+
+  // Collapse/expand affordance (GH #24): on every expanded surface a small
+  // arrow collapses the rail; on the collapsed Atlas rail an expand arrow sits
+  // near the top. The arrow reflects the PERSISTED rail choice (`isExpanded`),
+  // not the effective on-screen state — a hover peek must not flip it into a
+  // collapse chevron, or the expand arrow would become unreachable the moment
+  // the pointer lands on the rail to click it. Clicking always writes the
+  // persisted preference: expand pins the Atlas rail open, collapse pins it
+  // closed.
+  const handleToggleExpanded = () => {
+    if (isBelowLg) {
+      setDrawerOpen(!drawerOpen);
+      return;
+    }
+    setExpanded(surface, !isExpanded);
+  };
 
   const isActive = (href: string) => {
     if (href === '/dashboard') return pathname === href;
@@ -228,6 +271,8 @@ export function Sidebar() {
         aria-label="Main navigation"
         role={isModalOpen ? 'dialog' : undefined}
         aria-modal={isModalOpen ? true : undefined}
+        onMouseEnter={() => setPeek({ pathname, active: true })}
+        onMouseLeave={() => setPeek({ pathname, active: false })}
         className={cn(
           // Brand chrome — flips with the mode: purple-100 light, purple-600 dark.
           // NO pl-safe here: the aside has a fixed width (w-16 / w-64) and
@@ -237,7 +282,7 @@ export function Sidebar() {
           // instead, where it is additive.
           'fixed bottom-0 left-0 top-[var(--app-header-h)] z-30 flex flex-col border-r border-sidebar-border bg-sidebar',
           'transition-[width,transform] duration-200 ease-out',
-          isExpanded ? SIDEBAR_WIDTH.expanded : SIDEBAR_WIDTH.collapsed,
+          effectiveExpanded ? SIDEBAR_WIDTH.expanded : SIDEBAR_WIDTH.collapsed,
           // Below lg the transform is the drawer, which starts closed — so the
           // prerendered markup is off-canvas on phones. From lg up it is always
           // on-canvas and the width above decides rail vs expanded.
@@ -251,6 +296,35 @@ export function Sidebar() {
             (all desktop) the last nav item would sit flush against the edge.
             overscroll-contain stops scroll chaining into the page behind. */}
         <nav className="flex flex-1 flex-col overflow-y-auto overflow-x-hidden overscroll-contain pl-[calc(0.5rem+env(safe-area-inset-left))] pr-2 pt-4 pb-[calc(1rem+env(safe-area-inset-bottom))]">
+          {/* Collapse/expand affordance (GH #24). Hidden below lg — the drawer
+              has no rail preference to toggle. Icon-only when collapsed, a
+              right-aligned chevron when expanded. */}
+          {!isBelowLg && (
+            <button
+              type="button"
+              onClick={handleToggleExpanded}
+              aria-label={isExpanded ? 'Collapse sidebar' : 'Expand sidebar'}
+              aria-expanded={isExpanded}
+              title={isExpanded ? 'Collapse sidebar' : 'Expand sidebar'}
+              className={cn(
+                'mb-1 flex items-center rounded-md p-2 text-sidebar-muted-foreground transition-colors hover:bg-sidebar-accent hover:text-sidebar-accent-foreground',
+                isExpanded ? 'justify-end pr-1' : 'justify-center',
+              )}
+            >
+              {isExpanded ? (
+                // Chevron-left — the expanded sidebar pulls in.
+                <svg className="size-4" fill="none" viewBox="0 0 24 24" strokeWidth="1.5" stroke="currentColor">
+                  <path strokeLinecap="round" strokeLinejoin="round" d="M15.75 19.5L8.25 12l7.5-7.5" />
+                </svg>
+              ) : (
+                // Chevron-right — the collapsed rail pushes out.
+                <svg className="size-4" fill="none" viewBox="0 0 24 24" strokeWidth="1.5" stroke="currentColor">
+                  <path strokeLinecap="round" strokeLinejoin="round" d="M8.25 4.5l7.5 7.5-7.5 7.5" />
+                </svg>
+              )}
+            </button>
+          )}
+
           <ul className="flex flex-1 flex-col gap-y-6">
             {navigation.map((section, sectionIndex) => (
               <li key={sectionIndex}>
@@ -260,14 +334,14 @@ export function Sidebar() {
                       // Mono eyebrow — the brand's section-label treatment.
                       'mb-2 px-2 font-mono text-[11px] font-medium uppercase tracking-[0.18em] text-sidebar-muted-foreground',
                       // The label is meaningless next to icon-only items.
-                      !isExpanded && 'sr-only',
+                      !effectiveExpanded && 'sr-only',
                     )}
                   >
                     {section.title}
                   </div>
                 )}
                 {/* Divider stands in for the hidden section label on the rail. */}
-                {section.title && !isExpanded && (
+                {section.title && !effectiveExpanded && (
                   <div className="mx-2 mb-2 border-t border-sidebar-border" />
                 )}
                 <ul className="space-y-1">
@@ -275,7 +349,7 @@ export function Sidebar() {
                     <li key={item.name}>
                       <Link
                         href={item.href}
-                        title={!isExpanded ? item.name : undefined}
+                        title={!effectiveExpanded ? item.name : undefined}
                         aria-current={isActive(item.href) ? 'page' : undefined}
                         className={cn(
                           isActive(item.href)
@@ -286,7 +360,7 @@ export function Sidebar() {
                             : 'text-sidebar-muted-foreground hover:bg-sidebar-accent hover:text-sidebar-accent-foreground',
                           'group relative flex items-center gap-x-3 rounded-md p-2 text-sm font-medium',
                           'pointer-coarse:min-h-11 active:opacity-80',
-                          !isExpanded && 'justify-center',
+                          !effectiveExpanded && 'justify-center',
                         )}
                       >
                         {/* The gold rule carries the active state: a purple-600
@@ -300,7 +374,7 @@ export function Sidebar() {
                           />
                         )}
                         <span className="shrink-0">{item.icon}</span>
-                        <span className={cn('truncate', !isExpanded && 'sr-only')}>
+                        <span className={cn('truncate', !effectiveExpanded && 'sr-only')}>
                           {item.name}
                         </span>
                       </Link>

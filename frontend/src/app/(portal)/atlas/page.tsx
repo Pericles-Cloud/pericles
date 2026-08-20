@@ -95,6 +95,7 @@ interface MapPin {
 
 type TimelinessFilter = 'all' | 'active' | 'completed';
 type MapType = 'roadmap' | 'hybrid';
+type EventTypeFilter = 'all' | 'conflict' | 'political-violence' | 'strike' | 'weather' | 'financial' | 'generic';
 
 export default function AtlasPage() {
   const { currentOrganization } = useAuth();
@@ -117,6 +118,7 @@ export default function AtlasPage() {
   const [selectedRoute, setSelectedRoute] = useState<ShipmentRoute | null>(null);
   // Collapsed by default so the map reads as the whole surface (GH #8).
   const [isFeedOpen, setIsFeedOpen] = useState(false);
+  const [eventTypeFilter, setEventTypeFilter] = useState<EventTypeFilter>('all');
   // Supplier city (#11): no city field exists on Supplier — the BOL/ImportYeti
   // pipeline never populates `address` — so this is reverse-geocoded from the
   // supplier's own lat/lng on demand when its pin is opened, using the same
@@ -425,11 +427,19 @@ export default function AtlasPage() {
   }, [isLoaded, selectedPin, supplierCities]);
 
   const openEvents = useMemo(
-    () =>
-      events
-        .filter((e) => e.validationStatus !== 'rejected' && e.validationStatus !== 'duplicate')
-        .slice(0, 10),
-    [events],
+    () => {
+      let filtered = events.filter(
+        (e) => e.validationStatus !== 'rejected' && e.validationStatus !== 'duplicate',
+      );
+
+      // Filter by event type
+      if (eventTypeFilter !== 'all') {
+        filtered = filtered.filter((e) => e.type === eventTypeFilter);
+      }
+
+      return filtered.slice(0, 10);
+    },
+    [events, eventTypeFilter],
   );
 
   // Stats reflect the org's actual (subsidiary-rolled-up) data, not just the pins
@@ -553,6 +563,20 @@ export default function AtlasPage() {
                 }}
               >
                 {f === 'all' ? 'All' : f === 'active' ? 'In Transit' : 'Arrived'}
+              </Button>
+            ))}
+          </div>
+
+          {/* Event type filter */}
+          <div className="flex items-center gap-1">
+            {(['all', 'conflict', 'political-violence', 'strike', 'weather', 'financial', 'generic'] as const).map((f) => (
+              <Button
+                key={f}
+                size="sm"
+                variant={eventTypeFilter === f ? 'default' : 'outline'}
+                onClick={() => setEventTypeFilter(f as EventTypeFilter)}
+              >
+                {f === 'all' ? 'All' : f.charAt(0).toUpperCase() + f.slice(1)}
               </Button>
             ))}
           </div>
@@ -788,6 +812,38 @@ export default function AtlasPage() {
             }}
           />
         ))}
+        {/* Event markers: different icons for different event types */}
+        {events.map((event) => {
+          if (!event.latitude || !event.longitude) return null;
+          if (eventTypeFilter !== 'all' && event.type !== eventTypeFilter) return null;
+
+          const typeToColor: Record<string, string> = {
+            conflict: '#EF4444',
+            'political-violence': '#F97316',
+            strike: '#F59E0B',
+            weather: '#3B82F6',
+            financial: '#10B981',
+            generic: '#6B7280',
+          };
+
+
+          const color = typeToColor[event.type] || typeToColor.generic;
+          return (
+            <Marker
+              key={`event-${event.id}`}
+              position={{ lat: event.latitude, lng: event.longitude }}
+              icon={{
+                path: google.maps.SymbolPath.CIRCLE,
+                scale: 6,
+                fillColor: color,
+                fillOpacity: 1,
+                strokeColor: PERICLES.white,
+                strokeWeight: 2,
+              }}
+            />
+          );
+        })}
+
 
         {mapPins.map((pin) => (
           <Marker
