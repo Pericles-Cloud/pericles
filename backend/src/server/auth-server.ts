@@ -20,8 +20,8 @@ import { createServer } from 'http';
 import cors from 'cors';
 import { initializeWorkflowSocket } from './workflow-socket.js';
 import crypto from 'crypto';
-import { PrismaClient } from '@prisma/client';
-import type { Prisma, ExecutionMode, NodeType } from '@prisma/client';
+import { PrismaClient, Prisma } from '@prisma/client';
+import type { ExecutionMode, NodeType } from '@prisma/client';
 import {
   RegisterSchema,
   LoginSchema,
@@ -1474,6 +1474,14 @@ const UpdateOrgSchema = z.object({
   website: z.string().url().nullable().optional(),
 });
 
+// Query schema for GET /api/intelligence/country-risk (GH #13). Organization
+// ids are UUIDs from the seeders, but the rest of the API validates them as
+// plain strings — keep the same tolerance rather than 400ing a legacy id.
+const CountryRiskQuerySchema = z.object({
+  organizationId: z.string().min(1),
+  includeSubsidiaries: z.enum(['true', 'false']).optional(),
+});
+
 const UpdateMemberSchema = z.object({
   role: z.enum(['OWNER', 'ADMIN', 'MEMBER', 'GUEST']),
 });
@@ -2749,6 +2757,94 @@ app.get('/api/shipments', async (req: Request, res: Response) => {
     });
   } catch (error) {
     console.error('List shipments error:', error);
+    res.status(500).json({ success: false, error: { code: 'INTERNAL_ERROR', message: 'An unexpected error occurred' } });
+  }
+});
+
+// Pre-aggregated country supplier/shipment counts for Intelligence's Analytics
+// view (GH #13). Grouped in Postgres so the client never downloads full
+// Supplier/Shipment rows just to reduce them to per-country counters — the
+// former /insights page fetched both collections wholesale. The events side of
+// the country-risk computation stays client-side (only events drive the risk
+// score/trends); this endpoint supplies the supplier/shipment half.
+app.get('/api/intelligence/country-risk', async (req: Request, res: Response) => {
+  try {
+    const tokenPayload = authenticateRequest(req);
+    if (!tokenPayload) {
+      res.status(401).json({ success: false, error: { code: 'UNAUTHORIZED', message: 'Authentication required' } });
+      return;
+    }
+
+    const parseResult = CountryRiskQuerySchema.safeParse(req.query);
+    if (!parseResult.success) {
+      res.status(400).json({ success: false, error: { code: 'VALIDATION_ERROR', message: 'organizationId query parameter is required' } });
+      return;
+    }
+    const { organizationId, includeSubsidiaries } = parseResult.data;
+
+    const access = await checkOrganizationAccess(tokenPayload.userId, organizationId);
+    if (!access.hasAccess) {
+      res.status(403).json({ success: false, error: { code: 'FORBIDDEN', message: 'Access denied to this organization' } });
+      return;
+    }
+
+    const orgIds = [organizationId];
+    // 'false' is a truthy string — compare explicitly, as the other endpoints do.
+    if (includeSubsidiaries === 'true') {
+      const children = await prisma.organization.findMany({
+        where: { parent_organization_id: organizationId },
+        select: { id: true },
+      });
+      orgIds.push(...children.map((c) => c.id));
+    }
+
+    const [supplierRows, shipmentRows] = await Promise.all([
+      prisma.$queryRaw<Array<{ country: string; country_code: string | null; supplier_count: number }>>(
+        Prisma.sql`
+          SELECT country, MAX(country_code) AS country_code, COUNT(*)::int AS supplier_count
+          FROM "Supplier"
+          WHERE organization_id IN (${Prisma.join(orgIds)}) AND country IS NOT NULL
+          GROUP BY country
+        `,
+      ),
+      prisma.$queryRaw<Array<{ country: string; shipment_count: number }>>(
+        Prisma.sql`
+          SELECT s.country, COUNT(*)::int AS shipment_count
+          FROM "Shipment" sh
+          JOIN "Supplier" s ON sh.supplier_id = s.id
+          WHERE sh.organization_id IN (${Prisma.join(orgIds)})
+            AND s.organization_id IN (${Prisma.join(orgIds)})
+            AND s.country IS NOT NULL
+          GROUP BY s.country
+        `,
+      ),
+    ]);
+
+    const byCountry = new Map<string, { countryCode: string | null; supplierCount: number; shipmentCount: number }>();
+    for (const row of supplierRows) {
+      byCountry.set(row.country, {
+        countryCode: row.country_code,
+        supplierCount: row.supplier_count,
+        shipmentCount: 0,
+      });
+    }
+    for (const row of shipmentRows) {
+      const existing = byCountry.get(row.country);
+      if (existing) existing.shipmentCount += row.shipment_count;
+      else byCountry.set(row.country, { countryCode: null, supplierCount: 0, shipmentCount: row.shipment_count });
+    }
+
+    res.status(200).json({
+      success: true,
+      data: Array.from(byCountry.entries()).map(([country, counts]) => ({
+        country,
+        countryCode: counts.countryCode,
+        supplierCount: counts.supplierCount,
+        shipmentCount: counts.shipmentCount,
+      })),
+    });
+  } catch (error) {
+    console.error('Country risk aggregate error:', error);
     res.status(500).json({ success: false, error: { code: 'INTERNAL_ERROR', message: 'An unexpected error occurred' } });
   }
 });
