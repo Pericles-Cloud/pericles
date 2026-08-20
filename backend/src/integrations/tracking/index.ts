@@ -26,14 +26,17 @@ export { planSeaRoute, haversineKm, bearingDeg } from './searoute.js';
 /** Demo-tuned defaults. Env overrides keep prod/live config out of code. */
 export function loadTrackingConfig(env: NodeJS.ProcessEnv = process.env): TrackingConfig {
   const mode = env.TRACKING_MODE === 'live' ? 'live' : 'mock';
-  // ~20000 makes voyages visibly progress over seconds (an ocean crossing in ~2
-  // min of wall time); 2000 is too slow to perceive motion. Override per env.
-  const timeCompression = Number(env.TRACKING_TIME_COMPRESSION ?? 20000);
+  // 2000 → a trans-Pacific crossing takes ~10 min of wall time: dots advance
+  // perceptibly across a session without the frantic ~2 min ocean crossing
+  // that 20000 produced. GH #9 removed the fast-moving arrow glyphs and asked
+  // for the ship to sit where it actually is, so the mock's pace should read
+  // like a ship, not a drone. Override per env.
+  const timeCompression = Number(env.TRACKING_TIME_COMPRESSION ?? 2000);
   const loop = env.TRACKING_LOOP !== 'false'; // loop on by default for demos
   const oceanKmPerDay = Number(env.TRACKING_OCEAN_KM_PER_DAY ?? 800);
   return {
     mode,
-    timeCompression: Number.isFinite(timeCompression) && timeCompression > 0 ? timeCompression : 20000,
+    timeCompression: Number.isFinite(timeCompression) && timeCompression > 0 ? timeCompression : 2000,
     loop,
     oceanKmPerDay: Number.isFinite(oceanKmPerDay) && oceanKmPerDay > 0 ? oceanKmPerDay : 800,
   };

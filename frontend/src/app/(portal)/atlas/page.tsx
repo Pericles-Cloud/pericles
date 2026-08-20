@@ -1,7 +1,8 @@
 'use client';
 
-import { useState, useEffect, useMemo, useCallback, useRef } from 'react';
+import { useState, useEffect, useMemo, useCallback, useRef, Fragment } from 'react';
 import Link from 'next/link';
+import { Ship } from 'lucide-react';
 import { useAuth } from '@/providers/auth-provider';
 import {
   Shipment,
@@ -20,7 +21,8 @@ import {
   InfoWindow,
   OverlayView,
 } from '@react-google-maps/api';
-import { findPortCoordinates, generateCurvedPath } from '@/lib/port-coordinates';
+import { findPortCoordinates } from '@/lib/port-coordinates';
+import { planSeaRoute, buildStraightPath } from '@/lib/searoute';
 import { PERICLES, mapColors, severityLabel, subsidiaryColor } from '@/lib/atlas-brand';
 import { getRiskBgColor, getRiskColor } from '@/lib/intelligence-utils';
 import { TRANSPORT_MODES, MODE_MARKER_MODES, transportModeInfo } from '@/lib/transport-mode';
@@ -85,14 +87,12 @@ interface ShipmentRoute {
 interface MapPin {
   id: string;
   position: { lat: number; lng: number };
-  type: 'supplier' | 'port';
+  type: 'origin' | 'destination';
   name: string;
-  supplier?: Supplier;
-  /** The actual shipments contributing to this pin (#11) — distinct from
-   * supplier.totalShipments, which is the org-wide count from the ERP/BOL
-   * source regardless of what's plotted on THIS map right now. Count is
-   * always shipments.length, not a separately-tracked field — two numbers
-   * for one fact is a state-sync bug waiting to happen. */
+  /** The actual shipments contributing to this pin (#11) — distinct from any
+   * independently-seeded count from the ERP/BOL source. Count is always
+   * shipments.length, not a separately-tracked field — two numbers for one
+   * fact is a state-sync bug waiting to happen. */
   shipments: Shipment[];
 }
 
@@ -122,49 +122,11 @@ export default function AtlasPage() {
   // Collapsed by default so the map reads as the whole surface (GH #8).
   const [isFeedOpen, setIsFeedOpen] = useState(false);
   const [eventTypeFilter, setEventTypeFilter] = useState<EventTypeFilter>('all');
-  // Supplier city (#11): no city field exists on Supplier — the BOL/ImportYeti
-  // pipeline never populates `address` — so this is reverse-geocoded from the
-  // supplier's own lat/lng on demand when its pin is opened, using the same
-  // Google Maps script Atlas already loads (no new vendor, no extra library
-  // param: Geocoder is part of the core Maps JS API). Cached per supplier id
-  // (not position — see mapPins' colocated-pin nudge, which intentionally
-  // offsets the *displayed* position of colliding pins, but must not affect
-  // which real-world coordinates get geocoded or how the result is cached)
-  // so reopening the same pin in one session doesn't re-call the API.
-  const [supplierCities, setSupplierCities] = useState<Record<string, string | null>>({});
+  // Shared geocoder for the location search box. A supplier-city reverse
+  // geocode used to live here too (GH #11) but was removed when the origin pin
+  // became the Port of Origin (GH #9) — origin pins are ports, whose names come
+  // straight from the BOL, so no reverse-geocoding is needed anymore.
   const geocoderRef = useRef<google.maps.Geocoder | null>(null);
-  // Maps cacheKey -> a generation number for whichever geocode attempt is
-  // currently "the one that counts" for that key — not just a Set of
-  // pending keys. A plain Set can't tell an in-flight request's own timeout
-  // firing apart from a DIFFERENT, newer request for the same key: request
-  // #1 stalls past its 8s timeout (deleting the key), a re-render starts
-  // request #2 for the same key (re-adding it), then #1's late callback
-  // arrives and sees the key present again — with a Set it wrongly treats
-  // itself as still current and clobbers #2's bookkeeping/result. Comparing
-  // against a generation captured at request-start time closes that gap.
-  const pendingGeocodesRef = useRef<Map<string, number>>(new Map());
-  const geocodeGenerationRef = useRef(0);
-  // Component-lifetime, not per-effect-run: a per-run `let isMounted` local
-  // goes stale as soon as the SAME supplier pin is closed and reopened
-  // before its original geocode call resolves — the original run's closure
-  // still has isMounted=false even though the component (and that supplier's
-  // pending request) is very much still live, so the result was silently
-  // dropped and the popup stayed on "Locating…" forever. A single ref tied
-  // to true unmount avoids that.
-  const isMountedRef = useRef(true);
-  useEffect(() => {
-    // The setup body must reset this to true, not just declare the initial
-    // ref value — React StrictMode's dev-only mount -> cleanup -> remount
-    // cycle runs the cleanup below once before the "real" mount settles.
-    // Without resetting here, isMountedRef stays false for the component's
-    // entire actual lifetime in dev, silently discarding every geocode
-    // result forever (they'd all hit the `if (!isMountedRef.current) return`
-    // guard below).
-    isMountedRef.current = true;
-    return () => {
-      isMountedRef.current = false;
-    };
-  }, []);
 
   const mapRef = useRef<google.maps.Map | null>(null);
 
@@ -231,13 +193,22 @@ export default function AtlasPage() {
     };
   }, [currentOrganization?.id]);
 
-  // Routes: supplier (origin) → destination port, with a curved path.
+  // Routes: Port of Origin (departure port) → destination port. Maritime legs
+  // follow the sea-route arcs through the canals (GH #9); air/rail/road legs
+  // are straight lines — they don't follow water.
   const shipmentRoutes = useMemo((): ShipmentRoute[] => {
     return shipments
       .map((shipment) => {
         const supplier = suppliers.find((s) => s.id === shipment.supplierId);
-        const origin =
-          supplier?.latitude && supplier?.longitude
+        // Real lanes load at a port, so the route starts at the departure port
+        // (the "Port of Origin"). Falls back to the supplier's own coordinates
+        // when the departure port is unknown (real BOL data can name a
+        // non-gazetteered origin port); a supplier-location origin still beats
+        // no route at all.
+        const portOfOrigin = findPortCoordinates(shipment.departurePort);
+        const origin = portOfOrigin
+          ? { lat: portOfOrigin.lat, lng: portOfOrigin.lng, name: portOfOrigin.name }
+          : supplier?.latitude && supplier?.longitude
             ? { lat: supplier.latitude, lng: supplier.longitude, name: supplier.name }
             : null;
         const destPort = findPortCoordinates(shipment.destinationPort);
@@ -246,10 +217,9 @@ export default function AtlasPage() {
           : null;
         const path =
           origin && destination
-            ? generateCurvedPath(
-                { lat: origin.lat, lng: origin.lng },
-                { lat: destination.lat, lng: destination.lng },
-              )
+            ? shipment.modeOfTransport === 'MARITIME'
+              ? planSeaRoute(origin, destination)
+              : buildStraightPath(origin, destination)
             : [];
         return { shipment, origin, destination, path };
       })
@@ -286,10 +256,17 @@ export default function AtlasPage() {
     return markers;
   }, [filteredRoutes]);
 
-  // Pins, deduplicated by location; supplier pins carry the Supplier for
-  // detail. Built from filteredRoutes (not the full shipmentRoutes), so the
-  // popup's shipment list/count always matches what the active timeliness
-  // filter is actually showing on the map (#11 review finding).
+  // Ship positions keyed by shipment id, for the solid/dashed route split
+  // (GH #9). Only maritime legs are tracked (see #10).
+  const positionByShipment = useMemo(
+    () => new Map(vesselPositions.map((v) => [v.shipmentId, v])),
+    [vesselPositions],
+  );
+
+  // Pins, deduplicated by location. Built from filteredRoutes (not the full
+  // shipmentRoutes), so the popup's shipment list/count always matches what the
+  // active timeliness filter is actually showing on the map (#11 review
+  // finding).
   const mapPins = useMemo((): MapPin[] => {
     const pins = new Map<string, MapPin>();
     const addToPin = (key: string, shipment: Shipment, build: () => MapPin) => {
@@ -302,62 +279,33 @@ export default function AtlasPage() {
     };
     filteredRoutes.forEach((route) => {
       if (route.origin) {
-        // Keyed by supplier id, not coordinates (#11 review round 3): two
-        // distinct suppliers can geocode to the same city-level lat/lng
-        // (BOL/ImportYeti ingestion resolves origins at city granularity),
-        // and merging them into one pin would misattribute one supplier's
-        // BOL/value/ETA list to another's name in the popup.
-        const key = `supplier-${route.shipment.supplierId}`;
+        // Keyed by origin coordinates (GH #9): every shipment that loads at
+        // the same Port of Origin shares one pin, even across suppliers. Two
+        // distinct suppliers whose BOLs load at the same port merge here by
+        // design — the popup lists each one separately.
+        const key = `origin-${route.origin.lat}-${route.origin.lng}`;
         addToPin(key, route.shipment, () => ({
           id: key,
           position: { lat: route.origin!.lat, lng: route.origin!.lng },
-          type: 'supplier',
+          type: 'origin',
           name: route.origin!.name,
-          supplier: suppliers.find((s) => s.id === route.shipment.supplierId),
           shipments: [route.shipment],
         }));
       }
       if (route.destination) {
-        const key = `port-${route.destination.lat}-${route.destination.lng}`;
+        const key = `destination-${route.destination.lat}-${route.destination.lng}`;
         addToPin(key, route.shipment, () => ({
           id: key,
           position: { lat: route.destination!.lat, lng: route.destination!.lng },
-          type: 'port',
+          type: 'destination',
           name: route.destination!.name,
           shipments: [route.shipment],
         }));
       }
     });
 
-    const result = Array.from(pins.values());
-
-    // Colocated supplier pins (#11 review round 5): two distinct suppliers
-    // can share the same city-level lat/lng (BOL/ImportYeti geocodes
-    // origins at city granularity), and since pins are now keyed by
-    // supplierId rather than coordinates, that produces two separate
-    // Markers stacked at the identical position. Google Maps only routes
-    // click events to the topmost one, making every other supplier there
-    // permanently unreachable via the map. Nudge every pin past the first
-    // at a shared position onto a small spiral around it — a few hundred
-    // meters, invisible at any zoom level useful on a global map, but
-    // enough to give each one its own click target.
-    const seenAtPosition = new Map<string, number>();
-    for (const pin of result) {
-      if (pin.type !== 'supplier') continue;
-      const key = `${pin.position.lat},${pin.position.lng}`;
-      const index = seenAtPosition.get(key) ?? 0;
-      seenAtPosition.set(key, index + 1);
-      if (index === 0) continue;
-      const angle = (index * 137.5 * Math.PI) / 180; // golden angle — no grid alignment
-      const radiusDegrees = 0.0015 * Math.sqrt(index); // ~150m per ring step
-      pin.position = {
-        lat: pin.position.lat + radiusDegrees * Math.cos(angle),
-        lng: pin.position.lng + radiusDegrees * Math.sin(angle),
-      };
-    }
-
-    return result;
-  }, [filteredRoutes, suppliers]);
+    return Array.from(pins.values());
+  }, [filteredRoutes]);
 
   // Derived, not its own state: re-reads mapPins every render so the open
   // popup's shipment list/count always reflects the current timeliness
@@ -367,86 +315,6 @@ export default function AtlasPage() {
     () => (selectedPinId ? (mapPins.find((p) => p.id === selectedPinId) ?? null) : null),
     [mapPins, selectedPinId]
   );
-
-  useEffect(() => {
-    if (!isLoaded || !selectedPin || selectedPin.type !== 'supplier' || !selectedPin.supplier) return;
-    const supplier = selectedPin.supplier;
-    if (supplier.latitude == null || supplier.longitude == null) return;
-    // Geocode the supplier's real coordinates and cache by supplier id — NOT
-    // selectedPin.position, which for a colocated supplier has been nudged
-    // a few hundred meters by mapPins' declutter pass purely so its Marker
-    // gets its own click target. Geocoding the nudged position could return
-    // a neighboring town's name, and keying the cache by a position that
-    // shifts whenever the nudge index changes would also spuriously discard
-    // already-resolved results.
-    const cacheKey = supplier.id;
-    // Also guard against an in-flight request for the same key (e.g. the pin
-    // is closed and reopened before the first geocode call resolves) — the
-    // cache alone can't catch that since it isn't written until the
-    // callback fires.
-    if (cacheKey in supplierCities || pendingGeocodesRef.current.has(cacheKey)) return;
-
-    if (!geocoderRef.current) {
-      geocoderRef.current = new google.maps.Geocoder();
-    }
-    // This attempt's own generation — captured in the closures below so
-    // each one can tell "am I still the current attempt for this key?"
-    // apart from "is *some* attempt for this key still pending?".
-    const generation = ++geocodeGenerationRef.current;
-    pendingGeocodesRef.current.set(cacheKey, generation);
-    const geocodeTarget = { lat: supplier.latitude, lng: supplier.longitude };
-
-    // The Geocoder API takes a callback, not a Promise/AbortSignal, so a
-    // stalled response is timed out manually — required per this repo's
-    // external-call convention (CLAUDE.md's "External API Integration
-    // Pattern"). Deliberately never cancelled: the timeout is what
-    // eventually clears this key from pendingGeocodesRef even if the
-    // browser/network silently drops the request with no callback at all —
-    // cancelling it early would leave that key stuck pending forever,
-    // permanently blocking any retry for that supplier.
-    // Times out (below) without ever writing to the cache — deliberately.
-    // Writing `null` here would permanently mark this supplier as
-    // "unavailable" for the rest of the session even on a purely transient
-    // stall, with no way to retry short of a page reload.
-    const timeoutId = setTimeout(() => {
-      // Only clear if we're still the current attempt: if a later request
-      // for this same key already started (because this one appeared to
-      // have "timed out" from the effect's perspective), clearing here
-      // would delete THAT request's bookkeeping instead of this stale one's.
-      if (pendingGeocodesRef.current.get(cacheKey) === generation) {
-        pendingGeocodesRef.current.delete(cacheKey);
-      }
-    }, 8000);
-
-    geocoderRef.current.geocode(
-      { location: geocodeTarget },
-      (results, status) => {
-        // Not just "am I still pending" — am I still the CURRENT pending
-        // attempt for this key. A late callback from an attempt that
-        // already timed out (and was superseded by a newer attempt for the
-        // same key) must not clear the newer attempt's state or write a
-        // stale result over it.
-        if (pendingGeocodesRef.current.get(cacheKey) !== generation) return;
-        clearTimeout(timeoutId);
-        pendingGeocodesRef.current.delete(cacheKey);
-        if (!isMountedRef.current) return;
-        // Only ZERO_RESULTS is a genuine, cacheable "no city here" answer.
-        // Every other failure status (OVER_QUERY_LIMIT, UNKNOWN_ERROR,
-        // REQUEST_DENIED, ...) is left uncached so reopening the same pin
-        // retries instead of showing "Location unavailable" for the rest of
-        // the session on what may have been one rate-limited/transient call.
-        if (status === google.maps.GeocoderStatus.ZERO_RESULTS || !results?.length) {
-          setSupplierCities((prev) => ({ ...prev, [cacheKey]: null }));
-          return;
-        }
-        if (status !== google.maps.GeocoderStatus.OK) return;
-        const cityComponent = results
-          .flatMap((r) => r.address_components)
-          .find((c) => c.types.includes('locality') || c.types.includes('postal_town'));
-        setSupplierCities((prev) => ({ ...prev, [cacheKey]: cityComponent?.long_name ?? null }));
-      }
-    );
-  }, [isLoaded, selectedPin, supplierCities]);
 
   const openEvents = useMemo(
     () => {
@@ -716,7 +584,7 @@ export default function AtlasPage() {
         <div className="space-y-1">
           <div className="flex items-center gap-2">
             <div className="w-3 h-3 rounded-full" style={{ backgroundColor: mapPalette.supplier }} />
-            <span>Supplier</span>
+            <span>Port of Origin</span>
           </div>
           <div className="flex items-center gap-2">
             <div className="w-3 h-3 rounded-full" style={{ backgroundColor: mapPalette.port }} />
@@ -724,7 +592,15 @@ export default function AtlasPage() {
           </div>
           <div className="flex items-center gap-2">
             <div className="w-6 h-0.5" style={{ backgroundColor: mapPalette.route }} />
-            <span>Shipping Route</span>
+            <span>Shipping Route · completed</span>
+          </div>
+          <div className="flex items-center gap-2">
+            <div className="w-6 border-t border-dashed border-grey-500" />
+            <span>Shipping Route · upcoming</span>
+          </div>
+          <div className="flex items-center gap-2">
+            <Ship className="h-3.5 w-3.5 text-muted-foreground shrink-0" aria-hidden />
+            <span>Vessel position</span>
           </div>
         </div>
 
@@ -796,59 +672,108 @@ export default function AtlasPage() {
           maxZoom: 15,
         }}
       >
-        {filteredRoutes.map(
-          (route, index) =>
-            route.path.length > 0 && (
-              <Polyline
-                key={`route-${route.shipment.id}-${index}`}
-                path={route.path}
-                options={{
-                  strokeColor:
-                    selectedRoute?.shipment.id === route.shipment.id
-                      ? mapPalette.port
-                      : mapPalette.route,
-                  strokeOpacity: selectedRoute?.shipment.id === route.shipment.id ? 1 : 0.6,
-                  strokeWeight: selectedRoute?.shipment.id === route.shipment.id ? 3 : 2,
-                  geodesic: false,
-                  clickable: true,
-                }}
-                onClick={() => setSelectedRoute(route)}
-              />
-            ),
-        )}
+        {filteredRoutes.map((route, index) => {
+          if (route.path.length === 0) return null;
+          const highlight = selectedRoute?.shipment.id === route.shipment.id;
+          const lineColor = highlight ? mapPalette.port : mapPalette.route;
+          const position =
+            route.shipment.modeOfTransport === 'MARITIME'
+              ? positionByShipment.get(route.shipment.id)
+              : undefined;
 
-        {/* Live vessel layer: sea-route arcs (canal-accurate) + moving dots.
-            Driven by the mock position feed; real data swaps in unchanged. */}
-        {vesselPositions.map((v) => (
-          <Polyline
-            key={`sea-${v.shipmentId}`}
-            path={v.polyline}
-            options={{
-              strokeColor: vesselColor(v.organizationId),
-              strokeOpacity: 0.4,
-              strokeWeight: 1.5,
-              geodesic: false,
-              clickable: false,
-            }}
-          />
-        ))}
-        {vesselPositions.map((v) => (
-          <Marker
-            key={`vessel-${v.shipmentId}`}
-            position={v.position}
-            zIndex={999}
-            title={[v.organizationName, v.vesselName].filter(Boolean).join(' · ') || undefined}
-            icon={{
-              path: google.maps.SymbolPath.FORWARD_CLOSED_ARROW,
-              scale: 7.5,
-              rotation: v.bearing,
-              fillColor: vesselColor(v.organizationId),
-              fillOpacity: 1,
-              strokeColor: PERICLES.white,
-              strokeWeight: 2,
-            }}
-          />
-        ))}
+          // Split at the vessel's current progress (GH #9): solid behind the
+          // ship, dashed ahead, ship icon at the seam. Routes without a live
+          // position (non-maritime legs, or maritime legs the feed hasn't
+          // resolved) render as one solid line.
+          if (position && position.percent > 0 && position.percent < 1) {
+            const splitIndex = Math.max(
+              1,
+              Math.min(route.path.length - 2, Math.round(position.percent * (route.path.length - 1))),
+            );
+            const completed = route.path.slice(0, splitIndex + 1);
+            const upcoming = route.path.slice(splitIndex);
+            const shipColor = vesselColor(position.organizationId);
+            return (
+              <Fragment key={`route-${route.shipment.id}-${index}`}>
+                <Polyline
+                  path={completed}
+                  options={{
+                    strokeColor: lineColor,
+                    strokeOpacity: highlight ? 1 : 0.6,
+                    strokeWeight: highlight ? 3 : 2,
+                    geodesic: false,
+                    clickable: true,
+                  }}
+                  onClick={() => setSelectedRoute(route)}
+                />
+                <Polyline
+                  path={upcoming}
+                  options={{
+                    strokeColor: lineColor,
+                    strokeOpacity: highlight ? 0.9 : 0.5,
+                    strokeWeight: highlight ? 3 : 2,
+                    geodesic: false,
+                    clickable: true,
+                    // "Distance to go" dashed (GH #9): repeated dash glyphs over
+                    // a faint base, so it reads clearly against the solid
+                    // behind-the-ship segment — and without the old moving-arrow
+                    // glyphs, which #9 asked to remove.
+                    icons: [
+                      {
+                        icon: {
+                          path: 'M 0 -1 L 0 1',
+                          strokeColor: lineColor,
+                          strokeOpacity: 1,
+                          strokeWeight: highlight ? 3 : 2,
+                          scale: 1.2,
+                        },
+                        offset: '0',
+                        repeat: '16px',
+                      },
+                    ],
+                  }}
+                  onClick={() => setSelectedRoute(route)}
+                />
+                <OverlayView
+                  position={route.path[splitIndex]}
+                  mapPaneName={OverlayView.OVERLAY_MOUSE_TARGET}
+                  getPixelPositionOffset={(width, height) => ({ x: -(width / 2), y: -(height / 2) })}
+                >
+                  <div
+                    title={
+                      [position.organizationName, position.vesselName].filter(Boolean).join(' · ') ||
+                      'Vessel'
+                    }
+                    className="pointer-events-none flex h-6 w-6 items-center justify-center rounded-full border-2 bg-card shadow-md"
+                    style={{ borderColor: shipColor }}
+                  >
+                    <Ship
+                      className="h-4 w-4"
+                      style={{ color: shipColor }}
+                      aria-hidden
+                    />
+                  </div>
+                </OverlayView>
+              </Fragment>
+            );
+          }
+
+          return (
+            <Polyline
+              key={`route-${route.shipment.id}-${index}`}
+              path={route.path}
+              options={{
+                strokeColor: lineColor,
+                strokeOpacity: highlight ? 1 : 0.6,
+                strokeWeight: highlight ? 3 : 2,
+                geodesic: false,
+                clickable: true,
+              }}
+              onClick={() => setSelectedRoute(route)}
+            />
+          );
+        })}
+
         {/* Event markers: different icons for different event types */}
         {events.map((event) => {
           if (!event.latitude || !event.longitude) return null;
@@ -910,7 +835,7 @@ export default function AtlasPage() {
             icon={{
               path: google.maps.SymbolPath.CIRCLE,
               scale: 8 + Math.min(pin.shipments.length * 2, 10),
-              fillColor: pin.type === 'supplier' ? mapPalette.supplier : mapPalette.port,
+              fillColor: pin.type === 'origin' ? mapPalette.supplier : mapPalette.port,
               fillOpacity: 1,
               strokeColor: PERICLES.white,
               strokeWeight: 2,
@@ -933,49 +858,38 @@ export default function AtlasPage() {
             <div className="p-2 w-[260px]">
               <div className="font-medium text-grey-900">{selectedPin.name}</div>
               <div className="text-sm text-grey-600 mt-1">
-                {selectedPin.type === 'supplier' ? 'Supplier' : 'Destination Port'}
+                {selectedPin.type === 'origin' ? 'Port of Origin' : 'Destination Port'}
               </div>
-              {selectedPin.type === 'supplier' && selectedPin.supplier && (() => {
-                const cacheKey = selectedPin.supplier.id;
-                const isGeocodePending = !(cacheKey in supplierCities);
-                const parts = [supplierCities[cacheKey], selectedPin.supplier.country].filter(Boolean);
-                return (
-                  <div className="text-sm text-grey-600 mt-1">
-                    {parts.length > 0
-                      ? parts.join(', ')
-                      : isGeocodePending
-                        ? 'Locating…'
-                        : 'Location unavailable'}
-                  </div>
-                );
-              })()}
-              {/* "Showing" vs "total": the map only ever plots shipments that
-                  resolved to a route (both origin and destination coordinates
-                  known — see shipmentRoutes above), which can be fewer than the
-                  supplier's org-wide shipment count. Previously worded as
-                  "N on map · M total", which read as two unrelated numbers
-                  rather than a subset-of relationship (#11). Total is clamped
-                  to at least the plotted count: supplier.totalShipments is an
-                  independently-seeded ERP/BOL figure that can be stale (0, or
-                  simply behind what's actually plotted this session) — never
-                  render "Showing N of M" with N > M. */}
               {(() => {
-                const shown = selectedPin.shipments.length;
-                const total = Math.max(selectedPin.supplier?.totalShipments ?? 0, shown);
+                // Suppliers whose cargo loads (origin) or discharges (destination)
+                // at this port, with per-supplier shipment counts. Distinct from
+                // the old per-supplier pin: a port aggregates several suppliers,
+                // so this lists each one with its volume instead of one total.
+                const suppliersByName = new Map<string, number>();
+                for (const s of selectedPin.shipments) {
+                  const name = s.supplier?.name ?? 'Unknown supplier';
+                  suppliersByName.set(name, (suppliersByName.get(name) ?? 0) + 1);
+                }
                 return (
-                  <div className="text-sm text-grey-600 mt-1">
-                    Showing {shown} of {total} total shipment
-                    {total !== 1 ? 's' : ''}
+                  <div className="text-xs text-grey-800 mt-2">
+                    <span className="text-grey-600">Suppliers:</span>{' '}
+                    {[...suppliersByName.entries()]
+                      .map(([name, count]) => `${name}${count > 1 ? ` · ${count}` : ''}`)
+                      .join(', ')}
                   </div>
                 );
               })()}
-
               <div className="mt-2 max-h-40 overflow-y-auto border-t border-grey-200 pt-2 space-y-2">
                 {selectedPin.shipments.map((shipment) => (
                   <div key={shipment.id} className="text-xs">
                     <div className="font-mono text-grey-900">{shipment.bolNumber}</div>
+                    {shipment.supplier?.name && (
+                      <div className="text-grey-600">{shipment.supplier.name}</div>
+                    )}
                     <div className="text-grey-600">
-                      {shipment.destinationPort ?? 'Destination unknown'}
+                      {selectedPin.type === 'origin'
+                        ? (shipment.destinationPort ?? 'Destination unknown')
+                        : (shipment.departurePort ?? 'Origin unknown')}
                       {shipment.valueUsd != null && ` · ${formatCurrencyUsd(shipment.valueUsd)}`}
                     </div>
                     {shipment.estimatedArrivalDate ? (
@@ -988,19 +902,6 @@ export default function AtlasPage() {
                   </div>
                 ))}
               </div>
-
-              {selectedPin.supplier?.departurePorts?.length ? (
-                <div className="text-xs text-grey-800 mt-2">
-                  <span className="text-grey-600">Departs:</span>{' '}
-                  {selectedPin.supplier.departurePorts.slice(0, 3).join(', ')}
-                </div>
-              ) : null}
-              {selectedPin.supplier?.hsCodes?.length ? (
-                <div className="text-xs text-grey-800 mt-1">
-                  <span className="text-grey-600">HS:</span>{' '}
-                  {selectedPin.supplier.hsCodes.slice(0, 4).join(', ')}
-                </div>
-              ) : null}
             </div>
           </InfoWindow>
         )}
