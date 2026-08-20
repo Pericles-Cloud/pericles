@@ -16,12 +16,10 @@ import { Suspense, useCallback, useEffect, useMemo, useState } from 'react';
 import { useSearchParams } from 'next/navigation';
 import { useAuth } from '@/providers/auth-provider';
 import {
+  CountryRiskAggregate,
   Event,
-  Shipment,
-  Supplier,
+  getCountryRisk,
   getEvents,
-  getShipments,
-  getSuppliers,
 } from '@/lib/api-client';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
@@ -59,14 +57,20 @@ function IntelligenceContent() {
   const deepLinkedEventId = searchParams.get('event') ?? searchParams.get('selected');
 
   const [events, setEvents] = useState<Event[]>([]);
-  const [suppliers, setSuppliers] = useState<Supplier[]>([]);
-  const [shipments, setShipments] = useState<Shipment[]>([]);
+  // Pre-aggregated analytics data (GH #13): fetched lazily the first time the
+  // Analytics view opens, never on mount — the Feed must not pay for it.
+  const [countryRisk, setCountryRisk] = useState<CountryRiskAggregate[]>([]);
   const [total, setTotal] = useState(0);
   // Only the user's explicit pick is state; the deep link and the
   // newest-event default are derived below.
   const [userSelectedId, setUserSelectedId] = useState<string | null>(null);
-  const [isLoading, setIsLoading] = useState(true);
+  const [isLoadingEvents, setIsLoadingEvents] = useState(true);
+  const [isLoadingAnalytics, setIsLoadingAnalytics] = useState(false);
   const [loadError, setLoadError] = useState<string | null>(null);
+  // Flipped once, when the Analytics view is first opened. Keying the analytics
+  // effect on this rather than on `view` means switching back to the Feed and
+  // returning does not refetch — the data is cached for the session.
+  const [analyticsRequested, setAnalyticsRequested] = useState(false);
 
   const [view, setView] = useState<IntelligenceView>('feed');
   const [searchQuery, setSearchQuery] = useState('');
@@ -74,62 +78,83 @@ function IntelligenceContent() {
   const [typeFilter, setTypeFilter] = useState<string>('all');
   const [generatePrompt, setGeneratePrompt] = useState('');
 
+  // Events are the Feed; the Analytics data is deferred (GH #13).
   useEffect(() => {
     if (!currentOrganization?.id) return;
     let isMounted = true;
 
-    const fetchData = async () => {
-      setIsLoading(true);
+    const fetchEvents = async () => {
+      setIsLoadingEvents(true);
       setLoadError(null);
-      // Drop the outgoing organization's data before the new request resolves.
+      // Drop the outgoing organization's events before the new request resolves.
       // Without this, a failed fetch after an org switch leaves the previous
       // tenant's events on screen under the incoming tenant's name.
       setEvents([]);
-      setSuppliers([]);
-      setShipments([]);
       setTotal(0);
       setUserSelectedId(null);
 
-      // Suppliers/shipments feed the analytics view. All three are scoped
-      // server-side by organizationId — never filtered client-side.
-      const [eventsRes, suppliersRes, shipmentsRes] = await Promise.all([
-        getEvents({ organizationId: currentOrganization.id, limit: 100, includeSubsidiaries: true }),
-        getSuppliers({ organizationId: currentOrganization.id, includeSubsidiaries: true }),
-        getShipments(currentOrganization.id, { includeSubsidiaries: true }),
-      ]);
+      // Tenant-scoped server-side by organizationId — never filtered client-side.
+      const eventsRes = await getEvents({
+        organizationId: currentOrganization.id,
+        limit: 100,
+        includeSubsidiaries: true,
+      });
 
       if (!isMounted) return;
-
-      const failed: string[] = [];
 
       if (eventsRes.success && eventsRes.data) {
         setEvents(eventsRes.data.events);
         setTotal(eventsRes.data.total);
       } else {
-        failed.push('events');
-      }
-
-      if (suppliersRes.success && suppliersRes.data) setSuppliers(suppliersRes.data);
-      else failed.push('suppliers');
-
-      if (shipmentsRes.success && shipmentsRes.data) setShipments(shipmentsRes.data);
-      else failed.push('shipments');
-
-      if (failed.length > 0) {
         setLoadError(
-          `Could not load ${failed.join(', ')} for ${currentOrganization.name}. ` +
+          `Could not load events for ${currentOrganization.name}. ` +
             'What is shown may be incomplete — reload to try again.',
         );
       }
 
-      setIsLoading(false);
+      setIsLoadingEvents(false);
     };
 
-    fetchData();
+    fetchEvents();
     return () => {
       isMounted = false;
     };
   }, [currentOrganization?.id, currentOrganization?.name]);
+
+  // Supplier/shipment aggregates feed the Analytics view. Fetched on first use
+  // only (GH #13): the Feed renders as soon as events land, and this issues no
+  // request until the Analytics view has been opened at least once. The count
+  // aggregation happens in Postgres, so the client no longer downloads full
+  // Supplier/Shipment rows to reduce them to per-country counters.
+  useEffect(() => {
+    if (!analyticsRequested || !currentOrganization?.id) return;
+    let isMounted = true;
+
+    const fetchAnalytics = async () => {
+      setIsLoadingAnalytics(true);
+      setCountryRisk([]);
+
+      const res = await getCountryRisk(currentOrganization.id, { includeSubsidiaries: true });
+
+      if (!isMounted) return;
+
+      if (res.success && res.data) {
+        setCountryRisk(res.data);
+      } else {
+        setLoadError(
+          `Could not load risk analytics for ${currentOrganization.name}. ` +
+            'Country/supplier/shipment counts may be incomplete.',
+        );
+      }
+
+      setIsLoadingAnalytics(false);
+    };
+
+    fetchAnalytics();
+    return () => {
+      isMounted = false;
+    };
+  }, [analyticsRequested, currentOrganization?.id, currentOrganization?.name]);
 
   // Resolve the deep link against whatever is loaded.
   const deepLinkedEvent = useMemo(
@@ -198,7 +223,7 @@ function IntelligenceContent() {
     );
   }
 
-  if (isLoading) return <LoadingState />;
+  if (isLoadingEvents) return <LoadingState />;
 
   return (
     <div className="space-y-6">
@@ -222,7 +247,12 @@ function IntelligenceContent() {
                 key={v}
                 role="tab"
                 aria-selected={view === v}
-                onClick={() => setView(v)}
+                onClick={() => {
+                  setView(v);
+                  // First visit to Analytics triggers the deferred fetch (GH #13);
+                  // subsequent visits reuse the cached result.
+                  if (v === 'analytics') setAnalyticsRequested(true);
+                }}
                 className={cn(
                   'px-4 py-1.5 text-sm transition-colors',
                   view === v
@@ -404,7 +434,16 @@ function IntelligenceContent() {
               </div>
             </CardHeader>
             <CardContent className="p-4">
-              <RiskAnalytics events={events} suppliers={suppliers} shipments={shipments} />
+              {isLoadingAnalytics ? (
+                <div className="flex items-center justify-center py-16">
+                  <div className="text-center">
+                    <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-primary mx-auto" />
+                    <p className="mt-4 text-muted-foreground">Loading analytics...</p>
+                  </div>
+                </div>
+              ) : (
+                <RiskAnalytics events={events} countryRiskData={countryRisk} />
+              )}
             </CardContent>
 
             {/* Co-Pilot prompt bar */}

@@ -881,6 +881,34 @@ export async function getShipment(id: string): Promise<ApiResponse<Shipment>> {
   return apiRequest<Shipment>(`/api/shipments/${id}`);
 }
 
+// ============================================
+// INTELLIGENCE AGGREGATE API
+// ============================================
+
+/** Pre-aggregated country supplier/shipment counts (GH #13). */
+export interface CountryRiskAggregate {
+  country: string;
+  countryCode: string | null;
+  supplierCount: number;
+  shipmentCount: number;
+}
+
+/**
+ * Get country-level supplier/shipment counts for Intelligence's Analytics view.
+ * Aggregated server-side so the client never downloads full Supplier/Shipment
+ * rows just to reduce them to per-country counters.
+ */
+export async function getCountryRisk(
+  organizationId: string,
+  options?: { includeSubsidiaries?: boolean },
+): Promise<ApiResponse<CountryRiskAggregate[]>> {
+  const params = new URLSearchParams({ organizationId });
+  if (options?.includeSubsidiaries) params.set('includeSubsidiaries', 'true');
+  return apiRequest<CountryRiskAggregate[]>(
+    `/api/intelligence/country-risk?${params.toString()}`,
+  );
+}
+
 /**
  * Create a new shipment.
  */

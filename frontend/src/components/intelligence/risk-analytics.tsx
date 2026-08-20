@@ -1,7 +1,7 @@
 'use client';
 
 import { useMemo } from 'react';
-import type { Event, Shipment, Supplier } from '@/lib/api-client';
+import type { CountryRiskAggregate, Event } from '@/lib/api-client';
 import { formatTypeLabel, getRiskBgColor, getRiskColor } from '@/lib/intelligence-utils';
 
 interface CountryRisk {
@@ -29,8 +29,8 @@ interface RiskTrend {
 
 interface RiskAnalyticsProps {
   events: Event[];
-  suppliers: Supplier[];
-  shipments: Shipment[];
+  /** Pre-aggregated supplier/shipment counts, fetched lazily (GH #13). */
+  countryRiskData: CountryRiskAggregate[];
 }
 
 /**
@@ -38,7 +38,7 @@ interface RiskAnalyticsProps {
  * Pure presentation over already-tenant-scoped data — the page fetches, this
  * component only aggregates what it is handed.
  */
-export function RiskAnalytics({ events, suppliers, shipments }: RiskAnalyticsProps) {
+export function RiskAnalytics({ events, countryRiskData }: RiskAnalyticsProps) {
   const countryRisks = useMemo((): CountryRisk[] => {
     const countryMap = new Map<string, CountryRisk>();
 
@@ -66,12 +66,15 @@ export function RiskAnalytics({ events, suppliers, shipments }: RiskAnalyticsPro
       countryMap.set(country, existing);
     });
 
-    // Add supplier countries.
-    suppliers.forEach((supplier) => {
-      if (!supplier.country) return;
-      const existing = countryMap.get(supplier.country) || {
-        country: supplier.country,
-        countryCode: supplier.countryCode || '',
+    // Add the server-aggregated supplier/shipment counts per country (GH #13).
+    // The aggregation moved into Postgres so the page no longer downloads full
+    // Supplier/Shipment rows; only countries with at least one supplier or
+    // shipment are present here.
+    countryRiskData.forEach((row) => {
+      if (!row.country) return;
+      const existing = countryMap.get(row.country) || {
+        country: row.country,
+        countryCode: row.countryCode || '',
         riskScore: 0,
         eventCount: 0,
         supplierCount: 0,
@@ -79,17 +82,10 @@ export function RiskAnalytics({ events, suppliers, shipments }: RiskAnalyticsPro
         riskFactors: [],
       };
 
-      existing.supplierCount++;
-      if (supplier.countryCode) existing.countryCode = supplier.countryCode;
-      countryMap.set(supplier.country, existing);
-    });
-
-    // Count shipments by origin country (via their supplier).
-    shipments.forEach((shipment) => {
-      const supplier = suppliers.find((s) => s.id === shipment.supplierId);
-      if (!supplier?.country) return;
-      const existing = countryMap.get(supplier.country);
-      if (existing) existing.shipmentCount++;
+      existing.supplierCount += row.supplierCount;
+      existing.shipmentCount += row.shipmentCount;
+      if (row.countryCode) existing.countryCode = row.countryCode;
+      countryMap.set(row.country, existing);
     });
 
     return Array.from(countryMap.values())
@@ -99,7 +95,7 @@ export function RiskAnalytics({ events, suppliers, shipments }: RiskAnalyticsPro
       }))
       .sort((a, b) => b.riskScore - a.riskScore)
       .slice(0, 10);
-  }, [events, suppliers, shipments]);
+  }, [events, countryRiskData]);
 
   const sectorRisks = useMemo((): SectorRisk[] => {
     const sectorMap = new Map<string, { total: number; count: number; recentCount: number }>();
