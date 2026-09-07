@@ -4551,11 +4551,8 @@ app.get('/api/organizations/:orgId/settings/ai-models/openrouter', async (req: R
     }
 
     const orgId = getParam(req.params.orgId);
-    const membership = await prisma.userOrganization.findUnique({
-      where: { user_id_organization_id: { user_id: tokenPayload.userId, organization_id: orgId } },
-    });
-
-    if (membership?.status !== 'active') {
+    const access = await checkOrganizationAccess(tokenPayload.userId, orgId);
+    if (!access.hasAccess) {
       res.status(404).json({ success: false, error: { code: 'NOT_FOUND', message: 'Organization not found' } });
       return;
     }
