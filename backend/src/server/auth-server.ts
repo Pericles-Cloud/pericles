@@ -43,6 +43,7 @@ import { fetchOpenRouterModels, OpenRouterConfigError } from '../integrations/op
 import { OAuth2Client } from 'google-auth-library';
 import { createWorkflowExecutionService, type ExecutionMode as WorkflowExecutionMode } from '../workflow/index.js';
 import { mastra } from '../mastra/index.js';
+import { Agent } from '@mastra/core/agent';
 
 const app = express();
 const prisma = new PrismaClient();
@@ -3578,21 +3579,39 @@ app.post('/api/events/:id/ask', async (req: Request, res: Response) => {
       `<untrusted_content>\n${escapeForPromptContext(contextLines.join('\n'))}\n</untrusted_content>\n\n` +
       `User question: ${escapeForPromptContext(question)}`;
 
-    // getAgent THROWS a MastraError when the name isn't registered — it never
-    // returns undefined — so the misconfiguration case has to be caught, not
-    // null-checked, or it falls through to the generic 500 with no clue why.
-    let agent;
+    // Resolve the org's configured AI model for this call
+    let agentModel: string | undefined;
     try {
-      agent = mastra.getAgent('eventQaAgent');
-    } catch (err) {
-      console.error('Event Q&A agent unavailable:', err);
-      res.status(500).json({ success: false, error: { code: 'INTERNAL_ERROR', message: 'Q&A agent unavailable' } });
-      return;
+      const orgSettings = await prisma.organizationSettings.findUnique({
+        where: { organization_id: event.organization_id },
+        select: { ai_model_provider: true, ai_model_name: true },
+      });
+      if (orgSettings?.ai_model_provider && orgSettings?.ai_model_name) {
+        agentModel = orgSettings.ai_model_provider === 'openrouter'
+          ? `openrouter/${orgSettings.ai_model_name}`
+          : `${orgSettings.ai_model_provider}/${orgSettings.ai_model_name}`;
+      }
+    } catch (settingsErr) {
+      // Non-fatal: fall back to agent default if settings lookup fails
+      console.warn('Failed to load AI settings for event Q&A, using agent default:', settingsErr);
     }
 
     let result;
     try {
-      result = await agent.generate(prompt, {
+      // Create a per-request agent with the org's resolved model to avoid
+      // mutating the singleton (unsafe under concurrent requests from different orgs).
+      let qaAgent;
+      if (agentModel) {
+        const baseAgent = mastra.getAgent('eventQaAgent');
+        qaAgent = new Agent({
+          name: 'event-qa-agent',
+          instructions: baseAgent.instructions,
+          model: agentModel,
+        });
+      } else {
+        qaAgent = mastra.getAgent('eventQaAgent');
+      }
+      result = await qaAgent.generate(prompt, {
         structuredOutput: { schema: EventQaAnswerSchema },
         abortSignal: AbortSignal.timeout(EVENT_QA_TIMEOUT_MS),
       });

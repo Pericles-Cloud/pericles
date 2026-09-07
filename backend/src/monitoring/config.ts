@@ -98,6 +98,19 @@ export const MonitoringConfigSchema = z.object({
     enableAuditLog: true,
     logLevel: 'info' as const,
   }),
+
+  // AI Model Settings (from OrganizationSettings)
+  ai: z.object({
+    provider: z.string().default('openai'),
+    modelName: z.string().default('gpt-4o-mini'),
+    temperature: z.number().min(0).max(2).default(0.7),
+    maxTokens: z.number().int().min(1).max(128000).default(4096),
+  }).default({
+    provider: 'openai',
+    modelName: 'gpt-4o-mini',
+    temperature: 0.7,
+    maxTokens: 4096,
+  }),
 });
 
 export type MonitoringConfig = z.infer<typeof MonitoringConfigSchema>;
@@ -143,6 +156,12 @@ const DEFAULT_CONFIG: Partial<MonitoringConfig> = {
     enableAuditLog: true,
     logLevel: 'info',
   },
+  ai: {
+    provider: 'openai',
+    modelName: 'gpt-4o-mini',
+    temperature: 0.7,
+    maxTokens: 4096,
+  },
 };
 
 // ============================================================================
@@ -178,6 +197,10 @@ export async function loadMonitoringConfig(
       select: {
         monitoring_polling_interval_ms: true,
         monitoring_enabled_sources: true,
+        ai_model_provider: true,
+        ai_model_name: true,
+        ai_model_temperature: true,
+        ai_max_tokens: true,
       },
     });
 
@@ -198,6 +221,16 @@ export async function loadMonitoringConfig(
           regulatory: enabledSources.regulatory ?? true,
           pandemic: enabledSources.pandemic ?? true,
           geopolitical: enabledSources.geopolitical ?? true,
+        };
+      }
+
+      // Load AI model settings
+      if (orgSettings.ai_model_provider && orgSettings.ai_model_name) {
+        config.ai = {
+          provider: orgSettings.ai_model_provider,
+          modelName: orgSettings.ai_model_name,
+          temperature: orgSettings.ai_model_temperature ?? 0.7,
+          maxTokens: orgSettings.ai_max_tokens ?? 4096,
         };
       }
     }
@@ -251,6 +284,9 @@ export async function loadMonitoringConfig(
       observability: runtimeOverrides.observability
         ? { ...config.observability, ...runtimeOverrides.observability }
         : config.observability,
+      ai: runtimeOverrides.ai
+        ? { ...config.ai, ...runtimeOverrides.ai }
+        : config.ai,
     };
   }
 
@@ -259,6 +295,28 @@ export async function loadMonitoringConfig(
 
   // Validate final configuration
   return MonitoringConfigSchema.parse(config);
+}
+
+/**
+ * Resolve the Mastra model string from MonitoringConfig's AI settings.
+ *
+ * Mastra agent.generate() accepts `model` as a DynamicArgument — either a
+ * string like `'openai/gpt-4o'` or a function returning one. This helper
+ * produces that string from the org's stored settings.
+ *
+ * OpenRouter models use the format `'openrouter/<model-id>'`.
+ * OpenAI models use `'openai/<model-id>'`.
+ *
+ * @returns Mastra model string, e.g. `'openai/gpt-4o'` or `'openrouter/anthropic/claude-3.5-sonnet'`
+ */
+export function resolveModel(config: MonitoringConfig): string {
+  const { provider, modelName } = config.ai;
+
+  if (provider === 'openrouter') {
+    return `openrouter/${modelName}`;
+  }
+
+  return `${provider}/${modelName}`;
 }
 
 /**

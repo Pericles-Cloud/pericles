@@ -12,7 +12,7 @@
 
 import type { Prisma } from '@prisma/client';
 import { mastra } from '../mastra/index.js';
-import { type MonitoringConfig } from './config.js';
+import { type MonitoringConfig, resolveModel } from './config.js';
 import { getPrismaClient } from './db-client.js';
 import { logger, createLogger } from './logger.js';
 import {
@@ -221,6 +221,12 @@ export async function runMonitoringCycle(
     if (!agent) {
       throw new Error('Monitoring agent not found in Mastra registry');
     }
+
+    // Override the agent's model with the org's configured AI settings.
+    // Monitoring cycles are sequential per-org, so this mutation is safe.
+    // __updateModel is an internal Mastra API; restore after the call.
+    const resolvedModel = resolveModel(config);
+    agent.__updateModel({ model: resolvedModel });
 
     emitProgress({
       phase: 'loading_context',
@@ -476,7 +482,7 @@ export async function runMonitoringCycle(
 
     for (const eventData of detectedEvents) {
       try {
-        const storedEvent = await storeEvent(config.organizationId, eventData, dedupBudget);
+        const storedEvent = await storeEvent(config.organizationId, eventData, dedupBudget, resolvedModel);
         storedEvents.push(storedEvent);
 
         // Check if this was a duplicate (server-side deduplication)
@@ -776,7 +782,7 @@ function exactMatchWhere(organizationId: string, eventData: any): Prisma.EventWh
 }
 
 // eslint-disable-next-line @typescript-eslint/no-explicit-any -- Dynamic event data from agent, typed at Prisma layer
-async function storeEvent(organizationId: string, eventData: any, dedupBudget?: FuzzyDedupBudget): Promise<any> {
+async function storeEvent(organizationId: string, eventData: any, dedupBudget?: FuzzyDedupBudget, model?: string): Promise<any> {
   const prisma = getPrismaClient();
 
   // Cheap exact-match pre-check, mirroring the transaction's own check below,
@@ -825,7 +831,8 @@ async function storeEvent(organizationId: string, eventData: any, dedupBudget?: 
           event_timestamp: eventData.event_timestamp,
           location: eventData.location,
         },
-        dedupBudget
+        dedupBudget,
+        model
       );
 
   return await prisma.$transaction(async (tx) => {

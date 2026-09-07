@@ -128,7 +128,8 @@ export async function findDuplicateIncident(
   client: Prisma.TransactionClient | { event: Prisma.TransactionClient['event'] },
   organizationId: string,
   eventData: CandidateEventInput,
-  budget?: FuzzyDedupBudget
+  budget?: FuzzyDedupBudget,
+  model?: string
 ): Promise<DuplicateCandidate | null> {
   if (!FUZZY_DEDUP_ENABLED) return null;
   // Checked before the candidate query, not just before the LLM calls: an
@@ -255,6 +256,16 @@ export async function findDuplicateIncident(
 
     if (budget) budget.remaining -= geoNarrowed.length;
 
+    // Create a per-call agent with the org's resolved model (the singleton
+    // similarityAgent holds the default; dynamic model override isn't supported
+    // by Mastra's generate() options, so we instantiate here).
+    const agentModel = model ?? 'openai/gpt-4o-mini';
+    const simAgent = new Agent({
+      name: 'incident-similarity-classifier',
+      instructions: similarityAgent.instructions,
+      model: agentModel,
+    });
+
     // Classified in PARALLEL, not sequentially: MAX_CANDIDATES (5) sequential
     // calls at LLM_TIMEOUT_MS (10s) each is a ~50s worst case for one event,
     // multiplied across every candidate-bearing event in a cycle — well past
@@ -276,7 +287,7 @@ export async function findDuplicateIncident(
           `Report B: "${truncateForPromptContext(candidate.title)}" — ${truncateForPromptContext(candidate.description)}`;
         const prompt = `${wrapUntrustedContent(reports)}\n\nAre Report A and Report B describing the same real-world incident?`;
 
-        const result = await similarityAgent.generate(prompt, {
+        const result = await simAgent.generate(prompt, {
           structuredOutput: { schema: SimilarityResultSchema },
           abortSignal: AbortSignal.timeout(LLM_TIMEOUT_MS),
         });
