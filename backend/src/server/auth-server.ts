@@ -1766,11 +1766,9 @@ app.get('/api/organizations/:id/members', async (req: Request, res: Response) =>
       return;
     }
 
-    const membership = await prisma.userOrganization.findUnique({
-      where: { user_id_organization_id: { user_id: tokenPayload.userId, organization_id: getParam(req.params.id) } },
-    });
-
-    if (membership?.status !== 'active') {
+    const orgId = getParam(req.params.id);
+    const access = await checkOrganizationAccess(tokenPayload.userId, orgId);
+    if (!access.hasAccess) {
       res.status(404).json({ success: false, error: { code: 'NOT_FOUND', message: 'Organization not found' } });
       return;
     }
@@ -1939,22 +1937,26 @@ app.get('/api/organizations/:id/invites', async (req: Request, res: Response) =>
       return;
     }
 
-    const userMembership = await prisma.userOrganization.findUnique({
-      where: { user_id_organization_id: { user_id: tokenPayload.userId, organization_id: getParam(req.params.id) } },
-    });
-
-    if (userMembership?.status !== 'active') {
+    const orgId = getParam(req.params.id);
+    const access = await checkOrganizationAccess(tokenPayload.userId, orgId);
+    if (!access.hasAccess) {
       res.status(404).json({ success: false, error: { code: 'NOT_FOUND', message: 'Organization not found' } });
       return;
     }
 
-    if (!['OWNER', 'ADMIN'].includes(userMembership.role)) {
-      res.status(403).json({ success: false, error: { code: 'FORBIDDEN', message: 'Insufficient permissions' } });
-      return;
+    // Non-root users need admin role to view invites
+    if (!access.membership.isRootOrgMember) {
+      const userMembership = await prisma.userOrganization.findUnique({
+        where: { user_id_organization_id: { user_id: tokenPayload.userId, organization_id: orgId } },
+      });
+      if (!['OWNER', 'ADMIN'].includes(userMembership?.role ?? '')) {
+        res.status(403).json({ success: false, error: { code: 'FORBIDDEN', message: 'Insufficient permissions' } });
+        return;
+      }
     }
 
     const pendingInvites = await prisma.userOrganization.findMany({
-      where: { organization_id: getParam(req.params.id), status: 'pending' },
+      where: { organization_id: orgId, status: 'pending' },
       include: { user: { select: { email: true } } },
       orderBy: { created_at: 'desc' },
     });
@@ -3842,11 +3844,8 @@ app.get('/api/monitoring/config', async (req: Request, res: Response) => {
     }
 
     // Check user has access to organization
-    const memberships = await prisma.userOrganization.findMany({
-      where: { user_id: tokenPayload.userId, status: 'active' },
-    });
-    const membership = memberships.find((m: { organization_id: string }) => m.organization_id === organizationId);
-    if (!membership) {
+    const access = await checkOrganizationAccess(tokenPayload.userId, organizationId);
+    if (!access.hasAccess) {
       res.status(403).json({ success: false, error: { code: 'FORBIDDEN', message: 'Access denied to organization' } });
       return;
     }
@@ -3924,13 +3923,20 @@ app.patch('/api/monitoring/config', async (req: Request, res: Response) => {
     }
 
     // Check user has admin access to organization
-    const memberships = await prisma.userOrganization.findMany({
-      where: { user_id: tokenPayload.userId, status: 'active' },
-    });
-    const membership = memberships.find((m: { organization_id: string; role: string }) => m.organization_id === organizationId);
-    if (!membership || !['OWNER', 'ADMIN'].includes(membership.role)) {
+    const access = await checkOrganizationAccess(tokenPayload.userId, organizationId);
+    if (!access.hasAccess) {
       res.status(403).json({ success: false, error: { code: 'FORBIDDEN', message: 'Admin access required' } });
       return;
+    }
+    // For non-root users, verify admin role
+    if (!access.membership.isRootOrgMember) {
+      const membership = await prisma.userOrganization.findUnique({
+        where: { user_id_organization_id: { user_id: tokenPayload.userId, organization_id: organizationId } },
+      });
+      if (!membership || !['OWNER', 'ADMIN'].includes(membership.role)) {
+        res.status(403).json({ success: false, error: { code: 'FORBIDDEN', message: 'Admin access required' } });
+        return;
+      }
     }
 
     // Update organization context with config values
@@ -4030,11 +4036,8 @@ app.get('/api/monitoring/status', async (req: Request, res: Response) => {
     }
 
     // Check user has access to organization
-    const memberships = await prisma.userOrganization.findMany({
-      where: { user_id: tokenPayload.userId, status: 'active' },
-    });
-    const membership = memberships.find((m: { organization_id: string }) => m.organization_id === organizationId);
-    if (!membership) {
+    const access = await checkOrganizationAccess(tokenPayload.userId, organizationId);
+    if (!access.hasAccess) {
       res.status(403).json({ success: false, error: { code: 'FORBIDDEN', message: 'Access denied to organization' } });
       return;
     }
@@ -4140,11 +4143,8 @@ app.get('/api/monitoring/logs', async (req: Request, res: Response) => {
     const limit = Math.min(parseInt(limitStr as string, 10) || 50, 100);
 
     // Check user has access to organization
-    const memberships = await prisma.userOrganization.findMany({
-      where: { user_id: tokenPayload.userId, status: 'active' },
-    });
-    const membership = memberships.find((m: { organization_id: string }) => m.organization_id === organizationId);
-    if (!membership) {
+    const access = await checkOrganizationAccess(tokenPayload.userId, organizationId);
+    if (!access.hasAccess) {
       res.status(403).json({ success: false, error: { code: 'FORBIDDEN', message: 'Access denied to organization' } });
       return;
     }
