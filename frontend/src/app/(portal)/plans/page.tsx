@@ -15,6 +15,7 @@ import {
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Fillet } from '@/components/ui/fillet';
+import { ConfirmDialog } from '@/components/ui/confirm-dialog';
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -46,6 +47,10 @@ export default function PlansPage() {
   const [newWorkflowName, setNewWorkflowName] = useState('');
   const [newWorkflowDescription, setNewWorkflowDescription] = useState('');
   const [isCreating, setIsCreating] = useState(false);
+
+  // Run confirmation state — non-null while the confirm dialog is open
+  const [runTarget, setRunTarget] = useState<{ id: string; name: string } | null>(null);
+  const [isRunning, setIsRunning] = useState(false);
 
   // Load workflows
   useEffect(() => {
@@ -135,22 +140,16 @@ export default function PlansPage() {
     }
   };
 
-  // Handle execute workflow
-  const handleExecute = async (workflowId: string, name: string) => {
+  // Handle execute workflow. A run (as opposed to a trial) commits for real:
+  // notification nodes send actual email/SMS/Slack rather than simulating.
+  // This is one click deep in a ⋮ menu, so it's gated behind the branded
+  // ConfirmDialog below (runTarget) rather than firing immediately — see
+  // /impeccable critique P0. The workflow detail page gates its own "Run"
+  // button the same way.
+  const handleExecute = async (workflowId: string) => {
     if (!organization?.id) return;
 
-    // A run (as opposed to a trial) commits for real: notification nodes send
-    // actual email/SMS/Slack rather than simulating. This is one click deep in
-    // a ⋮ menu, so confirm before anything leaves the building. The detail page
-    // has separate Trial and Run buttons and does not need this.
-    const confirmed = window.confirm(
-      `Run "${name}" for real?\n\n` +
-        'This executes the plan in run mode — notification steps will send actual ' +
-        'emails, SMS, and Slack messages to their configured recipients.\n\n' +
-        'To rehearse without sending anything, open the plan and use Trial instead.'
-    );
-    if (!confirmed) return;
-
+    setIsRunning(true);
     try {
       const response = await executeWorkflow(organization.id, workflowId, { mode: 'run' });
       if (response.success) {
@@ -161,6 +160,9 @@ export default function PlansPage() {
       }
     } catch {
       setError('Failed to execute workflow');
+    } finally {
+      setIsRunning(false);
+      setRunTarget(null);
     }
   };
 
@@ -278,7 +280,7 @@ export default function PlansPage() {
                           <DropdownMenuItem
                             onClick={(e) => {
                               e.stopPropagation();
-                              handleExecute(workflow.id, workflow.name);
+                              setRunTarget({ id: workflow.id, name: workflow.name });
                             }}
                           >
                             <Play className="mr-2 h-4 w-4" />
@@ -390,6 +392,26 @@ export default function PlansPage() {
           </div>
         </div>
       )}
+
+      {/* Run Confirmation Dialog — see /impeccable critique P0 */}
+      <ConfirmDialog
+        open={runTarget !== null}
+        title={runTarget ? `Run "${runTarget.name}" for real?` : 'Run for real?'}
+        description={
+          <>
+            <p>
+              This executes the plan in run mode — notification steps will send
+              actual emails, SMS, and Slack messages to their configured recipients.
+            </p>
+            <p>To rehearse without sending anything, open the plan and use Trial instead.</p>
+          </>
+        }
+        confirmLabel="Run for real"
+        variant="destructive"
+        isConfirming={isRunning}
+        onConfirm={() => runTarget && handleExecute(runTarget.id)}
+        onCancel={() => setRunTarget(null)}
+      />
     </div>
   );
 }

@@ -15,6 +15,7 @@ import { useAuth } from '@/providers/auth-provider';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { WorkflowCanvas, NodePalette, NodeProperties, ExecutionResultsModal } from '@/components/workflow';
+import { ConfirmDialog } from '@/components/ui/confirm-dialog';
 import { useWorkflowStore } from '@/stores/workflow-store';
 import { publishWorkflow, updateWorkflow, executeWorkflow, type WorkflowExecutionResult, type WorkflowRunMode } from '@/lib/api-client';
 
@@ -31,6 +32,7 @@ export default function WorkflowEditorPage() {
   const [isPublishing, setIsPublishing] = useState(false);
   const [isExecuting, setIsExecuting] = useState(false);
   const [isTrialRunning, setIsTrialRunning] = useState(false);
+  const [showRunConfirm, setShowRunConfirm] = useState(false);
   const [executionResult, setExecutionResult] = useState<WorkflowExecutionResult | null>(null);
   const [isResultsModalOpen, setIsResultsModalOpen] = useState(false);
 
@@ -131,6 +133,7 @@ export default function WorkflowEditorPage() {
         setIsTrialRunning(false);
       } else {
         setIsExecuting(false);
+        setShowRunConfirm(false);
       }
     }
   };
@@ -290,11 +293,11 @@ export default function WorkflowEditorPage() {
             </Button>
           )}
 
-          {/* Run button */}
+          {/* Run button — gated behind ConfirmDialog below, see /impeccable critique P0 */}
           {workflow.status === 'PUBLISHED' && (
             <Button
               size="sm"
-              onClick={() => handleExecute('run')}
+              onClick={() => setShowRunConfirm(true)}
               disabled={isExecuting || isTrialRunning}
             >
               {isExecuting ? (
@@ -307,6 +310,25 @@ export default function WorkflowEditorPage() {
           )}
         </div>
       </div>
+
+      <ConfirmDialog
+        open={showRunConfirm}
+        title={`Run "${workflow.name}" for real?`}
+        description={
+          <>
+            <p>
+              This executes the plan in run mode — notification steps will send
+              actual emails, SMS, and Slack messages to their configured recipients.
+            </p>
+            <p>To rehearse without sending anything, use Trial Run instead.</p>
+          </>
+        }
+        confirmLabel="Run for real"
+        variant="destructive"
+        isConfirming={isExecuting}
+        onConfirm={() => handleExecute('run')}
+        onCancel={() => setShowRunConfirm(false)}
+      />
 
       {/* Main content */}
       <div className="flex flex-1 overflow-hidden">

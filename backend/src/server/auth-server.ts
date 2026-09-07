@@ -39,6 +39,7 @@ import {
   checkOrganizationAccess,
 } from '../auth/index.js';
 import { getPositionFeed, getOrganizationPositions } from '../integrations/tracking/index.js';
+import { fetchOpenRouterModels, OpenRouterConfigError } from '../integrations/openrouter/client.js';
 import { OAuth2Client } from 'google-auth-library';
 import { createWorkflowExecutionService, type ExecutionMode as WorkflowExecutionMode } from '../workflow/index.js';
 import { mastra } from '../mastra/index.js';
@@ -4536,6 +4537,44 @@ app.patch('/api/organizations/:orgId/settings', async (req: Request, res: Respon
   } catch (error) {
     console.error('Update organization settings error:', error);
     res.status(500).json({ success: false, error: { code: 'INTERNAL_ERROR', message: 'An unexpected error occurred' } });
+  }
+});
+
+// Get available OpenRouter models for the AI Settings picker — free models
+// first, then cheapest-first (see backend/src/integrations/openrouter).
+app.get('/api/organizations/:orgId/settings/ai-models/openrouter', async (req: Request, res: Response) => {
+  try {
+    const tokenPayload = authenticateRequest(req);
+    if (!tokenPayload) {
+      res.status(401).json({ success: false, error: { code: 'UNAUTHORIZED', message: 'Authentication required' } });
+      return;
+    }
+
+    const orgId = getParam(req.params.orgId);
+    const membership = await prisma.userOrganization.findUnique({
+      where: { user_id_organization_id: { user_id: tokenPayload.userId, organization_id: orgId } },
+    });
+
+    if (membership?.status !== 'active') {
+      res.status(404).json({ success: false, error: { code: 'NOT_FOUND', message: 'Organization not found' } });
+      return;
+    }
+
+    const models = await fetchOpenRouterModels();
+    res.status(200).json({ success: true, data: { models } });
+  } catch (error) {
+    if (error instanceof OpenRouterConfigError) {
+      res.status(500).json({
+        success: false,
+        error: { code: 'CONFIG_ERROR', message: 'OpenRouter is not configured (OPENROUTER_API_KEY missing)' },
+      });
+      return;
+    }
+    console.error('Get OpenRouter models error:', error);
+    res.status(502).json({
+      success: false,
+      error: { code: 'EXTERNAL_SERVICE_ERROR', message: 'Failed to fetch OpenRouter models' },
+    });
   }
 });
 

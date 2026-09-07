@@ -23,6 +23,7 @@ import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Fillet } from '@/components/ui/fillet';
+import { ConfirmDialog } from '@/components/ui/confirm-dialog';
 import {
   Card,
   CardContent,
@@ -61,6 +62,8 @@ export default function OrganizationsPage() {
   // Delete confirmation
   const [showDeleteConfirm, setShowDeleteConfirm] = useState(false);
   const [deleteSubmitting, setDeleteSubmitting] = useState(false);
+  const [showLeaveConfirm, setShowLeaveConfirm] = useState(false);
+  const [leaveSubmitting, setLeaveSubmitting] = useState(false);
 
   // Error/success messages
   const [message, setMessage] = useState<{ type: 'success' | 'error'; text: string } | null>(null);
@@ -237,17 +240,25 @@ export default function OrganizationsPage() {
     }
   };
 
+  // Fires only after the user confirms in the ConfirmDialog below — leaving
+  // used to have no confirmation step at all. See /impeccable critique.
   const handleLeaveOrg = async () => {
     if (!selectedOrg) return;
 
-    const response = await leaveOrganization(selectedOrg.id);
-    if (response.success) {
-      setOrganizations((prev) => prev.filter((o) => o.id !== selectedOrg.id));
-      setSelectedOrg(organizations.find((o) => o.id !== selectedOrg.id) || null);
-      setMessage({ type: 'success', text: 'You have left the organization' });
-      await refreshUser();
-    } else {
-      setMessage({ type: 'error', text: response.error?.message || 'Failed to leave organization' });
+    setLeaveSubmitting(true);
+    try {
+      const response = await leaveOrganization(selectedOrg.id);
+      if (response.success) {
+        setOrganizations((prev) => prev.filter((o) => o.id !== selectedOrg.id));
+        setSelectedOrg(organizations.find((o) => o.id !== selectedOrg.id) || null);
+        setMessage({ type: 'success', text: 'You have left the organization' });
+        await refreshUser();
+      } else {
+        setMessage({ type: 'error', text: response.error?.message || 'Failed to leave organization' });
+      }
+    } finally {
+      setLeaveSubmitting(false);
+      setShowLeaveConfirm(false);
     }
   };
 
@@ -522,7 +533,7 @@ export default function OrganizationsPage() {
                         <p className="font-medium">Leave Organization</p>
                         <p className="text-sm text-muted-foreground">Remove yourself from this organization</p>
                       </div>
-                      <Button variant="outline" onClick={handleLeaveOrg}>
+                      <Button variant="outline" onClick={() => setShowLeaveConfirm(true)}>
                         Leave
                       </Button>
                     </div>
@@ -718,6 +729,23 @@ export default function OrganizationsPage() {
           </Card>
         </div>
       )}
+
+      {/* Leave Confirmation Dialog — see /impeccable critique */}
+      <ConfirmDialog
+        open={showLeaveConfirm}
+        title="Leave organization?"
+        description={
+          <p>
+            You&apos;ll lose access to {selectedOrg?.name} immediately. You can rejoin
+            later only if someone invites you again.
+          </p>
+        }
+        confirmLabel="Leave"
+        variant="destructive"
+        isConfirming={leaveSubmitting}
+        onConfirm={handleLeaveOrg}
+        onCancel={() => setShowLeaveConfirm(false)}
+      />
     </div>
   );
 }

@@ -1293,6 +1293,31 @@ export async function updateOrganizationSettings(
 }
 
 /**
+ * OpenRouter model catalog entry, as returned by the backend (already sorted
+ * free-models-first, then cheapest-first).
+ */
+export interface OpenRouterModel {
+  id: string;
+  name: string;
+  contextLength: number | null;
+  promptPricePerMillionTokens: number;
+  completionPricePerMillionTokens: number;
+  isFree: boolean;
+}
+
+/**
+ * Get the OpenRouter model catalog for the AI provider picker. Fails with a
+ * CONFIG_ERROR if the server has no OPENROUTER_API_KEY configured.
+ */
+export async function getOpenRouterModels(
+  orgId: string
+): Promise<ApiResponse<{ models: OpenRouterModel[] }>> {
+  return apiRequest<{ models: OpenRouterModel[] }>(
+    `/api/organizations/${orgId}/settings/ai-models/openrouter`
+  );
+}
+
+/**
  * Test notification settings.
  */
 export async function testNotification(

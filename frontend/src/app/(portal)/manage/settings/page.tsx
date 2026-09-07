@@ -4,9 +4,11 @@ import { useState, useEffect, useCallback } from 'react';
 import { useAuth } from '@/providers/auth-provider';
 import {
   OrganizationSettings,
+  OpenRouterModel,
   getOrganizationSettings,
   updateOrganizationSettings,
   testNotification,
+  getOpenRouterModels,
 } from '@/lib/api-client';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
@@ -40,6 +42,7 @@ type DataSourceKey = (typeof DATA_SOURCES)[number]['key'];
 const AI_PROVIDERS = [
   { value: 'openai', label: 'OpenAI' },
   { value: 'anthropic', label: 'Anthropic' },
+  { value: 'openrouter', label: 'OpenRouter' },
 ];
 
 const AI_MODELS: Record<string, { value: string; label: string }[]> = {
@@ -83,6 +86,54 @@ export default function SettingsPage() {
 
   // Local form state
   const [formData, setFormData] = useState<Partial<OrganizationSettings>>({});
+
+  // OpenRouter model catalog (fetched on demand — free models first, then
+  // cheapest-first; see backend/src/integrations/openrouter)
+  const [openRouterModels, setOpenRouterModels] = useState<OpenRouterModel[]>([]);
+  const [isLoadingOpenRouterModels, setIsLoadingOpenRouterModels] = useState(false);
+  const [openRouterError, setOpenRouterError] = useState<string | null>(null);
+
+  const fetchOpenRouterModelsList = useCallback(async () => {
+    if (!currentOrganization?.id) return;
+
+    setIsLoadingOpenRouterModels(true);
+    setOpenRouterError(null);
+    try {
+      const response = await getOpenRouterModels(currentOrganization.id);
+      if (response.success && response.data) {
+        const models = response.data.models;
+        setOpenRouterModels(models);
+        // Default to the top of the list (free/cheapest) if the currently
+        // selected model isn't one OpenRouter actually offers.
+        setFormData((prev) =>
+          prev.aiModelProvider === 'openrouter' &&
+          models.length > 0 &&
+          !models.some((m) => m.id === prev.aiModelName)
+            ? { ...prev, aiModelName: models[0].id }
+            : prev
+        );
+      } else {
+        setOpenRouterError(response.error?.message || 'Failed to load OpenRouter models');
+      }
+    } catch {
+      setOpenRouterError('Failed to load OpenRouter models');
+    } finally {
+      setIsLoadingOpenRouterModels(false);
+    }
+  }, [currentOrganization?.id]);
+
+  // Fetch the OpenRouter catalog the first time that provider is selected
+  // (including on load, if it was already saved as the org's provider).
+  useEffect(() => {
+    if (
+      formData.aiModelProvider === 'openrouter' &&
+      openRouterModels.length === 0 &&
+      !isLoadingOpenRouterModels &&
+      !openRouterError
+    ) {
+      fetchOpenRouterModelsList();
+    }
+  }, [formData.aiModelProvider, openRouterModels.length, isLoadingOpenRouterModels, openRouterError, fetchOpenRouterModelsList]);
 
   const fetchSettings = useCallback(async () => {
     if (!currentOrganization?.id) return;
@@ -353,7 +404,9 @@ export default function SettingsPage() {
                   value={formData.aiModelProvider || 'openai'}
                   onChange={(e) => {
                     updateField('aiModelProvider', e.target.value);
-                    // Reset model when provider changes
+                    // Reset model when provider changes. OpenRouter's model
+                    // list is fetched dynamically, so it defaults its own
+                    // selection once loaded (see fetchOpenRouterModelsList).
                     const newModels = AI_MODELS[e.target.value];
                     if (newModels && newModels.length > 0) {
                       updateField('aiModelName', newModels[0].value);
@@ -372,18 +425,50 @@ export default function SettingsPage() {
               {/* AI Model */}
               <div>
                 <Label htmlFor="aiModel">AI Model</Label>
-                <select
-                  id="aiModel"
-                  value={formData.aiModelName || 'gpt-4o'}
-                  onChange={(e) => updateField('aiModelName', e.target.value)}
-                  className="mt-2 block w-full rounded-md border border-input bg-card px-3 py-2 text-foreground focus:border-ring focus:ring-ring"
-                >
-                  {(AI_MODELS[formData.aiModelProvider || 'openai'] || []).map((model) => (
-                    <option key={model.value} value={model.value}>
-                      {model.label}
-                    </option>
-                  ))}
-                </select>
+                {formData.aiModelProvider === 'openrouter' ? (
+                  <>
+                    {isLoadingOpenRouterModels && (
+                      <p className="mt-2 text-sm text-muted-foreground">Loading OpenRouter models…</p>
+                    )}
+                    {openRouterError && !isLoadingOpenRouterModels && (
+                      <div className="mt-2 flex items-center justify-between gap-2 rounded-md bg-risk-critical p-2 text-sm text-risk-critical-fg">
+                        <span>{openRouterError}</span>
+                        <Button type="button" variant="outline" size="sm" onClick={fetchOpenRouterModelsList}>
+                          Retry
+                        </Button>
+                      </div>
+                    )}
+                    {!isLoadingOpenRouterModels && !openRouterError && (
+                      <select
+                        id="aiModel"
+                        value={formData.aiModelName || ''}
+                        onChange={(e) => updateField('aiModelName', e.target.value)}
+                        className="mt-2 block w-full rounded-md border border-input bg-card px-3 py-2 text-foreground focus:border-ring focus:ring-ring"
+                      >
+                        {openRouterModels.map((model) => (
+                          <option key={model.id} value={model.id}>
+                            {model.isFree
+                              ? `${model.name} — Free`
+                              : `${model.name} — $${model.promptPricePerMillionTokens.toFixed(2)} / $${model.completionPricePerMillionTokens.toFixed(2)} per 1M tokens (in/out)`}
+                          </option>
+                        ))}
+                      </select>
+                    )}
+                  </>
+                ) : (
+                  <select
+                    id="aiModel"
+                    value={formData.aiModelName || 'gpt-4o'}
+                    onChange={(e) => updateField('aiModelName', e.target.value)}
+                    className="mt-2 block w-full rounded-md border border-input bg-card px-3 py-2 text-foreground focus:border-ring focus:ring-ring"
+                  >
+                    {(AI_MODELS[formData.aiModelProvider || 'openai'] || []).map((model) => (
+                      <option key={model.value} value={model.value}>
+                        {model.label}
+                      </option>
+                    ))}
+                  </select>
+                )}
               </div>
 
               {/* Temperature */}
@@ -765,7 +850,14 @@ export default function SettingsPage() {
 
           {/* Save Button */}
           <div className="flex justify-end pt-6 mt-6 border-t border-border">
-            <Button onClick={handleSave} disabled={isSaving}>
+            <Button
+              onClick={handleSave}
+              disabled={
+                isSaving ||
+                (formData.aiModelProvider === 'openrouter' &&
+                  (isLoadingOpenRouterModels || !!openRouterError || openRouterModels.length === 0))
+              }
+            >
               {isSaving ? 'Saving...' : 'Save Settings'}
             </Button>
           </div>
