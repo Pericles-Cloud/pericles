@@ -90,7 +90,7 @@ export async function onboardCustomerFromBol(
     dryRun,
   );
   const verb = parentCreated ? (dryRun ? 'Would create' : 'Created') : 'Using';
-  log(`${verb} parent customer org ${parentId}` + (customerName ? ` (${customerName})` : ''));
+  log(`${verb} parent customer org ${parentId}${  customerName ? ` (${customerName})` : ''}`);
 
   // 2-4. Seed every branded subsidiary, with the relational tables turned on so
   //      Atlas + the mocker have data to render.

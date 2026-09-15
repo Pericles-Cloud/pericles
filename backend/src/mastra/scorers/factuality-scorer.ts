@@ -1,5 +1,5 @@
 /* eslint-disable @typescript-eslint/no-explicit-any */
-/* eslint-disable @typescript-eslint/restrict-plus-operands */
+ 
 // Note: Mastra's scorer API doesn't provide strict typing for run.output, run.input, and results
 // All 'any' usages in this file are necessary for interacting with Mastra's scorer framework
 

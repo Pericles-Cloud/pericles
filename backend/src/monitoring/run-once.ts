@@ -259,8 +259,10 @@ async function main(): Promise<void> {
   const organizationIds = await resolveOrganizationIds(args);
 
   if (organizationIds.length === 0) {
-    logger.warn('[RunOnce] No organizations to monitor — nothing to do');
-    await shutdown(0);
+    logger.error(
+      '[RunOnce] No organizations eligible for monitoring — check OrganizationContext exists and monitoring_agent_enabled is not false in OrganizationSettings'
+    );
+    await shutdown(1);
   }
 
   logger.info({ organizationCount: organizationIds.length }, '[RunOnce] Starting cycle');

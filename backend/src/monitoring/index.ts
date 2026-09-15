@@ -248,7 +248,7 @@ export async function runMonitoringCycle(
     emitProgress({ phase: 'executing_tools', message: 'Connecting to AI agent...', toolIndex: 0, totalTools: estimatedTools });
 
     const agentStartTime = Date.now();
-    cycleLogger.info({ prompt: monitoringPrompt.substring(0, 200) + '...' }, '[Cycle] Starting agent execution');
+    cycleLogger.info({ prompt: `${monitoringPrompt.substring(0, 200)  }...` }, '[Cycle] Starting agent execution');
 
     // Create a timeout promise for the overall agent execution. 5 minutes is
     // the cap for a full cycle. (The old 280s Vercel-serverless branch went
@@ -438,14 +438,14 @@ export async function runMonitoringCycle(
     // genuine supply chain risk events and should not be stored or fed
     // into dedup/Atlas. The monitoring prompt now requires
     // "event_classification": "fact" | "opinion" | "commentary".
-    let opinionEvents: any[] = [];
+    const opinionEvents: any[] = [];
     for (const ev of detectedEvents) {
       const classification = ev?.event_classification;
       if (classification === 'opinion' || classification === 'commentary') {
         opinionEvents.push(ev);
         cycleLogger.info(
           { event: ev, classification },
-          '[Cycle] Filtering out ' + classification + '-classified event (not a supply chain risk event)'
+          `[Cycle] Filtering out ${  classification  }-classified event (not a supply chain risk event)`
         );
       }
     }
