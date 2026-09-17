@@ -5734,29 +5734,26 @@ async function checkOrgReadAccess(
   return { error: null };
 }
 
-// Writes (create/update/save-state/delete/publish/archive/execute): direct
-// membership on the target org only — unchanged from before this ticket,
-// aside from the error code (403, not 404 — see checkOrganizationAccess's
-// other callers: a 404 on an access check leaks whether the org exists).
-async function checkOrgWriteMembership(
-  userId: string,
-  orgId: string,
-  requiredRoles: string[]
-): Promise<{ error: { status: number; code: string; message: string } | null }> {
-  const membership = await prisma.userOrganization.findUnique({
-    where: { user_id_organization_id: { user_id: userId, organization_id: orgId } },
-  });
+// Writes (create/update/save-state/delete/publish/archive/execute):
+  // Use checkOrganizationAccess which grants root-org members global access
+  // and hierarchy rollup (parent → child). The role returned is the user's
+  // role in the granting org (root or ancestor).
+  async function checkOrgWriteMembership(
+    userId: string,
+    orgId: string,
+    requiredRoles: string[]
+  ): Promise<{ error: { status: number; code: string; message: string } | null }> {
+    const access = await checkOrganizationAccess(userId, orgId);
+    if (!access.hasAccess) {
+      return { error: { status: 403, code: 'FORBIDDEN', message: 'Access denied to this organization' } };
+    }
 
-  if (membership?.status !== 'active') {
-    return { error: { status: 403, code: 'FORBIDDEN', message: 'Access denied to this organization' } };
+    if (!requiredRoles.includes(access.membership.role)) {
+      return { error: { status: 403, code: 'FORBIDDEN', message: 'Insufficient permissions' } };
+    }
+
+    return { error: null };
   }
-
-  if (!requiredRoles.includes(membership.role)) {
-    return { error: { status: 403, code: 'FORBIDDEN', message: 'Insufficient permissions' } };
-  }
-
-  return { error: null };
-}
 
 // List workflows for an organization
 app.get('/api/organizations/:orgId/workflows', async (req: Request, res: Response) => {
