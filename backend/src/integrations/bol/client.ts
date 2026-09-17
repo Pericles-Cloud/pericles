@@ -12,6 +12,7 @@
  */
 
 import type { BolRow } from './types.js';
+import { getIntegrationSecret } from '../../secrets/index.js';
 
 const UA = 'Pericles-SupplyChainMonitor/1.0 (contact@pericles.cloud)';
 
@@ -19,6 +20,16 @@ export interface ApifyBolClientConfig {
   apifyToken?: string;
   /** Actor that returns row-level BOLs (not aggregate-only). */
   actorId?: string;
+}
+
+async function getApifyToken(organizationId: string): Promise<string> {
+  const token = await getIntegrationSecret(organizationId, 'importyeti', 'apify_token', true);
+  if (!token) throw new Error('APIFY_TOKEN not set');
+  return token;
+}
+
+async function getActorId(organizationId: string): Promise<string> {
+  return getIntegrationSecret(organizationId, 'importyeti', 'actor_id', false, 'jungle_synthesizer~importyeti-bill-of-lading-scraper');
 }
 
 /** Raw actor output is loosely typed; map defensively. */
@@ -109,15 +120,12 @@ export function normalizeRecord(r: RawRecord): BolRow | null {
  * importyeti.com/company/<slug>). Shape depends on the chosen actor.
  */
 export async function fetchBolRows(
+  organizationId: string,
   input: Record<string, unknown>,
-  config: ApifyBolClientConfig = {},
+  config: { apifyToken?: string; actorId?: string } = {},
 ): Promise<BolRow[]> {
-  const token = config.apifyToken ?? process.env.APIFY_TOKEN;
-  const actorId =
-    config.actorId ??
-    process.env.APIFY_BOL_ACTOR ??
-    'jungle_synthesizer~importyeti-bill-of-lading-scraper';
-  if (!token) throw new Error('APIFY_TOKEN not set');
+  const token = config.apifyToken ?? await getApifyToken(organizationId);
+  const actorId = config.actorId ?? await getActorId(organizationId);
 
   const url =
     `https://api.apify.com/v2/acts/${actorId}/run-sync-get-dataset-items` +

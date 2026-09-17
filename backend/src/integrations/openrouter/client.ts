@@ -9,6 +9,7 @@
  */
 
 import type { OpenRouterModel, OpenRouterRawModel } from './types.js';
+import { getOrgSecret } from '../../secrets/index.js';
 
 const UA = 'Pericles-SupplyChainMonitor/1.0 (contact@pericles.cloud)';
 const MODELS_URL = 'https://openrouter.ai/api/v1/models';
@@ -26,7 +27,18 @@ function num(v: unknown): number {
   return Number.isFinite(n) ? n : 0;
 }
 
-function requireApiKey(): string {
+async function getApiKey(organizationId?: string): Promise<string> {
+  // Try secrets manager first
+  if (organizationId) {
+    try {
+      const key = await getOrgSecret(organizationId, 'openrouter_api_key', false);
+      if (key) return key;
+    } catch {
+      // Fall through to env var
+    }
+  }
+  
+  // Fallback to environment variable
   const key = process.env.OPENROUTER_API_KEY;
   if (!key) throw new OpenRouterConfigError();
   return key;
@@ -39,8 +51,8 @@ function requireApiKey(): string {
  * @throws {OpenRouterConfigError} when OPENROUTER_API_KEY is not set.
  * @throws {Error} when the OpenRouter API call fails.
  */
-export async function fetchOpenRouterModels(): Promise<OpenRouterModel[]> {
-  const apiKey = requireApiKey();
+export async function fetchOpenRouterModels(organizationId?: string): Promise<OpenRouterModel[]> {
+  const apiKey = await getApiKey(organizationId);
 
   const response = await fetch(MODELS_URL, {
     headers: {

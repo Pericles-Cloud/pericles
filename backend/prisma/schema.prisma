@@ -54,6 +54,8 @@ model Organization {
   shipments           Shipment[]
   users               UserOrganization[]
   workflows           Workflow[]
+  secrets             OrganizationSecret[]
+  secretAuditLogs     SecretAuditLog[]
 
   @@index([is_root])
   @@index([parent_organization_id])
@@ -833,6 +835,96 @@ model MessageQueue {
   @@index([queue_name, status])
   @@index([organization_id, queue_name])
   @@index([status, scheduled_at])
+}
+
+// ============================================================================
+// SECRETS MANAGEMENT (Organization-scoped secrets and variables)
+// ============================================================================
+
+model OrganizationSecret {
+  id                String   @id @default(uuid())
+  organization_id   String
+  organization      Organization @relation(fields: [organization_id], references: [id], onDelete: Cascade)
+
+  // Namespaced name: "org.openrouter_api_key", "integration.sap.base_url", "tool.fred.api_key"
+  name              String
+  
+  // Scope: ORGANIZATION, INTEGRATION, TOOL
+  scope             SecretScope @default(ORGANIZATION)
+  
+  // For INTEGRATION scope: which integration (e.g., "sap", "terminal49", "importyeti")
+  // For TOOL scope: which tool/agent (e.g., "fred", "noaa", "monitoring-agent")
+  scope_ref         String?
+  
+  // Type discriminator
+  secret_type       SecretType @default(SECRET) // SECRET, VARIABLE
+  
+  // Encrypted value (envelope encryption for SECRETS; optional for VARIABLES)
+  value_encrypted   Bytes
+  version           Int         @default(1) // For SECRET rotation history
+  
+  // Metadata
+  description       String?
+  is_required       Boolean     @default(true)
+  tags              String[]    @default([])
+  
+  // Rotation (SECRETS only)
+  rotated_at        DateTime?
+  expires_at        DateTime?
+  
+  created_by        String
+  created_at        DateTime    @default(now())
+  updated_at        DateTime    @updatedAt
+
+  @@unique([organization_id, name, scope, scope_ref])
+  @@index([organization_id, scope])
+  @@index([organization_id, scope_ref])
+  @@index([organization_id, secret_type])
+}
+
+model SecretAuditLog {
+  id                  String   @id @default(uuid())
+  organization_id     String
+  organization        Organization @relation(fields: [organization_id], references: [id], onDelete: Cascade)
+  user_id             String
+  
+  // What happened
+  action              SecretAction // CREATE, READ, UPDATE, DELETE, ROTATE, REVEAL
+  secret_name         String
+  secret_scope        SecretScope
+  secret_scope_ref    String?
+  
+  // Context
+  ip_address          String?
+  user_agent          String?
+  success             Boolean      @default(true)
+  error_message       String?
+  
+  created_at          DateTime     @default(now())
+
+  @@index([organization_id, created_at])
+  @@index([organization_id, secret_name])
+  @@index([user_id, created_at])
+}
+
+enum SecretScope {
+  ORGANIZATION
+  INTEGRATION
+  TOOL
+}
+
+enum SecretType {
+  SECRET      // API keys, tokens, client secrets, passwords
+  VARIABLE    // URLs, endpoints, timeouts, config values
+}
+
+enum SecretAction {
+  CREATE
+  READ
+  UPDATE
+  DELETE
+  ROTATE
+  REVEAL
 }
 
 enum MessageStatus {

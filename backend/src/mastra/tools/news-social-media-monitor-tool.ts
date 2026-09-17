@@ -30,9 +30,36 @@ const logger = toolLoggers.newsSocialMedia;
  * Organization Isolation: Filters based on organization's keywords and geographic exposure
  */
 
-// Environment variable names
-const THENEWSAPI_KEY = process.env.THENEWSAPI_API_KEY;
-const TWITTERAPIIO_KEY = process.env.TWITTERAPIIO_API_KEY;
+// Environment variable names (fallback) - kept for backward compatibility during transition
+const _THENEWSAPI_KEY = process.env.THENEWSAPI_API_KEY;
+const _TWITTERAPIIO_KEY = process.env.TWITTERAPIIO_API_KEY;
+
+/**
+ * Fetch API keys from secrets manager if organizationId is provided
+ */
+async function getNewsApiKeys(organizationId?: string): Promise<{ thenewsapi?: string; twitter?: string }> {
+  const keys: { thenewsapi?: string; twitter?: string } = {};
+  
+  if (organizationId) {
+    try {
+      const { getToolSecret } = await import('../../../secrets/index.js');
+      const [thenewsapi, twitter] = await Promise.all([
+        getToolSecret(organizationId, 'thenewsapi', 'api_key', 'news', false),
+        getToolSecret(organizationId, 'twitter', 'api_key', 'news', false),
+      ]);
+      if (thenewsapi) keys.thenewsapi = thenewsapi;
+      if (twitter) keys.twitter = twitter;
+    } catch {
+      // Fall back to env vars
+    }
+  }
+  
+  // Fallback to environment variables
+  keys.thenewsapi ??= process.env.THENEWSAPI_API_KEY;
+  keys.twitter ??= process.env.TWITTERAPIIO_API_KEY;
+  
+  return keys;
+}
 
 /**
  * Domains excluded from news monitoring because they publish opinion/editorial
@@ -149,7 +176,10 @@ export const newsSocialMediaMonitorTool = createTool({
       throw new Error('organization_id is required for news/social media monitoring');
     }
 
-    // Determine geographic regions to monitor
+    // Fetch API keys from secrets manager (with env var fallback)
+    const apiKeys = await getNewsApiKeys(organization_id);
+    const THENEWSAPI_KEY = apiKeys.thenewsapi;
+    const TWITTERAPIIO_KEY = apiKeys.twitter;
     // Priority: 1. monitoring_plan, 2. supply_chain_locations, 3. global (no filter)
     let regionsMonitored: string[] = [];
     let regionSource: 'monitoring_plan' | 'supply_chain_locations' | 'global' = 'global';
@@ -182,7 +212,7 @@ export const newsSocialMediaMonitorTool = createTool({
 
       // Fetch news from TheNewsAPI with geographic filtering
       if (sources.includes('news')) {
-        const newsEvents = await fetchNewsArticles(keywords, lookback_hours, sentiment_threshold, regionsMonitored);
+        const newsEvents = await fetchNewsArticles(keywords, lookback_hours, sentiment_threshold, regionsMonitored, THENEWSAPI_KEY);
         const filteredNews = newsEvents.filter(e => e.severity >= severityThresholdValue);
         mediaEvents.push(...filteredNews);
         newsCount = filteredNews.length;
@@ -192,7 +222,7 @@ export const newsSocialMediaMonitorTool = createTool({
 
       // Fetch tweets from TwitterAPI.io
       if (sources.includes('twitter')) {
-        const twitterEvents = await fetchTwitterPosts(keywords, lookback_hours, sentiment_threshold);
+        const twitterEvents = await fetchTwitterPosts(keywords, lookback_hours, sentiment_threshold, TWITTERAPIIO_KEY);
         const filteredTweets = twitterEvents.filter(e => e.severity >= severityThresholdValue);
         mediaEvents.push(...filteredTweets);
         socialCount = filteredTweets.length;
@@ -283,14 +313,16 @@ interface TwitterAPIResponse {
  * @param lookbackHours - Hours to look back
  * @param sentimentThreshold - Minimum sentiment threshold
  * @param regions - Array of country codes (ISO 3166-1 alpha-2) to filter by
+ * @param apiKey - TheNewsAPI API key (from secrets manager)
  */
 async function fetchNewsArticles(
   keywords: Array<{ keyword: string; category?: string | null }>,
   lookbackHours: number,
   sentimentThreshold: number,
-  regions: string[] = []
+  regions: string[] = [],
+  apiKey?: string
 ): Promise<Array<z.infer<typeof MediaEventSchema>>> {
-  if (!THENEWSAPI_KEY) {
+  if (!apiKey) {
     logger.warn('THENEWSAPI_API_KEY not set, skipping news check');
     return [];
   }
@@ -303,8 +335,12 @@ async function fetchNewsArticles(
   const searchQuery = keywords.map(k => k.keyword).join(' | ');
 
   try {
+    if (!apiKey) {
+      logger.warn('THENEWSAPI_API_KEY not set, skipping news check');
+      return [];
+    }
     const url = new URL('https://api.thenewsapi.com/v1/news/all');
-    url.searchParams.set('api_token', THENEWSAPI_KEY);
+    url.searchParams.set('api_token', apiKey);
     url.searchParams.set('search', searchQuery);
     url.searchParams.set('published_after', startDate.toISOString().split('T')[0]);
     url.searchParams.set('published_before', endDate.toISOString().split('T')[0]);
@@ -401,9 +437,10 @@ async function fetchNewsArticles(
 async function fetchTwitterPosts(
   keywords: Array<{ keyword: string; category?: string | null }>,
   lookbackHours: number,
-  sentimentThreshold: number
+  sentimentThreshold: number,
+  apiKey?: string
 ): Promise<Array<z.infer<typeof MediaEventSchema>>> {
-  if (!TWITTERAPIIO_KEY) {
+  if (!apiKey) {
     logger.warn('TWITTERAPIIO_API_KEY not set, skipping Twitter check');
     return [];
   }
@@ -421,6 +458,10 @@ async function fetchTwitterPosts(
 
   for (let attempt = 0; attempt <= MAX_RETRIES; attempt++) {
     try {
+      if (!apiKey) {
+        logger.warn('TWITTERAPIIO_API_KEY not set, skipping Twitter check');
+        return [];
+      }
       const url = new URL('https://api.twitterapi.io/twitter/tweet/advanced_search');
       url.searchParams.set('query', searchQuery);
       url.searchParams.set('queryType', 'Latest');
@@ -433,7 +474,7 @@ async function fetchTwitterPosts(
 
       const response = await fetch(url.toString(), {
         headers: {
-          'X-API-Key': TWITTERAPIIO_KEY,
+          'X-API-Key': apiKey,
           'Content-Type': 'application/json'
         },
         signal: AbortSignal.timeout(15000) // 15 second timeout

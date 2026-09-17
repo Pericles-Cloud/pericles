@@ -26,6 +26,7 @@ import type {
   SAPErrorResponse,
 } from './types.js';
 import { mockSAPAPI } from './mock-api.js';
+import { getIntegrationSecret, getIntegrationSecret as getIntegrationVariable } from '../../secrets/index.js';
 
 /**
  * SAP S/4HANA Cloud Client
@@ -35,8 +36,9 @@ export class SAPClient {
   private accessToken?: string;
   private tokenExpiry?: Date;
   private useMock: boolean;
+  private organizationId: string;
 
-  constructor(config: SAPClientConfig, useMock = false) {
+  constructor(config: SAPClientConfig, useMock = false, organizationId?: string) {
     this.config = {
       timeout: 30000,
       retryAttempts: 3,
@@ -45,12 +47,43 @@ export class SAPClient {
       ...config,
     };
     this.useMock = useMock;
+    this.organizationId = organizationId || '';
+  }
+
+  /**
+   * Load credentials from secrets manager
+   */
+  private async loadCredentials(): Promise<void> {
+    if (this.useMock || this.organizationId === '') {
+      return;
+    }
+
+    try {
+      // Load secrets in parallel
+      const [baseUrl, clientId, clientSecret, timeout] = await Promise.all([
+        getIntegrationSecret(this.organizationId, 'sap', 'base_url', false, this.config.baseUrl),
+        getIntegrationSecret(this.organizationId, 'sap', 'client_id', false, this.config.clientId),
+        getIntegrationSecret(this.organizationId, 'sap', 'client_secret', false, this.config.clientSecret),
+        getIntegrationVariable(this.organizationId, 'sap', 'timeout', false, String(this.config.timeout)),
+      ]);
+
+      this.config.baseUrl = baseUrl;
+      this.config.clientId = clientId;
+      this.config.clientSecret = clientSecret;
+      this.config.timeout = parseInt(timeout, 10);
+      this.config.tokenUrl = `${baseUrl}/sap/bc/sec/oauth2/token`;
+    } catch (error) {
+      console.warn('[SAPClient] Failed to load credentials from secrets manager, using config/env:', error);
+    }
   }
 
   /**
    * Authenticate with OAuth 2.0 Client Credentials
    */
   private async authenticate(): Promise<string> {
+    // Load credentials first
+    await this.loadCredentials();
+
     // If using mock, return fake token
     if (this.useMock) {
       return 'mock-access-token';
@@ -286,9 +319,12 @@ export class SAPClient {
 }
 
 /**
- * Create SAP Client from environment variables
+ * Create SAP Client from secrets manager (preferred) or environment variables
  */
-export function createSAPClient(useMock = true): SAPClient {
+export async function createSAPClient(
+  useMock = true, 
+  organizationId?: string
+): Promise<SAPClient> {
   const config: SAPClientConfig = {
     baseUrl: process.env.SAP_S4HANA_BASE_URL || 'https://mock-sap.s4hana.ondemand.com',
     clientId: process.env.SAP_S4HANA_CLIENT_ID || 'mock-client-id',
@@ -296,11 +332,19 @@ export function createSAPClient(useMock = true): SAPClient {
     timeout: parseInt(process.env.SAP_S4HANA_TIMEOUT || '30000'),
   };
 
-  return new SAPClient(config, useMock);
+  const client = new SAPClient(config, useMock, organizationId);
+  
+  // Pre-load credentials if organizationId provided
+  if (organizationId && !useMock) {
+    await client.loadCredentials();
+  }
+
+  return client;
 }
 
 /**
  * Singleton instance (mock mode by default for development)
+ * Note: For production use with secrets, use createSAPClient() with organizationId
  */
 export const sapClient = createSAPClient(
   process.env.SAP_S4HANA_USE_MOCK !== 'false' // Default to mock unless explicitly disabled
