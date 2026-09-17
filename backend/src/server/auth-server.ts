@@ -4220,12 +4220,9 @@ app.post('/api/monitoring/trigger', async (req: Request, res: Response) => {
     }
 
     // Check user has admin access to organization
-    const memberships = await prisma.userOrganization.findMany({
-      where: { user_id: tokenPayload.userId, status: 'active' },
-    });
-    const membership = memberships.find((m: { organization_id: string; role: string }) => m.organization_id === organization_id);
-    if (!membership || !['OWNER', 'ADMIN'].includes(membership.role)) {
-      res.status(403).json({ success: false, error: { code: 'FORBIDDEN', message: 'Admin access required to trigger monitoring' } });
+    const { error } = await checkOrgWriteMembership(tokenPayload.userId, organization_id, ['OWNER', 'ADMIN']);
+    if (error) {
+      res.status(error.status).json({ success: false, error: { code: error.code, message: error.message } });
       return;
     }
 
@@ -4289,12 +4286,9 @@ app.get('/api/monitoring/trigger-stream', async (req: Request, res: Response) =>
     }
 
     // Check user has admin access to organization
-    const memberships = await prisma.userOrganization.findMany({
-      where: { user_id: tokenPayload.userId, status: 'active' },
-    });
-    const membership = memberships.find((m: { organization_id: string; role: string }) => m.organization_id === organizationId);
-    if (!membership || !['OWNER', 'ADMIN'].includes(membership.role)) {
-      res.status(403).json({ success: false, error: { code: 'FORBIDDEN', message: 'Admin access required to trigger monitoring' } });
+    const { error } = await checkOrgWriteMembership(tokenPayload.userId, organizationId, ['OWNER', 'ADMIN']);
+    if (error) {
+      res.status(error.status).json({ success: false, error: { code: error.code, message: error.message } });
       return;
     }
 
