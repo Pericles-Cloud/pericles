@@ -4450,12 +4450,9 @@ app.get('/api/organizations/:orgId/settings', async (req: Request, res: Response
     }
 
     const orgId = getParam(req.params.orgId);
-    const membership = await prisma.userOrganization.findUnique({
-      where: { user_id_organization_id: { user_id: tokenPayload.userId, organization_id: orgId } },
-    });
-
-    if (membership?.status !== 'active') {
-      res.status(404).json({ success: false, error: { code: 'NOT_FOUND', message: 'Organization not found' } });
+    const { error } = await checkOrgReadAccess(tokenPayload.userId, orgId);
+    if (error) {
+      res.status(error.status).json({ success: false, error: { code: error.code, message: error.message } });
       return;
     }
 
@@ -4488,18 +4485,9 @@ app.patch('/api/organizations/:orgId/settings', async (req: Request, res: Respon
     }
 
     const orgId = getParam(req.params.orgId);
-    const membership = await prisma.userOrganization.findUnique({
-      where: { user_id_organization_id: { user_id: tokenPayload.userId, organization_id: orgId } },
-    });
-
-    if (membership?.status !== 'active') {
-      res.status(404).json({ success: false, error: { code: 'NOT_FOUND', message: 'Organization not found' } });
-      return;
-    }
-
-    // Require ADMIN or OWNER for settings updates
-    if (!['OWNER', 'ADMIN'].includes(membership.role)) {
-      res.status(403).json({ success: false, error: { code: 'FORBIDDEN', message: 'Admin access required to update settings' } });
+    const { error } = await checkOrgWriteMembership(tokenPayload.userId, orgId, ['OWNER', 'ADMIN']);
+    if (error) {
+      res.status(error.status).json({ success: false, error: { code: error.code, message: error.message } });
       return;
     }
 
