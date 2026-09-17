@@ -3589,9 +3589,28 @@ app.post('/api/events/:id/ask', async (req: Request, res: Response) => {
         select: { ai_model_provider: true, ai_model_name: true },
       });
       if (orgSettings?.ai_model_provider && orgSettings?.ai_model_name) {
-        agentModel = orgSettings.ai_model_provider === 'openrouter'
-          ? `openrouter/${orgSettings.ai_model_name}`
-          : `${orgSettings.ai_model_provider}/${orgSettings.ai_model_name}`;
+        const provider = orgSettings.ai_model_provider;
+        const modelName = orgSettings.ai_model_name;
+
+        // Validate OpenRouter configuration
+        if (provider === 'openrouter') {
+          if (!process.env.OPENROUTER_API_KEY) {
+            console.error('[EventQA] OpenRouter provider selected but OPENROUTER_API_KEY environment variable is not set');
+            throw new Error('OpenRouter provider selected but OPENROUTER_API_KEY is not configured');
+          }
+          if (!modelName.includes('/')) {
+            console.warn(`[EventQA] OpenRouter model name "${modelName}" does not include a provider prefix (e.g., "anthropic/claude-3.5-sonnet")`);
+          }
+          agentModel = `openrouter/${modelName}`;
+        } else if (provider === 'openai') {
+          if (!process.env.OPENAI_API_KEY) {
+            console.error('[EventQA] OpenAI provider selected but OPENAI_API_KEY environment variable is not set');
+            throw new Error('OpenAI provider selected but OPENAI_API_KEY is not configured');
+          }
+          agentModel = `openai/${modelName}`;
+        } else {
+          agentModel = `${provider}/${modelName}`;
+        }
       }
     } catch (settingsErr) {
       // Non-fatal: fall back to agent default if settings lookup fails
@@ -4522,8 +4541,20 @@ app.patch('/api/organizations/:orgId/settings', async (req: Request, res: Respon
     if (monitoringEnabledSources !== undefined) updateData.monitoring_enabled_sources = monitoringEnabledSources;
 
     // AI Settings
-    if (aiModelProvider !== undefined) updateData.ai_model_provider = aiModelProvider;
-    if (aiModelName !== undefined) updateData.ai_model_name = aiModelName;
+    if (aiModelProvider !== undefined) {
+      // Validate OpenRouter model name format
+      if (aiModelProvider === 'openrouter' && aiModelName !== undefined && !aiModelName.includes('/')) {
+        console.warn(`[Settings] OpenRouter model name "${aiModelName}" should include provider prefix (e.g., "anthropic/claude-3.5-sonnet")`);
+      }
+      updateData.ai_model_provider = aiModelProvider;
+    }
+    if (aiModelName !== undefined) {
+      // Validate OpenRouter model name format
+      if (aiModelProvider === 'openrouter' && !aiModelName.includes('/')) {
+        console.warn(`[Settings] OpenRouter model name "${aiModelName}" should include provider prefix (e.g., "anthropic/claude-3.5-sonnet")`);
+      }
+      updateData.ai_model_name = aiModelName;
+    }
     if (aiModelTemperature !== undefined) updateData.ai_model_temperature = aiModelTemperature;
     if (aiMaxTokens !== undefined) updateData.ai_max_tokens = aiMaxTokens;
 

@@ -304,16 +304,38 @@ export async function loadMonitoringConfig(
  * string like `'openai/gpt-4o'` or a function returning one. This helper
  * produces that string from the org's stored settings.
  *
- * OpenRouter models use the format `'openrouter/<model-id>'`.
+ * OpenRouter models use the format `'openrouter/<provider>/<model-id>'` (e.g., 'openrouter/anthropic/claude-3.5-sonnet').
  * OpenAI models use `'openai/<model-id>'`.
  *
  * @returns Mastra model string, e.g. `'openai/gpt-4o'` or `'openrouter/anthropic/claude-3.5-sonnet'`
+ * @throws Error if provider is 'openrouter' but OPENROUTER_API_KEY is not configured
  */
 export function resolveModel(config: MonitoringConfig): string {
   const { provider, modelName } = config.ai;
 
   if (provider === 'openrouter') {
+    // Validate OpenRouter configuration
+    if (!process.env.OPENROUTER_API_KEY) {
+      const errorMsg = 'OpenRouter provider selected but OPENROUTER_API_KEY environment variable is not set. ' +
+        'Please configure OPENROUTER_API_KEY in your environment (Coolify → app → Environment) and redeploy.';
+      console.error('[Config] ' + errorMsg);
+      throw new Error(errorMsg);
+    }
+
+    // Validate model name format for OpenRouter (should include provider prefix like "anthropic/claude-3.5-sonnet")
+    if (!modelName.includes('/')) {
+      const warningMsg = `OpenRouter model name "${modelName}" does not include a provider prefix (e.g., "anthropic/claude-3.5-sonnet"). ` +
+        `This may cause model resolution to fail. Please use the full model ID from OpenRouter (e.g., "anthropic/claude-3.5-sonnet", "google/gemini-2.0-flash").`;
+      console.warn('[Config] ' + warningMsg);
+    }
+
     return `openrouter/${modelName}`;
+  }
+
+  if (provider === 'openai' && !process.env.OPENAI_API_KEY) {
+    const errorMsg = 'OpenAI provider selected but OPENAI_API_KEY environment variable is not set.';
+    console.error('[Config] ' + errorMsg);
+    throw new Error(errorMsg);
   }
 
   return `${provider}/${modelName}`;

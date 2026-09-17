@@ -66,3 +66,4 @@ wiki
 # REST API plugin). Same rationale as above: never let personal notes land
 # in the shared repo.
 Pericles-Obsidian/
+.env*

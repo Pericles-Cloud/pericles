@@ -226,6 +226,7 @@ export async function runMonitoringCycle(
     // Monitoring cycles are sequential per-org, so this mutation is safe.
     // __updateModel is an internal Mastra API; restore after the call.
     const resolvedModel = resolveModel(config);
+    cycleLogger.info({ provider: config.ai.provider, modelName: config.ai.modelName, resolvedModel }, '[Cycle] Using AI model for monitoring');
     agent.__updateModel({ model: resolvedModel });
 
     emitProgress({
