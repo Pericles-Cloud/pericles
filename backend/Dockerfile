@@ -9,14 +9,17 @@
 FROM node:20-alpine AS builder
 
 # Install system deps for Prisma & healthcheck
-RUN apk add --no-cache openssl ca-certificates curl python3 make g++
+# Use BuildKit cache mount for apk to speed up rebuilds
+RUN --mount=type=cache,target=/var/cache/apk,sharing=locked \
+    apk add --no-cache openssl ca-certificates curl python3 make g++
 
 WORKDIR /app
 
-# Install deps
+# Install deps with npm cache mount
 COPY package.json package-lock.json ./
 COPY scripts ./scripts
-RUN npm install --omit=optional --no-audit --no-fund
+RUN --mount=type=cache,target=/root/.npm,sharing=locked \
+    npm install --omit=optional --no-audit --no-fund --prefer-offline
 
 # Generate Prisma client
 COPY prisma ./prisma/
