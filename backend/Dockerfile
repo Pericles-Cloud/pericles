@@ -2,42 +2,47 @@
 # process. Built for a persistent container host (Coolify, Render, Fly, a VM).
 # One port serves the HTTP API and the WebSocket; config comes from env vars.
 # syntax=docker/dockerfile:1.4
-FROM node:20-alpine
 
-# Prisma needs openssl; ca-certificates for outbound TLS (Apify/Google/OpenAI);
-# curl so the container healthcheck (Coolify probes GET /health) can run.
-# Use BuildKit cache mount for apt to speed up rebuilds
-RUN --mount=type=cache,target=/var/cache/apt,sharing=locked \
-    --mount=type=cache,target=/var/lib/apt,sharing=locked \
-    apk add --no-cache openssl ca-certificates curl
+# =============================================================================
+# Build stage — install deps & generate Prisma client
+# =============================================================================
+FROM node:20-alpine AS builder
 
-# node:20-alpine ships npm 10, which rejects lockfiles written by npm 11
-# ("Missing: esbuild@0.28.2 from lock file" — npm 11 omits the nested
-# vitest esbuild tree npm 10 still expects). Pin the SAME major as local
-# tooling so the build accepts both npm-10- and npm-11-generated lockfiles.
-RUN npm install -g npm@11
+# Install system deps for Prisma & healthcheck
+RUN apk add --no-cache openssl ca-certificates curl python3 make g++
 
 WORKDIR /app
 
-# Install ALL deps: tsx (the runtime) and the prisma CLI are devDependencies but
-# are needed to run the server and apply migrations in the container. The
-# postinstall hook (scripts/fix-mastra-provider-types.mjs) runs during `npm ci`,
-# so scripts/ must be present first.
+# Install deps
 COPY package.json package-lock.json ./
 COPY scripts ./scripts
+RUN npm install --omit=optional --no-audit --no-fund
 
-# Use BuildKit cache mount for npm to speed up installs
-RUN --mount=type=cache,target=/root/.npm \
-    npm ci --include=dev --prefer-offline --no-audit --no-fund
-
-# App source, then generate the Prisma client for this image's platform.
-COPY . .
+# Generate Prisma client
+COPY prisma ./prisma/
 RUN npx prisma generate
 
+# Copy app source
+COPY . .
+
+# =============================================================================
+# Runtime stage — minimal image with only production deps
+# =============================================================================
+FROM node:20-alpine AS runtime
+
+# Runtime deps only
+RUN apk add --no-cache openssl ca-certificates curl
+
+WORKDIR /app
+
+# Copy production deps and Prisma client from builder
+COPY --from=builder /app/node_modules ./node_modules
+COPY --from=builder /app/package.json ./package.json
+COPY --from=builder /app/prisma ./prisma
+COPY --from=builder /app/src ./src
+
 ENV NODE_ENV=production
-# The server listens on AUTH_PORT (default 4112). Override via the host if needed.
 EXPOSE 4112
 
-# Apply pending migrations, then start. The server reads DATABASE_URL,
-# CORS_ORIGINS, JWT secrets, etc. from the container environment.
+# Run migrations then start
 CMD ["sh", "-c", "npx prisma migrate deploy && npx tsx src/server/auth-server.ts"]
