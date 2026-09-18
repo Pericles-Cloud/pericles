@@ -2,18 +2,16 @@
 # process. Built for a persistent container host (Coolify, Render, Fly, a VM).
 # One port serves the HTTP API and the WebSocket; config comes from env vars.
 # syntax=docker/dockerfile:1.4
-FROM node:20-slim
+FROM node:20-alpine
 
 # Prisma needs openssl; ca-certificates for outbound TLS (Apify/Google/OpenAI);
 # curl so the container healthcheck (Coolify probes GET /health) can run.
 # Use BuildKit cache mount for apt to speed up rebuilds
 RUN --mount=type=cache,target=/var/cache/apt,sharing=locked \
     --mount=type=cache,target=/var/lib/apt,sharing=locked \
-    apt-get update \
-    && apt-get install -y --no-install-recommends openssl ca-certificates curl \
-    && rm -rf /var/lib/apt/lists/*
+    apk add --no-cache openssl ca-certificates curl
 
-# node:20-slim ships npm 10, which rejects lockfiles written by npm 11
+# node:20-alpine ships npm 10, which rejects lockfiles written by npm 11
 # ("Missing: esbuild@0.28.2 from lock file" — npm 11 omits the nested
 # vitest esbuild tree npm 10 still expects). Pin the SAME major as local
 # tooling so the build accepts both npm-10- and npm-11-generated lockfiles.
