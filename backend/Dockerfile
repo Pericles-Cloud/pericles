@@ -1,11 +1,15 @@
 # Pericles backend — Express API + WebSocket (socket.io /ws/workflow) in one
 # process. Built for a persistent container host (Coolify, Render, Fly, a VM).
 # One port serves the HTTP API and the WebSocket; config comes from env vars.
+# syntax=docker/dockerfile:1.4
 FROM node:20-slim
 
 # Prisma needs openssl; ca-certificates for outbound TLS (Apify/Google/OpenAI);
 # curl so the container healthcheck (Coolify probes GET /health) can run.
-RUN apt-get update \
+# Use BuildKit cache mount for apt to speed up rebuilds
+RUN --mount=type=cache,target=/var/cache/apt,sharing=locked \
+    --mount=type=cache,target=/var/lib/apt,sharing=locked \
+    apt-get update \
     && apt-get install -y --no-install-recommends openssl ca-certificates curl \
     && rm -rf /var/lib/apt/lists/*
 
@@ -23,7 +27,10 @@ WORKDIR /app
 # so scripts/ must be present first.
 COPY package.json package-lock.json ./
 COPY scripts ./scripts
-RUN npm ci --include=dev
+
+# Use BuildKit cache mount for npm to speed up installs
+RUN --mount=type=cache,target=/root/.npm \
+    npm ci --include=dev --prefer-offline --no-audit --no-fund
 
 # App source, then generate the Prisma client for this image's platform.
 COPY . .
