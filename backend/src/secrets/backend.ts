@@ -66,13 +66,19 @@ export interface SecretsBackend {
 
 /**
  * Backend factory - returns the configured backend based on environment
+ * Falls back to Cloak if Vault is not properly configured
  */
 export function getSecretsBackend(): SecretsBackend {
   const backendType = process.env.SECRETS_BACKEND || 'vault';
   
   switch (backendType.toLowerCase()) {
     case 'vault':
-      return getVaultBackend();
+      // Only use Vault if properly configured
+      if (process.env.VAULT_TOKEN && process.env.VAULT_ADDR) {
+        return getVaultBackend();
+      }
+      console.warn('[Secrets] VAULT_TOKEN or VAULT_ADDR not set, falling back to Cloak backend');
+      // Fall through to Cloak
     case 'cloak':
       return getCloakBackend();
     default:
