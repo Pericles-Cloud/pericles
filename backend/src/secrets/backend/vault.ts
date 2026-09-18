@@ -15,7 +15,7 @@ import {
   Result,
   ok,
   err,
-} from '../types';
+} from '../types.js';
 
 export class VaultBackend implements SecretsBackend {
   private vault: ReturnType<typeof Vault> | null = null;

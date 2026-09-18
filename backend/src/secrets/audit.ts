@@ -12,7 +12,7 @@ import type {
   AuditLogEntry,
   SecretError,
   Result,
-} from '../types.js';
+} from './types.js';
 
 const prisma = new PrismaClient();
 

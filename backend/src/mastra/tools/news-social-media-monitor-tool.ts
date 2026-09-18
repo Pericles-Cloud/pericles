@@ -42,7 +42,7 @@ async function getNewsApiKeys(organizationId?: string): Promise<{ thenewsapi?: s
   
   if (organizationId) {
     try {
-      const { getToolSecret } = await import('../../../secrets/index.js');
+      const { getToolSecret } = await import('../../secrets/index.js');
       const [thenewsapi, twitter] = await Promise.all([
         getToolSecret(organizationId, 'thenewsapi', 'api_key', 'news', false),
         getToolSecret(organizationId, 'twitter', 'api_key', 'news', false),

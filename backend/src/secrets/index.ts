@@ -25,11 +25,11 @@ export {
   buildScopePath,
   validateSecretName,
   validateSecretRef,
+  SecretsBackend,
 } from './types.js';
 
 export {
   // Backend
-  SecretsBackend,
   getSecretsBackend,
 } from './backend.js';
 

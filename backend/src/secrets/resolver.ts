@@ -18,8 +18,9 @@ import type {
   SecretResolutionResult,
   SecretError,
   Result,
-} from '../types.js';
-import { getSecretsBackend, parseSecretRef, buildScopePath, validateSecretRef } from '../types.js';
+} from './types.js';
+import { getSecretsBackend } from './backend.js';
+import { parseSecretRef, buildScopePath, validateSecretRef } from './types.js';
 
 export class SecretsResolver {
   private backend: SecretsBackend;
