@@ -1860,3 +1860,118 @@ export async function getWorkflowExecutions(
     `/api/organizations/${orgId}/workflows/${workflowId}/executions${params}`
   );
 }
+
+// ─── Secrets Management ──────────────────────────────────────────────────────
+
+export interface SecretItem {
+  id: string;
+  name: string;
+  scope: string;
+  scopeRef: string | null;
+  secretType: 'SECRET' | 'VARIABLE';
+  version: number;
+  description: string | null;
+  isRequired: boolean;
+  tags: string[];
+  rotatedAt: string | null;
+  expiresAt: string | null;
+  createdBy: string;
+  createdAt: string;
+  updatedAt: string;
+}
+
+export interface CreateSecretParams {
+  name: string;
+  scope: 'ORGANIZATION' | 'INTEGRATION' | 'TOOL';
+  scopeRef?: string;
+  secretType: 'SECRET' | 'VARIABLE';
+  value: string;
+  description?: string;
+  isRequired?: boolean;
+  tags?: string[];
+}
+
+/**
+ * List secrets for an organization.
+ */
+export async function listSecrets(
+  orgId: string,
+  options?: { scope?: string; scopeRef?: string }
+): Promise<ApiResponse<SecretItem[]>> {
+  const params = new URLSearchParams();
+  if (options?.scope) params.set('scope', options.scope);
+  if (options?.scopeRef) params.set('scopeRef', options.scopeRef);
+  const qs = params.toString();
+  return apiRequest<SecretItem[]>(
+    `/api/organizations/${orgId}/secrets${qs ? '?' + qs : ''}`
+  );
+}
+
+/**
+ * Create a new secret.
+ */
+export async function createSecret(
+  orgId: string,
+  data: CreateSecretParams
+): Promise<ApiResponse<{ name: string; scope: string; scopeRef: string | null; secretType: string }>> {
+  return apiRequest(`/api/organizations/${orgId}/secrets`, {
+    method: 'POST',
+    body: data,
+  });
+}
+
+/**
+ * Reveal a secret value (one-time read).
+ */
+export async function revealSecret(
+  orgId: string,
+  name: string,
+  options?: { scope?: string; scopeRef?: string }
+): Promise<ApiResponse<{ value: string }>> {
+  const params = new URLSearchParams({ name });
+  if (options?.scope) params.set('scope', options.scope);
+  if (options?.scopeRef) params.set('scopeRef', options.scopeRef);
+  return apiRequest<{ value: string }>(
+    `/api/organizations/${orgId}/secrets/reveal?${params.toString()}`
+  );
+}
+
+/**
+ * Update a secret value.
+ */
+export async function updateSecret(
+  orgId: string,
+  name: string,
+  data: { value?: string; description?: string | null },
+  options?: { scope?: string; scopeRef?: string }
+): Promise<ApiResponse<{ name: string }>> {
+  const params = new URLSearchParams();
+  if (options?.scope) params.set('scope', options.scope);
+  if (options?.scopeRef) params.set('scopeRef', options.scopeRef);
+  const qs = params.toString();
+  return apiRequest<{ name: string }>(
+    `/api/organizations/${orgId}/secrets/${encodeURIComponent(name)}${qs ? '?' + qs : ''}`,
+    {
+      method: 'PUT',
+      body: data,
+    }
+  );
+}
+
+/**
+ * Delete a secret.
+ */
+export async function deleteSecret(
+  orgId: string,
+  name: string,
+  options?: { scope?: string; scopeRef?: string }
+): Promise<ApiResponse<{ name: string }>> {
+  const params = new URLSearchParams();
+  if (options?.scope) params.set('scope', options.scope);
+  if (options?.scopeRef) params.set('scopeRef', options.scopeRef);
+  const qs = params.toString();
+  return apiRequest<{ name: string }>(
+    `/api/organizations/${orgId}/secrets/${encodeURIComponent(name)}${qs ? '?' + qs : ''}`,
+    { method: 'DELETE' }
+  );
+}

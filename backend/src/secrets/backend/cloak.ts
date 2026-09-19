@@ -11,11 +11,11 @@ import { createCipheriv, createDecipheriv, randomBytes, createHash } from 'node:
 import type { 
   SecretsBackend, 
   SecretMetadata, 
-  SecretScope, 
-  SecretType,
-  SecretError,
+  SecretScope as SecretScopeType,
+  SecretType as SecretTypeType,
   Result,
 } from '../types.js';
+import { SecretScope, SecretType, SecretError, ok, err } from '../types.js';
 
 const prisma = new PrismaClient();
 
@@ -84,11 +84,11 @@ export class CloakBackend implements SecretsBackend {
 
     if (orgSecret && orgSecret.value_encrypted) {
       // Decrypt existing DEK
-      dek = this.decrypt(kek, orgSecret.value_encrypted);
+      dek = this.decrypt(kek, Buffer.from(orgSecret.value_encrypted));
     } else {
       // Generate new DEK
       dek = randomBytes(32);
-      const encryptedDek = this.encrypt(kek, dek);
+      const encryptedDek = new Uint8Array(this.encrypt(kek, dek));
 
       // Store encrypted DEK
       await prisma.organizationSecret.upsert({
@@ -184,7 +184,7 @@ export class CloakBackend implements SecretsBackend {
         return err(new SecretError('NOT_FOUND', `Secret not found: ${scopePath}/${name}`));
       }
 
-      const decrypted = this.decrypt(dek, secret.value_encrypted);
+      const decrypted = this.decrypt(dek, Buffer.from(secret.value_encrypted));
       return ok(decrypted.toString('utf-8'));
     } catch (error) {
       if (error instanceof SecretError) return err(error);
@@ -204,6 +204,7 @@ export class CloakBackend implements SecretsBackend {
 
       const dek = await this.getDEK(organizationId);
       const encrypted = this.encrypt(dek, Buffer.from(value, 'utf-8'));
+      const encryptedBytes = new Uint8Array(encrypted);
 
       await prisma.organizationSecret.upsert({
         where: {
@@ -220,13 +221,13 @@ export class CloakBackend implements SecretsBackend {
           scope,
           scope_ref: scopeRef,
           secret_type: secretType,
-          value_encrypted: encrypted,
+          value_encrypted: encryptedBytes,
           version: 1,
           is_required: true,
           created_by: 'system',
         },
         update: {
-          value_encrypted: encrypted,
+          value_encrypted: encryptedBytes,
           secret_type: secretType,
           version: { increment: 1 },
         },

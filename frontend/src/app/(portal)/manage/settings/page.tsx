@@ -1,5 +1,6 @@
 'use client';
 
+import React from 'react';
 import { useState, useEffect, useCallback } from 'react';
 import { useAuth } from '@/providers/auth-provider';
 import {
@@ -9,6 +10,11 @@ import {
   updateOrganizationSettings,
   testNotification,
   getOpenRouterModels,
+  type SecretItem,
+  listSecrets,
+  createSecret,
+  revealSecret,
+  deleteSecret,
 } from '@/lib/api-client';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
@@ -21,6 +27,12 @@ import {
   CardHeader,
   CardTitle,
 } from '@/components/ui/card';
+import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
+import { Badge } from '@/components/ui/badge';
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
+import { Textarea } from '@/components/ui/textarea';
+import { Separator } from '@/components/ui/separator';
+import { AlertCircle, Eye, EyeOff, Copy, Plus, Trash2, Edit2, Key, Globe, Server, Wrench, ChevronDown, ChevronUp } from 'lucide-react';
 
 // Data source categories
 const DATA_SOURCES = [
@@ -72,7 +84,7 @@ const SAP_SYNC_FREQUENCIES = [
   { value: 'weekly', label: 'Weekly' },
 ];
 
-type TabKey = 'agents' | 'ai' | 'notifications' | 'integrations' | 'retention';
+type TabKey = 'agents' | 'ai' | 'notifications' | 'integrations' | 'retention' | 'secrets';
 
 export default function SettingsPage() {
   const { currentOrganization } = useAuth();
@@ -244,6 +256,7 @@ export default function SettingsPage() {
     { key: 'notifications', label: 'Notifications' },
     { key: 'integrations', label: 'Integrations' },
     { key: 'retention', label: 'Data Retention' },
+    { key: 'secrets', label: 'Secrets' },
   ];
 
   return (
@@ -848,6 +861,14 @@ export default function SettingsPage() {
             </div>
           )}
 
+          {/* Secrets Tab */}
+          {activeTab === 'secrets' && (
+            <SecretsTab
+              organizationId={currentOrganization?.id || ''}
+              onRefresh={fetchSettings}
+            />
+          )}
+
           {/* Save Button */}
           <div className="flex justify-end pt-6 mt-6 border-t border-border">
             <Button
@@ -863,6 +884,405 @@ export default function SettingsPage() {
           </div>
         </CardContent>
       </Card>
+    </div>
+  );
+} 
+
+const SecretsTab = React.memo(function SecretsTab({ organizationId, onRefresh }: { organizationId: string; onRefresh: () => void }) {
+  const [secrets, setSecrets] = useState<SecretItem[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState<string | null>(null);
+  const [showCreateDialog, setShowCreateDialog] = useState(false);
+  const [revealTarget, setRevealTarget] = useState<SecretItem | null>(null);
+  const [revealedValue, setRevealedValue] = useState<string | null>(null);
+  const [revealing, setRevealing] = useState(false);
+  const [filterScope, setFilterScope] = useState<string>('ALL');
+
+  const fetchSecrets = useCallback(async () => {
+    try {
+      setLoading(true);
+      setError(null);
+      const result = await listSecrets(organizationId, filterScope !== 'ALL' ? { scope: filterScope } : undefined);
+      if (result.success && result.data) {
+        setSecrets(result.data);
+      } else {
+        setError(result.error?.message || 'Failed to load secrets');
+      }
+    } catch {
+      setError('Failed to load secrets');
+    } finally {
+      setLoading(false);
+    }
+  }, [organizationId, filterScope]);
+
+  useEffect(() => {
+    fetchSecrets();
+  }, [fetchSecrets]);
+
+  const handleReveal = async (secret: SecretItem) => {
+    setRevealTarget(secret);
+    setRevealedValue(null);
+    setRevealing(true);
+    try {
+      const result = await revealSecret(organizationId, secret.name, {
+        scope: secret.scope,
+        scopeRef: secret.scopeRef || undefined,
+      });
+      if (result.success && result.data) {
+        setRevealedValue(result.data.value);
+      } else {
+        setError(result.error?.message || 'Failed to reveal secret');
+      }
+    } catch {
+      setError('Failed to reveal secret');
+    } finally {
+      setRevealing(false);
+    }
+  };
+
+  const handleDelete = async (secret: SecretItem) => {
+    if (!confirm(`Delete secret "${secret.name}"? This cannot be undone.`)) return;
+    try {
+      const result = await deleteSecret(organizationId, secret.name, {
+        scope: secret.scope,
+        scopeRef: secret.scopeRef || undefined,
+      });
+      if (result.success) {
+        fetchSecrets();
+      } else {
+        setError(result.error?.message || 'Failed to delete secret');
+      }
+    } catch {
+      setError('Failed to delete secret');
+    }
+  };
+
+  const handleCopyValue = async (secret: SecretItem) => {
+    try {
+      const result = await revealSecret(organizationId, secret.name, {
+        scope: secret.scope,
+        scopeRef: secret.scopeRef || undefined,
+      });
+      if (result.success && result.data) {
+        await navigator.clipboard.writeText(result.data.value);
+      }
+    } catch {
+      // Silent fail for copy
+    }
+  };
+
+  return (
+    <div className="space-y-4">
+      <div className="flex items-center justify-between">
+        <div>
+          <h3 className="text-lg font-medium">Secrets Manager</h3>
+          <p className="text-sm text-muted-foreground">
+            Manage API keys, tokens, and configuration values for your integrations.
+          </p>
+        </div>
+        <div className="flex items-center gap-2">
+          <Select value={filterScope} onValueChange={setFilterScope}>
+            <SelectTrigger className="w-[160px]">
+              <SelectValue placeholder="Filter by scope" />
+            </SelectTrigger>
+            <SelectContent>
+              <SelectItem value="ALL">All Scopes</SelectItem>
+              <SelectItem value="ORGANIZATION">Organization</SelectItem>
+              <SelectItem value="INTEGRATION">Integration</SelectItem>
+              <SelectItem value="TOOL">Tool</SelectItem>
+            </SelectContent>
+          </Select>
+          <Button onClick={() => setShowCreateDialog(true)}>
+            <Plus className="h-4 w-4 mr-1" />
+            Add Secret
+          </Button>
+        </div>
+      </div>
+
+      {error && (
+        <div className="bg-destructive/10 border border-destructive/20 rounded-md p-3 text-sm text-destructive flex items-center gap-2">
+          <AlertCircle className="h-4 w-4 shrink-0" />
+          {error}
+          <Button variant="ghost" size="sm" className="ml-auto" onClick={() => setError(null)}>Dismiss</Button>
+        </div>
+      )}
+
+      {loading ? (
+        <div className="text-center py-8 text-muted-foreground">Loading secrets...</div>
+      ) : secrets.length === 0 ? (
+        <div className="text-center py-8 border rounded-lg border-dashed">
+          <Key className="h-8 w-8 mx-auto text-muted-foreground mb-2" />
+          <p className="text-muted-foreground">No secrets configured yet.</p>
+          <Button variant="outline" className="mt-2" onClick={() => setShowCreateDialog(true)}>
+            <Plus className="h-4 w-4 mr-1" />
+            Add your first secret
+          </Button>
+        </div>
+      ) : (
+        <div className="border rounded-lg divide-y">
+          {secrets.map((secret) => (
+            <div key={`${secret.scope}-${secret.scopeRef}-${secret.name}`} className="flex items-center justify-between p-4 hover:bg-muted/50">
+              <div className="flex items-center gap-3 min-w-0">
+                <Key className="h-4 w-4 text-muted-foreground shrink-0" />
+                <div className="min-w-0">
+                  <div className="flex items-center gap-2">
+                    <span className="font-medium text-sm truncate">{secret.name}</span>
+                    <Badge variant={secret.secretType === 'SECRET' ? 'destructive' : 'secondary'} className="text-xs">
+                      {secret.secretType === 'SECRET' ? 'Secret' : 'Variable'}
+                    </Badge>
+                    <Badge variant="outline" className="text-xs">
+                      {secret.scope}
+                    </Badge>
+                    {secret.scopeRef && (
+                      <Badge variant="outline" className="text-xs">
+                        {secret.scopeRef}
+                      </Badge>
+                    )}
+                  </div>
+                  {secret.description && (
+                    <p className="text-xs text-muted-foreground mt-0.5 truncate">{secret.description}</p>
+                  )}
+                </div>
+              </div>
+              <div className="flex items-center gap-1 shrink-0">
+                <Button
+                  variant="ghost"
+                  size="sm"
+                  onClick={() => handleReveal(secret)}
+                  title="Reveal value"
+                >
+                  <Eye className="h-4 w-4" />
+                </Button>
+                <Button
+                  variant="ghost"
+                  size="sm"
+                  onClick={() => handleCopyValue(secret)}
+                  title="Copy value"
+                >
+                  <Copy className="h-4 w-4" />
+                </Button>
+                <Button
+                  variant="ghost"
+                  size="sm"
+                  onClick={() => handleDelete(secret)}
+                  title="Delete secret"
+                >
+                  <Trash2 className="h-4 w-4" />
+                </Button>
+              </div>
+            </div>
+          ))}
+        </div>
+      )}
+
+      {/* Reveal Dialog */}
+      {revealTarget && (
+        <div className="fixed inset-0 z-50 bg-black/50 flex items-center justify-center p-4" onClick={() => { setRevealTarget(null); setRevealedValue(null); }}>
+          <div className="bg-background rounded-lg shadow-lg max-w-md w-full p-6" onClick={(e) => e.stopPropagation()}>
+            <h3 className="text-lg font-medium mb-2">Reveal Secret</h3>
+            <p className="text-sm text-muted-foreground mb-4">
+              Showing value for <strong>{revealTarget.name}</strong>. This value is sensitive — do not share it.
+            </p>
+            <div className="bg-muted rounded-md p-3 font-mono text-sm break-all">
+              {revealing ? 'Decrypting...' : revealedValue || '••••••••'}
+            </div>
+            <div className="flex justify-end gap-2 mt-4">
+              <Button variant="outline" onClick={() => { setRevealTarget(null); setRevealedValue(null); }}>
+                Close
+              </Button>
+              {revealedValue && (
+                <Button onClick={async () => {
+                  await navigator.clipboard.writeText(revealedValue);
+                }}>
+                  <Copy className="h-4 w-4 mr-1" />
+                  Copy
+                </Button>
+              )}
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Create Dialog */}
+      {showCreateDialog && (
+        <CreateSecretDialog
+          organizationId={organizationId}
+          onClose={() => setShowCreateDialog(false)}
+          onCreated={() => {
+            setShowCreateDialog(false);
+            fetchSecrets();
+          }}
+        />
+      )}
+    </div>
+  );
+});
+
+function CreateSecretDialog({ organizationId, onClose, onCreated }: {
+  organizationId: string;
+  onClose: () => void;
+  onCreated: () => void;
+}) {
+  const [name, setName] = useState('');
+  const [value, setValue] = useState('');
+  const [secretType, setSecretType] = useState<'SECRET' | 'VARIABLE'>('SECRET');
+  const [scope, setScope] = useState<'ORGANIZATION' | 'INTEGRATION' | 'TOOL'>('ORGANIZATION');
+  const [scopeRef, setScopeRef] = useState('');
+  const [description, setDescription] = useState('');
+  const [saving, setSaving] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  const [showValue, setShowValue] = useState(false);
+
+  const handleSubmit = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!name.trim() || !value.trim()) {
+      setError('Name and value are required');
+      return;
+    }
+    setSaving(true);
+    setError(null);
+    try {
+      const result = await createSecret(organizationId, {
+        name: name.trim(),
+        scope,
+        scopeRef: scopeRef.trim() || undefined,
+        secretType,
+        value: value.trim(),
+        description: description.trim() || undefined,
+      });
+      if (result.success) {
+        onCreated();
+      } else {
+        setError(result.error?.message || 'Failed to create secret');
+      }
+    } catch {
+      setError('Failed to create secret');
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  return (
+    <div className="fixed inset-0 z-50 bg-black/50 flex items-center justify-center p-4" onClick={onClose}>
+      <div className="bg-background rounded-lg shadow-lg max-w-lg w-full p-6" onClick={(e) => e.stopPropagation()}>
+        <h3 className="text-lg font-medium mb-4">Add New Secret</h3>
+        <form onSubmit={handleSubmit} className="space-y-4">
+          <div className="grid grid-cols-2 gap-4">
+            <div className="space-y-2">
+              <Label htmlFor="secret-name">Name</Label>
+              <Input
+                id="secret-name"
+                placeholder="e.g., openrouter_api_key"
+                value={name}
+                onChange={(e) => setName(e.target.value)}
+                required
+              />
+            </div>
+            <div className="space-y-2">
+              <Label htmlFor="secret-type">Type</Label>
+              <Select value={secretType} onValueChange={(v) => setSecretType(v as 'SECRET' | 'VARIABLE')}>
+                <SelectTrigger>
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="SECRET">Secret (sensitive)</SelectItem>
+                  <SelectItem value="VARIABLE">Variable (non-sensitive)</SelectItem>
+                </SelectContent>
+              </Select>
+            </div>
+          </div>
+
+          <div className="space-y-2">
+            <Label htmlFor="secret-value">Value</Label>
+            <div className="relative">
+              <Input
+                id="secret-value"
+                type={showValue ? 'text' : 'password'}
+                placeholder="Enter secret value"
+                value={value}
+                onChange={(e) => setValue(e.target.value)}
+                required
+                className="font-mono"
+              />
+              <Button
+                type="button"
+                variant="ghost"
+                size="sm"
+                className="absolute right-0 top-0 h-full px-3"
+                onClick={() => setShowValue(!showValue)}
+              >
+                {showValue ? <EyeOff className="h-4 w-4" /> : <Eye className="h-4 w-4" />}
+              </Button>
+            </div>
+          </div>
+
+          <div className="grid grid-cols-2 gap-4">
+            <div className="space-y-2">
+              <Label htmlFor="secret-scope">Scope</Label>
+              <Select value={scope} onValueChange={(v) => setScope(v as typeof scope)}>
+                <SelectTrigger>
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="ORGANIZATION">
+                    <div className="flex items-center gap-1">
+                      <Globe className="h-3 w-3" /> Organization
+                    </div>
+                  </SelectItem>
+                  <SelectItem value="INTEGRATION">
+                    <div className="flex items-center gap-1">
+                      <Server className="h-3 w-3" /> Integration
+                    </div>
+                  </SelectItem>
+                  <SelectItem value="TOOL">
+                    <div className="flex items-center gap-1">
+                      <Wrench className="h-3 w-3" /> Tool
+                    </div>
+                  </SelectItem>
+                </SelectContent>
+              </Select>
+            </div>
+            {scope !== 'ORGANIZATION' && (
+              <div className="space-y-2">
+                <Label htmlFor="secret-scope-ref">Scope Reference</Label>
+                <Input
+                  id="secret-scope-ref"
+                  placeholder={scope === 'INTEGRATION' ? 'e.g., sap-prod' : 'e.g., monitoring-agent'}
+                  value={scopeRef}
+                  onChange={(e) => setScopeRef(e.target.value)}
+                />
+              </div>
+            )}
+          </div>
+
+          <div className="space-y-2">
+            <Label htmlFor="secret-desc">Description (optional)</Label>
+            <Textarea
+              id="secret-desc"
+              placeholder="What is this secret used for?"
+              value={description}
+              onChange={(e) => setDescription(e.target.value)}
+              rows={2}
+            />
+          </div>
+
+          {error && (
+            <div className="bg-destructive/10 border border-destructive/20 rounded-md p-3 text-sm text-destructive flex items-center gap-2">
+              <AlertCircle className="h-4 w-4 shrink-0" />
+              {error}
+            </div>
+          )}
+
+          <div className="flex justify-end gap-2 pt-2">
+            <Button type="button" variant="outline" onClick={onClose} disabled={saving}>
+              Cancel
+            </Button>
+            <Button type="submit" disabled={saving || !name.trim() || !value.trim()}>
+              {saving ? 'Creating...' : 'Create Secret'}
+            </Button>
+          </div>
+        </form>
+      </div>
     </div>
   );
 }

@@ -5,7 +5,7 @@
  * Maps Pericles organization-scoped secrets to Vault KV v2 secret engine paths.
  */
 
-import { Vault } from 'node-vault';
+import Vault from 'node-vault';
 import { 
   SecretsBackend, 
   SecretMetadata, 

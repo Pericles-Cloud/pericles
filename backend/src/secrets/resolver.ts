@@ -12,13 +12,13 @@
 import type { 
   SecretsBackend, 
   SecretMetadata, 
-  SecretScope, 
-  SecretType,
+  SecretScope as SecretScopeType,
+  SecretType as SecretTypeType,
   SecretResolutionContext,
   SecretResolutionResult,
-  SecretError,
   Result,
 } from './types.js';
+import { SecretScope, SecretType, SecretError } from './types.js';
 import { getSecretsBackend } from './backend.js';
 import { parseSecretRef, buildScopePath, validateSecretRef } from './types.js';
 
@@ -62,7 +62,7 @@ export class SecretsResolver {
         const metadata = await this.getMetadata(scopePath, name, scope, scopeRef);
         
         return {
-          value: result.value,
+          value: result.value || '',
           source: { scope, scopeRef, name },
           metadata: metadata || {
             id: '',
@@ -184,7 +184,7 @@ export class SecretsResolver {
         paths.push({
           scope: SecretScope.ORGANIZATION,
           scopeRef: null,
-          scopePath: buildScopePath(namespace, name, null),
+          scopePath: buildScopePath(namespace, name, undefined),
         });
         break;
 
@@ -201,7 +201,7 @@ export class SecretsResolver {
         paths.push({
           scope: SecretScope.ORGANIZATION,
           scopeRef: null,
-          scopePath: buildScopePath(namespace, name, null),
+          scopePath: buildScopePath(namespace, name, undefined),
         });
         break;
 
@@ -210,7 +210,7 @@ export class SecretsResolver {
         paths.push({
           scope: SecretScope.ORGANIZATION,
           scopeRef: null,
-          scopePath: buildScopePath(namespace, name, null),
+          scopePath: buildScopePath(namespace, name, undefined),
         });
         break;
 
@@ -219,7 +219,7 @@ export class SecretsResolver {
         paths.push({
           scope: SecretScope.ORGANIZATION,
           scopeRef: null,
-          scopePath: buildScopePath('org', namespace + '.' + name, null),
+          scopePath: buildScopePath('org', namespace + '.' + name, undefined),
         });
     }
 
@@ -237,7 +237,7 @@ export class SecretsResolver {
   ): Promise<SecretMetadata | null> {
     try {
       const result = await this.backend.list(scopePath);
-      if (!result.ok) return null;
+      if (!result.ok || !result.value) return null;
 
       const secret = result.value.find(s => s.name === name);
       if (!secret) return null;

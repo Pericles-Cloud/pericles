@@ -6,20 +6,6 @@
  */
 
 import { 
-  CreateSecretInput, 
-  UpdateSecretInput,
-  SecretResolutionContext,
-  SecretResolutionResult,
-  SecretScope,
-  SecretType,
-  SecretAction,
-  SecretError,
-  Result,
-  ok,
-  err,
-} from './types.js';
-
-import { 
   SecretMetadata,
   CreateSecretInput,
   UpdateSecretInput,
@@ -32,7 +18,7 @@ import {
   Result,
   ok,
   err,
-} from './backend-types.js';
+} from './types.js';
 
 // Static imports for backends - resolved at build time
 import { VaultBackend as VaultBackendImpl } from './backend/vault.js';

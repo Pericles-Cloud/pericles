@@ -6373,6 +6373,278 @@ app.get('/api/organizations/:orgId/workflows/:workflowId/executions', async (req
   }
 });
 
+// ─── Secrets Management Endpoints ────────────────────────────────────────────
+
+import {
+  getSecretsBackend,
+  buildScopePath,
+  SecretScope,
+  SecretType,
+} from '../secrets/index.js';
+
+const CreateSecretSchema = z.object({
+  name: z.string().min(1).max(256),
+  scope: z.enum(['ORGANIZATION', 'INTEGRATION', 'TOOL']),
+  scopeRef: z.string().optional(),
+  secretType: z.enum(['SECRET', 'VARIABLE']),
+  value: z.string().min(1),
+  description: z.string().optional(),
+  isRequired: z.boolean().optional(),
+  tags: z.array(z.string()).optional(),
+});
+
+const UpdateSecretSchema = z.object({
+  value: z.string().min(1).optional(),
+  description: z.string().optional().nullable(),
+  isRequired: z.boolean().optional(),
+  tags: z.array(z.string()).optional().nullable(),
+  expiresAt: z.string().datetime().optional().nullable(),
+});
+
+// List secrets for an organization
+app.get('/api/organizations/:id/secrets', async (req: Request, res: Response) => {
+  try {
+    const tokenPayload = authenticateRequest(req);
+    if (!tokenPayload) {
+      res.status(401).json({ success: false, error: { code: 'UNAUTHORIZED', message: 'Authentication required' } });
+      return;
+    }
+
+    const orgId = req.params.id;
+    const access = await checkOrganizationAccess(tokenPayload.userId, orgId);
+    if (!access.hasAccess) {
+      res.status(403).json({ success: false, error: { code: 'FORBIDDEN', message: 'Access denied' } });
+      return;
+    }
+
+    const scope = (req.query.scope as string) || 'ORGANIZATION';
+    const scopeRef = (req.query.scopeRef as string) || '';
+
+    const backend = getSecretsBackend();
+    const scopePath = scopeRef
+      ? buildScopePath('org', orgId, undefined) + '/' + scope.toLowerCase() + '/' + scopeRef
+      : buildScopePath('org', orgId, undefined);
+
+    // List at org level
+    const result = await backend.list(`org/${orgId}`);
+    if (!result.ok) {
+      res.status(500).json({ success: false, error: { code: 'SECRETS_ERROR', message: result.error?.message || 'Failed to list secrets' } });
+      return;
+    }
+
+    const secrets = (result.value || []).filter(s => {
+      if (scope !== 'ALL' && s.scope !== scope) return false;
+      if (scopeRef && s.scopeRef !== scopeRef) return false;
+      return true;
+    });
+
+    res.json({
+      success: true,
+      data: secrets.map(s => ({
+        id: s.id,
+        name: s.name,
+        scope: s.scope,
+        scopeRef: s.scopeRef,
+        secretType: s.secretType,
+        version: s.version,
+        description: s.description,
+        isRequired: s.isRequired,
+        tags: s.tags,
+        rotatedAt: s.rotatedAt?.toISOString(),
+        expiresAt: s.expiresAt?.toISOString(),
+        createdBy: s.createdBy,
+        createdAt: s.createdAt.toISOString(),
+        updatedAt: s.updatedAt.toISOString(),
+      })),
+    });
+  } catch (error) {
+    console.error('List secrets error:', error);
+    res.status(500).json({ success: false, error: { code: 'INTERNAL_ERROR', message: 'An unexpected error occurred' } });
+  }
+});
+
+// Create a secret
+app.post('/api/organizations/:id/secrets', async (req: Request, res: Response) => {
+  try {
+    const tokenPayload = authenticateRequest(req);
+    if (!tokenPayload) {
+      res.status(401).json({ success: false, error: { code: 'UNAUTHORIZED', message: 'Authentication required' } });
+      return;
+    }
+
+    const orgId = req.params.id;
+    const access = await checkOrganizationAccess(tokenPayload.userId, orgId);
+    if (!access.hasAccess) {
+      res.status(403).json({ success: false, error: { code: 'FORBIDDEN', message: 'Access denied' } });
+      return;
+    }
+
+    const parseResult = CreateSecretSchema.safeParse(req.body);
+    if (!parseResult.success) {
+      res.status(400).json({ success: false, error: { code: 'VALIDATION_ERROR', message: parseResult.error.errors[0].message } });
+      return;
+    }
+
+    const { name, scope, scopeRef, secretType, value, description, isRequired, tags } = parseResult.data;
+    const backend = getSecretsBackend();
+
+    const scopePath = scopeRef
+      ? `org/${orgId}/${scope.toLowerCase()}/${scopeRef}`
+      : `org/${orgId}/${scope.toLowerCase()}`;
+
+    const result = await backend.put(scopePath, name, value, secretType as SecretType);
+    if (!result.ok) {
+      res.status(500).json({ success: false, error: { code: 'SECRETS_ERROR', message: result.error?.message || 'Failed to create secret' } });
+      return;
+    }
+
+    res.status(201).json({
+      success: true,
+      data: {
+        name,
+        scope,
+        scopeRef: scopeRef || null,
+        secretType,
+        description: description || null,
+        isRequired: isRequired ?? true,
+        tags: tags || [],
+      },
+    });
+  } catch (error) {
+    console.error('Create secret error:', error);
+    res.status(500).json({ success: false, error: { code: 'INTERNAL_ERROR', message: 'An unexpected error occurred' } });
+  }
+});
+
+// Reveal a secret value (one-time read)
+app.get('/api/organizations/:id/secrets/reveal', async (req: Request, res: Response) => {
+  try {
+    const tokenPayload = authenticateRequest(req);
+    if (!tokenPayload) {
+      res.status(401).json({ success: false, error: { code: 'UNAUTHORIZED', message: 'Authentication required' } });
+      return;
+    }
+
+    const orgId = req.params.id;
+    const access = await checkOrganizationAccess(tokenPayload.userId, orgId);
+    if (!access.hasAccess) {
+      res.status(403).json({ success: false, error: { code: 'FORBIDDEN', message: 'Access denied' } });
+      return;
+    }
+
+    const name = req.query.name as string;
+    const scope = (req.query.scope as string) || 'ORGANIZATION';
+    const scopeRef = (req.query.scopeRef as string) || '';
+
+    if (!name) {
+      res.status(400).json({ success: false, error: { code: 'VALIDATION_ERROR', message: 'Secret name is required' } });
+      return;
+    }
+
+    const backend = getSecretsBackend();
+    const scopePath = scopeRef
+      ? `org/${orgId}/${scope.toLowerCase()}/${scopeRef}`
+      : `org/${orgId}/${scope.toLowerCase()}`;
+
+    const result = await backend.get(scopePath, name);
+    if (!result.ok) {
+      res.status(404).json({ success: false, error: { code: 'NOT_FOUND', message: result.error?.message || 'Secret not found' } });
+      return;
+    }
+
+    res.json({ success: true, data: { value: result.value || '' } });
+  } catch (error) {
+    console.error('Reveal secret error:', error);
+    res.status(500).json({ success: false, error: { code: 'INTERNAL_ERROR', message: 'An unexpected error occurred' } });
+  }
+});
+
+// Update a secret
+app.put('/api/organizations/:id/secrets/:name', async (req: Request, res: Response) => {
+  try {
+    const tokenPayload = authenticateRequest(req);
+    if (!tokenPayload) {
+      res.status(401).json({ success: false, error: { code: 'UNAUTHORIZED', message: 'Authentication required' } });
+      return;
+    }
+
+    const orgId = req.params.id;
+    const access = await checkOrganizationAccess(tokenPayload.userId, orgId);
+    if (!access.hasAccess) {
+      res.status(403).json({ success: false, error: { code: 'FORBIDDEN', message: 'Access denied' } });
+      return;
+    }
+
+    const parseResult = UpdateSecretSchema.safeParse(req.body);
+    if (!parseResult.success) {
+      res.status(400).json({ success: false, error: { code: 'VALIDATION_ERROR', message: parseResult.error.errors[0].message } });
+      return;
+    }
+
+    const secretName = decodeURIComponent(req.params.name);
+    const { value, scope, scopeRef } = req.query as { scope?: string; scopeRef?: string };
+    const scopeStr = scope || 'ORGANIZATION';
+    const scopeRefStr = scopeRef || '';
+
+    const backend = getSecretsBackend();
+    const scopePath = scopeRefStr
+      ? `org/${orgId}/${scopeStr.toLowerCase()}/${scopeRefStr}`
+      : `org/${orgId}/${scopeStr.toLowerCase()}`;
+
+    if (parseResult.data.value) {
+      const result = await backend.put(scopePath, secretName, parseResult.data.value, SecretType.SECRET);
+      if (!result.ok) {
+        res.status(500).json({ success: false, error: { code: 'SECRETS_ERROR', message: result.error?.message || 'Failed to update secret' } });
+        return;
+      }
+    }
+
+    res.json({ success: true, data: { name: secretName } });
+  } catch (error) {
+    console.error('Update secret error:', error);
+    res.status(500).json({ success: false, error: { code: 'INTERNAL_ERROR', message: 'An unexpected error occurred' } });
+  }
+});
+
+// Delete a secret
+app.delete('/api/organizations/:id/secrets/:name', async (req: Request, res: Response) => {
+  try {
+    const tokenPayload = authenticateRequest(req);
+    if (!tokenPayload) {
+      res.status(401).json({ success: false, error: { code: 'UNAUTHORIZED', message: 'Authentication required' } });
+      return;
+    }
+
+    const orgId = req.params.id;
+    const access = await checkOrganizationAccess(tokenPayload.userId, orgId);
+    if (!access.hasAccess) {
+      res.status(403).json({ success: false, error: { code: 'FORBIDDEN', message: 'Access denied' } });
+      return;
+    }
+
+    const secretName = decodeURIComponent(req.params.name);
+    const { scope, scopeRef } = req.query as { scope?: string; scopeRef?: string };
+    const scopeStr = scope || 'ORGANIZATION';
+    const scopeRefStr = scopeRef || '';
+
+    const backend = getSecretsBackend();
+    const scopePath = scopeRefStr
+      ? `org/${orgId}/${scopeStr.toLowerCase()}/${scopeRefStr}`
+      : `org/${orgId}/${scopeStr.toLowerCase()}`;
+
+    const result = await backend.delete(scopePath, secretName);
+    if (!result.ok) {
+      res.status(500).json({ success: false, error: { code: 'SECRETS_ERROR', message: result.error?.message || 'Failed to delete secret' } });
+      return;
+    }
+
+    res.json({ success: true, data: { name: secretName } });
+  } catch (error) {
+    console.error('Delete secret error:', error);
+    res.status(500).json({ success: false, error: { code: 'INTERNAL_ERROR', message: 'An unexpected error occurred' } });
+  }
+});
+
 // Create HTTP server and initialize WebSocket
 const httpServer = createServer(app);
 const io = initializeWorkflowSocket(httpServer);

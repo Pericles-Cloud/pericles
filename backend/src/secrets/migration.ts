@@ -8,7 +8,8 @@
 import { PrismaClient } from '@prisma/client';
 import { SecretsResolver } from './resolver.js';
 import { SecretsAuditLogger } from './audit.js';
-import type { SecretScope, SecretType, SecretResolutionContext } from './types.js';
+import type { SecretResolutionContext } from './types.js';
+import { SecretScope, SecretType } from './types.js';
 
 const prisma = new PrismaClient();
 

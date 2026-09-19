@@ -3,6 +3,8 @@
  * Separate file to avoid mastra CLI analyzer issues with the main types.ts
  */
 
+import type { SecretScope, SecretType, SecretAction } from './types.js';
+
 export interface SecretMetadata {
   id: string;
   name: string;
