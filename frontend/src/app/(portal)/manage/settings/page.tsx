@@ -15,6 +15,7 @@ import {
   createSecret,
   revealSecret,
   deleteSecret,
+  testAIConnection,
 } from '@/lib/api-client';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
@@ -32,7 +33,7 @@ import { Badge } from '@/components/ui/badge';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { Textarea } from '@/components/ui/textarea';
 import { Separator } from '@/components/ui/separator';
-import { AlertCircle, Eye, EyeOff, Copy, Plus, Trash2, Edit2, Key, Globe, Server, Wrench, ChevronDown, ChevronUp } from 'lucide-react';
+import { AlertCircle, Check, Eye, EyeOff, Copy, Plus, Trash2, Edit2, Key, Globe, Server, Wrench, ChevronDown, ChevronUp } from 'lucide-react';
 
 // Data source categories
 const DATA_SOURCES = [
@@ -104,6 +105,8 @@ export default function SettingsPage() {
   const [openRouterModels, setOpenRouterModels] = useState<OpenRouterModel[]>([]);
   const [isLoadingOpenRouterModels, setIsLoadingOpenRouterModels] = useState(false);
   const [openRouterError, setOpenRouterError] = useState<string | null>(null);
+  const [aiTestResult, setAiTestResult] = useState<{ status: string; message: string; keySource: string | null } | null>(null);
+  const [isTestingAI, setIsTestingAI] = useState(false);
 
   const fetchOpenRouterModelsList = useCallback(async () => {
     if (!currentOrganization?.id) return;
@@ -131,6 +134,24 @@ export default function SettingsPage() {
       setOpenRouterError('Failed to load OpenRouter models');
     } finally {
       setIsLoadingOpenRouterModels(false);
+    }
+  }, [currentOrganization?.id]);
+
+  const handleTestAI = useCallback(async () => {
+    if (!currentOrganization?.id) return;
+    setIsTestingAI(true);
+    setAiTestResult(null);
+    try {
+      const result = await testAIConnection(currentOrganization.id);
+      if (result.success && result.data) {
+        setAiTestResult(result.data);
+      } else {
+        setAiTestResult({ status: 'error', message: result.error?.message || 'Test failed', keySource: null });
+      }
+    } catch {
+      setAiTestResult({ status: 'error', message: 'Failed to connect to server', keySource: null });
+    } finally {
+      setIsTestingAI(false);
     }
   }, [currentOrganization?.id]);
 
@@ -523,6 +544,46 @@ export default function SettingsPage() {
                   step={256}
                   className="w-40"
                 />
+              </div>
+
+              {/* Test Connection */}
+              <div className="border-t pt-4">
+                <Button
+                  type="button"
+                  variant="outline"
+                  onClick={handleTestAI}
+                  disabled={isTestingAI}
+                >
+                  {isTestingAI ? 'Testing...' : 'Test AI Connection'}
+                </Button>
+                <p className="text-sm text-muted-foreground mt-2">
+                  Verifies the API key is configured and OpenRouter is reachable.
+                </p>
+                {aiTestResult && (
+                  <div className={`mt-3 rounded-md p-3 text-sm flex items-center gap-2 ${
+                    aiTestResult.status === 'ok'
+                      ? 'bg-green-50 border border-green-200 text-green-800 dark:bg-green-950 dark:border-green-800 dark:text-green-200'
+                      : aiTestResult.status === 'not_configured'
+                      ? 'bg-yellow-50 border border-yellow-200 text-yellow-800 dark:bg-yellow-950 dark:border-yellow-800 dark:text-yellow-200'
+                      : 'bg-destructive/10 border border-destructive/20 text-destructive'
+                  }`}>
+                    {aiTestResult.status === 'ok' ? (
+                      <Check className="h-4 w-4 shrink-0" />
+                    ) : aiTestResult.status === 'not_configured' ? (
+                      <AlertCircle className="h-4 w-4 shrink-0" />
+                    ) : (
+                      <AlertCircle className="h-4 w-4 shrink-0" />
+                    )}
+                    <div>
+                      <span>{aiTestResult.message}</span>
+                      {aiTestResult.keySource && (
+                        <span className="ml-1 text-xs opacity-70">
+                          (source: {aiTestResult.keySource === 'secrets_manager' ? 'Secrets Manager' : 'Environment Variable'})
+                        </span>
+                      )}
+                    </div>
+                  </div>
+                )}
               </div>
             </div>
           )}

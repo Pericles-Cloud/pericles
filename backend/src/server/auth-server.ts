@@ -6373,6 +6373,92 @@ app.get('/api/organizations/:orgId/workflows/:workflowId/executions', async (req
   }
 });
 
+// ─── AI Connection Test ──────────────────────────────────────────────────────
+
+app.get('/api/organizations/:id/test-ai', async (req: Request, res: Response) => {
+  try {
+    const tokenPayload = authenticateRequest(req);
+    if (!tokenPayload) {
+      res.status(401).json({ success: false, error: { code: 'UNAUTHORIZED', message: 'Authentication required' } });
+      return;
+    }
+
+    const orgId = req.params.id as string;
+    const access = await checkOrganizationAccess(tokenPayload.userId, orgId);
+    if (!access.hasAccess) {
+      res.status(403).json({ success: false, error: { code: 'FORBIDDEN', message: 'Access denied' } });
+      return;
+    }
+
+    // Try to get the OpenRouter API key from secrets manager
+    let apiKey: string | null = null;
+    let keySource = 'none';
+
+    try {
+      const { getOrgSecret } = await import('../secrets/index.js');
+      apiKey = await getOrgSecret(orgId, 'openrouter_api_key', false);
+      keySource = 'secrets_manager';
+    } catch {
+      // Fall through to env var
+    }
+
+    if (!apiKey) {
+      apiKey = process.env.OPENROUTER_API_KEY || null;
+      if (apiKey) keySource = 'environment_variable';
+    }
+
+    if (!apiKey) {
+      res.json({
+        success: true,
+        data: {
+          status: 'not_configured',
+          message: 'No OpenRouter API key found. Add one in Secrets Manager as "openrouter_api_key" or set OPENROUTER_API_KEY environment variable.',
+          keySource: null,
+        },
+      });
+      return;
+    }
+
+    // Test the key by fetching models (lightweight read-only call)
+    const response = await fetch('https://openrouter.ai/api/v1/models', {
+      headers: {
+        'User-Agent': 'Pericles-SupplyChainMonitor/1.0 (contact@pericles.cloud)',
+        Authorization: `Bearer ${apiKey}`,
+      },
+      signal: AbortSignal.timeout(10000),
+    });
+
+    if (!response.ok) {
+      const errorText = await response.text().catch(() => 'Unknown error');
+      res.json({
+        success: true,
+        data: {
+          status: 'error',
+          message: `OpenRouter API returned ${response.status}: ${errorText}`,
+          keySource,
+        },
+      });
+      return;
+    }
+
+    const body = (await response.json()) as { data?: unknown };
+    const modelCount = Array.isArray(body.data) ? body.data.length : 0;
+
+    res.json({
+      success: true,
+      data: {
+        status: 'ok',
+        message: `Connected successfully. ${modelCount} models available.`,
+        keySource,
+        modelCount,
+      },
+    });
+  } catch (error) {
+    console.error('Test AI error:', error);
+    res.status(500).json({ success: false, error: { code: 'INTERNAL_ERROR', message: 'An unexpected error occurred' } });
+  }
+});
+
 // ─── Secrets Management Endpoints ────────────────────────────────────────────
 
 import {
@@ -6410,7 +6496,7 @@ app.get('/api/organizations/:id/secrets', async (req: Request, res: Response) =>
       return;
     }
 
-    const orgId = req.params.id;
+    const orgId = req.params.id as string;
     const access = await checkOrganizationAccess(tokenPayload.userId, orgId);
     if (!access.hasAccess) {
       res.status(403).json({ success: false, error: { code: 'FORBIDDEN', message: 'Access denied' } });
@@ -6472,7 +6558,7 @@ app.post('/api/organizations/:id/secrets', async (req: Request, res: Response) =
       return;
     }
 
-    const orgId = req.params.id;
+    const orgId = req.params.id as string;
     const access = await checkOrganizationAccess(tokenPayload.userId, orgId);
     if (!access.hasAccess) {
       res.status(403).json({ success: false, error: { code: 'FORBIDDEN', message: 'Access denied' } });
@@ -6525,7 +6611,7 @@ app.get('/api/organizations/:id/secrets/reveal', async (req: Request, res: Respo
       return;
     }
 
-    const orgId = req.params.id;
+    const orgId = req.params.id as string;
     const access = await checkOrganizationAccess(tokenPayload.userId, orgId);
     if (!access.hasAccess) {
       res.status(403).json({ success: false, error: { code: 'FORBIDDEN', message: 'Access denied' } });
@@ -6568,7 +6654,7 @@ app.put('/api/organizations/:id/secrets/:name', async (req: Request, res: Respon
       return;
     }
 
-    const orgId = req.params.id;
+    const orgId = req.params.id as string;
     const access = await checkOrganizationAccess(tokenPayload.userId, orgId);
     if (!access.hasAccess) {
       res.status(403).json({ success: false, error: { code: 'FORBIDDEN', message: 'Access denied' } });
@@ -6581,8 +6667,8 @@ app.put('/api/organizations/:id/secrets/:name', async (req: Request, res: Respon
       return;
     }
 
-    const secretName = decodeURIComponent(req.params.name);
-    const { value, scope, scopeRef } = req.query as { scope?: string; scopeRef?: string };
+    const secretName = decodeURIComponent(req.params.name as string);
+    const { scope, scopeRef } = req.query as { scope?: string; scopeRef?: string };
     const scopeStr = scope || 'ORGANIZATION';
     const scopeRefStr = scopeRef || '';
 
@@ -6615,14 +6701,14 @@ app.delete('/api/organizations/:id/secrets/:name', async (req: Request, res: Res
       return;
     }
 
-    const orgId = req.params.id;
+    const orgId = req.params.id as string;
     const access = await checkOrganizationAccess(tokenPayload.userId, orgId);
     if (!access.hasAccess) {
       res.status(403).json({ success: false, error: { code: 'FORBIDDEN', message: 'Access denied' } });
       return;
     }
 
-    const secretName = decodeURIComponent(req.params.name);
+    const secretName = decodeURIComponent(req.params.name as string);
     const { scope, scopeRef } = req.query as { scope?: string; scopeRef?: string };
     const scopeStr = scope || 'ORGANIZATION';
     const scopeRefStr = scopeRef || '';

@@ -1892,6 +1892,15 @@ export interface CreateSecretParams {
 }
 
 /**
+ * Test AI connection for an organization.
+ */
+export async function testAIConnection(
+  orgId: string
+): Promise<ApiResponse<{ status: string; message: string; keySource: string | null; modelCount?: number }>> {
+  return apiRequest(`/api/organizations/${orgId}/test-ai`);
+}
+
+/**
  * List secrets for an organization.
  */
 export async function listSecrets(
