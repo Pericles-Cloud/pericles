@@ -5,17 +5,19 @@
  * Types imported from dedicated backend-types.ts to avoid mastra CLI analyzer issues.
  */
 
-import { 
+import type { 
   SecretMetadata,
   CreateSecretInput,
   UpdateSecretInput,
   SecretResolutionContext,
   SecretResolutionResult,
+  Result,
+} from './types.js';
+import { 
   SecretScope,
   SecretType,
   SecretAction,
   SecretError,
-  Result,
   ok,
   err,
 } from './types.js';

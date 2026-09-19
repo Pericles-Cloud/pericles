@@ -6,12 +6,8 @@
  * three-tier scope resolution, and audit logging.
  */
 
-export {
+export type {
   // Types
-  SecretScope,
-  SecretType,
-  SecretAction,
-  SecretError,
   SecretMetadata,
   SecretResolutionContext,
   SecretResolutionResult,
@@ -19,13 +15,20 @@ export {
   UpdateSecretInput,
   AuditLogEntry,
   Result,
+  SecretsBackend,
+} from './types.js';
+
+export {
+  SecretScope,
+  SecretType,
+  SecretAction,
+  SecretError,
   ok,
   err,
   parseSecretRef,
   buildScopePath,
   validateSecretName,
   validateSecretRef,
-  SecretsBackend,
 } from './types.js';
 
 export {
