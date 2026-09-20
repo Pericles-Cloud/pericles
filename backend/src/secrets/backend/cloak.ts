@@ -84,7 +84,28 @@ export class CloakBackend implements SecretsBackend {
 
     if (orgSecret && orgSecret.value_encrypted) {
       // Decrypt existing DEK
-      dek = this.decrypt(kek, Buffer.from(orgSecret.value_encrypted));
+      try {
+        dek = this.decrypt(kek, Buffer.from(orgSecret.value_encrypted));
+      } catch {
+        // KEK has changed — generate a new DEK. Existing secrets encrypted
+        // with the old DEK will be unrecoverable, but new secrets will work.
+        console.warn('[CloakBackend] DEK decryption failed — SECRETS_KEK may have changed. Generating new DEK.');
+        dek = randomBytes(32);
+        const encryptedDek = new Uint8Array(this.encrypt(kek, dek));
+        await prisma.organizationSecret.update({
+          where: {
+            organization_id_name_scope_scope_ref: {
+              organization_id: organizationId,
+              name: '_dek',
+              scope: 'ORGANIZATION',
+              scope_ref: '',
+            },
+          },
+          data: { value_encrypted: encryptedDek },
+        });
+        // Invalidate cache so the new DEK is used
+        this.dekCache.delete(organizationId);
+      }
     } else {
       // Generate new DEK
       dek = randomBytes(32);
@@ -188,7 +209,11 @@ export class CloakBackend implements SecretsBackend {
       return ok(decrypted.toString('utf-8'));
     } catch (error) {
       if (error instanceof SecretError) return err(error);
-      return err(new SecretError('DECRYPTION_FAILED', `Decryption failed: ${error instanceof Error ? error.message : 'Unknown error'}`));
+      const msg = error instanceof Error ? error.message : 'Unknown error';
+      if (msg.includes('unable to authenticate data') || msg.includes('Unsupported state')) {
+        return err(new SecretError('DECRYPTION_FAILED', 'Secret was encrypted with a different key. If SECRETS_KEK was changed, existing secrets must be re-created.'));
+      }
+      return err(new SecretError('DECRYPTION_FAILED', `Decryption failed: ${msg}`));
     }
   }
 
