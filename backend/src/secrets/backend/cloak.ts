@@ -211,7 +211,16 @@ export class CloakBackend implements SecretsBackend {
       if (error instanceof SecretError) return err(error);
       const msg = error instanceof Error ? error.message : 'Unknown error';
       if (msg.includes('unable to authenticate data') || msg.includes('Unsupported state')) {
-        return err(new SecretError('DECRYPTION_FAILED', 'Secret was encrypted with a different key. If SECRETS_KEK was changed, existing secrets must be re-created.'));
+        // Auto-delete corrupted secret so it doesn't block future operations
+        try {
+          const parts = scopePath.split('/');
+          const organizationId = parts[1];
+          await prisma.organizationSecret.deleteMany({
+            where: { organization_id: organizationId, name },
+          });
+          console.warn(`[CloakBackend] Deleted corrupted secret ${name} for org ${organizationId}`);
+        } catch { /* best effort cleanup */ }
+        return err(new SecretError('DECRYPTION_FAILED', 'Secret was encrypted with a different key. It has been removed — re-create it in Settings > Secrets.'));
       }
       return err(new SecretError('DECRYPTION_FAILED', `Decryption failed: ${msg}`));
     }

@@ -6433,6 +6433,41 @@ app.get('/api/organizations/:id/key-status', async (req: Request, res: Response)
   }
 });
 
+// ─── Secrets Cleanup (corrupted data from KEK mismatch) ──────────────────────
+
+app.post('/api/organizations/:id/secrets/cleanup', async (req: Request, res: Response) => {
+  try {
+    const tokenPayload = authenticateRequest(req);
+    if (!tokenPayload) {
+      res.status(401).json({ success: false, error: { code: 'UNAUTHORIZED', message: 'Authentication required' } });
+      return;
+    }
+
+    const orgId = req.params.id as string;
+    const access = await checkOrganizationAccess(tokenPayload.userId, orgId);
+    if (!access.hasAccess) {
+      res.status(403).json({ success: false, error: { code: 'FORBIDDEN', message: 'Access denied' } });
+      return;
+    }
+
+    // Delete all secrets for this org (including corrupted DEK)
+    const deleted = await prisma.organizationSecret.deleteMany({
+      where: { organization_id: orgId },
+    });
+
+    // Also delete audit logs
+    await prisma.secretAuditLog.deleteMany({
+      where: { organization_id: orgId },
+    });
+
+    console.warn(`[SecretsCleanup] Cleared ${deleted.count} secrets for org ${orgId}`);
+    res.json({ success: true, data: { deleted: deleted.count, message: 'All secrets cleared. New DEK will be generated on next access.' } });
+  } catch (error) {
+    console.error('Secrets cleanup error:', error);
+    res.status(500).json({ success: false, error: { code: 'INTERNAL_ERROR', message: 'An unexpected error occurred' } });
+  }
+});
+
 // ─── AI Connection Test ──────────────────────────────────────────────────────
 
 app.get('/api/organizations/:id/test-ai', async (req: Request, res: Response) => {
