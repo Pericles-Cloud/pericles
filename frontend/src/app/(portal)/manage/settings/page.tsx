@@ -16,6 +16,8 @@ import {
   revealSecret,
   deleteSecret,
   testAIConnection,
+  getKeyStatus,
+  type KeyStatusItem,
 } from '@/lib/api-client';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
@@ -107,6 +109,7 @@ export default function SettingsPage() {
   const [openRouterError, setOpenRouterError] = useState<string | null>(null);
   const [aiTestResult, setAiTestResult] = useState<{ status: string; message: string; keySource: string | null } | null>(null);
   const [isTestingAI, setIsTestingAI] = useState(false);
+  const [keyStatuses, setKeyStatuses] = useState<KeyStatusItem[]>([]);
 
   const fetchOpenRouterModelsList = useCallback(async () => {
     if (!currentOrganization?.id) return;
@@ -188,6 +191,16 @@ export default function SettingsPage() {
   useEffect(() => {
     fetchSettings();
   }, [fetchSettings]);
+
+  // Fetch key status on mount
+  useEffect(() => {
+    if (!currentOrganization?.id) return;
+    getKeyStatus(currentOrganization.id).then((res) => {
+      if (res.success && res.data) {
+        setKeyStatuses(res.data.keys);
+      }
+    });
+  }, [currentOrganization?.id]);
 
   const handleSave = async () => {
     if (!currentOrganization?.id) return;
@@ -548,6 +561,38 @@ export default function SettingsPage() {
 
               {/* Test Connection */}
               <div className="border-t pt-4">
+                {/* Key Status Indicator */}
+                {(() => {
+                  const activeKey = formData.aiModelProvider === 'openai'
+                    ? keyStatuses.find((k) => k.name === 'openai_api_key')
+                    : keyStatuses.find((k) => k.name === 'openrouter_api_key');
+                  if (activeKey) {
+                    return (
+                      <div className={`mb-3 rounded-md px-3 py-2 text-sm flex items-center gap-2 ${
+                        activeKey.configured
+                          ? activeKey.source === 'secrets_manager'
+                            ? 'bg-green-50 border border-green-200 text-green-800 dark:bg-green-950 dark:border-green-800 dark:text-green-200'
+                            : 'bg-blue-50 border border-blue-200 text-blue-800 dark:bg-blue-950 dark:border-blue-800 dark:text-blue-200'
+                          : 'bg-yellow-50 border border-yellow-200 text-yellow-800 dark:bg-yellow-950 dark:border-yellow-800 dark:text-yellow-200'
+                      }`}>
+                        {activeKey.configured ? (
+                          <Check className="h-4 w-4 shrink-0" />
+                        ) : (
+                          <AlertCircle className="h-4 w-4 shrink-0" />
+                        )}
+                        <span>
+                          {activeKey.label}:{' '}
+                          {activeKey.configured ? (
+                            activeKey.source === 'secrets_manager' ? 'Configured (Secrets Manager)' : 'Configured (Environment Variable)'
+                          ) : (
+                            'Not configured'
+                          )}
+                        </span>
+                      </div>
+                    );
+                  }
+                  return null;
+                })()}
                 <Button
                   type="button"
                   variant="outline"

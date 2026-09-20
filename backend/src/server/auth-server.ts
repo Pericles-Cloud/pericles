@@ -3592,21 +3592,27 @@ app.post('/api/events/:id/ask', async (req: Request, res: Response) => {
         const provider = orgSettings.ai_model_provider;
         const modelName = orgSettings.ai_model_name;
 
-        // Validate OpenRouter configuration
+        // Resolve API key: Secrets Manager first, then env var fallback
+        const resolveApiKey = async (secretName: string, envName: string): Promise<string> => {
+          try {
+            const { getOrgSecret } = await import('../secrets/index.js');
+            const key = await getOrgSecret(event.organization_id, secretName, false);
+            if (key) return key;
+          } catch { /* fall through */ }
+          const envKey = process.env[envName];
+          if (!envKey) throw new Error(`${envName} not configured. Add "${secretName}" in Settings > Secrets or set ${envName} environment variable.`);
+          return envKey;
+        };
+
+        // Validate API key is available for the selected provider
         if (provider === 'openrouter') {
-          if (!process.env.OPENROUTER_API_KEY) {
-            console.error('[EventQA] OpenRouter provider selected but OPENROUTER_API_KEY environment variable is not set');
-            throw new Error('OpenRouter provider selected but OPENROUTER_API_KEY is not configured');
-          }
+          await resolveApiKey('openrouter_api_key', 'OPENROUTER_API_KEY');
           if (!modelName.includes('/')) {
             console.warn(`[EventQA] OpenRouter model name "${modelName}" does not include a provider prefix (e.g., "anthropic/claude-3.5-sonnet")`);
           }
           agentModel = `openrouter/${modelName}`;
         } else if (provider === 'openai') {
-          if (!process.env.OPENAI_API_KEY) {
-            console.error('[EventQA] OpenAI provider selected but OPENAI_API_KEY environment variable is not set');
-            throw new Error('OpenAI provider selected but OPENAI_API_KEY is not configured');
-          }
+          await resolveApiKey('openai_api_key', 'OPENAI_API_KEY');
           agentModel = `openai/${modelName}`;
         } else {
           agentModel = `${provider}/${modelName}`;
@@ -4589,13 +4595,13 @@ app.get('/api/organizations/:orgId/settings/ai-models/openrouter', async (req: R
       return;
     }
 
-    const models = await fetchOpenRouterModels();
+    const models = await fetchOpenRouterModels(orgId);
     res.status(200).json({ success: true, data: { models } });
   } catch (error) {
     if (error instanceof OpenRouterConfigError) {
       res.status(500).json({
         success: false,
-        error: { code: 'CONFIG_ERROR', message: 'OpenRouter is not configured (OPENROUTER_API_KEY missing)' },
+        error: { code: 'CONFIG_ERROR', message: 'OpenRouter API key not found. Add "openrouter_api_key" in Settings > Secrets, or set OPENROUTER_API_KEY environment variable.' },
       });
       return;
     }
@@ -6373,6 +6379,60 @@ app.get('/api/organizations/:orgId/workflows/:workflowId/executions', async (req
   }
 });
 
+// ─── API Key Status ──────────────────────────────────────────────────────────
+
+app.get('/api/organizations/:id/key-status', async (req: Request, res: Response) => {
+  try {
+    const tokenPayload = authenticateRequest(req);
+    if (!tokenPayload) {
+      res.status(401).json({ success: false, error: { code: 'UNAUTHORIZED', message: 'Authentication required' } });
+      return;
+    }
+
+    const orgId = req.params.id as string;
+    const access = await checkOrganizationAccess(tokenPayload.userId, orgId);
+    if (!access.hasAccess) {
+      res.status(403).json({ success: false, error: { code: 'FORBIDDEN', message: 'Access denied' } });
+      return;
+    }
+
+    const { getOrgSecret } = await import('../secrets/index.js');
+
+    const checks = [
+      { name: 'openrouter_api_key', envVar: 'OPENROUTER_API_KEY', label: 'OpenRouter API Key' },
+      { name: 'openai_api_key', envVar: 'OPENAI_API_KEY', label: 'OpenAI API Key' },
+      { name: 'slack_webhook_url', envVar: 'SLACK_WEBHOOK_URL', label: 'Slack Webhook URL' },
+    ];
+
+    const results = await Promise.all(
+      checks.map(async (check) => {
+        let source: 'secrets_manager' | 'environment_variable' | 'none' = 'none';
+        let configured = false;
+
+        try {
+          const key = await getOrgSecret(orgId, check.name, false);
+          if (key) {
+            source = 'secrets_manager';
+            configured = true;
+          }
+        } catch { /* fall through */ }
+
+        if (!configured && process.env[check.envVar]) {
+          source = 'environment_variable';
+          configured = true;
+        }
+
+        return { name: check.name, label: check.label, configured, source };
+      })
+    );
+
+    res.json({ success: true, data: { keys: results } });
+  } catch (error) {
+    console.error('Get key status error:', error);
+    res.status(500).json({ success: false, error: { code: 'INTERNAL_ERROR', message: 'An unexpected error occurred' } });
+  }
+});
+
 // ─── AI Connection Test ──────────────────────────────────────────────────────
 
 app.get('/api/organizations/:id/test-ai', async (req: Request, res: Response) => {
@@ -6464,7 +6524,6 @@ app.get('/api/organizations/:id/test-ai', async (req: Request, res: Response) =>
 import {
   getSecretsBackend,
   buildScopePath,
-  SecretScope,
   SecretType,
 } from '../secrets/index.js';
 

@@ -1900,6 +1900,19 @@ export async function testAIConnection(
   return apiRequest(`/api/organizations/${orgId}/test-ai`);
 }
 
+export interface KeyStatusItem {
+  name: string;
+  label: string;
+  configured: boolean;
+  source: 'secrets_manager' | 'environment_variable' | 'none';
+}
+
+export async function getKeyStatus(
+  orgId: string
+): Promise<ApiResponse<{ keys: KeyStatusItem[] }>> {
+  return apiRequest(`/api/organizations/${orgId}/key-status`);
+}
+
 /**
  * List secrets for an organization.
  */
