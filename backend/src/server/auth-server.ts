@@ -6433,6 +6433,78 @@ app.get('/api/organizations/:id/key-status', async (req: Request, res: Response)
   }
 });
 
+// ─── DEK Status Check ────────────────────────────────────────────────────────
+
+app.get('/api/organizations/:id/dek-status', async (req: Request, res: Response) => {
+  try {
+    const tokenPayload = authenticateRequest(req);
+    if (!tokenPayload) {
+      res.status(401).json({ success: false, error: { code: 'UNAUTHORIZED', message: 'Authentication required' } });
+      return;
+    }
+
+    const orgId = req.params.id as string;
+    const access = await checkOrganizationAccess(tokenPayload.userId, orgId);
+    if (!access.hasAccess) {
+      res.status(403).json({ success: false, error: { code: 'FORBIDDEN', message: 'Access denied' } });
+      return;
+    }
+
+    // Check if DEK exists for this org
+    const dekEntry = await prisma.organizationSecret.findFirst({
+      where: {
+        organization_id: orgId,
+        name: '_dek',
+        scope: 'ORGANIZATION',
+      },
+      select: { created_at: true, updated_at: true },
+    });
+
+    // Try a test encrypt/decrypt to verify the DEK works
+    let status: 'active' | 'missing' | 'corrupted' = dekEntry ? 'active' : 'missing';
+
+    if (dekEntry) {
+      try {
+        const { getSecretsBackend } = await import('../secrets/index.js');
+        const backend = getSecretsBackend();
+        // Try to encrypt and decrypt a test value
+        const testResult = await backend.put(`org/${orgId}`, '_dek_test', 'ok', 'SECRET' as any);
+        if (testResult.ok) {
+          const readResult = await backend.get(`org/${orgId}`, '_dek_test');
+          if (readResult.ok && readResult.value === 'ok') {
+            // Clean up test secret
+            await backend.delete(`org/${orgId}`, '_dek_test');
+            status = 'active';
+          } else {
+            status = 'corrupted';
+          }
+        } else {
+          status = 'corrupted';
+        }
+      } catch {
+        status = 'corrupted';
+      }
+    }
+
+    res.json({
+      success: true,
+      data: {
+        status,
+        createdAt: dekEntry?.created_at || null,
+        updatedAt: dekEntry?.updated_at || null,
+        message: status === 'active'
+          ? 'Encryption is active and working.'
+          : status === 'missing'
+          ? 'No encryption key yet. A new key will be created when you save your first secret.'
+          : 'Encryption key is corrupted. Run cleanup to generate a new key.',
+      },
+    });
+  } catch (error) {
+    console.error('DEK status error:', error);
+    res.status(500).json({ success: false, error: { code: 'INTERNAL_ERROR', message: 'An unexpected error occurred' } });
+  }
+});
+
 // ─── Secrets Cleanup (corrupted data from KEK mismatch) ──────────────────────
 
 app.post('/api/organizations/:id/secrets/cleanup', async (req: Request, res: Response) => {

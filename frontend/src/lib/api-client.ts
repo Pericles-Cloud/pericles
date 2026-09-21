@@ -1913,6 +1913,25 @@ export async function getKeyStatus(
   return apiRequest(`/api/organizations/${orgId}/key-status`);
 }
 
+export interface DekStatus {
+  status: 'active' | 'missing' | 'corrupted';
+  createdAt: string | null;
+  updatedAt: string | null;
+  message: string;
+}
+
+export async function getDekStatus(
+  orgId: string
+): Promise<ApiResponse<DekStatus>> {
+  return apiRequest(`/api/organizations/${orgId}/dek-status`);
+}
+
+export async function cleanupSecrets(
+  orgId: string
+): Promise<ApiResponse<{ deleted: number; message: string }>> {
+  return apiRequest(`/api/organizations/${orgId}/secrets/cleanup`, { method: 'POST' });
+}
+
 /**
  * List secrets for an organization.
  */

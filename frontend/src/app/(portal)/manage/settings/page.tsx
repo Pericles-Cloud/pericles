@@ -18,6 +18,9 @@ import {
   testAIConnection,
   getKeyStatus,
   type KeyStatusItem,
+  getDekStatus,
+  type DekStatus,
+  cleanupSecrets,
 } from '@/lib/api-client';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
@@ -1003,6 +1006,8 @@ const SecretsTab = React.memo(function SecretsTab({ organizationId, onRefresh }:
   const [revealedValue, setRevealedValue] = useState<string | null>(null);
   const [revealing, setRevealing] = useState(false);
   const [filterScope, setFilterScope] = useState<string>('ALL');
+  const [dekStatus, setDekStatus] = useState<DekStatus | null>(null);
+  const [cleaningUp, setCleaningUp] = useState(false);
 
   const fetchSecrets = useCallback(async () => {
     try {
@@ -1024,6 +1029,30 @@ const SecretsTab = React.memo(function SecretsTab({ organizationId, onRefresh }:
   useEffect(() => {
     fetchSecrets();
   }, [fetchSecrets]);
+
+  // Fetch DEK status on mount
+  useEffect(() => {
+    if (!organizationId) return;
+    getDekStatus(organizationId).then((res) => {
+      if (res.success && res.data) {
+        setDekStatus(res.data);
+      }
+    });
+  }, [organizationId, fetchSecrets]);
+
+  const handleCleanup = async () => {
+    if (!confirm('Clear all secrets and encryption keys? You will need to re-create all secrets.')) return;
+    setCleaningUp(true);
+    try {
+      const result = await cleanupSecrets(organizationId);
+      if (result.success) {
+        setDekStatus({ status: 'missing', createdAt: null, updatedAt: null, message: 'No encryption key yet. A new key will be created when you save your first secret.' });
+        fetchSecrets();
+      }
+    } finally {
+      setCleaningUp(false);
+    }
+  };
 
   const handleReveal = async (secret: SecretItem) => {
     setRevealTarget(secret);
@@ -1110,6 +1139,31 @@ const SecretsTab = React.memo(function SecretsTab({ organizationId, onRefresh }:
           <AlertCircle className="h-4 w-4 shrink-0" />
           {error}
           <Button variant="ghost" size="sm" className="ml-auto" onClick={() => setError(null)}>Dismiss</Button>
+        </div>
+      )}
+
+      {/* DEK Status Indicator */}
+      {dekStatus && (
+        <div className={`rounded-md px-3 py-2 text-sm flex items-center gap-2 ${
+          dekStatus.status === 'active'
+            ? 'bg-green-50 border border-green-200 text-green-800 dark:bg-green-950 dark:border-green-800 dark:text-green-200'
+            : dekStatus.status === 'missing'
+            ? 'bg-blue-50 border border-blue-200 text-blue-800 dark:bg-blue-950 dark:border-blue-800 dark:text-blue-200'
+            : 'bg-destructive/10 border border-destructive/20 text-destructive'
+        }`}>
+          {dekStatus.status === 'active' ? (
+            <Check className="h-4 w-4 shrink-0" />
+          ) : dekStatus.status === 'missing' ? (
+            <Key className="h-4 w-4 shrink-0" />
+          ) : (
+            <AlertCircle className="h-4 w-4 shrink-0" />
+          )}
+          <span className="flex-1">{dekStatus.message}</span>
+          {dekStatus.status === 'corrupted' && (
+            <Button variant="outline" size="sm" onClick={handleCleanup} disabled={cleaningUp}>
+              {cleaningUp ? 'Cleaning...' : 'Reset Encryption'}
+            </Button>
+          )}
         </div>
       )}
 
