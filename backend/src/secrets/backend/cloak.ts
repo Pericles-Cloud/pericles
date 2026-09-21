@@ -284,14 +284,12 @@ export class CloakBackend implements SecretsBackend {
       const scope = (parts[2]?.toUpperCase() as SecretScope) || SecretScope.ORGANIZATION;
       const scopeRef = parts[3] || '';
 
-      await prisma.organizationSecret.delete({
+      await prisma.organizationSecret.deleteMany({
         where: {
-          organization_id_name_scope_scope_ref: {
-            organization_id: organizationId,
-            name,
-            scope,
-            scope_ref: scopeRef,
-          },
+          organization_id: organizationId,
+          name,
+          scope,
+          scope_ref: scopeRef,
         },
       });
 
