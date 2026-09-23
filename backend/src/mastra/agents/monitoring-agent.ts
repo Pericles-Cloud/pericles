@@ -29,7 +29,6 @@ import {
 
 // Import scorers
 import { monitoringScorers } from '../scorers/monitoring-scorer.js';
-import { factualityScorer } from '../scorers/factuality-scorer.js';
 
 /**
  * Monitoring Agent

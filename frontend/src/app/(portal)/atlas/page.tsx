@@ -121,6 +121,9 @@ export default function AtlasPage() {
   const [selectedRoute, setSelectedRoute] = useState<ShipmentRoute | null>(null);
   // Collapsed by default so the map reads as the whole surface (GH #8).
   const [isFeedOpen, setIsFeedOpen] = useState(false);
+  // Same for the legend — it used to occupy the whole bottom-left corner
+  // permanently (GH #68).
+  const [isLegendOpen, setIsLegendOpen] = useState(false);
   const [eventTypeFilter, setEventTypeFilter] = useState<EventTypeFilter>('all');
   // Shared geocoder for the location search box. A supplier-city reverse
   // geocode used to live here too (GH #11) but was removed when the origin pin
@@ -211,10 +214,21 @@ export default function AtlasPage() {
           : supplier?.latitude && supplier?.longitude
             ? { lat: supplier.latitude, lng: supplier.longitude, name: supplier.name }
             : null;
+        // Destination: prefer the geocoded coordinates the BOL seeder wrote
+        // (destinationPort is the importer CITY — inland cities like Tulsa
+        // will never match the seaport gazetteer; GH #70). The gazetteer is
+        // the fallback for rows predating geocoded columns.
         const destPort = findPortCoordinates(shipment.destinationPort);
-        const destination = destPort
-          ? { lat: destPort.lat, lng: destPort.lng, name: destPort.name }
-          : null;
+        const destination =
+          shipment.destinationLatitude && shipment.destinationLongitude
+            ? {
+                lat: shipment.destinationLatitude,
+                lng: shipment.destinationLongitude,
+                name: shipment.destinationPort || 'Destination',
+              }
+            : destPort
+              ? { lat: destPort.lat, lng: destPort.lng, name: destPort.name }
+              : null;
         const path =
           origin && destination
             ? shipment.modeOfTransport === 'MARITIME'
@@ -508,9 +522,11 @@ export default function AtlasPage() {
 
       {/* Events Feed. Bottom-anchored and full width on a phone — the map is
           the point, and a fixed w-80 in the top row overlapped the controls at
-          393px. From md it returns to the top-right. Expanding grows it upward,
-          since the bottom edge is pinned. */}
-      <div className="pointer-events-auto absolute inset-x-[max(0.75rem,env(safe-area-inset-left))] bottom-[max(0.75rem,env(safe-area-inset-bottom))] z-10 flex flex-col overflow-hidden rounded-lg bg-card shadow-lg md:inset-x-auto md:bottom-auto md:right-[max(0.75rem,env(safe-area-inset-right))] md:top-3 md:w-80">
+          393px. From md it sits top-right but BELOW the filter bar (GH #69:
+          top-3 aligned it with the bar, covering the right-hand controls).
+          Expanding grows it downward on md+, upward on mobile where the
+          bottom edge is pinned. */}
+      <div className="pointer-events-auto absolute inset-x-[max(0.75rem,env(safe-area-inset-left))] bottom-[max(0.75rem,env(safe-area-inset-bottom))] z-10 flex flex-col overflow-hidden rounded-lg bg-card shadow-lg md:inset-x-auto md:bottom-auto md:right-[max(0.75rem,env(safe-area-inset-right))] md:top-16 md:w-80">
           <button
             onClick={() => setIsFeedOpen((open) => !open)}
             aria-expanded={isFeedOpen}
@@ -577,10 +593,34 @@ export default function AtlasPage() {
           )}
       </div>
 
-      {/* Legend (brand-aligned) */}
+      {/* Legend (brand-aligned). Collapsed by default (GH #68) — open via the
+          chevron; expanding grows it upward like the feed, since the bottom
+          edge is pinned. */}
       {/* bottom-20 below md so it clears the bottom-anchored Events Feed. */}
-      <div className="absolute bottom-20 left-4 z-10 bg-card rounded-lg shadow-lg p-3 text-sm md:bottom-4">
-        <div className="font-medium mb-2">Legend</div>
+      <div className="absolute bottom-20 left-4 z-10 bg-card rounded-lg shadow-lg text-sm md:bottom-4">
+        <button
+          onClick={() => setIsLegendOpen((open) => !open)}
+          aria-expanded={isLegendOpen}
+          aria-controls="atlas-legend"
+          className="flex w-full items-center gap-2 rounded-lg px-3 py-2 text-left font-medium transition-colors hover:bg-muted/50"
+        >
+          <span className="flex-1">Legend</span>
+          <svg
+            className={cn(
+              'size-4 shrink-0 text-muted-foreground transition-transform',
+              isLegendOpen && 'rotate-180',
+            )}
+            fill="none"
+            viewBox="0 0 24 24"
+            strokeWidth="1.5"
+            stroke="currentColor"
+          >
+            <path strokeLinecap="round" strokeLinejoin="round" d="M19.5 8.25l-7.5 7.5-7.5-7.5" />
+          </svg>
+        </button>
+
+        {isLegendOpen && (
+        <div id="atlas-legend" className="px-3 pb-3">
         <div className="space-y-1">
           <div className="flex items-center gap-2">
             <div className="w-3 h-3 rounded-full" style={{ backgroundColor: mapPalette.supplier }} />
@@ -635,6 +675,8 @@ export default function AtlasPage() {
               ))}
             </div>
           </div>
+        )}
+        </div>
         )}
       </div>
 

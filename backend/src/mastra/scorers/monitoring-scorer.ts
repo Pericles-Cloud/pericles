@@ -5,7 +5,7 @@
 
 import { z } from 'zod';
 import { createScorer } from '@mastra/core/scores';
-import { factualityScorer } from './factuality-scorer';
+import { factualityScorer } from './factuality-scorer.js';
 
 /**
  * Monitoring Agent Scorers

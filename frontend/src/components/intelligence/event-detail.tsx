@@ -125,7 +125,22 @@ export function EventMetadataCard({ event }: { event: Event }) {
           </div>
           <div>
             <Label className="text-muted-foreground text-xs uppercase tracking-wide">Source</Label>
-            <p className="font-medium mt-1">{event.source.replace(/_/g, ' ')}</p>
+            <p className="font-medium mt-1">
+              {event.source.replace(/_/g, ' ')}
+              {event.sourceUrl && (
+                <>
+                  {' · '}
+                  <a
+                    href={event.sourceUrl}
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    className="text-primary underline underline-offset-2 hover:opacity-80"
+                  >
+                    original
+                  </a>
+                </>
+              )}
+            </p>
           </div>
           <div>
             <Label className="text-muted-foreground text-xs uppercase tracking-wide">Confidence</Label>

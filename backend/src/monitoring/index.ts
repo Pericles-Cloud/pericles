@@ -439,6 +439,7 @@ export async function runMonitoringCycle(
     // genuine supply chain risk events and should not be stored or fed
     // into dedup/Atlas. The monitoring prompt now requires
     // "event_classification": "fact" | "opinion" | "commentary".
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any -- Same dynamic agent JSON as detectedEvents above
     const opinionEvents: any[] = [];
     for (const ev of detectedEvents) {
       const classification = ev?.event_classification;
@@ -479,9 +480,13 @@ export async function runMonitoringCycle(
     // just without the LLM second opinion.
     const dedupBudget: FuzzyDedupBudget = { remaining: DEFAULT_FUZZY_DEDUP_CALL_BUDGET };
 
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any -- Stores storeEvent's dynamic return
     const storedEvents: any[] = [];
 
-    for (const eventData of detectedEvents) {
+    // Iterate remainingEvents (opinion/commentary already removed above) —
+    // iterating detectedEvents here would store the very events the filter
+    // exists to drop.
+    for (const eventData of remainingEvents) {
       try {
         const storedEvent = await storeEvent(config.organizationId, eventData, dedupBudget, resolvedModel);
         storedEvents.push(storedEvent);
@@ -572,33 +577,24 @@ export async function runMonitoringCycle(
     let eventsClustered = 0;
 
     if (storedEvents.length > 0) {
-      // Build a clustering key for each event: type + first 3 words of headline
-      // + geographic bucket (rounded coordinates) + temporal bucket
+      // Clustering key per event: type + first 3 headline words. Temporal
+      // proximity needs no separate check — all events here come from the
+      // same cycle (a 5-min window). Words are lowercased so differing
+      // headline capitalization ("Houthi forces ..." vs "Houthi Forces ...")
+      // still overlaps.
       const clusteringKeys = storedEvents.map((ev, i) => {
         const type = ev.type || 'unknown';
         const headline = ev.headline || ev.title || '';
         const firstWords = headline
           .split(/\s+/)
           .slice(0, 3)
-          .join(' ');
-        const location = ev.location;
-        let geoBucket = 'unknown';
-        if (location?.latitude !== undefined && location?.longitude !== undefined) {
-          // Round to ~50km buckets for clustering
-          const latBucket = Math.round(location.latitude * 2) / 2;
-          const lonBucket = Math.round(location.longitude * 2) / 2;
-          geoBucket = `${latBucket},${lonBucket}`;
-        }
-        const temporalBucket = ev.event_timestamp
-          ? new Date(ev.event_timestamp).getTime() / (1000 * 60 * 5) // 5-min buckets
-          : 0;
+          .join(' ')
+          .toLowerCase();
 
         return {
           index: i,
           type,
           firstWords,
-          geoBucket,
-          temporalBucket,
           event: ev,
         };
       });
@@ -662,9 +658,6 @@ export async function runMonitoringCycle(
           const wordOverlap = baseWords.filter((w: string) => otherWords.includes(w)).length;
           const keywordMatch = wordOverlap >= 2;
 
-          // Check temporal proximity (within same 5-min bucket)
-          const temporalMatch = baseKey.temporalBucket === otherKey.temporalBucket;
-
           if (geoMatch || keywordMatch) {
             clusterAssignments.set(otherIdx, clusterId);
             clustered.add(otherIdx);
@@ -690,10 +683,22 @@ export async function runMonitoringCycle(
             raw_data: newRawData,
           },
         });
+      }
 
-        topicsCreated++;
+      // topicsCreated counts multi-event clusters — a single event is not a
+      // "topic". (eventsClustered counts events merged into an existing
+      // cluster; the seed event of each cluster is not counted there.)
+      const clusterSizes = new Map<number, number>();
+      for (const cid of clusterAssignments.values()) {
+        clusterSizes.set(cid, (clusterSizes.get(cid) || 0) + 1);
+      }
+      for (const size of clusterSizes.values()) {
+        if (size >= 2) topicsCreated++;
       }
     }
+
+    metrics.topicsCreated = topicsCreated;
+    metrics.eventsClustered = eventsClustered;
 
     metrics.toolsSucceeded = metrics.toolsExecuted - metrics.errors.length;
     metrics.toolsFailed = metrics.errors.length;
@@ -1016,6 +1021,8 @@ async function logAuditRecord(organizationId: string, metrics: CycleMetrics): Pr
           toolsExecuted: metrics.toolsExecuted,
           toolsSucceeded: metrics.toolsSucceeded,
           toolsFailed: metrics.toolsFailed,
+          topicsCreated: metrics.topicsCreated ?? 0,
+          eventsClustered: metrics.eventsClustered ?? 0,
           errors: metrics.errors,
         },
       },
@@ -1051,7 +1058,7 @@ Return detected events in JSON. Each event MUST include:
 - "headline": formatted as "Actor + Action + Target + Location" (e.g., "Houthi forces strike vessel in southern Red Sea") — this is the event summary, not a story headline
 - "source_url": link to the original article/wire source (not the platform that republished it)
 - "event_classification": "fact" | "opinion" | "commentary"
-- "location": object with "name" (string), "latitude" (number 0.0-1.0), "longitude" (number -180.0 to +180.0)
+- "location": object with "name" (string), "latitude" (number -90.0 to +90.0), "longitude" (number -180.0 to +180.0)
 
 Events classified as "opinion" or "commentary" will be filtered out before storage.
 

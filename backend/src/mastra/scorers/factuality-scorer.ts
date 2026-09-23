@@ -1,5 +1,5 @@
 /* eslint-disable @typescript-eslint/no-explicit-any */
- 
+
 // Note: Mastra's scorer API doesn't provide strict typing for run.output, run.input, and results
 // All 'any' usages in this file are necessary for interacting with Mastra's scorer framework
 
@@ -105,18 +105,15 @@ export const factualityScorer = createScorer({
   })
   .generateScore(({ results }) => {
     const r = (results as any)?.analyzeStepResult || {};
-    const total = (r.events_evaluated || 0);
-    if (total === 0) return 1; // No events = perfect score (no content to evaluate)
+    const total = r.events_evaluated || 0;
+    if (total === 0) return 1; // No events = nothing to evaluate
 
-    // Score based on is_opinion prevalence and confidence
-    const isOpinion = r.is_opinion || false;
-    const factualityScore = isOpinion ? 0.0 : 1.0; // simplified: if opinion, score 0; if not, score 1
-    const confidence = r.confidence || 0;
+    // Use the judge's own factuality_score (schema-validated 0-1); fall
+    // back to the binary is_opinion verdict only if the judge omitted it.
+    const judged =
+      typeof r.factuality_score === 'number' ? r.factuality_score : (r.is_opinion ? 0 : 1);
 
-    // Softer scoring: if factualityScore is near 0.5, pull in confidence weight
-    const finalScore = Math.max(0, Math.min(1, factualityScore + (confidence - 0.5) * 0.3));
-
-    return finalScore;
+    return Math.max(0, Math.min(1, judged));
   })
   .generateReason(({ results, score }) => {
     const r = (results as any)?.analyzeStepResult || {};

@@ -738,6 +738,10 @@ export interface Shipment {
   estimatedArrivalDate: string | null;
   destinationPort: string | null;
   destinationPortCode: string | null;
+  /** Geocoded destination coordinates (#70) — the destination is often an
+   * inland importer city the port gazetteer can't resolve. */
+  destinationLatitude: number | null;
+  destinationLongitude: number | null;
   departurePort: string | null;
   departurePortCode: string | null;
   lastVisitForeignPort: string | null;
@@ -978,6 +982,8 @@ export interface Event {
   /** Set only when validationStatus is 'duplicate' (#22) — the primary
    * event this one was fuzzy-matched to. */
   duplicateOfEventId: string | null;
+  /** Link to the original article/wire source, from raw_data.source_url (#55). */
+  sourceUrl?: string;
   validatedAt: string | null;
   incident: EventIncident | null;
   createdAt: string;

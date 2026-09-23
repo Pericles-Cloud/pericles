@@ -28,6 +28,10 @@ export interface CycleMetrics {
   severityFiltered: number;
   eventsPublished: number;
 
+  // Topic aggregation (#55) — optional so older metric shapes still typecheck
+  topicsCreated?: number;
+  eventsClustered?: number;
+
   // Errors
   errors: Array<{
     tool: string;
@@ -79,6 +83,7 @@ export function getMetricsSummary(metrics: CycleMetrics): string {
     `Tools: ${metrics.toolsSucceeded}/${metrics.toolsExecuted}`,
     `Events: ${metrics.eventsDetected} detected → ${metrics.eventsPublished} published (${filterRate}%)`,
     `Filtered: ${metrics.duplicatesFiltered} dupes, ${metrics.geographyFiltered} geo, ${metrics.severityFiltered} severity`,
+    `Topics: ${metrics.topicsCreated ?? 0} clusters, ${metrics.eventsClustered ?? 0} events clustered`,
     `Errors: ${metrics.errors.length}`,
   ].join(' | ');
 }

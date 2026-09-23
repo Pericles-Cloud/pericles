@@ -2736,6 +2736,11 @@ app.get('/api/shipments', async (req: Request, res: Response) => {
         estimatedArrivalDate: s.estimated_arrival_date?.toISOString() || null,
         destinationPort: s.destination_port,
         destinationPortCode: s.destination_port_code,
+        // Geocoded importer-city coordinates (#70): the destination is
+        // frequently an inland city the port gazetteer cannot resolve, so the
+        // map must get the coordinates the seeder already computed.
+        destinationLatitude: s.destination_latitude,
+        destinationLongitude: s.destination_longitude,
         departurePort: s.departure_port,
         departurePortCode: s.departure_port_code,
         lastVisitForeignPort: s.last_visit_foreign_port,
@@ -2946,6 +2951,11 @@ app.get('/api/shipments/:id', async (req: Request, res: Response) => {
         estimatedArrivalDate: s.estimated_arrival_date?.toISOString() || null,
         destinationPort: s.destination_port,
         destinationPortCode: s.destination_port_code,
+        // Geocoded importer-city coordinates (#70): the destination is
+        // frequently an inland city the port gazetteer cannot resolve, so the
+        // map must get the coordinates the seeder already computed.
+        destinationLatitude: s.destination_latitude,
+        destinationLongitude: s.destination_longitude,
         departurePort: s.departure_port,
         departurePortCode: s.departure_port_code,
         lastVisitForeignPort: s.last_visit_foreign_port,
@@ -3065,6 +3075,10 @@ app.post('/api/shipments', async (req: Request, res: Response) => {
         estimatedArrivalDate: s.estimated_arrival_date?.toISOString() || null,
         destinationPort: s.destination_port,
         destinationPortCode: s.destination_port_code,
+        // Geocoded importer-city coordinates (#70) — keep mutation responses
+        // consistent with the list/detail serializers.
+        destinationLatitude: s.destination_latitude,
+        destinationLongitude: s.destination_longitude,
         departurePort: s.departure_port,
         departurePortCode: s.departure_port_code,
         vesselName: s.vessel_name,
@@ -3183,6 +3197,10 @@ app.patch('/api/shipments/:id', async (req: Request, res: Response) => {
         estimatedArrivalDate: s.estimated_arrival_date?.toISOString() || null,
         destinationPort: s.destination_port,
         destinationPortCode: s.destination_port_code,
+        // Geocoded importer-city coordinates (#70) — keep mutation responses
+        // consistent with the list/detail serializers.
+        destinationLatitude: s.destination_latitude,
+        destinationLongitude: s.destination_longitude,
         departurePort: s.departure_port,
         departurePortCode: s.departure_port_code,
         vesselName: s.vessel_name,
@@ -3383,6 +3401,8 @@ app.get('/api/events', async (req: Request, res: Response) => {
                 responsePlanId: e.incident.response_plan_id,
               }
             : null,
+          createdAt: e.created_at.toISOString(),
+          updatedAt: e.updated_at.toISOString(),
         })),
         total,
       },
@@ -3443,6 +3463,7 @@ app.get('/api/events/:id', async (req: Request, res: Response) => {
         affectedDomains: event.affected_domains,
         validationStatus: event.validation_status,
         duplicateOfEventId: duplicateOfEventId(event.raw_data),
+        sourceUrl: sourceUrlFromRawData(event.raw_data),
         validatedAt: event.validated_at?.toISOString() || null,
         incident: event.incident
           ? {
@@ -3823,6 +3844,7 @@ app.patch('/api/events/:id/validation', async (req: Request, res: Response) => {
         affectedDomains: updatedEvent.affected_domains,
         validationStatus: updatedEvent.validation_status,
         duplicateOfEventId: duplicateOfEventId(updatedEvent.raw_data),
+        sourceUrl: sourceUrlFromRawData(updatedEvent.raw_data),
         validatedAt: updatedEvent.validated_at?.toISOString() || null,
         incident: updatedEvent.incident
           ? {
