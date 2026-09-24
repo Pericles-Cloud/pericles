@@ -12,7 +12,7 @@
 
 import type { Prisma } from '@prisma/client';
 import { mastra } from '../mastra/index.js';
-import { type MonitoringConfig, resolveModel } from './config.js';
+import { type MonitoringConfig, type ResolvedModel, resolveModel } from './config.js';
 import { getPrismaClient } from './db-client.js';
 import { logger, createLogger } from './logger.js';
 import {
@@ -222,11 +222,21 @@ export async function runMonitoringCycle(
       throw new Error('Monitoring agent not found in Mastra registry');
     }
 
-    // Override the agent's model with the org's configured AI settings.
-    // Monitoring cycles are sequential per-org, so this mutation is safe.
-    // __updateModel is an internal Mastra API; restore after the call.
-    const resolvedModel = resolveModel(config);
-    cycleLogger.info({ provider: config.ai.provider, modelName: config.ai.modelName, resolvedModel }, '[Cycle] Using AI model for monitoring');
+    // Resolve the org's model + API key from its AI/Secrets settings. Runs
+    // BEFORE the agent call: orgs without a configured key fail here, loudly,
+    // instead of burning the whole tool fan-out first.
+    //
+    // Mutating the registry singleton with __updateModel is only safe because
+    // monitoring cycles are sequential per org (run-once.ts) — a concurrent
+    // manual trigger (POST /api/monitoring/trigger) during a cron run could
+    // interleave two orgs' model+key, billing one tenant's key for another's
+    // call. The per-org run lock that closes that hole is tracked as infra
+    // work (see storeEvent's known-limitation note).
+    const resolvedModel = await resolveModel(config);
+    cycleLogger.info(
+      { provider: config.ai.provider, modelName: config.ai.modelName },
+      '[Cycle] Using AI model for monitoring (key resolved per-org)'
+    );
     agent.__updateModel({ model: resolvedModel });
 
     emitProgress({
@@ -788,7 +798,7 @@ function exactMatchWhere(organizationId: string, eventData: any): Prisma.EventWh
 }
 
 // eslint-disable-next-line @typescript-eslint/no-explicit-any -- Dynamic event data from agent, typed at Prisma layer
-async function storeEvent(organizationId: string, eventData: any, dedupBudget?: FuzzyDedupBudget, model?: string): Promise<any> {
+async function storeEvent(organizationId: string, eventData: any, dedupBudget?: FuzzyDedupBudget, model?: ResolvedModel): Promise<any> {
   const prisma = getPrismaClient();
 
   // Cheap exact-match pre-check, mirroring the transaction's own check below,

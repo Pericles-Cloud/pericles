@@ -298,47 +298,72 @@ export async function loadMonitoringConfig(
 }
 
 /**
- * Resolve the Mastra model string from MonitoringConfig's AI settings.
- *
- * Mastra agent.generate() accepts `model` as a DynamicArgument — either a
- * string like `'openai/gpt-4o'` or a function returning one. This helper
- * produces that string from the org's stored settings.
- *
- * OpenRouter models use the format `'openrouter/<provider>/<model-id>'` (e.g., 'openrouter/anthropic/claude-3.5-sonnet').
- * OpenAI models use `'openai/<model-id>'`.
- *
- * @returns Mastra model string, e.g. `'openai/gpt-4o'` or `'openrouter/anthropic/claude-3.5-sonnet'`
- * @throws Error if provider is 'openrouter' but OPENROUTER_API_KEY is not configured
+ * Resolved model for a monitoring cycle: either a Mastra model-router string
+ * ('openai/gpt-4o-mini', 'openrouter/anthropic/claude-3.5-sonnet') or a
+ * config object carrying the org-scoped API key. The config-object form is
+ * required for per-org keys — magic strings resolve the key from process.env,
+ * which only holds the platform/global key.
  */
-export function resolveModel(config: MonitoringConfig): string {
+export type ResolvedModel =
+  | `${string}/${string}`
+  | { id: `${string}/${string}`; apiKey: string };
+
+/**
+ * Resolve the API key for an organization's AI provider.
+ *
+ * Order: org-scoped Secrets Manager entry (`org.<provider>_api_key`) first,
+ * then the platform-level environment variable. Mirrors the Event Q&A
+ * resolution in auth-server.ts — the monitoring cron must honor the same
+ * per-org keys, since tenants can bring their own provider credentials.
+ *
+ * @returns the key, or null when neither source has one
+ */
+export async function resolveAiApiKey(organizationId: string, provider: string): Promise<string | null> {
+  const secretName = `${provider}_api_key`;
+  try {
+    const { getOrgSecret } = await import('../secrets/index.js');
+    const secretKey = await getOrgSecret(organizationId, secretName, false);
+    if (secretKey) return secretKey;
+  } catch {
+    // Secrets backend unavailable/unconfigured — fall through to env
+  }
+  return process.env[`${provider.toUpperCase()}_API_KEY`] || null;
+}
+
+/**
+ * Resolve the Mastra model for a monitoring cycle from the org's AI settings.
+ *
+ * OpenRouter models use the format `openrouter/<provider>/<model-id>` (e.g. 'openrouter/anthropic/claude-3.5-sonnet').
+ * OpenAI models use `openai/<model-id>`.
+ *
+ * The org's API key is attached as a config object, so a tenant bringing its
+ * own OpenRouter/OpenAI key (Settings → Secrets) is billed to their account,
+ * not the platform env key. Falls back to the platform env key when no org
+ * secret exists.
+ *
+ * @returns ResolvedModel usable as Mastra's model (string or {id, apiKey})
+ * @throws Error when no key is available for the org's selected provider
+ */
+export async function resolveModel(config: MonitoringConfig): Promise<ResolvedModel> {
   const { provider, modelName } = config.ai;
 
-  if (provider === 'openrouter') {
-    // Validate OpenRouter configuration
-    if (!process.env.OPENROUTER_API_KEY) {
-      const errorMsg = 'OpenRouter provider selected but OPENROUTER_API_KEY environment variable is not set. ' +
-        'Please configure OPENROUTER_API_KEY in your environment (Coolify → app → Environment) and redeploy.';
-      console.error('[Config] ' + errorMsg);
-      throw new Error(errorMsg);
-    }
-
-    // Validate model name format for OpenRouter (should include provider prefix like "anthropic/claude-3.5-sonnet")
-    if (!modelName.includes('/')) {
-      const warningMsg = `OpenRouter model name "${modelName}" does not include a provider prefix (e.g., "anthropic/claude-3.5-sonnet"). ` +
-        `This may cause model resolution to fail. Please use the full model ID from OpenRouter (e.g., "anthropic/claude-3.5-sonnet", "google/gemini-2.0-flash").`;
-      console.warn('[Config] ' + warningMsg);
-    }
-
-    return `openrouter/${modelName}`;
-  }
-
-  if (provider === 'openai' && !process.env.OPENAI_API_KEY) {
-    const errorMsg = 'OpenAI provider selected but OPENAI_API_KEY environment variable is not set.';
-    console.error('[Config] ' + errorMsg);
+  const apiKey = await resolveAiApiKey(config.organizationId, provider);
+  if (!apiKey) {
+    const envName = `${provider.toUpperCase()}_API_KEY`;
+    const errorMsg = `AI provider "${provider}" selected for org ${config.organizationId} but no API key is configured. Add "${provider}_api_key" in Settings > Secrets or set the ${envName} environment variable and redeploy.`;
+    console.error(`[Config] ${errorMsg}`);
     throw new Error(errorMsg);
   }
 
-  return `${provider}/${modelName}`;
+  const id: `${string}/${string}` =
+    provider === 'openrouter' ? `openrouter/${modelName}` : `${provider}/${modelName}`;
+
+  if (provider === 'openrouter' && !modelName.includes('/')) {
+    const warningMsg = `OpenRouter model name "${modelName}" does not include a provider prefix (e.g., "anthropic/claude-3.5-sonnet"). This may cause model resolution to fail. Please use the full model ID from OpenRouter (e.g., "anthropic/claude-3.5-sonnet", "google/gemini-2.0-flash").`;
+    console.warn(`[Config] ${warningMsg}`);
+  }
+
+  return { id, apiKey };
 }
 
 /**

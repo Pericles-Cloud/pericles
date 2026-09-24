@@ -83,24 +83,40 @@ describe('run-once (process level)', () => {
   );
 
   it(
-    'exits 1 and names the missing variable when required env is absent',
+    'exits 1 and names DATABASE_URL when the global env contract is broken',
     async () => {
       // Asserts the observable contract: a misconfigured task fails loudly with
       // the variable named, rather than a bare exit 1 an operator cannot act on.
       //
-      // Note it does NOT prove the flush in shutdown() is doing work — swapping
-      // that path back to a bare process.exit(1) still passes this test, because
-      // a single short line usually reaches the pino-pretty worker in time. The
-      // flush is defensive; treat this as covering the message, not the
-      // mechanism.
+      // DATABASE_URL is the only globally required var — AI keys resolve
+      // per-org (Secrets Manager first, provider env var as platform fallback).
+      const { code, output } = await run(SCRIPT, {
+        args: ['--all'],
+        env: { DATABASE_URL: undefined },
+      });
+
+      expect(code).toBe(1);
+      expect(output).toContain('Missing required environment variables');
+      expect(output).toContain('DATABASE_URL');
+    },
+    TIMEOUT
+  );
+
+  it(
+    'does not gate startup on OPENAI_API_KEY — keys resolve per-org',
+    async () => {
+      // Regression guard for the per-org key refactor: a global OPENAI key is
+      // only the platform fallback. Without it, startup must proceed to org
+      // resolution (which fails here on the unreachable DB) instead of dying
+      // at env validation — an OpenRouter-only org must not be blocked by a
+      // missing OpenAI key.
       const { code, output } = await run(SCRIPT, {
         args: ['--all'],
         env: { OPENAI_API_KEY: undefined },
       });
 
       expect(code).toBe(1);
-      expect(output).toContain('Missing required environment variables');
-      expect(output).toContain('OPENAI_API_KEY');
+      expect(output).not.toContain('Missing required environment variables');
     },
     TIMEOUT
   );

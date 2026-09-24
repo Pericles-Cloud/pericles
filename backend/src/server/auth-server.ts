@@ -3603,7 +3603,7 @@ app.post('/api/events/:id/ask', async (req: Request, res: Response) => {
       `User question: ${escapeForPromptContext(question)}`;
 
     // Resolve the org's configured AI model for this call
-    let agentModel: string | undefined;
+    let agentModel: `${string}/${string}` | { id: `${string}/${string}`; apiKey: string } | undefined;
     try {
       const orgSettings = await prisma.organizationSettings.findUnique({
         where: { organization_id: event.organization_id },
@@ -3625,16 +3625,20 @@ app.post('/api/events/:id/ask', async (req: Request, res: Response) => {
           return envKey;
         };
 
-        // Validate API key is available for the selected provider
+        // Validate API key is available for the selected provider and ATTACH
+        // it to the model config — a bare string would make Mastra resolve the
+        // key from process.env, silently billing the platform key even when the
+        // org brought its own (Settings > Secrets). Mirrors monitoring's
+        // resolveModel() (monitoring/config.ts).
         if (provider === 'openrouter') {
-          await resolveApiKey('openrouter_api_key', 'OPENROUTER_API_KEY');
+          const apiKey = await resolveApiKey('openrouter_api_key', 'OPENROUTER_API_KEY');
           if (!modelName.includes('/')) {
             console.warn(`[EventQA] OpenRouter model name "${modelName}" does not include a provider prefix (e.g., "anthropic/claude-3.5-sonnet")`);
           }
-          agentModel = `openrouter/${modelName}`;
+          agentModel = { id: `openrouter/${modelName}`, apiKey };
         } else if (provider === 'openai') {
-          await resolveApiKey('openai_api_key', 'OPENAI_API_KEY');
-          agentModel = `openai/${modelName}`;
+          const apiKey = await resolveApiKey('openai_api_key', 'OPENAI_API_KEY');
+          agentModel = { id: `openai/${modelName}`, apiKey };
         } else {
           agentModel = `${provider}/${modelName}`;
         }

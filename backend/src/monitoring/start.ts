@@ -9,7 +9,8 @@
  *
  * Environment Variables:
  *   DATABASE_URL - PostgreSQL connection string (required)
- *   OPENAI_API_KEY - OpenAI API key (required)
+ *   OPENAI_API_KEY / OPENROUTER_API_KEY - platform-level fallback keys; each
+ *     org's provider/key also resolves from its AI + Secrets settings
  *   MONITORING_DEFAULT_INTERVAL_MS - Polling interval (default: 15000)
  *   LOG_LEVEL - Logging level: debug|info|warn|error (default: info)
  */
@@ -40,7 +41,9 @@ function parseArgs(): { organizationId?: string } {
 // ============================================================================
 
 function validateEnvironment(): void {
-  const required = ['DATABASE_URL', 'OPENAI_API_KEY'];
+  // AI keys resolve per-org (Secrets Manager first, env fallback) — see
+  // monitoring/config.ts resolveAiApiKey. Only the DB is globally required.
+  const required = ['DATABASE_URL'];
   const missing = required.filter((key) => !process.env[key]);
 
   if (missing.length > 0) {

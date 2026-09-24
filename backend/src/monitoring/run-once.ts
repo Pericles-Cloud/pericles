@@ -18,7 +18,10 @@
  *
  * Environment Variables:
  *   DATABASE_URL   - PostgreSQL connection string (required)
- *   OPENAI_API_KEY - OpenAI API key (required)
+ *   OPENAI_API_KEY / OPENROUTER_API_KEY - platform-level fallback keys; each
+ *     org's provider/key also resolves from its AI + Secrets settings, so a
+ *     global key is no longer required (orgs without any key fail loudly,
+ *     per-org)
  *   LOG_LEVEL      - debug|info|warn|error (default: info)
  *
  * Exit codes: 0 = every cycle succeeded, 1 = at least one org failed.
@@ -59,7 +62,11 @@ export function parseArgs(argv: string[] = process.argv.slice(2)): Args {
 }
 
 async function validateEnvironment(): Promise<void> {
-  const missing = ['DATABASE_URL', 'OPENAI_API_KEY'].filter((key) => !process.env[key]);
+  // Only DATABASE_URL is global: the AI key is resolved PER ORG from its
+  // Secrets Manager entries (org.<provider>_api_key) with the env var as a
+  // platform-level fallback — requiring OPENAI_API_KEY here would block every
+  // OpenRouter-configured org on a key they never use.
+  const missing = ['DATABASE_URL'].filter((key) => !process.env[key]);
 
   if (missing.length > 0) {
     logger.fatal({ missing }, 'Missing required environment variables');

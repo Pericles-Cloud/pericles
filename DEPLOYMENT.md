@@ -44,8 +44,8 @@ Set these as container env vars (never commit them; see `.claude/rules/14-env-fi
 | `DATABASE_URL` | pericles DB (pooled if serverless Postgres) |
 | `MASTRA_DATABASE_URL` | mastra DB |
 | `JWT_SECRET`, `JWT_REFRESH_SECRET` | distinct, long random strings |
-| `OPENAI_API_KEY` | required (for OpenAI provider) |
-| `OPENROUTER_API_KEY` | required if using OpenRouter provider (AI Settings) |
+| `OPENAI_API_KEY` | platform fallback for the OpenAI provider — orgs can bring their own key via Settings → Secrets (`openai_api_key`) |
+| `OPENROUTER_API_KEY` | platform fallback for the OpenRouter provider (AI Settings) — org-scoped `openrouter_api_key` wins when set |
 | `CORS_ORIGINS` | `https://<your-frontend>.vercel.app` (comma-separated; also gates socket.io) |
 | `FRONTEND_URL` | `https://<your-frontend>.vercel.app` (OAuth redirects) |
 | `GOOGLE_MAPS_API_KEY` | BOL geocoding |

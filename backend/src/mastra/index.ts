@@ -26,6 +26,21 @@ const mastraConfig: any = {
   logger: new PinoLogger({
     name: 'Mastra',
     level: 'info',
+    // Agent.__updateModel() debug-logs the resolved model object, which now
+    // carries org-scoped apiKeys ({ id, apiKey }). 'info' doesn't reach that
+    // line today, but if the level ever drops, keys must not hit the logs.
+    // PinoLogger has no `redact` passthrough, so scrub via formatters.log.
+    formatters: {
+      log(record) {
+        const model = record.model as Record<string, unknown> | undefined;
+        if (model && typeof model === 'object' && 'apiKey' in model) {
+          const rest = { ...model };
+          delete rest.apiKey;
+          record.model = rest;
+        }
+        return record;
+      },
+    },
   }),
   telemetry: {
     // Telemetry is deprecated and will be removed in the Nov 4th release

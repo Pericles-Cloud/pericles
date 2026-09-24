@@ -1,6 +1,7 @@
 import { Agent } from '@mastra/core/agent';
 import { z } from 'zod';
 import type { Prisma } from '@prisma/client';
+import type { ResolvedModel } from './config.js';
 import { calculateDistance } from '../mastra/tools/weather-disaster-monitor-tool.js';
 import { toolLoggers } from '../mastra/tools/tool-logger.js';
 import { truncateForPromptContext, wrapUntrustedContent } from '../utils/prompt-safety.js';
@@ -129,7 +130,7 @@ export async function findDuplicateIncident(
   organizationId: string,
   eventData: CandidateEventInput,
   budget?: FuzzyDedupBudget,
-  model?: string
+  model?: ResolvedModel
 ): Promise<DuplicateCandidate | null> {
   if (!FUZZY_DEDUP_ENABLED) return null;
   // Checked before the candidate query, not just before the LLM calls: an
