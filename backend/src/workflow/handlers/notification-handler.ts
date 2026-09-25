@@ -203,8 +203,10 @@ export class NotificationHandler extends BaseNodeHandler {
     try {
       const { settings } = await getEffectiveSettings(context.organizationId, context.prisma);
       webhookUrl = settings?.notifications_slack_webhook_url ?? null;
-    } catch {
-      // Missing org row — treat as unconfigured (same as a null settings row)
+    } catch (error) {
+      // Missing org row — treat as unconfigured (same as a null settings
+      // row); anything else (DB failure, resolution error) must be visible.
+      console.error('[NotificationHandler] Failed to resolve effective settings for Slack webhook:', error);
       webhookUrl = null;
     }
 

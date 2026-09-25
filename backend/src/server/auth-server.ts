@@ -46,6 +46,7 @@ import {
   getEffectiveMonitoringContext,
   canManageCustomSettings,
   setCustomSettings,
+  MAX_SETTINGS_HIERARCHY_DEPTH,
   type SettingsOwnership,
 } from '../organizations/settings-resolution.js';
 import { fetchOpenRouterModels, OpenRouterConfigError } from '../integrations/openrouter/client.js';
@@ -1636,6 +1637,51 @@ app.get('/api/organizations', async (req: Request, res: Response) => {
 });
 
 // Create organization
+// A parent link is not cosmetic: every member of the child gains READ access
+// to the parent's inherited settings (and the hierarchy rollup exposes the
+// whole subtree below it), so the caller must be an OWNER/ADMIN of the org
+// being attached — otherwise any authenticated user could point their org at
+// an arbitrary victim UUID and read another tenant's settings through the
+// inheritance resolvers. Also rejects self-parenting and links that would
+// form a cycle.
+async function validateParentLink(
+  userId: string,
+  childId: string | null,
+  parentId: string
+): Promise<{ status: number; code: string; message: string } | null> {
+  const access = await checkOrganizationAccess(userId, parentId);
+  if (!access.hasAccess || !['OWNER', 'ADMIN'].includes(access.membership.role)) {
+    return {
+      status: 403,
+      code: 'FORBIDDEN',
+      message: 'You must be an OWNER or ADMIN of the parent organization to set it as a parent',
+    };
+  }
+
+  // Walk up from the proposed parent: meeting childId means the new edge
+  // would close a cycle. Depth-bounded like the settings resolver.
+  const visited = new Set<string>();
+  let cursor: string | null = parentId;
+  for (let depth = 0; cursor !== null && depth <= MAX_SETTINGS_HIERARCHY_DEPTH; depth++) {
+    const currentId: string = cursor;
+    if (currentId === childId) {
+      return {
+        status: 400,
+        code: 'HIERARCHY_CYCLE',
+        message: 'That parent organization is this organization or its descendant; the link would create a cycle',
+      };
+    }
+    if (visited.has(currentId)) break;
+    visited.add(currentId);
+    const node = await prisma.organization.findUnique({
+      where: { id: currentId },
+      select: { parent_organization_id: true },
+    });
+    cursor = node ? node.parent_organization_id : null;
+  }
+  return null;
+}
+
 app.post('/api/organizations', async (req: Request, res: Response) => {
   try {
     const tokenPayload = authenticateRequest(req);
@@ -1651,6 +1697,14 @@ app.post('/api/organizations', async (req: Request, res: Response) => {
     }
 
     const { name, emailDomains, parentOrganizationId, addressLine1, city, state, zipCode, country, phoneNumber, website } = parseResult.data;
+
+    if (parentOrganizationId) {
+      const linkError = await validateParentLink(tokenPayload.userId, null, parentOrganizationId);
+      if (linkError) {
+        res.status(linkError.status).json({ success: false, error: { code: linkError.code, message: linkError.message } });
+        return;
+      }
+    }
 
     const organization = await prisma.organization.create({
       data: {
@@ -1744,6 +1798,22 @@ app.patch('/api/organizations/:id', async (req: Request, res: Response) => {
     }
 
     const { name, emailDomains, parentOrganizationId, addressLine1, city, state, zipCode, country, phoneNumber, website } = parseResult.data;
+
+    // Only a CHANGE of parent needs re-validation — a full-object PATCH that
+    // resends the existing link grants no new access.
+    if (parentOrganizationId !== undefined && parentOrganizationId !== null) {
+      const current = await prisma.organization.findUnique({
+        where: { id: getParam(req.params.id) },
+        select: { parent_organization_id: true },
+      });
+      if (current && current.parent_organization_id !== parentOrganizationId) {
+        const linkError = await validateParentLink(tokenPayload.userId, getParam(req.params.id), parentOrganizationId);
+        if (linkError) {
+          res.status(linkError.status).json({ success: false, error: { code: linkError.code, message: linkError.message } });
+          return;
+        }
+      }
+    }
 
     const organization = await prisma.organization.update({
       where: { id: getParam(req.params.id) },
@@ -3651,6 +3721,9 @@ app.post('/api/events/:id/ask', async (req: Request, res: Response) => {
     let agentModel: `${string}/${string}` | { id: `${string}/${string}`; apiKey: string } | undefined;
     try {
       const { settings: orgSettings } = await getEffectiveSettings(event.organization_id, prisma);
+      // API keys are parent-owned even in custom mode — resolve the
+      // credentials owner (topmost ancestor), not the requested org.
+      const keysOwnerId = (await resolveCredentialsOwner(event.organization_id, prisma)).id;
       if (orgSettings?.ai_model_provider && orgSettings?.ai_model_name) {
         const provider = orgSettings.ai_model_provider;
         const modelName = orgSettings.ai_model_name;
@@ -3659,7 +3732,7 @@ app.post('/api/events/:id/ask', async (req: Request, res: Response) => {
         const resolveApiKey = async (secretName: string, envName: string): Promise<string> => {
           try {
             const { getOrgSecret } = await import('../secrets/index.js');
-            const key = await getOrgSecret(event.organization_id, secretName, false);
+            const key = await getOrgSecret(keysOwnerId, secretName, false);
             if (key) return key;
           } catch { /* fall through */ }
           const envKey = process.env[envName];
@@ -4560,18 +4633,44 @@ app.get('/api/organizations/:orgId/settings', async (req: Request, res: Response
       where: { organization_id: ownership.owner.id },
     });
 
-    // If no settings exist, create with defaults (on the owner)
+    // If no settings exist, create with defaults (on the owner). Concurrent
+    // GETs can race to materialize the same row — the unique key makes one
+    // lose with P2002; refetch instead of failing the read.
     if (!settings) {
-      settings = await prisma.organizationSettings.create({
-        data: { organization_id: ownership.owner.id },
-      });
+      try {
+        settings = await prisma.organizationSettings.create({
+          data: { organization_id: ownership.owner.id },
+        });
+      } catch (error) {
+        if (error instanceof Prisma.PrismaClientKnownRequestError && error.code === 'P2002') {
+          const refetched = await prisma.organizationSettings.findUnique({
+            where: { organization_id: ownership.owner.id },
+          });
+          if (!refetched) throw error;
+          settings = refetched;
+        } else {
+          throw error;
+        }
+      }
+    }
+
+    // The Slack webhook URL is a credential. An inherited child's members may
+    // read the owner's settings (they run on them), but only callers with
+    // access to the OWNER org see its webhook — the same line the Secrets API
+    // draws with SECRETS_PARENT_OWNED.
+    let visibleSettings = settings;
+    if (ownership.inherited && settings.notifications_slack_webhook_url) {
+      const ownerAccess = await checkOrganizationAccess(tokenPayload.userId, ownership.owner.id);
+      if (!ownerAccess.hasAccess) {
+        visibleSettings = { ...settings, notifications_slack_webhook_url: null };
+      }
     }
 
     const canManage = await canManageCustomSettings(tokenPayload.userId, ownership, prisma);
 
     res.status(200).json({
       success: true,
-      data: formatOrganizationSettings(settings),
+      data: formatOrganizationSettings(visibleSettings),
       metadata: {
         inherited: ownership.inherited,
         customSettingsEnabled: ownership.customSettingsEnabled,
@@ -4723,6 +4822,15 @@ app.post('/api/organizations/:orgId/settings/custom', async (req: Request, res: 
     }
 
     const orgId = getParam(req.params.orgId);
+    // Read access FIRST: resolving ownership before authorizing would let a
+    // non-member distinguish 500 (missing org) from 400/403 (hierarchy shape)
+    // — an existence oracle.
+    const { error: readError } = await checkOrgReadAccess(tokenPayload.userId, orgId);
+    if (readError) {
+      res.status(readError.status).json({ success: false, error: { code: readError.code, message: readError.message } });
+      return;
+    }
+
     const ownership = await resolveSettingsOwnership(orgId, prisma);
     if (!ownership.hasParent) {
       res.status(400).json({
@@ -4732,12 +4840,6 @@ app.post('/api/organizations/:orgId/settings/custom', async (req: Request, res: 
       return;
     }
 
-    // Reads resolve to the parent chain, so any member may VIEW the flag…
-    const { error: readError } = await checkOrgReadAccess(tokenPayload.userId, orgId);
-    if (readError) {
-      res.status(readError.status).json({ success: false, error: { code: readError.code, message: readError.message } });
-      return;
-    }
     // …but only the parent-chain owner's admins may CHANGE it.
     const canManage = await canManageCustomSettings(tokenPayload.userId, ownership, prisma);
     if (!canManage) {
@@ -4758,16 +4860,14 @@ app.post('/api/organizations/:orgId/settings/custom', async (req: Request, res: 
 
     const updated = await resolveSettingsOwnership(orgId, prisma);
     const canManageAfter = await canManageCustomSettings(tokenPayload.userId, updated, prisma);
-    res.status(200).json({
-      success: true,
-      data: {
-        inherited: updated.inherited,
-        customSettingsEnabled: updated.customSettingsEnabled,
-        owner: updated.owner,
-        parent: updated.parent,
-        canManageCustomSettings: canManageAfter,
-      },
-    });
+    const accessInfo = {
+      inherited: updated.inherited,
+      customSettingsEnabled: updated.customSettingsEnabled,
+      owner: updated.owner,
+      parent: updated.parent,
+      canManageCustomSettings: canManageAfter,
+    };
+    res.status(200).json({ success: true, data: accessInfo, metadata: accessInfo });
   } catch (error) {
     console.error('Update custom settings error:', error);
     res.status(500).json({ success: false, error: { code: 'INTERNAL_ERROR', message: 'An unexpected error occurred' } });
@@ -5003,15 +5103,6 @@ function toolConfigMetadata(ownership: SettingsOwnership) {
     customSettingsEnabled: ownership.customSettingsEnabled,
     owner: ownership.owner,
   };
-}
-
-/** Org whose tool-config rows apply to `orgId` (the settings owner). */
-async function toolConfigOwnerOrg(orgId: string): Promise<string> {
-  try {
-    return (await resolveSettingsOwnership(orgId, prisma)).owner.id;
-  } catch {
-    return orgId;
-  }
 }
 
 // GET /api/organizations/:orgId/tool-configs - Get all tool configs for an organization
@@ -5630,12 +5721,13 @@ app.post('/api/organizations/:orgId/tool-configs/:dataSource/:toolId/test-api-ke
       return res.status(404).json({ success: false, error: { code: 'NOT_FOUND', message: 'Tool not found' } });
     }
 
-    // Get the API key to test — from the SETTINGS owner's stored config
-    // (an inherited child tests against the parent's configured key)
+    // Get the API key to test — from the CREDENTIALS owner's stored config.
+    // Keys are parent-owned even when this org runs custom settings, so the
+    // topmost ancestor (not the settings owner) holds the key runtime uses.
     let testKey = apiKey;
     if (!testKey) {
       // Try to get from stored config or environment
-      const keyOrgId = await toolConfigOwnerOrg(orgId);
+      const keyOrgId = (await resolveCredentialsOwner(orgId, prisma)).id;
       const config = await prisma.dataSourceToolConfig.findUnique({
         where: { organization_id_data_source_tool_id: { organization_id: keyOrgId, data_source: dataSource, tool_id: toolId } },
       });
@@ -5818,11 +5910,13 @@ app.get('/api/organizations/:orgId/tool-configs/:dataSource/:toolId/api-key-stat
       return res.status(404).json({ success: false, error: { code: 'NOT_FOUND', message: 'Tool not found' } });
     }
 
-    // Get config from the SETTINGS owner (inherited children report the
-    // parent's configured state; membership was checked against the target)
+    // Get config from the CREDENTIALS owner — keys are parent-owned even
+    // when this org runs custom settings (membership was checked against the
+    // target; metadata below still describes the settings hierarchy).
+    const statusKeyOwner = await resolveCredentialsOwner(orgId, prisma);
     const statusOwnership = await resolveSettingsOwnership(orgId, prisma);
     const config = await prisma.dataSourceToolConfig.findUnique({
-      where: { organization_id_data_source_tool_id: { organization_id: statusOwnership.owner.id, data_source: dataSource, tool_id: toolId } },
+      where: { organization_id_data_source_tool_id: { organization_id: statusKeyOwner.id, data_source: dataSource, tool_id: toolId } },
     });
 
     // Determine API key status
@@ -6991,7 +7085,6 @@ app.get('/api/organizations/:id/test-ai', async (req: Request, res: Response) =>
 
 import {
   getSecretsBackend,
-  buildScopePath,
   SecretType,
 } from '../secrets/index.js';
 
@@ -7035,9 +7128,6 @@ app.get('/api/organizations/:id/secrets', async (req: Request, res: Response) =>
     const scopeRef = (req.query.scopeRef as string) || '';
 
     const backend = getSecretsBackend();
-    const scopePath = scopeRef
-      ? buildScopePath('org', secretsOrgId, undefined) + '/' + scope.toLowerCase() + '/' + scopeRef
-      : buildScopePath('org', secretsOrgId, undefined);
 
     // List at org level (the credentials owner's org)
     const result = await backend.list(`org/${secretsOrgId}`);

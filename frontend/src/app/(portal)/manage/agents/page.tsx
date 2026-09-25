@@ -100,12 +100,16 @@ export default function AgentsPage() {
         setRadiusKm(configRes.data.geographicFilter.radiusKm);
         setSeverityThreshold(configRes.data.riskFilter.severityThreshold);
         setMonitoredRiskTypes(configRes.data.riskFilter.monitoredRiskTypes);
+      } else {
+        // Unknown beats stale: never keep another org's access flags.
+        setAccess(null);
       }
       if (logsRes.success && logsRes.data) {
         setLogs(logsRes.data);
       }
     } catch (error) {
       console.error('Failed to fetch agent data:', error);
+      setAccess(null);
     } finally {
       setIsLoading(false);
     }

@@ -189,9 +189,14 @@ export default function SettingsPage() {
         setSettings(response.data);
         setFormData(response.data);
         setAccess(response.metadata ?? null);
+      } else {
+        // Never keep another org's access flags — a failed fetch means
+        // unknown, not "still whatever we last saw".
+        setAccess(null);
       }
     } catch (error) {
       console.error('Failed to fetch settings:', error);
+      setAccess(null);
     } finally {
       setIsLoading(false);
     }
@@ -380,9 +385,9 @@ export default function SettingsPage() {
                 </p>
                 <p className="text-sm text-muted-foreground">
                   {isInherited
-                    ? `Changes saved here apply to ${access.owner.name} and every organization inheriting its settings. Turn on custom settings to give this organization its own copy.`
-                    : `Parent changes no longer flow down. Turn off custom settings to revert to ${access.owner.name}'s settings.`}
-                  {!canManageCustom && ` Only ${access.owner.name} administrators can change this mode.`}
+                    ? `This page is read-only: edits must be made on ${access.owner.name}'s settings page. Turn on custom settings to give this organization its own copy.`
+                    : `Parent changes no longer flow down. Turn off custom settings to revert to ${access.parent?.name ?? 'the parent organization'}'s settings.`}
+                  {!canManageCustom && ` Only ${(isInherited ? access.owner.name : access.parent?.name ?? 'the parent organization')} administrators can change this mode.`}
                 </p>
               </div>
               <div className="flex items-center gap-2 self-start sm:self-center">

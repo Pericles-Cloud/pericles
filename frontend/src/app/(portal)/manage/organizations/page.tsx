@@ -377,7 +377,9 @@ export default function OrganizationsPage() {
                 <button
                   key={org.id}
                   onClick={() => setSelectedOrg(org)}
-                  style={depth > 0 ? { marginLeft: depth * 16 } : undefined}
+                  // Indent with inline start padding, not margin: a w-full
+                  // button with margin-left overflows its container.
+                  style={depth > 0 ? { paddingInlineStart: 16 + depth * 16 } : undefined}
                   className={`w-full text-left p-4 rounded-lg border transition-colors ${
                     selectedOrg?.id === org.id
                       ? 'border-primary bg-primary/10'

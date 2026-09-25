@@ -244,6 +244,12 @@ export async function setCustomSettings(
     throw new Error('Only a child organization can change custom settings');
   }
 
+  // Idempotency guard: re-enabling an already-custom child must NOT re-copy
+  // the owner's values over the child's existing customizations.
+  if (enabled && ownership.customSettingsEnabled) {
+    return ownership;
+  }
+
   if (!enabled) {
     await client.organization.update({
       where: { id: organizationId },

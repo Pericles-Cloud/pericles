@@ -1,6 +1,6 @@
 import { z } from 'zod';
 import { getPrismaClient } from './db-client.js';
-import { resolveSettingsOwnership } from '../organizations/settings-resolution.js';
+import { resolveSettingsOwnership, resolveCredentialsOwner } from '../organizations/settings-resolution.js';
 
 /**
  * Monitoring Configuration Management
@@ -354,7 +354,18 @@ export async function resolveAiApiKey(organizationId: string, provider: string):
 export async function resolveModel(config: MonitoringConfig): Promise<ResolvedModel> {
   const { provider, modelName } = config.ai;
 
-  const apiKey = await resolveAiApiKey(config.organizationId, provider);
+  // API keys are parent-owned (settings-resolution invariant): read from the
+  // topmost ancestor even when this org runs on custom settings. If the
+  // hierarchy cannot be read right now, fall back to the requested org —
+  // key resolution still reaches env defaults, and a monitoring cycle whose
+  // DB is down fails before it ever gets here.
+  let keysOrgId = config.organizationId;
+  try {
+    keysOrgId = (await resolveCredentialsOwner(config.organizationId, getPrismaClient())).id;
+  } catch (error) {
+    console.warn(`[Config] Could not resolve credentials owner for ${config.organizationId}; using the org itself:`, error);
+  }
+  const apiKey = await resolveAiApiKey(keysOrgId, provider);
   if (!apiKey) {
     const envName = `${provider.toUpperCase()}_API_KEY`;
     const errorMsg = `AI provider "${provider}" selected for org ${config.organizationId} but no API key is configured. Add "${provider}_api_key" in Settings > Secrets or set the ${envName} environment variable and redeploy.`;

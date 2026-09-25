@@ -1309,13 +1309,14 @@ export async function getOrganizationSettings(
 }
 
 /**
- * Update organization settings.
+ * Update organization settings. The PATCH route returns no access metadata
+ * (only GET and the custom toggle do), so this is typed without it.
  */
 export async function updateOrganizationSettings(
   orgId: string,
   data: UpdateOrganizationSettingsData
-): Promise<ApiResponse<OrganizationSettings, SettingsAccessMetadata>> {
-  return apiRequest<OrganizationSettings, SettingsAccessMetadata>(
+): Promise<ApiResponse<OrganizationSettings>> {
+  return apiRequest<OrganizationSettings>(
     `/api/organizations/${orgId}/settings`,
     {
       method: 'PATCH',

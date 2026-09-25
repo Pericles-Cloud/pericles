@@ -364,6 +364,7 @@ export function DataSourceSettingsDialog({
               onChange={(e) => handleConfigFieldChange(field.key, parseFloat(e.target.value) || 0)}
               min={field.min}
               max={field.max}
+              disabled={settingsReadOnly}
               className="w-full"
             />
           </div>
@@ -382,8 +383,9 @@ export function DataSourceSettingsDialog({
               type="button"
               role="switch"
               aria-checked={value as boolean}
+              disabled={settingsReadOnly}
               onClick={() => handleConfigFieldChange(field.key, !value)}
-              className={`relative inline-flex h-6 w-11 items-center rounded-full transition-colors ${
+              className={`relative inline-flex h-6 w-11 items-center rounded-full transition-colors disabled:opacity-50 disabled:cursor-not-allowed ${
                 value ? 'bg-primary border border-primary' : 'bg-muted ring-1 ring-muted-foreground/70'
               }`}
             >
@@ -408,6 +410,7 @@ export function DataSourceSettingsDialog({
               type="text"
               value={value as string}
               onChange={(e) => handleConfigFieldChange(field.key, e.target.value)}
+              disabled={settingsReadOnly}
               className="w-full"
             />
           </div>
@@ -430,6 +433,7 @@ export function DataSourceSettingsDialog({
                 )
               }
               rows={4}
+              disabled={settingsReadOnly}
               className="w-full px-3 py-2 border border-input rounded-md bg-card text-foreground text-sm focus:outline-none focus:ring-2 focus:ring-ring"
               placeholder="One item per line"
             />
@@ -447,6 +451,7 @@ export function DataSourceSettingsDialog({
               id={field.key}
               value={value as string}
               onChange={(e) => handleConfigFieldChange(field.key, e.target.value)}
+              disabled={settingsReadOnly}
               className="w-full px-3 py-2 border border-input rounded-md bg-card text-foreground text-sm focus:outline-none focus:ring-2 focus:ring-ring"
             >
               {field.options?.map((opt) => (
@@ -655,8 +660,9 @@ export function DataSourceSettingsDialog({
                           type="button"
                           role="switch"
                           aria-checked={formEnabled}
+                          disabled={settingsReadOnly}
                           onClick={() => setFormEnabled(!formEnabled)}
-                          className={`relative inline-flex h-6 w-11 items-center rounded-full transition-colors ${
+                          className={`relative inline-flex h-6 w-11 items-center rounded-full transition-colors disabled:opacity-50 disabled:cursor-not-allowed ${
                             formEnabled ? 'bg-primary border border-primary' : 'bg-muted ring-1 ring-muted-foreground/70'
                           }`}
                         >
@@ -684,6 +690,7 @@ export function DataSourceSettingsDialog({
                           min={1000}
                           max={60000}
                           step={1000}
+                          disabled={settingsReadOnly}
                         />
                       </div>
 
@@ -704,6 +711,7 @@ export function DataSourceSettingsDialog({
                             step={0.05}
                             value={formSeverityThreshold}
                             onChange={(e) => setFormSeverityThreshold(parseFloat(e.target.value))}
+                            disabled={settingsReadOnly}
                             className="flex-1"
                           />
                           <span className="text-sm text-muted-foreground w-12 text-right">
@@ -727,6 +735,7 @@ export function DataSourceSettingsDialog({
                           onChange={(e) => setFormLookbackHours(parseInt(e.target.value, 10) || 24)}
                           min={1}
                           max={168}
+                          disabled={settingsReadOnly}
                         />
                       </div>
                     </div>
@@ -783,11 +792,12 @@ export function DataSourceSettingsDialog({
                         <div className="space-y-3">
                           <Label className="text-sm">Key Source</Label>
                           <div className="flex gap-4">
-                            <label className="flex items-center gap-2 cursor-pointer">
+                            <label className={`flex items-center gap-2 ${secretsReadOnly ? 'cursor-not-allowed opacity-60' : 'cursor-pointer'}`}>
                               <input
                                 type="radio"
                                 name="keySource"
                                 checked={useEnvVar}
+                                disabled={secretsReadOnly}
                                 onChange={() => setUseEnvVar(true)}
                                 className="w-4 h-4 text-primary"
                               />
@@ -795,11 +805,12 @@ export function DataSourceSettingsDialog({
                                 Use environment variable
                               </span>
                             </label>
-                            <label className="flex items-center gap-2 cursor-pointer">
+                            <label className={`flex items-center gap-2 ${secretsReadOnly ? 'cursor-not-allowed opacity-60' : 'cursor-pointer'}`}>
                               <input
                                 type="radio"
                                 name="keySource"
                                 checked={!useEnvVar}
+                                disabled={secretsReadOnly}
                                 onChange={() => setUseEnvVar(false)}
                                 className="w-4 h-4 text-primary"
                               />
