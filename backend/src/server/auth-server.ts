@@ -5074,7 +5074,9 @@ app.get('/api/data-sources', (_req: Request, res: Response) => {
 
 // ─── Tool-config ownership helpers ────────────────────────────────────────────
 // Tool-config reads follow the SETTINGS owner: an inherited child reads the
-// parent's rows, a custom child its own. Writes are owner-only (inherited
+// parent's rows, a custom child its own. The KEY is the exception — api-key
+// test/status resolve the CREDENTIALS owner (keys are always parent-owned;
+// see those routes). Writes are owner-only (inherited
 // children get 403). Membership is always checked against the ORG THE CALLER
 // ASKED FOR — a child member need not be a parent member to see the
 // configuration their own tenant runs on.
