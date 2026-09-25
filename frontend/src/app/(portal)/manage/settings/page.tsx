@@ -8,6 +8,8 @@ import {
   OpenRouterModel,
   getOrganizationSettings,
   updateOrganizationSettings,
+  setCustomSettings,
+  type SettingsAccessMetadata,
   testNotification,
   getOpenRouterModels,
   type SecretItem,
@@ -96,6 +98,9 @@ export default function SettingsPage() {
   const { currentOrganization } = useAuth();
 
   const [settings, setSettings] = useState<OrganizationSettings | null>(null);
+  // Inheritance metadata from the settings envelope (owner, flags, manageability)
+  const [access, setAccess] = useState<SettingsAccessMetadata | null>(null);
+  const [isTogglingCustom, setIsTogglingCustom] = useState(false);
   const [isLoading, setIsLoading] = useState(true);
   const [isSaving, setIsSaving] = useState(false);
   const [isTesting, setIsTesting] = useState(false);
@@ -183,6 +188,7 @@ export default function SettingsPage() {
       if (response.success && response.data) {
         setSettings(response.data);
         setFormData(response.data);
+        setAccess(response.metadata ?? null);
       }
     } catch (error) {
       console.error('Failed to fetch settings:', error);
@@ -224,6 +230,35 @@ export default function SettingsPage() {
       setMessage({ type: 'error', text: 'Failed to save settings' });
     } finally {
       setIsSaving(false);
+    }
+  };
+
+  // Flip the child between inherited (parent-owned) and custom settings.
+  const handleToggleCustom = async (enabled: boolean) => {
+    if (!currentOrganization?.id) return;
+
+    setIsTogglingCustom(true);
+    setMessage(null);
+    try {
+      const response = await setCustomSettings(currentOrganization.id, enabled);
+      if (response.success) {
+        setAccess(response.data ?? null);
+        // Re-read settings: enabling copies the owner's values into this org's
+        // row; disabling re-resolves them up the chain.
+        await fetchSettings();
+        setMessage({
+          type: 'success',
+          text: enabled
+            ? 'Custom settings enabled — this organization now uses its own copy'
+            : 'Reverted to inherited settings',
+        });
+      } else {
+        setMessage({ type: 'error', text: response.error?.message || 'Failed to change settings mode' });
+      }
+    } catch {
+      setMessage({ type: 'error', text: 'Failed to change settings mode' });
+    } finally {
+      setIsTogglingCustom(false);
     }
   };
 
@@ -296,6 +331,11 @@ export default function SettingsPage() {
     { key: 'secrets', label: 'Secrets' },
   ];
 
+  const isInherited = !!access?.inherited;
+  const hasParent = !!access?.parent;
+  const canManageCustom = !!access?.canManageCustomSettings;
+  const customEnabled = !!access?.customSettingsEnabled;
+
   return (
     <div className="space-y-6">
       {/* Header */}
@@ -329,6 +369,47 @@ export default function SettingsPage() {
           </CardDescription>
         </CardHeader>
         <CardContent>
+          {/* Inheritance banner + custom-settings toggle (child orgs only) */}
+          {hasParent && access && (
+            <div className="mb-6 flex flex-col gap-3 rounded-md border border-border bg-muted/40 p-4 sm:flex-row sm:items-start sm:justify-between">
+              <div className="space-y-1">
+                <p className="text-sm font-medium text-foreground">
+                  {isInherited
+                    ? `Settings are inherited from ${access.owner.name}`
+                    : 'This organization uses its own custom settings'}
+                </p>
+                <p className="text-sm text-muted-foreground">
+                  {isInherited
+                    ? `Changes saved here apply to ${access.owner.name} and every organization inheriting its settings. Turn on custom settings to give this organization its own copy.`
+                    : `Parent changes no longer flow down. Turn off custom settings to revert to ${access.owner.name}'s settings.`}
+                  {!canManageCustom && ` Only ${access.owner.name} administrators can change this mode.`}
+                </p>
+              </div>
+              <div className="flex items-center gap-2 self-start sm:self-center">
+                <span className="whitespace-nowrap text-sm font-medium text-foreground">
+                  Custom settings
+                </span>
+                <button
+                  onClick={() => handleToggleCustom(!customEnabled)}
+                  disabled={!canManageCustom || isTogglingCustom}
+                  aria-pressed={customEnabled}
+                  aria-label="Custom settings"
+                  className={`relative inline-flex h-6 w-11 items-center rounded-full transition-colors disabled:opacity-50 ${
+                    customEnabled
+                      ? 'bg-primary border border-primary'
+                      : 'bg-muted ring-1 ring-muted-foreground/70'
+                  }`}
+                >
+                  <span
+                    className={`inline-block h-4 w-4 transform rounded-full ${
+                      customEnabled ? 'bg-primary-foreground' : 'bg-muted-foreground'
+                    } transition-transform ${customEnabled ? 'translate-x-6' : 'translate-x-1'}`}
+                  />
+                </button>
+              </div>
+            </div>
+          )}
+
           {/* Tabs */}
           <div className="border-b border-border mb-6">
             <nav className="flex gap-4 -mb-px overflow-x-auto">
@@ -348,6 +429,10 @@ export default function SettingsPage() {
             </nav>
           </div>
 
+          {/* While settings are inherited every control below is read-only: an
+              HTML fieldset disables its inputs AND buttons, while the tab nav
+              above stays outside so tabs remain switchable. */}
+          <fieldset disabled={isInherited} className="contents">
           {/* Agents Tab */}
           {activeTab === 'agents' && (
             <div className="space-y-6">
@@ -969,12 +1054,14 @@ export default function SettingsPage() {
               </div>
             </div>
           )}
+          </fieldset>
 
           {/* Secrets Tab */}
           {activeTab === 'secrets' && (
             <SecretsTab
               organizationId={currentOrganization?.id || ''}
               onRefresh={fetchSettings}
+              readOnly={hasParent}
             />
           )}
 
@@ -983,6 +1070,7 @@ export default function SettingsPage() {
             <Button
               onClick={handleSave}
               disabled={
+                isInherited ||
                 isSaving ||
                 (formData.aiModelProvider === 'openrouter' &&
                   (isLoadingOpenRouterModels || !!openRouterError || openRouterModels.length === 0))
@@ -997,7 +1085,16 @@ export default function SettingsPage() {
   );
 } 
 
-const SecretsTab = React.memo(function SecretsTab({ organizationId, onRefresh }: { organizationId: string; onRefresh: () => void }) {
+const SecretsTab = React.memo(function SecretsTab({
+  organizationId,
+  onRefresh,
+  readOnly = false,
+}: {
+  organizationId: string;
+  onRefresh: () => void;
+  /** Child orgs never own secrets — the parent chain does; hide all write actions. */
+  readOnly?: boolean;
+}) {
   const [secrets, setSecrets] = useState<SecretItem[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -1112,7 +1209,9 @@ const SecretsTab = React.memo(function SecretsTab({ organizationId, onRefresh }:
         <div>
           <h3 className="text-lg font-medium">Secrets Manager</h3>
           <p className="text-sm text-muted-foreground">
-            Manage API keys, tokens, and configuration values for your integrations.
+            {readOnly
+              ? 'API keys and secrets for this organization are managed by its parent — view only.'
+              : 'Manage API keys, tokens, and configuration values for your integrations.'}
           </p>
         </div>
         <div className="flex items-center gap-2">
@@ -1127,10 +1226,12 @@ const SecretsTab = React.memo(function SecretsTab({ organizationId, onRefresh }:
               <SelectItem value="TOOL">Tool</SelectItem>
             </SelectContent>
           </Select>
-          <Button onClick={() => setShowCreateDialog(true)}>
-            <Plus className="h-4 w-4 mr-1" />
-            Add Secret
-          </Button>
+          {!readOnly && (
+            <Button onClick={() => setShowCreateDialog(true)}>
+              <Plus className="h-4 w-4 mr-1" />
+              Add Secret
+            </Button>
+          )}
         </div>
       </div>
 
@@ -1159,7 +1260,7 @@ const SecretsTab = React.memo(function SecretsTab({ organizationId, onRefresh }:
             <AlertCircle className="h-4 w-4 shrink-0" />
           )}
           <span className="flex-1">{dekStatus.message}</span>
-          {dekStatus.status === 'corrupted' && (
+          {!readOnly && dekStatus.status === 'corrupted' && (
             <Button variant="outline" size="sm" onClick={handleCleanup} disabled={cleaningUp}>
               {cleaningUp ? 'Cleaning...' : 'Reset Encryption'}
             </Button>
@@ -1172,11 +1273,17 @@ const SecretsTab = React.memo(function SecretsTab({ organizationId, onRefresh }:
       ) : secrets.length === 0 ? (
         <div className="text-center py-8 border rounded-lg border-dashed">
           <Key className="h-8 w-8 mx-auto text-muted-foreground mb-2" />
-          <p className="text-muted-foreground">No secrets configured yet.</p>
-          <Button variant="outline" className="mt-2" onClick={() => setShowCreateDialog(true)}>
-            <Plus className="h-4 w-4 mr-1" />
-            Add your first secret
-          </Button>
+          <p className="text-muted-foreground">
+            {readOnly
+              ? 'No secrets configured yet. Secrets are added by the parent organization.'
+              : 'No secrets configured yet.'}
+          </p>
+          {!readOnly && (
+            <Button variant="outline" className="mt-2" onClick={() => setShowCreateDialog(true)}>
+              <Plus className="h-4 w-4 mr-1" />
+              Add your first secret
+            </Button>
+          )}
         </div>
       ) : (
         <div className="border rounded-lg divide-y">
@@ -1221,14 +1328,16 @@ const SecretsTab = React.memo(function SecretsTab({ organizationId, onRefresh }:
                 >
                   <Copy className="h-4 w-4" />
                 </Button>
-                <Button
-                  variant="ghost"
-                  size="sm"
-                  onClick={() => handleDelete(secret)}
-                  title="Delete secret"
-                >
-                  <Trash2 className="h-4 w-4" />
-                </Button>
+                {!readOnly && (
+                  <Button
+                    variant="ghost"
+                    size="sm"
+                    onClick={() => handleDelete(secret)}
+                    title="Delete secret"
+                  >
+                    <Trash2 className="h-4 w-4" />
+                  </Button>
+                )}
               </div>
             </div>
           ))}

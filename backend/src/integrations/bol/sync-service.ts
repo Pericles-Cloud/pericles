@@ -148,7 +148,7 @@ export async function syncBolContextForOrganization(
         throw new Error('Either `rows` or `input` must be provided');
       }
       log('Fetching BOL rows from Apify...');
-      rows = await fetchBolRows(input, clientConfig);
+      rows = await fetchBolRows(organizationId, input, clientConfig);
     }
     log(`Rows: ${rows.length}`);
 
@@ -353,7 +353,7 @@ export async function syncBolContextForSubsidiaries(
       };
       if (maxItems !== undefined) input.maxItems = maxItems;
       log('Fetching BOL rows from Apify...');
-      rows = await fetchBolRows(input, clientConfig);
+      rows = await fetchBolRows(parentOrganizationId, input, clientConfig);
     }
     log(`Rows: ${rows.length}`);
 

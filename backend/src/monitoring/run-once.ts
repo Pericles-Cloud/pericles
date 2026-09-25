@@ -114,9 +114,14 @@ export function installSignalHandlers(): void {
  *    tenant who turns monitoring off still gets cycles run and Event rows
  *    written. `loadMonitoringConfig` does not read it, so it must be enforced
  *    here. A missing settings row means defaults, and the column defaults to
- *    true — so absent settings still monitor.
+ *    true — so absent settings still monitor. For an INHERITED child the
+ *    switch that counts is its settings OWNER's (walked up the parent chain,
+ *    stopping at a top-level org or one with custom settings) — the child's
+ *    own row is not authoritative while inherited.
  *  - `is_root` is the @pericles.cloud operator org. It has global read access
- *    but no supply chain of its own, so a cycle for it detects nothing.
+ *    but no supply chain of its own, so a cycle for it detects nothing. Root
+ *    or context-less orgs may still be PARENTS, so every org is fetched and
+ *    the chain walk sees them; they are only excluded as cycle candidates.
  *  - No `OrganizationContext` means no plants, warehouses, suppliers, or lanes
  *    to geo-filter against — the cycle has nothing to correlate events with.
  *
@@ -133,17 +138,42 @@ export async function resolveOrganizationIds(
   if (!args.all) return args.organizationIds;
 
   const organizations = await (client ?? getPrismaClient()).organization.findMany({
-    where: {
-      is_root: false,
-      context: { isNot: null },
-      OR: [
-        { settings: { is: null } },
-        { settings: { is: { monitoring_agent_enabled: true } } },
-      ],
+    select: {
+      id: true,
+      is_root: true,
+      parent_organization_id: true,
+      custom_settings_enabled: true,
+      context: { select: { id: true } },
+      settings: { select: { monitoring_agent_enabled: true } },
     },
-    select: { id: true },
   });
-  return organizations.map((org) => org.id);
+
+  const byId = new Map(organizations.map((org) => [org.id, org]));
+
+  // Effective monitoring_agent_enabled for one org, walking the settings
+  // chain. Mirrors organizations/settings-resolution.ts but works off the
+  // already-fetched rows instead of re-querying per org.
+  const monitoringEnabled = (startId: string): boolean => {
+    const seen = new Set<string>();
+    let id = startId;
+    for (;;) {
+      const org = byId.get(id);
+      if (!org || seen.has(id)) return true; // unknown id or cycle → default on
+      seen.add(id);
+      if (!org.parent_organization_id) {
+        return org.settings?.monitoring_agent_enabled ?? true;
+      }
+      const ownsConfig =
+        org.custom_settings_enabled ||
+        !byId.has(org.parent_organization_id); // dangling parent → stop here
+      if (ownsConfig) return org.settings?.monitoring_agent_enabled ?? true;
+      id = org.parent_organization_id;
+    }
+  };
+
+  return organizations
+    .filter((org) => !org.is_root && org.context && monitoringEnabled(org.id))
+    .map((org) => org.id);
 }
 
 export interface CycleDeps {

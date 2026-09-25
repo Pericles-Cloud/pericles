@@ -6,13 +6,15 @@
  */
 
 import Vault from 'node-vault';
-import { 
-  SecretsBackend, 
-  SecretMetadata, 
-  SecretScope, 
+import type {
+  SecretsBackend,
+  SecretMetadata,
+  Result,
+} from '../types.js';
+import {
+  SecretScope,
   SecretType,
   SecretError,
-  Result,
   ok,
   err,
 } from '../types.js';
@@ -31,6 +33,7 @@ export class VaultBackend implements SecretsBackend {
     return VaultBackend.instance;
   }
 
+  // eslint-disable-next-line @typescript-eslint/no-empty-function -- private singleton constructor
   private constructor() {}
 
   private async ensureInitialized(): Promise<void> {
@@ -57,7 +60,7 @@ export class VaultBackend implements SecretsBackend {
 
     // Test connection
     try {
-      await this.vault!.read('sys/health');
+      await this.vault.read('sys/health');
       this.initialized = true;
     } catch (error) {
       throw new Error(`Failed to connect to Vault at ${vaultAddr}: ${error instanceof Error ? error.message : 'Unknown error'}`);

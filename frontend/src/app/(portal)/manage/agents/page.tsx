@@ -10,6 +10,7 @@ import {
   getMonitoringConfig,
   getMonitoringLogs,
   updateMonitoringConfig,
+  type SettingsAccessMetadata,
 } from '@/lib/api-client';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
@@ -59,6 +60,8 @@ export default function AgentsPage() {
 
   const [status, setStatus] = useState<AgentStatus | null>(null);
   const [config, setConfig] = useState<MonitoringConfig | null>(null);
+  // Inheritance metadata from the monitoring-config envelope
+  const [access, setAccess] = useState<SettingsAccessMetadata | null>(null);
   const [logs, setLogs] = useState<MonitoringAuditLog[]>([]);
   const [isLoading, setIsLoading] = useState(true);
   const [isSaving, setIsSaving] = useState(false);
@@ -73,6 +76,9 @@ export default function AgentsPage() {
   const [showProgressDialog, setShowProgressDialog] = useState(false);
   const [showSettingsDialog, setShowSettingsDialog] = useState(false);
   const [selectedDataSource, setSelectedDataSource] = useState<DataSourceCategory | null>(null);
+
+  const isInherited = !!access?.inherited;
+  const hasParent = !!access?.parent;
 
   const fetchData = useCallback(async () => {
     if (!currentOrganization?.id) return;
@@ -90,6 +96,7 @@ export default function AgentsPage() {
       }
       if (configRes.success && configRes.data) {
         setConfig(configRes.data);
+        setAccess(configRes.metadata ?? null);
         setRadiusKm(configRes.data.geographicFilter.radiusKm);
         setSeverityThreshold(configRes.data.riskFilter.severityThreshold);
         setMonitoredRiskTypes(configRes.data.riskFilter.monitoredRiskTypes);
@@ -522,6 +529,23 @@ export default function AgentsPage() {
               {/* Config Tab */}
               {activeTab === 'config' && (
                 <div className="space-y-6">
+                  {/* Inherited read-only banner */}
+                  {isInherited && access && (
+                    <div className="rounded-md border border-border bg-muted/40 p-4 text-sm">
+                      <p className="font-medium text-foreground">
+                        Monitoring configuration is inherited from {access.owner.name}
+                      </p>
+                      <p className="mt-1 text-muted-foreground">
+                        This organization uses {access.owner.name}&apos;s geographic radius,
+                        severity threshold, and monitored risk types. Enable custom
+                        settings on the Settings page to configure them independently.
+                      </p>
+                    </div>
+                  )}
+
+                  {/* While inherited, every control below is read-only (fieldset
+                      disables inputs and buttons; banner/save stay outside). */}
+                  <fieldset disabled={isInherited} className="contents">
                   {/* Geographic Filter */}
                   <div className="space-y-4">
                     <div>
@@ -602,9 +626,10 @@ export default function AgentsPage() {
                       </div>
                     </div>
                   </div>
+                  </fieldset>
 
                   <div className="flex justify-end pt-4 border-t border-border">
-                    <Button onClick={handleSaveConfig} disabled={isSaving}>
+                    <Button onClick={handleSaveConfig} disabled={isInherited || isSaving}>
                       {isSaving ? 'Saving...' : 'Save Configuration'}
                     </Button>
                   </div>
@@ -759,6 +784,8 @@ export default function AgentsPage() {
           dataSourceId={selectedDataSource}
           onClose={handleSettingsClose}
           onSave={handleSettingsSave}
+          settingsReadOnly={isInherited}
+          secretsReadOnly={hasParent}
         />
       )}
     </div>

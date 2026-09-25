@@ -53,7 +53,7 @@ export class SAPClient {
   /**
    * Load credentials from secrets manager
    */
-  private async loadCredentials(): Promise<void> {
+  async loadCredentials(): Promise<void> {
     if (this.useMock || this.organizationId === '') {
       return;
     }

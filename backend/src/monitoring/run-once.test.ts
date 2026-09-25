@@ -30,6 +30,10 @@ interface OrgRow {
   hasContext: boolean;
   /** null models an org with no OrganizationSettings row at all. */
   monitoringEnabled: boolean | null;
+  /** Parent org id — set for a child in the org hierarchy. */
+  parent?: string | null;
+  /** Child that opted into owning its own settings (custom settings mode). */
+  customSettings?: boolean;
 }
 
 const ORGS: OrgRow[] = [
@@ -40,69 +44,37 @@ const ORGS: OrgRow[] = [
   { id: 'standex', is_root: false, hasContext: true, monitoringEnabled: null },
 ];
 
-interface RelationFilter {
-  is?: null | Record<string, unknown>;
-  isNot?: null;
-}
-
 /**
- * Minimal stand-in for `organization.findMany` that interprets the same `where`
- * clause the production query builds, so the test exercises the real filter
- * rather than a restatement of it.
+ * Minimal stand-in for `organization.findMany`, returning every row in the
+ * shape production `select`s (chain fields, context presence, own settings).
  *
- * It honours the *direction* of each clause — `{ isNot: null }` requires the
- * relation, `{ is: null }` requires its absence — because inverting a filter is
- * a far more likely mistake than deleting one, and an inverted filter selects
- * exactly the wrong tenants while the task stays green.
- *
- * Anything it does not recognise throws. A fake that quietly matches everything
- * when the query shape changes turns a real regression into a green run.
+ * Production filters in JS — not SQL — because the settings-chain walk must
+ * see PARENTS that are not themselves cycle candidates (root orgs, context-less
+ * parents). The fake therefore rejects any `where`: a future clause would be
+ * silently ignored here, and a query shape the fake does not understand must
+ * fail loudly rather than match everything.
  */
 function makeClient(orgs: OrgRow[] = ORGS) {
-  const findMany = vi.fn(({ where }: { where?: Record<string, unknown> } = {}) => {
-    const known = new Set(['is_root', 'context', 'OR']);
-    const unknown = Object.keys(where ?? {}).filter((k) => !known.has(k));
-    if (unknown.length > 0) {
+  const findMany = vi.fn((args?: { where?: unknown }) => {
+    if (args?.where !== undefined) {
       throw new Error(
-        `fake findMany: unrecognised where key(s) [${unknown.join(', ')}] — ` +
-          'teach the fake this clause rather than letting it match everything'
+        `fake findMany: unexpected where clause ${JSON.stringify(args.where)} — ` +
+          'production filters candidates in JS after fetching the full chain'
       );
     }
-
-    /** true = relation must exist, false = must be absent. */
-    const requireContext = ((): boolean | undefined => {
-      const clause = where?.context as RelationFilter | undefined;
-      if (clause === undefined) return undefined;
-      if (clause.isNot === null) return true;
-      if (clause.is === null) return false;
-      throw new Error(`fake findMany: unrecognised context filter ${JSON.stringify(clause)}`);
-    })();
-
-    const orClause = where?.OR as Array<{ settings: RelationFilter }> | undefined;
-
-    const matches = orgs.filter((org) => {
-      if (where?.is_root !== undefined && org.is_root !== where.is_root) return false;
-      if (requireContext !== undefined && org.hasContext !== requireContext) return false;
-
-      if (orClause) {
-        const allowsAbsentSettings = orClause.some((c) => c.settings.is === null);
-        const flagClause = orClause.find(
-          (c) => c.settings.is !== null && c.settings.is !== undefined
-        )?.settings.is as { monitoring_agent_enabled?: boolean } | undefined;
-
-        if (org.monitoringEnabled === null) return allowsAbsentSettings;
-        if (flagClause?.monitoring_agent_enabled === undefined) {
-          throw new Error(
-            `fake findMany: unrecognised settings filter ${JSON.stringify(orClause)}`
-          );
-        }
-        return org.monitoringEnabled === flagClause.monitoring_agent_enabled;
-      }
-
-      return true;
-    });
-
-    return Promise.resolve(matches.map((org) => ({ id: org.id })));
+    return Promise.resolve(
+      orgs.map((org) => ({
+        id: org.id,
+        is_root: org.is_root,
+        parent_organization_id: org.parent ?? null,
+        custom_settings_enabled: org.customSettings ?? false,
+        context: org.hasContext ? { id: `ctx-${org.id}` } : null,
+        settings:
+          org.monitoringEnabled === null
+            ? null
+            : { monitoring_agent_enabled: org.monitoringEnabled },
+      }))
+    );
   });
 
   return { client: { organization: { findMany } } as unknown as PrismaClient, findMany };
@@ -208,10 +180,12 @@ describe('resolveOrganizationIds', () => {
   });
 
   it('under --all, requires an OrganizationContext rather than requiring its absence', async () => {
-    // Pins the *direction* of the context filter. Inverting it (isNot: null →
-    // is: null) selects exactly the wrong set in production — every org that can
-    // correlate nothing, and no real tenant — while the task stays green.
-    // 'onlyContextless' is chosen so it is the sole match under the inversion.
+    // Pins the *direction* of the context check (now a post-fetch filter
+    // instead of SQL — the chain walk needs parents that are not candidates).
+    // Inverting it (require absence) selects exactly the wrong set in
+    // production — every org that can correlate nothing, and no real tenant —
+    // while the task stays green. 'onlyContextless' is chosen so it is the
+    // sole match under the inversion.
     const { client } = makeClient([
       { id: 'withContext', is_root: false, hasContext: true, monitoringEnabled: true },
       { id: 'onlyContextless', is_root: false, hasContext: false, monitoringEnabled: true },
@@ -250,6 +224,50 @@ describe('resolveOrganizationIds', () => {
     ]);
 
     expect(await resolveOrganizationIds({ all: true, organizationIds: [] }, client)).toEqual([]);
+  });
+
+  it('under --all, an inherited child follows the chain owner, not its own row', async () => {
+    // mid and child both have their own DISABLED rows left over from before
+    // inheritance — neither is authoritative while inherited, so both follow
+    // parent-on at the top of the chain.
+    const { client } = makeClient([
+      { id: 'parent-on', is_root: false, hasContext: true, monitoringEnabled: true },
+      { id: 'mid', is_root: false, hasContext: true, monitoringEnabled: false, parent: 'parent-on' },
+      { id: 'child', is_root: false, hasContext: true, monitoringEnabled: false, parent: 'mid' },
+    ]);
+
+    const ids = await resolveOrganizationIds({ all: true, organizationIds: [] }, client);
+
+    expect(ids).toEqual(['parent-on', 'mid', 'child']);
+  });
+
+  it('under --all, skips a child of a disabled parent, but not a custom-settings child', async () => {
+    const { client } = makeClient([
+      { id: 'parent-off', is_root: false, hasContext: true, monitoringEnabled: false },
+      // Inherited: own enabled row is irrelevant → parent's off wins → skipped.
+      { id: 'child-inherited', is_root: false, hasContext: true, monitoringEnabled: true, parent: 'parent-off' },
+      // Custom settings: owns its rows → its own enabled row wins → runs.
+      { id: 'child-custom-on', is_root: false, hasContext: true, monitoringEnabled: true, parent: 'parent-off', customSettings: true },
+      // Custom settings with its own disabled row → skipped.
+      { id: 'child-custom-off', is_root: false, hasContext: true, monitoringEnabled: false, parent: 'parent-off', customSettings: true },
+    ]);
+
+    const ids = await resolveOrganizationIds({ all: true, organizationIds: [] }, client);
+
+    expect(ids).toEqual(['child-custom-on']);
+  });
+
+  it('under --all, resolves the chain through a root parent that is not a candidate', async () => {
+    // Root orgs are never cycle candidates, but a child may still inherit from
+    // one — the fetch must include it so the walk can read its switch.
+    const { client } = makeClient([
+      { id: 'root', is_root: true, hasContext: true, monitoringEnabled: true },
+      { id: 'child', is_root: false, hasContext: true, monitoringEnabled: false, parent: 'root' },
+    ]);
+
+    const ids = await resolveOrganizationIds({ all: true, organizationIds: [] }, client);
+
+    expect(ids).toEqual(['child']);
   });
 });
 

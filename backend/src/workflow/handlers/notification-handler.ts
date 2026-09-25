@@ -11,6 +11,7 @@
 import { NodeType } from '@prisma/client';
 import type { ExecutionContext, NodeExecutionResult, NotificationNodeData, WorkflowNodeWithData } from '../types.js';
 import { BaseNodeHandler } from './base-handler.js';
+import { getEffectiveSettings } from '../../organizations/settings-resolution.js';
 
 export class NotificationHandler extends BaseNodeHandler {
   protected readonly supportedTypes: NodeType[] = [NodeType.NOTIFICATION];
@@ -196,12 +197,16 @@ export class NotificationHandler extends BaseNodeHandler {
     const channel = data.slackChannel || '#general';
     const message = this.interpolateVariables(data.message || '', context.variables);
 
-    // Get Slack webhook URL from organization settings
-    const settings = await context.prisma.organizationSettings.findUnique({
-      where: { organization_id: context.organizationId },
-    });
-
-    const webhookUrl = settings?.notifications_slack_webhook_url;
+    // Get Slack webhook URL from the effective organization settings (an
+    // inheriting child reads its owner's settings up the parent chain)
+    let webhookUrl: string | null = null;
+    try {
+      const { settings } = await getEffectiveSettings(context.organizationId, context.prisma);
+      webhookUrl = settings?.notifications_slack_webhook_url ?? null;
+    } catch {
+      // Missing org row — treat as unconfigured (same as a null settings row)
+      webhookUrl = null;
+    }
 
     if (!webhookUrl) {
       return {

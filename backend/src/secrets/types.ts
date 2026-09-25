@@ -5,7 +5,7 @@
  * Supports two types: SECRET (sensitive credentials) and VARIABLE (non-sensitive config).
  */
 
-import type { Prisma } from '@prisma/client';
+import type { OrganizationSecret, SecretAuditLog } from '@prisma/client';
 
 // ============================================================================
 // Secret Type Enums
@@ -165,8 +165,8 @@ export interface AuditLogEntry {
 // Prisma Type Helpers
 // ============================================================================
 
-export type OrganizationSecretRecord = Prisma.OrganizationSecretGetPayload<{}>;
-export type SecretAuditLogRecord = Prisma.SecretAuditLogGetPayload<{}>;
+export type OrganizationSecretRecord = OrganizationSecret;
+export type SecretAuditLogRecord = SecretAuditLog;
 
 // ============================================================================
 // Validation Helpers

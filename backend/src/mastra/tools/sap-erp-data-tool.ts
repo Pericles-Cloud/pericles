@@ -248,7 +248,8 @@ export const sapGetSuppliersT = createTool({
       }
 
       // Fetch from SAP
-      const response = await sapClient.getBusinessPartners({
+      const client = await sapClient;
+      const response = await client.getBusinessPartners({
         $expand: 'to_BusinessPartnerAddress,to_Supplier',
         $filter: filter,
         $top: max_results,
@@ -340,7 +341,8 @@ export const sapGetPlantsT = createTool({
       }
 
       // Fetch from SAP
-      const response = await sapClient.getPlants({
+      const client = await sapClient;
+      const response = await client.getPlants({
         $filter: filter || undefined,
         $top: max_results,
       });
@@ -407,7 +409,8 @@ export const sapGetMaterialStockTool = createTool({
     const _timeout = setTimeout(() => { controller.abort(); }, 30000);
 
     try {
-      const response = await sapClient.getMaterialStock(plant_id, {
+      const client = await sapClient;
+      const response = await client.getMaterialStock(plant_id, {
         $top: max_results,
       });
 
@@ -479,9 +482,10 @@ export const sapGetShippingLanesTool = createTool({
 
     try {
       // Fetch shipping lanes
+      const client = await sapClient;
       const [lanesResponse, plantsResponse] = await Promise.all([
-        sapClient.getShippingLanes({ $top: max_results }),
-        sapClient.getPlants(), // Need plant data for transformations
+        client.getShippingLanes({ $top: max_results }),
+        client.getPlants(), // Need plant data for transformations
       ]);
 
       clearTimeout(timeout);

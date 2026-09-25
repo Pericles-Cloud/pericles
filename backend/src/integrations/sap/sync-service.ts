@@ -69,13 +69,15 @@ export async function syncSAPDataForOrganization(
       console.log(`[SAP Sync] Fetching data from SAP S/4HANA Cloud...`);
     }
 
+    // `sapClient` is the module-level Promise singleton — resolve it first.
+    const client = await sapClient;
     const [suppliersResponse, plantsResponse, shippingLanesResponse] = await Promise.all([
-      sapClient.getBusinessPartners({
+      client.getBusinessPartners({
         $expand: 'to_BusinessPartnerAddress,to_Supplier',
         $filter: "to_Supplier ne null",
       }),
-      sapClient.getPlants(),
-      sapClient.getShippingLanes(),
+      client.getPlants(),
+      client.getShippingLanes(),
     ]);
 
     if (verbose) {
@@ -277,7 +279,8 @@ export async function testSAPConnection(): Promise<{
   error?: string;
 }> {
   try {
-    const health = await sapClient.healthCheck();
+    const client = await sapClient;
+    const health = await client.healthCheck();
     return health;
   } catch (error) {
     return {

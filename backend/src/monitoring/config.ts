@@ -1,5 +1,6 @@
 import { z } from 'zod';
 import { getPrismaClient } from './db-client.js';
+import { resolveSettingsOwnership } from '../organizations/settings-resolution.js';
 
 /**
  * Monitoring Configuration Management
@@ -191,9 +192,15 @@ export async function loadMonitoringConfig(
   try {
     const prisma = getPrismaClient();
 
+    // Settings and monitoring-config fields belong to the settings OWNER up the
+    // parent chain (inherited children read the parent's live values).
+    // `config.organizationId` below stays the REQUESTED org — events are
+    // attributed to the org whose cycle ran.
+    const settingsOrgId = (await resolveSettingsOwnership(organizationId, prisma)).owner.id;
+
     // First, try to load from OrganizationSettings (new, preferred)
     const orgSettings = await prisma.organizationSettings.findUnique({
-      where: { organization_id: organizationId },
+      where: { organization_id: settingsOrgId },
       select: {
         monitoring_polling_interval_ms: true,
         monitoring_enabled_sources: true,
@@ -237,7 +244,7 @@ export async function loadMonitoringConfig(
 
     // Also load from OrganizationContext for geographic/risk filter settings
     const orgContext = await prisma.organizationContext.findUnique({
-      where: { organization_id: organizationId },
+      where: { organization_id: settingsOrgId },
       select: {
         geographic_radius_km: true,
         severity_threshold: true,

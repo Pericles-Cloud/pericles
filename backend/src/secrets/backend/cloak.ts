@@ -72,7 +72,7 @@ export class CloakBackend implements SecretsBackend {
     const kek = this.getKEK();
 
     // Try to get existing DEK from database
-    let orgSecret = await prisma.organizationSecret.findFirst({
+    const orgSecret = await prisma.organizationSecret.findFirst({
       where: {
         organization_id: organizationId,
         name: '_dek',

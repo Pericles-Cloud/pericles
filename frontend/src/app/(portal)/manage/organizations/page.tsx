@@ -1,6 +1,6 @@
 'use client';
 
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useMemo } from 'react';
 import { useAuth } from '@/providers/auth-provider';
 import {
   Organization,
@@ -67,6 +67,39 @@ export default function OrganizationsPage() {
 
   // Error/success messages
   const [message, setMessage] = useState<{ type: 'success' | 'error'; text: string } | null>(null);
+
+  // Indented parent/child grouping for the list: depth-first emit roots then
+  // their descendants. A parent outside the visible set (or a cycle) is
+  // treated as a root / back-filled at depth 0 so no org can disappear.
+  const orgTree = useMemo(() => {
+    const ids = new Set(organizations.map((o) => o.id));
+    const byParent = new Map<string | null, OrganizationDetails[]>();
+    for (const org of organizations) {
+      const parentKey =
+        org.parentOrganizationId && ids.has(org.parentOrganizationId)
+          ? org.parentOrganizationId
+          : null;
+      const siblings = byParent.get(parentKey) ?? [];
+      siblings.push(org);
+      byParent.set(parentKey, siblings);
+    }
+
+    const rows: Array<{ org: OrganizationDetails; depth: number }> = [];
+    const emitted = new Set<string>();
+    const walk = (parentId: string | null, depth: number): void => {
+      for (const org of byParent.get(parentId) ?? []) {
+        if (emitted.has(org.id)) continue;
+        emitted.add(org.id);
+        rows.push({ org, depth });
+        walk(org.id, depth + 1);
+      }
+    };
+    walk(null, 0);
+    for (const org of organizations) {
+      if (!emitted.has(org.id)) rows.push({ org, depth: 0 });
+    }
+    return rows;
+  }, [organizations]);
 
   useEffect(() => {
     let isMounted = true;
@@ -340,10 +373,11 @@ export default function OrganizationsPage() {
                 </CardContent>
               </Card>
             ) : (
-              organizations.map((org) => (
+              orgTree.map(({ org, depth }) => (
                 <button
                   key={org.id}
                   onClick={() => setSelectedOrg(org)}
+                  style={depth > 0 ? { marginLeft: depth * 16 } : undefined}
                   className={`w-full text-left p-4 rounded-lg border transition-colors ${
                     selectedOrg?.id === org.id
                       ? 'border-primary bg-primary/10'
@@ -354,6 +388,9 @@ export default function OrganizationsPage() {
                   }`}
                 >
                   <div className="flex items-center gap-3">
+                    {depth > 0 && (
+                      <span aria-hidden className="self-stretch w-px bg-border shrink-0" />
+                    )}
                     <div className="size-10 rounded-full bg-primary flex items-center justify-center shrink-0">
                       <span className="text-sm font-bold text-primary-foreground">
                         {org.name[0].toUpperCase()}

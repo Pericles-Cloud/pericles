@@ -44,13 +44,15 @@ function handleSessionExpired(): void {
   }
 }
 
-interface ApiResponse<T> {
+interface ApiResponse<T, M = Record<string, unknown>> {
   success: boolean;
   data?: T;
   error?: {
     code: string;
     message: string;
   };
+  /** Envelope metadata (settings endpoints expose inheritance flags here). */
+  metadata?: M;
 }
 
 interface RequestOptions {
@@ -69,10 +71,10 @@ const REQUEST_TIMEOUT_MS = 30000;
 /**
  * Make an API request to the backend.
  */
-export async function apiRequest<T>(
+export async function apiRequest<T, M = Record<string, unknown>>(
   endpoint: string,
   options: RequestOptions = {}
-): Promise<ApiResponse<T>> {
+): Promise<ApiResponse<T, M>> {
   const { method = 'GET', body, headers = {}, _retryCount = 0 } = options;
 
   const accessToken = getAccessToken();
@@ -114,7 +116,7 @@ export async function apiRequest<T>(
         const refreshed = await refreshAccessToken();
         if (refreshed) {
           // Retry the request with new token (increment retry counter)
-          return apiRequest<T>(endpoint, { ...options, _retryCount: _retryCount + 1 });
+          return apiRequest<T, M>(endpoint, { ...options, _retryCount: _retryCount + 1 });
         } else {
           // Refresh failed - session expired
           handleSessionExpired();
@@ -1194,8 +1196,8 @@ export async function getAgentStatus(
 export async function updateMonitoringConfig(
   organizationId: string,
   config: Partial<MonitoringConfig>
-): Promise<ApiResponse<MonitoringConfig>> {
-  return apiRequest<MonitoringConfig>('/api/monitoring/config', {
+): Promise<ApiResponse<MonitoringConfig, SettingsAccessMetadata>> {
+  return apiRequest<MonitoringConfig, SettingsAccessMetadata>('/api/monitoring/config', {
     method: 'PATCH',
     body: { organizationId, ...config },
   });
@@ -1206,8 +1208,8 @@ export async function updateMonitoringConfig(
  */
 export async function getMonitoringConfig(
   organizationId: string
-): Promise<ApiResponse<MonitoringConfig>> {
-  return apiRequest<MonitoringConfig>(
+): Promise<ApiResponse<MonitoringConfig, SettingsAccessMetadata>> {
+  return apiRequest<MonitoringConfig, SettingsAccessMetadata>(
     `/api/monitoring/config?organizationId=${encodeURIComponent(organizationId)}`
   );
 }
@@ -1215,6 +1217,25 @@ export async function getMonitoringConfig(
 // ============================================
 // ORGANIZATION SETTINGS API
 // ============================================
+
+/** Minimal org reference returned in settings metadata. */
+export interface SettingsOrgRef {
+  id: string;
+  name: string;
+}
+
+/**
+ * Envelope metadata on settings and monitoring-config endpoints: where the
+ * effective settings come from, and whether the CURRENT user may flip the
+ * child's custom-settings toggle (owner admins only).
+ */
+export interface SettingsAccessMetadata {
+  inherited: boolean;
+  customSettingsEnabled: boolean;
+  owner: SettingsOrgRef;
+  parent: SettingsOrgRef | null;
+  canManageCustomSettings?: boolean;
+}
 
 export interface OrganizationSettings {
   id: string;
@@ -1281,8 +1302,10 @@ export interface UpdateOrganizationSettingsData {
  */
 export async function getOrganizationSettings(
   orgId: string
-): Promise<ApiResponse<OrganizationSettings>> {
-  return apiRequest<OrganizationSettings>(`/api/organizations/${orgId}/settings`);
+): Promise<ApiResponse<OrganizationSettings, SettingsAccessMetadata>> {
+  return apiRequest<OrganizationSettings, SettingsAccessMetadata>(
+    `/api/organizations/${orgId}/settings`
+  );
 }
 
 /**
@@ -1291,11 +1314,34 @@ export async function getOrganizationSettings(
 export async function updateOrganizationSettings(
   orgId: string,
   data: UpdateOrganizationSettingsData
-): Promise<ApiResponse<OrganizationSettings>> {
-  return apiRequest<OrganizationSettings>(`/api/organizations/${orgId}/settings`, {
-    method: 'PATCH',
-    body: data,
-  });
+): Promise<ApiResponse<OrganizationSettings, SettingsAccessMetadata>> {
+  return apiRequest<OrganizationSettings, SettingsAccessMetadata>(
+    `/api/organizations/${orgId}/settings`,
+    {
+      method: 'PATCH',
+      body: data,
+    }
+  );
+}
+
+/**
+ * Switch a child organization between inherited settings (parent-owned) and
+ * custom settings (its own copied row). Only the parent-chain owner's
+ * admins may change this — the server enforces it (403 otherwise).
+ *
+ * Returns the child's updated access metadata (flags, owner, manageability).
+ */
+export async function setCustomSettings(
+  orgId: string,
+  enabled: boolean
+): Promise<ApiResponse<SettingsAccessMetadata>> {
+  return apiRequest<SettingsAccessMetadata>(
+    `/api/organizations/${orgId}/settings/custom`,
+    {
+      method: 'POST',
+      body: { enabled },
+    }
+  );
 }
 
 /**

@@ -1,6 +1,7 @@
 import { createTool } from '@mastra/core/tools';
 import { z } from 'zod';
 import { getPrismaClient } from '../../monitoring/db-client.js';
+import { getEffectiveMonitoringContext } from '../../organizations/settings-resolution.js';
 import { toolLoggers } from './tool-logger.js';
 
 const prisma = getPrismaClient();
@@ -115,19 +116,26 @@ export const erpContextTool = createTool({
         }
       });
 
+      // Risk-preference config fields (radius / severity / risk types) belong
+      // to the settings OWNER up the parent chain when inherited; the
+      // footprint fields above are per-org and never inherit.
+      const { context: ownerContext, ownership } = await getEffectiveMonitoringContext(organization_id, prisma);
+      const riskSource = ownership.inherited ? ownerContext : organizationContext;
+
       if (!organizationContext) {
         logger.warn({ organizationId: organization_id }, 'No context found, returning defaults');
 
-        // Return defaults for organizations without ERP data
+        // Return defaults for organizations without ERP data — risk
+        // preferences still follow the settings owner when inherited.
         return {
           plants: [],
           warehouses: [],
           suppliers: [],
           shipping_lanes: [],
           risk_preferences: {
-            monitored_risk_types: [], // Empty = monitor all risk types
-            geographic_radius_km: 100, // Default: 100km radius
-            severity_threshold: 0.5    // Default: 0.5 severity threshold
+            monitored_risk_types: riskSource?.monitored_risk_types || [], // Empty = monitor all risk types
+            geographic_radius_km: riskSource?.geographic_radius_km ?? 100, // Default: 100km radius
+            severity_threshold: riskSource?.severity_threshold ?? 0.5    // Default: 0.5 severity threshold
           }
         };
       }
@@ -159,9 +167,9 @@ export const erpContextTool = createTool({
         suppliers,
         shipping_lanes,
         risk_preferences: {
-          monitored_risk_types: organizationContext.monitored_risk_types || [],
-          geographic_radius_km: organizationContext.geographic_radius_km,
-          severity_threshold: organizationContext.severity_threshold
+          monitored_risk_types: riskSource?.monitored_risk_types || [],
+          geographic_radius_km: riskSource?.geographic_radius_km ?? 100,
+          severity_threshold: riskSource?.severity_threshold ?? 0.5
         },
         strategic_documents,
         last_erp_sync: organizationContext.last_erp_sync?.toISOString()

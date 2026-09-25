@@ -165,7 +165,7 @@ export async function migrateDataSourceToolConfigs(
   for (const config of configs) {
     try {
       let value: string | null = null;
-      let secretType = SecretType.SECRET;
+      const secretType = SecretType.SECRET;
 
       if (config.api_key_encrypted) {
         // Decode base64 (current obfuscation)

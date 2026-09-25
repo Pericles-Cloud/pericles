@@ -24,6 +24,10 @@ interface DataSourceSettingsDialogProps {
   dataSourceId: DataSourceCategory;
   onClose: () => void;
   onSave: () => void;
+  /** Monitoring config is inherited — tool-config writes are blocked (403). */
+  settingsReadOnly?: boolean;
+  /** API keys are always parent-owned for child orgs — key writes are blocked (403). */
+  secretsReadOnly?: boolean;
 }
 
 export function DataSourceSettingsDialog({
@@ -32,6 +36,8 @@ export function DataSourceSettingsDialog({
   dataSourceId,
   onClose,
   onSave,
+  settingsReadOnly = false,
+  secretsReadOnly = false,
 }: DataSourceSettingsDialogProps) {
   const [dataSource, setDataSource] = useState<DataSourceDefinition | null>(null);
   const [configs, setConfigs] = useState<ToolConfig[]>([]);
@@ -498,7 +504,9 @@ export function DataSourceSettingsDialog({
                   {dataSource?.name || 'Data Source'} Settings
                 </h3>
                 <p className="text-sm text-muted-foreground">
-                  Configure tools for this data source
+                  {settingsReadOnly
+                    ? 'Inherited from the parent organization — view only'
+                    : 'Configure tools for this data source'}
                 </p>
               </div>
             </div>
@@ -751,6 +759,13 @@ export function DataSourceSettingsDialog({
                           )}
                         </div>
 
+                        {secretsReadOnly && (
+                          <p className="text-sm text-muted-foreground">
+                            API keys for this organization are managed by its parent —
+                            view only.
+                          </p>
+                        )}
+
                         {/* API Key Message */}
                         {apiKeyMessage && (
                           <div
@@ -833,7 +848,7 @@ export function DataSourceSettingsDialog({
                                 variant="outline"
                                 size="sm"
                                 onClick={handleSaveApiKey}
-                                disabled={isSavingApiKey}
+                                disabled={secretsReadOnly || isSavingApiKey}
                               >
                                 {isSavingApiKey ? 'Saving...' : 'Use Env Var'}
                               </Button>
@@ -859,13 +874,14 @@ export function DataSourceSettingsDialog({
                                 value={apiKeyInput}
                                 onChange={(e) => setApiKeyInput(e.target.value)}
                                 placeholder="Enter your API key"
+                                disabled={secretsReadOnly}
                                 className="flex-1"
                               />
                               <Button
                                 variant="outline"
                                 size="sm"
                                 onClick={handleSaveApiKey}
-                                disabled={isSavingApiKey || !apiKeyInput}
+                                disabled={secretsReadOnly || isSavingApiKey || !apiKeyInput}
                               >
                                 {isSavingApiKey ? 'Saving...' : 'Save'}
                               </Button>
@@ -886,7 +902,7 @@ export function DataSourceSettingsDialog({
                                 variant="ghost"
                                 size="sm"
                                 onClick={handleClearApiKey}
-                                disabled={isSavingApiKey}
+                                disabled={secretsReadOnly || isSavingApiKey}
                                 className="text-risk-critical-text hover:text-risk-critical-fg hover:bg-risk-critical"
                               >
                                 Clear Stored API Key
@@ -963,7 +979,7 @@ export function DataSourceSettingsDialog({
           <div className="flex items-center justify-between p-6 border-t border-border bg-muted">
             <div>
               {selectedConfig && !selectedConfig.isDefault && (
-                <Button variant="outline" onClick={handleReset} disabled={isSaving}>
+                <Button variant="outline" onClick={handleReset} disabled={settingsReadOnly || isSaving}>
                   Reset to Defaults
                 </Button>
               )}
@@ -972,7 +988,7 @@ export function DataSourceSettingsDialog({
               <Button variant="outline" onClick={onClose}>
                 Cancel
               </Button>
-              <Button onClick={handleSave} disabled={isSaving || !selectedTool}>
+              <Button onClick={handleSave} disabled={settingsReadOnly || isSaving || !selectedTool}>
                 {isSaving ? 'Saving...' : 'Save Changes'}
               </Button>
             </div>
