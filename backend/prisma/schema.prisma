@@ -27,10 +27,10 @@ model Organization {
   parent_organization       Organization?  @relation("OrganizationHierarchy", fields: [parent_organization_id], references: [id], onDelete: SetNull)
   child_organizations       Organization[] @relation("OrganizationHierarchy")
 
-  // Settings ownership: a child org inherits its parent's settings (and monitoring
-  // config, and API keys) until custom settings are explicitly enabled on it.
-  // Only meaningful when parent_organization_id is set; top-level orgs always own
-  // their settings regardless of this flag.
+  // Settings ownership: a child org inherits its parent's settings (and
+  // monitoring config) until custom settings are explicitly enabled on it.
+  // The root org (is_root) is never a donor: a direct child of Pericles owns
+  // its settings and keys regardless of this flag.
   custom_settings_enabled   Boolean  @default(false)
 
   // Company details

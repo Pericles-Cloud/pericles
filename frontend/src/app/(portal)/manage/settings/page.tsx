@@ -337,9 +337,15 @@ export default function SettingsPage() {
   ];
 
   const isInherited = !!access?.inherited;
-  const hasParent = !!access?.parent;
   const canManageCustom = !!access?.canManageCustomSettings;
   const customEnabled = !!access?.customSettingsEnabled;
+  // Non-root parent only: a direct child of Pericles never inherits, so the
+  // inheritance banner/toggle does not apply to it (fall back to the parent
+  // link for responses predating metadata.hasParent).
+  const hasToggleParent = access ? (access.hasParent ?? !!access.parent) : false;
+  // Parent-owned keys (a direct child of Pericles owns its own). Falls back
+  // to the parent link for responses predating metadata.secretsReadonly.
+  const secretsReadonly = access?.secretsReadonly ?? !!access?.parent;
 
   return (
     <div className="space-y-6">
@@ -374,8 +380,9 @@ export default function SettingsPage() {
           </CardDescription>
         </CardHeader>
         <CardContent>
-          {/* Inheritance banner + custom-settings toggle (child orgs only) */}
-          {hasParent && access && (
+          {/* Inheritance banner + custom-settings toggle (child orgs with a
+              non-root parent only — a direct child of Pericles never inherits) */}
+          {hasToggleParent && (isInherited || customEnabled) && access && (
             <div className="mb-6 flex flex-col gap-3 rounded-md border border-border bg-muted/40 p-4 sm:flex-row sm:items-start sm:justify-between">
               <div className="space-y-1">
                 <p className="text-sm font-medium text-foreground">
@@ -1066,7 +1073,7 @@ export default function SettingsPage() {
             <SecretsTab
               organizationId={currentOrganization?.id || ''}
               onRefresh={fetchSettings}
-              readOnly={hasParent}
+              readOnly={secretsReadonly}
             />
           )}
 
@@ -1097,7 +1104,7 @@ const SecretsTab = React.memo(function SecretsTab({
 }: {
   organizationId: string;
   onRefresh: () => void;
-  /** Child orgs never own secrets — the parent chain does; hide all write actions. */
+  /** Keys resolve up the chain unless this org is top of chain (or a direct child of Pericles) — hide writes then. */
   readOnly?: boolean;
 }) {
   const [secrets, setSecrets] = useState<SecretItem[]>([]);

@@ -257,12 +257,23 @@ describe('resolveOrganizationIds', () => {
     expect(ids).toEqual(['child-custom-on']);
   });
 
-  it('under --all, resolves the chain through a root parent that is not a candidate', async () => {
-    // Root orgs are never cycle candidates, but a child may still inherit from
-    // one — the fetch must include it so the walk can read its switch.
+  it('under --all, a child of the root uses its OWN switch — root is a boundary, not an owner', async () => {
+    // Pericles (root) never owns a customer's settings: the walk stops below
+    // it, so the child's own monitoring_agent_enabled decides its candidacy.
     const { client } = makeClient([
       { id: 'root', is_root: true, hasContext: true, monitoringEnabled: true },
       { id: 'child', is_root: false, hasContext: true, monitoringEnabled: false, parent: 'root' },
+    ]);
+
+    const ids = await resolveOrganizationIds({ all: true, organizationIds: [] }, client);
+
+    expect(ids).toEqual([]);
+  });
+
+  it('under --all, a child of the root monitors on its OWN true switch even when root is off', async () => {
+    const { client } = makeClient([
+      { id: 'root', is_root: true, hasContext: true, monitoringEnabled: false },
+      { id: 'child', is_root: false, hasContext: true, monitoringEnabled: true, parent: 'root' },
     ]);
 
     const ids = await resolveOrganizationIds({ all: true, organizationIds: [] }, client);

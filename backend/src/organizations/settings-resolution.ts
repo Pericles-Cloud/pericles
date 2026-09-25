@@ -4,19 +4,29 @@ import type { Prisma, OrganizationContext, OrganizationSettings } from '@prisma/
 /**
  * Settings ownership & inheritance for the org hierarchy.
  *
- * An org with `parent_organization_id` set does NOT own its configuration by
- * default: `custom_settings_enabled = false` (the column default) means every
- * settings read — OrganizationSettings, the monitoring-config fields on
- * OrganizationContext, and API keys/secrets — resolves UP the parent chain to
- * the first org that has no parent or has custom settings enabled ("the
- * owner"). The parent's edits therefore reach all inheriting descendants live.
+ * ROOT-ORG BOUNDARY: the Pericles root org (`is_root`) is the platform manager
+ * and sits OUTSIDE the inheritance chain. Children of Pericles are CUSTOMERS:
+ * they own their own settings, and Pericles' settings/keys never flow down to
+ * them. The walks below therefore stop before entering a root org — a direct
+ * child of Pericles is a top of chain, exactly like a parentless org.
+ * Inheritance only happens WITHIN a customer's tree (customer parent → its
+ * subsidiaries).
+ *
+ * An org with a non-root `parent_organization_id` does NOT own its
+ * configuration by default: `custom_settings_enabled = false` (the column
+ * default) means every settings read — OrganizationSettings, the
+ * monitoring-config fields on OrganizationContext, and API keys/secrets —
+ * resolves UP the parent chain to the first org that has no (non-root) parent
+ * or has custom settings enabled ("the owner"). The parent's edits therefore
+ * reach all inheriting descendants live.
  *
  * When `custom_settings_enabled = true`, the child's own row is authoritative
  * (it was copied from the owner at enable time) and later parent edits do NOT
  * flow down. Turning the flag back off reverts the child to live inheritance.
  *
  * API keys and secrets are a deliberate exception to the flag: they always
- * resolve to the owner, even in custom mode (credentials are parent-owned).
+ * resolve to the topmost non-root ancestor, even in custom mode (credentials
+ * are parent-owned).
  *
  * `client` is injectable for tests; it defaults to the module Prisma client.
  */
@@ -47,22 +57,27 @@ export interface SettingsOwnership {
   inherited: boolean;
   /** `requested`'s custom flag (always false while inherited). */
   customSettingsEnabled: boolean;
-  /** True when `requested` has a parent at all (toggle is possible). */
+  /**
+   * True when `requested` has a non-root parent (the toggle is possible).
+   * A direct child of Pericles has no toggle — it already owns its settings.
+   */
   hasParent: boolean;
 }
 
 interface OrgNode {
   id: string;
   name: string;
+  is_root: boolean;
   parent_organization_id: string | null;
   custom_settings_enabled: boolean;
-  parent_organization: { id: string; name: string } | null;
+  parent_organization: { id: string; name: string; is_root: boolean } | null;
 }
 
 /**
  * Walk up the hierarchy to the org that owns `organizationId`'s settings.
  *
- * Stops at the first org with no parent OR with custom settings enabled.
+ * Stops at the first org with no parent, with custom settings enabled, OR at
+ * the root-org boundary (Pericles never owns settings for a customer).
  * Cycles and runaway depths degrade to the deepest node reached (logged),
  * never a throw — corrupt hierarchy data must not 500 every settings read.
  */
@@ -76,9 +91,10 @@ export async function resolveSettingsOwnership(
       select: {
         id: true,
         name: true,
+        is_root: true,
         parent_organization_id: true,
         custom_settings_enabled: true,
-        parent_organization: { select: { id: true, name: true } },
+        parent_organization: { select: { id: true, name: true, is_root: true } },
       },
     });
 
@@ -91,13 +107,17 @@ export async function resolveSettingsOwnership(
   let node = start;
   let depth = 0;
 
-  while (node.parent_organization_id && !node.custom_settings_enabled) {
+  while (!node.is_root && node.parent_organization_id && !node.custom_settings_enabled) {
     if (++depth > MAX_SETTINGS_HIERARCHY_DEPTH) {
       console.warn(`[SettingsResolution] Hierarchy deeper than ${MAX_SETTINGS_HIERARCHY_DEPTH} from ${organizationId}; stopping at ${node.id}`);
       break;
     }
     const next = await load(node.parent_organization_id);
     if (!next) break; // dangling parent (onDelete SetNull should prevent this)
+    if (next.is_root) {
+      // Pericles is the manager, not a settings donor: stop below it.
+      break;
+    }
     if (visited.has(next.id)) {
       console.warn(`[SettingsResolution] Cycle in org hierarchy at ${next.id} (from ${organizationId}); stopping at ${node.id}`);
       break;
@@ -109,10 +129,14 @@ export async function resolveSettingsOwnership(
   return {
     requested: { id: start.id, name: start.name },
     owner: { id: node.id, name: node.name },
-    parent: start.parent_organization,
+    parent: start.parent_organization
+      ? { id: start.parent_organization.id, name: start.parent_organization.name }
+      : null,
     inherited: node.id !== start.id,
     customSettingsEnabled: start.custom_settings_enabled,
-    hasParent: start.parent_organization_id !== null,
+    // Toggle is only meaningful when a non-root parent's config could be
+    // inherited — a direct child of Pericles already owns its settings.
+    hasParent: start.parent_organization !== null && !start.parent_organization.is_root,
   };
 }
 
@@ -153,16 +177,17 @@ export async function getEffectiveMonitoringContext(
 /**
  * Credentials (secrets / API keys) are parent-owned for EVERY child org,
  * custom settings or not: walk to the topmost ancestor regardless of the
- * custom flag. Top-level orgs own their own keys.
+ * custom flag — stopping at the root-org boundary, so a direct child of
+ * Pericles owns its own keys. Top-level orgs own their own keys.
  */
 export async function resolveCredentialsOwner(
   organizationId: string,
   client: PrismaClient = prisma
 ): Promise<OrgRef> {
-  const load = (id: string): Promise<Pick<OrgNode, 'id' | 'name' | 'parent_organization_id'> | null> =>
+  const load = (id: string): Promise<Pick<OrgNode, 'id' | 'name' | 'is_root' | 'parent_organization_id'> | null> =>
     client.organization.findUnique({
       where: { id },
-      select: { id: true, name: true, parent_organization_id: true },
+      select: { id: true, name: true, is_root: true, parent_organization_id: true },
     });
 
   let node = await load(organizationId);
@@ -170,13 +195,14 @@ export async function resolveCredentialsOwner(
 
   const visited = new Set<string>([node.id]);
   let depth = 0;
-  while (node.parent_organization_id) {
+  while (!node.is_root && node.parent_organization_id) {
     if (++depth > MAX_SETTINGS_HIERARCHY_DEPTH) {
       console.warn(`[SettingsResolution] Hierarchy deeper than ${MAX_SETTINGS_HIERARCHY_DEPTH} from ${organizationId}; stopping at ${node.id}`);
       break;
     }
     const next = await load(node.parent_organization_id);
     if (!next) break;
+    if (next.is_root) break; // Pericles keys never back a customer
     if (visited.has(next.id)) {
       console.warn(`[SettingsResolution] Cycle in org hierarchy at ${next.id} (from ${organizationId}); stopping at ${node.id}`);
       break;
@@ -191,14 +217,15 @@ export async function resolveCredentialsOwner(
  * Who may flip a child's custom-settings switch: OWNER/ADMIN of the org that
  * would own the child's settings (i.e. of the chain owner above it), or a
  * root-org OWNER/ADMIN. Child-org admins never qualify — the parent owns the
- * settings. A top-level org has no toggle and returns false.
+ * settings. A top-level org (or a direct child of Pericles, which already
+ * owns its settings) has no toggle and returns false.
  */
 export async function canManageCustomSettings(
   userId: string,
   ownership: SettingsOwnership,
   client: PrismaClient = prisma
 ): Promise<boolean> {
-  if (!ownership.parent) return false;
+  if (!ownership.hasParent || !ownership.parent) return false;
 
   // The authority for this child = the owner of its PARENT's settings.
   // For an inherited child that is `ownership.owner`; for a custom child it is

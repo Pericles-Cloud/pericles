@@ -355,9 +355,10 @@ export async function resolveModel(config: MonitoringConfig): Promise<ResolvedMo
   const { provider, modelName } = config.ai;
 
   // API keys are parent-owned (settings-resolution invariant): read from the
-  // topmost ancestor even when this org runs on custom settings. If the
-  // hierarchy cannot be read right now, fall back to the requested org —
-  // key resolution still reaches env defaults, and a monitoring cycle whose
+  // topmost non-root ancestor even when this org runs on custom settings (a
+  // direct child of Pericles resolves to itself). If the hierarchy cannot be
+  // read right now, fall back to the requested org — key resolution still
+  // reaches env defaults, and a monitoring cycle whose
   // DB is down fails before it ever gets here.
   let keysOrgId = config.organizationId;
   try {

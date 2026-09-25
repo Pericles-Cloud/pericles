@@ -26,7 +26,7 @@ interface DataSourceSettingsDialogProps {
   onSave: () => void;
   /** Monitoring config is inherited — tool-config writes are blocked (403). */
   settingsReadOnly?: boolean;
-  /** API keys are always parent-owned for child orgs — key writes are blocked (403). */
+  /** Keys resolve up the chain (a direct child of Pericles owns its own) — when the chain owns them, key writes are blocked (403). */
   secretsReadOnly?: boolean;
 }
 

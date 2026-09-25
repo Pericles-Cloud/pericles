@@ -78,7 +78,9 @@ export default function AgentsPage() {
   const [selectedDataSource, setSelectedDataSource] = useState<DataSourceCategory | null>(null);
 
   const isInherited = !!access?.inherited;
-  const hasParent = !!access?.parent;
+  // Parent-owned keys (a direct child of Pericles owns its own). Falls back
+  // to the parent link for responses predating metadata.secretsReadonly.
+  const secretsReadonly = access?.secretsReadonly ?? !!access?.parent;
 
   const fetchData = useCallback(async () => {
     if (!currentOrganization?.id) return;
@@ -789,7 +791,7 @@ export default function AgentsPage() {
           onClose={handleSettingsClose}
           onSave={handleSettingsSave}
           settingsReadOnly={isInherited}
-          secretsReadOnly={hasParent}
+          secretsReadOnly={secretsReadonly}
         />
       )}
     </div>

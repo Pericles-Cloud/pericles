@@ -116,12 +116,14 @@ export function installSignalHandlers(): void {
  *    here. A missing settings row means defaults, and the column defaults to
  *    true — so absent settings still monitor. For an INHERITED child the
  *    switch that counts is its settings OWNER's (walked up the parent chain,
- *    stopping at a top-level org or one with custom settings) — the child's
- *    own row is not authoritative while inherited.
- *  - `is_root` is the @pericles.cloud operator org. It has global read access
- *    but no supply chain of its own, so a cycle for it detects nothing. Root
- *    or context-less orgs may still be PARENTS, so every org is fetched and
- *    the chain walk sees them; they are only excluded as cycle candidates.
+ *    stopping at a non-root top-level org, one with custom settings, or the
+ *    Pericles root boundary) — the child's own row is not authoritative while
+ *    inherited, and a direct child of Pericles always uses its own.
+ *  - `is_root` is the @pericles.cloud operator org (Pericles, Inc.), the
+ *    manager of all organizations. It is NEVER a cycle candidate: it has no
+ *    supply chain of its own, and customer settings never inherit from it.
+ *    Root or context-less orgs may still be PARENTS, so every org is fetched
+ *    and the chain walk can see them; the walk stops at root as a boundary.
  *  - No `OrganizationContext` means no plants, warehouses, suppliers, or lanes
  *    to geo-filter against — the cycle has nothing to correlate events with.
  *
@@ -152,7 +154,8 @@ export async function resolveOrganizationIds(
 
   // Effective monitoring_agent_enabled for one org, walking the settings
   // chain. Mirrors organizations/settings-resolution.ts but works off the
-  // already-fetched rows instead of re-querying per org.
+  // already-fetched rows instead of re-querying per org. The root org is a
+  // boundary, not an owner: a direct child of Pericles keeps its own flag.
   const monitoringEnabled = (startId: string): boolean => {
     const seen = new Set<string>();
     let id = startId;
@@ -165,7 +168,8 @@ export async function resolveOrganizationIds(
       }
       const ownsConfig =
         org.custom_settings_enabled ||
-        !byId.has(org.parent_organization_id); // dangling parent → stop here
+        !byId.has(org.parent_organization_id) || // dangling parent → stop here
+        byId.get(org.parent_organization_id)?.is_root === true; // Pericles boundary
       if (ownsConfig) return org.settings?.monitoring_agent_enabled ?? true;
       id = org.parent_organization_id;
     }

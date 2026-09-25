@@ -98,6 +98,21 @@ export const erpContextTool = createTool({
     logger.info({ organizationId: organization_id }, 'Retrieving organization context');
 
     try {
+      // The Pericles root org is the platform manager, not a monitored tenant —
+      // refuse before touching its context (inside try so DB errors keep the
+      // tool's uniform error wrapping).
+      const rootCheck = await prisma.organization.findUnique({
+        where: { id: organization_id },
+        select: { is_root: true },
+      });
+      if (rootCheck?.is_root) {
+        const refusal = new Error(
+          `Organization ${organization_id} is the root organization (Pericles, Inc.) and is excluded from monitoring — ERP context is only available for customer organizations`
+        );
+        refusal.name = 'OrganizationExcludedError';
+        throw refusal;
+      }
+
       // Query OrganizationContext with organization isolation
       const organizationContext = await prisma.organizationContext.findUnique({
         where: {
@@ -176,6 +191,11 @@ export const erpContextTool = createTool({
       };
 
     } catch (error) {
+      // Policy refusal (root org excluded) — rethrow untouched: it is not a
+      // database failure and must not be logged as one.
+      if ((error as Error)?.name === 'OrganizationExcludedError') {
+        throw error;
+      }
       logger.error({ error, organizationId: organization_id }, 'Database query failed');
       throw new Error(`Failed to retrieve ERP context: ${error instanceof Error ? error.message : 'Unknown error'}`);
     }

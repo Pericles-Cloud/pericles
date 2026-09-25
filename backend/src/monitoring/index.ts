@@ -154,6 +154,20 @@ export type ProgressCallback = (update: ProgressUpdate) => void;
 // ============================================================================
 
 /**
+ * A cycle was requested for an org excluded from monitoring — today that is
+ * only the root org (Pericles, Inc.). Callers map this to a 4xx rather than
+ * an internal error: the refusal is policy, not a fault.
+ */
+export class MonitoringExcludedError extends Error {
+  constructor(organizationId: string) {
+    super(
+      `Organization ${organizationId} is the root organization (Pericles, Inc.) and is excluded from monitoring — cycles only run for customer organizations`
+    );
+    this.name = 'MonitoringExcludedError';
+  }
+}
+
+/**
  * Execute single monitoring cycle
  *
  * @param config - Monitoring configuration
@@ -166,6 +180,17 @@ export async function runMonitoringCycle(
 ): Promise<CycleMetrics> {
   const metrics = initializeCycleMetrics(config.organizationId);
   const cycleLogger = createLogger({ organizationId: config.organizationId });
+
+  // Pericles (root org) is the platform manager, never a monitored tenant.
+  // Every cycle path — scheduled run-once, manual trigger, SSE trigger,
+  // start.ts — funnels through here, so one check keeps it out of monitoring.
+  const orgRow = await getPrismaClient().organization.findUnique({
+    where: { id: config.organizationId },
+    select: { is_root: true },
+  });
+  if (orgRow?.is_root) {
+    throw new MonitoringExcludedError(config.organizationId);
+  }
 
   const emitProgress = (update: Omit<ProgressUpdate, 'timestamp'>) => {
     if (onProgress) {

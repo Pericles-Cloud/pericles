@@ -1234,7 +1234,16 @@ export interface SettingsAccessMetadata {
   customSettingsEnabled: boolean;
   owner: SettingsOrgRef;
   parent: SettingsOrgRef | null;
+  /** True when parent is a NON-root org (toggle/inheritance UI applies). */
+  hasParent?: boolean;
   canManageCustomSettings?: boolean;
+  /**
+   * True when API keys/secrets resolve to another org (parent-owned chain) —
+   * hide local key writes. A direct child of the Pericles root owns its own
+   * keys, so this is false there. Absent on older responses: fall back to
+   * `!!parent`.
+   */
+  secretsReadonly?: boolean;
 }
 
 export interface OrganizationSettings {

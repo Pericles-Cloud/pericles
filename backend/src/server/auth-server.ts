@@ -3722,7 +3722,8 @@ app.post('/api/events/:id/ask', async (req: Request, res: Response) => {
     try {
       const { settings: orgSettings } = await getEffectiveSettings(event.organization_id, prisma);
       // API keys are parent-owned even in custom mode — resolve the
-      // credentials owner (topmost ancestor), not the requested org.
+      // credentials owner (topmost non-root ancestor; a direct child of
+      // Pericles resolves to itself), not the requested org.
       const keysOwnerId = (await resolveCredentialsOwner(event.organization_id, prisma)).id;
       if (orgSettings?.ai_model_provider && orgSettings?.ai_model_name) {
         const provider = orgSettings.ai_model_provider;
@@ -4068,6 +4069,8 @@ app.get('/api/monitoring/config', async (req: Request, res: Response) => {
         customSettingsEnabled: configOwnership.customSettingsEnabled,
         owner: configOwnership.owner,
         parent: configOwnership.parent,
+        hasParent: configOwnership.hasParent,
+        secretsReadonly: await secretsReadonlyFor(organizationId),
       },
     });
   } catch (error) {
@@ -4202,6 +4205,8 @@ app.patch('/api/monitoring/config', async (req: Request, res: Response) => {
         customSettingsEnabled: configOwnership.customSettingsEnabled,
         owner: configOwnership.owner,
         parent: configOwnership.parent,
+        hasParent: configOwnership.hasParent,
+        secretsReadonly: await secretsReadonlyFor(organizationId),
       },
     });
   } catch (error) {
@@ -4431,6 +4436,15 @@ app.post('/api/monitoring/trigger', async (req: Request, res: Response) => {
     });
   } catch (error) {
     console.error('Trigger monitoring error:', error);
+    // Excluded orgs (root) are a policy refusal — 403, not 500. The class
+    // arrives via dynamic import, so match on the error name.
+    if ((error as Error)?.name === 'MonitoringExcludedError') {
+      res.status(403).json({
+        success: false,
+        error: { code: 'ORGANIZATION_EXCLUDED', message: (error as Error).message },
+      });
+      return;
+    }
     res.status(500).json({
       success: false,
       error: {
@@ -4609,6 +4623,18 @@ function formatOrganizationSettings(settings: {
   };
 }
 
+// True when API keys/secrets for `orgId` resolve to a DIFFERENT org (the
+// parent-owned chain: a direct child of Pericles owns its own keys) — the
+// caller must not write local key material. Mirrors the secrets API's
+// SECRETS_PARENT_OWNED line; surfaced as `metadata.secretsReadonly`.
+async function secretsReadonlyFor(orgId: string): Promise<boolean> {
+  try {
+    return (await resolveCredentialsOwner(orgId, prisma)).id !== orgId;
+  } catch {
+    return true; // fail closed: unknown ownership → read-only
+  }
+}
+
 // Get organization settings
 app.get('/api/organizations/:orgId/settings', async (req: Request, res: Response) => {
   try {
@@ -4676,7 +4702,9 @@ app.get('/api/organizations/:orgId/settings', async (req: Request, res: Response
         customSettingsEnabled: ownership.customSettingsEnabled,
         owner: ownership.owner,
         parent: ownership.parent,
+        hasParent: ownership.hasParent,
         canManageCustomSettings: canManage,
+        secretsReadonly: await secretsReadonlyFor(orgId),
       },
     });
   } catch (error) {
@@ -4865,7 +4893,9 @@ app.post('/api/organizations/:orgId/settings/custom', async (req: Request, res: 
       customSettingsEnabled: updated.customSettingsEnabled,
       owner: updated.owner,
       parent: updated.parent,
+      hasParent: updated.hasParent,
       canManageCustomSettings: canManageAfter,
+      secretsReadonly: await secretsReadonlyFor(orgId),
     };
     res.status(200).json({ success: true, data: accessInfo, metadata: accessInfo });
   } catch (error) {
@@ -5075,11 +5105,11 @@ app.get('/api/data-sources', (_req: Request, res: Response) => {
 // ─── Tool-config ownership helpers ────────────────────────────────────────────
 // Tool-config reads follow the SETTINGS owner: an inherited child reads the
 // parent's rows, a custom child its own. The KEY is the exception — api-key
-// test/status resolve the CREDENTIALS owner (keys are always parent-owned;
-// see those routes). Writes are owner-only (inherited
-// children get 403). Membership is always checked against the ORG THE CALLER
-// ASKED FOR — a child member need not be a parent member to see the
-// configuration their own tenant runs on.
+// test/status resolve the CREDENTIALS owner (keys resolve up the chain to the
+// topmost non-root ancestor; see those routes). Writes are owner-only
+// (inherited children get 403). Membership is always checked against the ORG
+// THE CALLER ASKED FOR — a child member need not be a parent member to see
+// the configuration their own tenant runs on.
 
 async function requireToolConfigWriteAccess(
   orgId: string
@@ -5572,8 +5602,9 @@ app.put('/api/organizations/:orgId/tool-configs/:dataSource/:toolId/api-key', as
       return res.status(403).json({ success: false, error: { code: 'FORBIDDEN', message: 'Admin access required' } });
     }
 
-    // API keys are credentials — always parent-owned, even for a child with
-    // custom settings enabled (decision: children never store their own keys).
+    // API keys are credentials — they resolve to the topmost non-root
+    // ancestor (custom settings don't change that; a direct child of Pericles
+    // resolves to itself and owns its keys).
     const keyWriteGate = await checkSecretsWriteAccess(orgId);
     if (keyWriteGate.error) {
       return res.status(keyWriteGate.error.status).json({ success: false, error: { code: keyWriteGate.error.code, message: keyWriteGate.error.message } });
@@ -5724,8 +5755,9 @@ app.post('/api/organizations/:orgId/tool-configs/:dataSource/:toolId/test-api-ke
     }
 
     // Get the API key to test — from the CREDENTIALS owner's stored config.
-    // Keys are parent-owned even when this org runs custom settings, so the
-    // topmost ancestor (not the settings owner) holds the key runtime uses.
+    // Keys resolve up the chain even when this org runs custom settings, so
+    // the topmost non-root ancestor (not the settings owner) holds the key
+    // the runtime uses.
     let testKey = apiKey;
     if (!testKey) {
       // Try to get from stored config or environment
@@ -5912,8 +5944,9 @@ app.get('/api/organizations/:orgId/tool-configs/:dataSource/:toolId/api-key-stat
       return res.status(404).json({ success: false, error: { code: 'NOT_FOUND', message: 'Tool not found' } });
     }
 
-    // Get config from the CREDENTIALS owner — keys are parent-owned even
-    // when this org runs custom settings (membership was checked against the
+    // Get config from the CREDENTIALS owner — keys resolve up the chain even
+    // when this org runs custom settings (topmost non-root ancestor; a direct
+    // child of Pericles resolves to itself; membership was checked against the
     // target; metadata below still describes the settings hierarchy).
     const statusKeyOwner = await resolveCredentialsOwner(orgId, prisma);
     const statusOwnership = await resolveSettingsOwnership(orgId, prisma);
@@ -6907,10 +6940,11 @@ app.get('/api/organizations/:id/dek-status', async (req: Request, res: Response)
 // ─── Secrets Cleanup (corrupted data from KEK mismatch) ──────────────────────
 
 // ─── Secrets ownership helpers ────────────────────────────────────────────────
-// Secrets/API keys are parent-owned: every child (custom settings or not)
-// resolves to its topmost ancestor. Reads require access to that owner — a
-// child-only member must not see parent credentials — and writes are rejected
-// outright for any org that has a parent.
+// Secrets/API keys resolve up the chain: every child (custom settings or
+// not) goes to its topmost non-root ancestor — a direct child of Pericles
+// resolves to itself and owns its keys. Reads require access to that owner —
+// a child-only member must not see parent credentials — and writes are
+// rejected for any org whose credentials owner is above it.
 
 interface SecretsAccessResult {
   ownerId: string;
@@ -6970,7 +7004,9 @@ app.post('/api/organizations/:id/secrets/cleanup', async (req: Request, res: Res
       return;
     }
 
-    // Cleanup is destructive and parent-owned: children can never run it.
+    // Cleanup is destructive and credential-owner gated: it runs only where
+    // this org IS its credentials owner (top-level, or a direct child of
+    // Pericles) — anywhere the chain owns the keys, children can never run it.
     const writeCheck = await checkSecretsWriteAccess(orgId);
     if (writeCheck.error) {
       res.status(writeCheck.error.status).json({ success: false, error: { code: writeCheck.error.code, message: writeCheck.error.message } });

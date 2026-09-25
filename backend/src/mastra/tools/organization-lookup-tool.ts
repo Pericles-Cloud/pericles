@@ -21,7 +21,9 @@ const logger = toolLoggers.organizationLookup;
  * - User says "Check risks for acme.com" → Returns org_id for ACME Corp
  * - User provides UUID → Validates and returns the same UUID
  *
- * Organization Isolation: Returns only organizations the system has access to
+ * Organization Isolation: Returns only organizations the system has access to.
+ * The Pericles root org (is_root) is NEVER returned — it is the platform
+ * manager, not a customer, and must not be resolved as a monitored tenant.
  */
 
 const OrganizationResultSchema = z.object({
@@ -43,6 +45,9 @@ Examples:
 - "Levi Strauss" → Returns organization with matching name
 - "levis.com" → Returns organization with matching email domain
 - "abc-123-..." (UUID format) → Validates and returns the organization
+
+The Pericles root organization ("Pericles, Inc.", is_root) is excluded — it is
+the platform manager, not a customer organization, and is never monitored.
 
 ALWAYS use this tool when the user mentions a company by name before calling any monitoring tools.`,
 
@@ -104,9 +109,9 @@ ALWAYS use this tool when the user mentions a company by name before calling any
       let alternatives: Array<z.infer<typeof OrganizationResultSchema>> = [];
 
       if (effectiveMatchType === 'id') {
-        // Direct ID lookup
-        organization = await prisma.organization.findUnique({
-          where: { id: trimmedQuery },
+        // Direct ID lookup (root org excluded even when its UUID is supplied)
+        organization = await prisma.organization.findFirst({
+          where: { id: trimmedQuery, is_root: false },
           select: {
             id: true,
             name: true,
@@ -125,7 +130,8 @@ ALWAYS use this tool when the user mentions a company by name before calling any
           where: {
             email_domains: {
               has: trimmedQuery.toLowerCase()
-            }
+            },
+            is_root: false
           },
           select: {
             id: true,
@@ -146,7 +152,8 @@ ALWAYS use this tool when the user mentions a company by name before calling any
             name: {
               equals: trimmedQuery,
               mode: 'insensitive'
-            }
+            },
+            is_root: false
           },
           select: {
             id: true,
@@ -167,7 +174,8 @@ ALWAYS use this tool when the user mentions a company by name before calling any
               name: {
                 contains: trimmedQuery,
                 mode: 'insensitive'
-              }
+              },
+              is_root: false
             },
             select: {
               id: true,
