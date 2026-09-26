@@ -26,7 +26,6 @@ export {
   ok,
   err,
   parseSecretRef,
-  buildScopePath,
   validateSecretName,
   validateSecretRef,
 } from './types.js';

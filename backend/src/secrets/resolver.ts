@@ -12,15 +12,12 @@
 import type { 
   SecretsBackend, 
   SecretMetadata, 
-  SecretScope as SecretScopeType,
-  SecretType as SecretTypeType,
   SecretResolutionContext,
   SecretResolutionResult,
-  Result,
 } from './types.js';
 import { SecretScope, SecretType, SecretError } from './types.js';
 import { getSecretsBackend } from './backend.js';
-import { parseSecretRef, buildScopePath, validateSecretRef } from './types.js';
+import { parseSecretRef, validateSecretRef } from './types.js';
 
 export class SecretsResolver {
   private backend: SecretsBackend;
@@ -51,7 +48,7 @@ export class SecretsResolver {
     const { namespace, name } = parsed;
 
     // Build scope paths in fallback order (most specific first)
-    const scopePaths = this.buildScopePaths(namespace, name, context);
+    const scopePaths = this.buildScopePaths(namespace, context);
 
     // Try each scope in order
     for (const { scope, scopeRef, scopePath } of scopePaths) {
@@ -154,13 +151,25 @@ export class SecretsResolver {
    */
   private buildScopePaths(
     namespace: string,
-    name: string,
     context: SecretResolutionContext
   ): Array<{ scope: SecretScope; scopeRef: string | null; scopePath: string }> {
     const paths: Array<{ scope: SecretScope; scopeRef: string | null; scopePath: string }> = [];
 
-    // Base org path
+    // Both backends parse `org/{orgId}[/{scope}[/{scopeRef}]]` (cloak.ts
+    // get/list, vault.ts parseScopePath): the organization id MUST be the
+    // second segment. Paths were previously built without it — org scope as
+    // `org/<secret-name>`, tool/integration as `tool/…`/`integration/…` with
+    // no `org/` prefix — so the backends either treated the secret's name as
+    // an org id or rejected the path outright (INVALID_SCOPE), and every
+    // getOrgSecret call resolved to "not found" — silently skipping monitoring
+    // cycles and reporting keys as unconfigured.
     const orgBase = `org/${context.organizationId}`;
+    // Org-scope reads must use the same `org/{orgId}/{scope}` shape the
+    // secrets routes write with (auth-server.ts POST/PUT/rotate secrets):
+    // Vault embeds the scopePath verbatim in its KV key, so `org/{orgId}`
+    // would read a different key than the writer created. Cloak collapses
+    // both shapes to the same (ORGANIZATION, '') tuple.
+    const orgScopePath = `${orgBase}/organization`;
 
     switch (namespace) {
       case 'tool':
@@ -169,7 +178,7 @@ export class SecretsResolver {
           paths.push({
             scope: SecretScope.TOOL,
             scopeRef: context.toolId,
-            scopePath: buildScopePath(namespace, name, context.toolId),
+            scopePath: `${orgBase}/tool/${context.toolId}`,
           });
         }
         // Fallback to integration scope if tool has integration parent
@@ -177,14 +186,14 @@ export class SecretsResolver {
           paths.push({
             scope: SecretScope.INTEGRATION,
             scopeRef: context.integrationId,
-            scopePath: buildScopePath(namespace, name, context.integrationId),
+            scopePath: `${orgBase}/integration/${context.integrationId}`,
           });
         }
         // Fallback to org scope
         paths.push({
           scope: SecretScope.ORGANIZATION,
           scopeRef: null,
-          scopePath: buildScopePath(namespace, name, undefined),
+          scopePath: orgScopePath,
         });
         break;
 
@@ -194,14 +203,14 @@ export class SecretsResolver {
           paths.push({
             scope: SecretScope.INTEGRATION,
             scopeRef: context.integrationId,
-            scopePath: buildScopePath(namespace, name, context.integrationId),
+            scopePath: `${orgBase}/integration/${context.integrationId}`,
           });
         }
         // Fallback to org scope
         paths.push({
           scope: SecretScope.ORGANIZATION,
           scopeRef: null,
-          scopePath: buildScopePath(namespace, name, undefined),
+          scopePath: orgScopePath,
         });
         break;
 
@@ -210,7 +219,7 @@ export class SecretsResolver {
         paths.push({
           scope: SecretScope.ORGANIZATION,
           scopeRef: null,
-          scopePath: buildScopePath(namespace, name, undefined),
+          scopePath: orgScopePath,
         });
         break;
 
@@ -219,7 +228,7 @@ export class SecretsResolver {
         paths.push({
           scope: SecretScope.ORGANIZATION,
           scopeRef: null,
-          scopePath: buildScopePath('org', namespace + '.' + name, undefined),
+          scopePath: orgScopePath,
         });
     }
 

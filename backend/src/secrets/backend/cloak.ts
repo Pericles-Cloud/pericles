@@ -165,19 +165,6 @@ export class CloakBackend implements SecretsBackend {
     return Buffer.concat([decipher.update(ciphertext), decipher.final()]);
   }
 
-  private buildScopePath(scope: SecretScope, scopeRef: string | null, name: string): string {
-    switch (scope) {
-      case SecretScope.ORGANIZATION:
-        return `org/${name}`;
-      case SecretScope.INTEGRATION:
-        return scopeRef ? `integration/${scopeRef}/${name}` : `integration/${name}`;
-      case SecretScope.TOOL:
-        return scopeRef ? `tool/${scopeRef}/${name}` : `tool/${name}`;
-      default:
-        throw new Error(`Unknown scope: ${scope}`);
-    }
-  }
-
   async get(scopePath: string, name: string): Promise<Result<string, SecretError>> {
     try {
       // Parse scopePath to get organizationId

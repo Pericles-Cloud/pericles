@@ -183,19 +183,6 @@ export function parseSecretRef(ref: string): { namespace: string; name: string }
   };
 }
 
-export function buildScopePath(namespace: string, name: string, scopeRef?: string): string {
-  switch (namespace) {
-    case 'org':
-      return `org/${name}`;
-    case 'integration':
-      return scopeRef ? `integration/${scopeRef}/${name}` : `integration/${name}`;
-    case 'tool':
-      return scopeRef ? `tool/${scopeRef}/${name}` : `tool/${name}`;
-    default:
-      return `${namespace}/${name}`;
-  }
-}
-
 export function validateSecretName(name: string): string | null {
   if (!name || name.length > 256) {
     return 'Secret name must be 1-256 characters';
