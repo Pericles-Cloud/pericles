@@ -5,6 +5,7 @@
 
 import { z } from 'zod';
 import { createScorer } from '@mastra/core/scores';
+import type { ResolvedModel } from '../../monitoring/config.js';
 import { factualityScorer } from './factuality-scorer.js';
 
 /**
@@ -291,3 +292,37 @@ export const monitoringScorers = {
   deduplicationScorer,
   factualityScorer,
 };
+
+/**
+ * Point every scorer judge at the organization's resolved model + key.
+ *
+ * The judges used to hardcode `openai/gpt-4o-mini`, so every tenant cycle's
+ * scoring ran on the platform OPENAI_API_KEY. They now ride the org-scoped
+ * model+key the cycle itself resolved (resolveModel → the org's
+ * `<provider>_api_key` secret), swapped next to `agent.__updateModel` in
+ * runMonitoringCycle: Mastra reads `config.judge.model` when each scorer's
+ * prompt step executes, so mutating it between cycles takes effect for the
+ * next judge call.
+ *
+ * Known window — tracked with the run-lock infra item, NOT covered by
+ * "cycles are sequential": scoring is fire-and-forget (Mastra starts scorers
+ * after agent.generate resolves), and the cycle timeout only loses the
+ * Promise.race while the abandoned agent keeps running. A late or
+ * timeout-started scorer can therefore read the NEXT org's model+key and
+ * bill that tenant for another org's judge calls — no concurrent trigger
+ * needed, sequential multi-org run-once suffices. Closing it needs per-run
+ * scorer instances or aborting the agent at timeout; Mastra has no per-run
+ * judge override (ScorerRun carries no model field).
+ *
+ * The hardcoded `openai/gpt-4o-mini` judge model is in effect only before the
+ * first cycle swaps it; after that an out-of-cycle scorer run (dev
+ * playground) inherits the last cycle's org model.
+ */
+export function updateScorerJudgeModels(model: ResolvedModel): void {
+  const judgeModel = typeof model === 'string' ? { id: model } : model;
+  for (const scorer of Object.values(monitoringScorers)) {
+    if (scorer.config.judge) {
+      scorer.config.judge.model = judgeModel;
+    }
+  }
+}

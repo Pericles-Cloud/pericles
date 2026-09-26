@@ -12,6 +12,7 @@
 
 import type { Prisma } from '@prisma/client';
 import { mastra } from '../mastra/index.js';
+import { updateScorerJudgeModels } from '../mastra/scorers/monitoring-scorer.js';
 import { type MonitoringConfig, type ResolvedModel, resolveModel } from './config.js';
 import { getPrismaClient } from './db-client.js';
 import { logger, createLogger } from './logger.js';
@@ -277,6 +278,8 @@ export async function runMonitoringCycle(
       '[Cycle] Using AI model for monitoring (key resolved per-org)'
     );
     agent.__updateModel({ model: resolvedModel });
+    // Judges ride the same org model+key as the cycle — no platform-key scorer calls.
+    updateScorerJudgeModels(resolvedModel);
 
     emitProgress({
       phase: 'loading_context',

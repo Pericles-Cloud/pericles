@@ -7090,8 +7090,8 @@ app.get('/api/organizations/:id/test-ai', async (req: Request, res: Response) =>
 
     // Try to get the OpenRouter API key from secrets manager. Org-scoped
     // only: no tenant path reads a platform/env AI key (monitoring skips orgs
-    // without one; only the scorer judges still use OPENAI_API_KEY), so testing
-    // must not report success against a key the org will never be billed with.
+    // without one; scorer judges ride the org's key too), so testing must not
+    // report success against a key the org will never be billed with.
     let apiKey: string | null = null;
     let keySource = 'none';
 

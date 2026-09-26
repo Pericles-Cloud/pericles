@@ -15,8 +15,8 @@
  * Tenant AI calls never read the environment: each org's provider/key resolves
  * from its own AI + Secrets settings (org.<provider>_api_key). An org with no
  * key has each cycle skipped with a WARN log until an admin adds one.
- * (Exception: the agent's scorer judges still run on the platform
- * OPENAI_API_KEY — keep it set, known gap.)
+ * Scorer judges ride the same org model+key the cycle resolved, so no
+ * monitoring path reads a platform/env AI key.
  */
 
 import { loadMonitoringConfig, getEnvironmentOverrides } from './config.js';

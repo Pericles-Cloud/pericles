@@ -60,8 +60,9 @@ events flow automatically until that lands.
   (default 15000). Requires `DATABASE_URL`. AI keys are org-scoped only
   (`org.<provider>_api_key` in Secrets, no platform fallback) — an org with
   no key has its cycle skipped with a WARN log (`MissingApiKeyError`).
-  Exception: the monitoring agent's scorer judges still run on the platform
-  `OPENAI_API_KEY` (known gap — keep it set; follow-up to org-key them).
+  The monitoring agent's scorer judges ride the same org model+key each
+  cycle resolved (`updateScorerJudgeModels`, next to `agent.__updateModel`),
+  so no monitoring path reads a platform `OPENAI_API_KEY`.
 - Each cycle writes a `MonitoringAuditLog` (event_type `monitoring_cycle`/`source_fetch`/
   `deduplication`/`error`; counts; duration) — `pericles-observability`.
 - Durable hand-offs (event/incident/notification) go through `MessageQueue`

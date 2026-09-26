@@ -40,8 +40,8 @@ npm run dev:all                # Mastra 4111 + auth/API 4112, on the host
 ```
 
 `OPENAI_API_KEY` is **not** required for tenant LLM calls — each org brings its own
-key in Settings → Secrets, and an org without one is skipped with a log line. Keep it
-set anyway: the monitoring agent's scorer judges still run on it (known gap).
+key in Settings → Secrets, and an org without one is skipped with a log line. The
+scorer judges use the org's key too, so monitoring reads no platform AI key at all.
 Ports and their gotchas (notably that Mastra on 3001 is a local tool, not a
 deployment target) are in `CLAUDE.md` under Service Ports.
 
@@ -65,7 +65,7 @@ expecting it is why "I ran `docker compose up -d` but nothing is on 4111" happen
 
 Every script loads env via `dotenv -e ../.env.local …` from `backend/`, so the
 **canonical env file lives at the repo root**, not inside `backend/`. Required keys
-include `DATABASE_URL`, `OPENAI_API_KEY` (scorer judges only — see above), optional feed keys
+include `DATABASE_URL`, optional feed keys
 (`THENEWSAPI_API_KEY`, `TWITTERAPIIO_API_KEY`, `OPENWEATHER_API_KEY`,
 `MARINETRAFFIC_API_KEY`, …), and runtime knobs (`MONITORING_DEFAULT_INTERVAL_MS`,
 `LOG_LEVEL`). Never commit `.env.local`; never put secrets in any committed file.

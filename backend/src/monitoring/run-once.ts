@@ -23,8 +23,8 @@
  * Tenant AI calls never read the environment: each org's provider/key resolves
  * from its own AI + Secrets settings (org.<provider>_api_key). An org with no
  * key is skipped with a per-org WARN log — it is a configuration state, not a
- * failure. (Exception: the agent's scorer judges still run on the platform
- * OPENAI_API_KEY — keep it set, known gap.)
+ * failure. Scorer judges ride the same org model+key the cycle resolved, so
+ * no monitoring path reads a platform/env AI key.
  *
  * Exit codes: 0 = every cycle succeeded (skips are logged, not failures),
  * 1 = at least one org failed.
