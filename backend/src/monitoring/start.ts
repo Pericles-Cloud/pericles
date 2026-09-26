@@ -9,10 +9,14 @@
  *
  * Environment Variables:
  *   DATABASE_URL - PostgreSQL connection string (required)
- *   OPENAI_API_KEY / OPENROUTER_API_KEY - platform-level fallback keys; each
- *     org's provider/key also resolves from its AI + Secrets settings
  *   MONITORING_DEFAULT_INTERVAL_MS - Polling interval (default: 15000)
  *   LOG_LEVEL - Logging level: debug|info|warn|error (default: info)
+ *
+ * Tenant AI calls never read the environment: each org's provider/key resolves
+ * from its own AI + Secrets settings (org.<provider>_api_key). An org with no
+ * key has each cycle skipped with a WARN log until an admin adds one.
+ * (Exception: the agent's scorer judges still run on the platform
+ * OPENAI_API_KEY — keep it set, known gap.)
  */
 
 import { loadMonitoringConfig, getEnvironmentOverrides } from './config.js';
@@ -41,8 +45,9 @@ function parseArgs(): { organizationId?: string } {
 // ============================================================================
 
 function validateEnvironment(): void {
-  // AI keys resolve per-org (Secrets Manager first, env fallback) — see
-  // monitoring/config.ts resolveAiApiKey. Only the DB is globally required.
+  // AI keys resolve per-org from Secrets Manager (org.<provider>_api_key),
+  // no env fallback — see monitoring/config.ts resolveAiApiKey. Only the DB
+  // is globally required.
   const required = ['DATABASE_URL'];
   const missing = required.filter((key) => !process.env[key]);
 

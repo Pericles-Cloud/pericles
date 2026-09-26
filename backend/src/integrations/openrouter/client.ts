@@ -3,9 +3,10 @@
  *
  * Fetches OpenRouter's public model list and normalizes pricing so the AI
  * Settings "OpenRouter" provider (pericles-admin-portal-ui) can offer free
- * models first, then the rest cheapest-first. Requires `OPENROUTER_API_KEY`
- * — pericles-external-feeds treats every external call as authenticated and
- * timed-out, never anonymous, even for a read-only catalog fetch.
+ * models first, then the rest cheapest-first. Requires the org-scoped
+ * `org.openrouter_api_key` — pericles-external-feeds treats every external
+ * call as authenticated and timed-out, never anonymous, even for a read-only
+ * catalog fetch, and there is no platform/env key fallback.
  */
 
 import type { OpenRouterModel, OpenRouterRawModel } from './types.js';
@@ -14,9 +15,9 @@ import { getOrgSecret } from '../../secrets/index.js';
 const UA = 'Pericles-SupplyChainMonitor/1.0 (contact@pericles.cloud)';
 const MODELS_URL = 'https://openrouter.ai/api/v1/models';
 
-/** Thrown when OPENROUTER_API_KEY is missing — distinct from an upstream/API failure. */
+/** Thrown when the org has no OpenRouter key — distinct from an upstream/API failure. */
 export class OpenRouterConfigError extends Error {
-  constructor(message = 'OPENROUTER_API_KEY not configured') {
+  constructor(message = 'OpenRouter API key not configured for this organization') {
     super(message);
     this.name = 'OpenRouterConfigError';
   }
@@ -27,31 +28,30 @@ function num(v: unknown): number {
   return Number.isFinite(n) ? n : 0;
 }
 
-async function getApiKey(organizationId?: string): Promise<string> {
-  // Try secrets manager first
-  if (organizationId) {
-    try {
-      const key = await getOrgSecret(organizationId, 'openrouter_api_key', false);
-      if (key) return key;
-    } catch {
-      // Fall through to env var
-    }
+async function getApiKey(organizationId: string): Promise<string> {
+  // Org-scoped key only — no env fallback, consistent with monitoring and
+  // Event Q&A: a catalog fetch (or anything else) must not run on the
+  // platform key an org never brought itself.
+  try {
+    const key = await getOrgSecret(organizationId, 'openrouter_api_key', false);
+    if (key) return key;
+  } catch {
+    // Secrets backend unavailable — reported as unconfigured below
   }
-  
-  // Fallback to environment variable
-  const key = process.env.OPENROUTER_API_KEY;
-  if (!key) throw new OpenRouterConfigError();
-  return key;
+
+  throw new OpenRouterConfigError(
+    'No OpenRouter API key configured for this organization (add org.openrouter_api_key in Settings > Secrets)'
+  );
 }
 
 /**
  * Fetch OpenRouter's model catalog, sorted free models first, then by
  * ascending blended price (prompt + completion, per million tokens).
  *
- * @throws {OpenRouterConfigError} when OPENROUTER_API_KEY is not set.
+ * @throws {OpenRouterConfigError} when the org has no openrouter_api_key.
  * @throws {Error} when the OpenRouter API call fails.
  */
-export async function fetchOpenRouterModels(organizationId?: string): Promise<OpenRouterModel[]> {
+export async function fetchOpenRouterModels(organizationId: string): Promise<OpenRouterModel[]> {
   const apiKey = await getApiKey(organizationId);
 
   const response = await fetch(MODELS_URL, {

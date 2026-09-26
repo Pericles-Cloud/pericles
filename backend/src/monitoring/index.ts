@@ -76,6 +76,20 @@ export async function startMonitoring(config: MonitoringConfig): Promise<void> {
       // Sleep for polling interval
       await sleep(config.pollingIntervalMs);
     } catch (error) {
+      // No API key for this org: a configuration state, not a fault. Log the
+      // skip explicitly and keep polling at the normal interval — the loop
+      // must not busy-retry waiting for a key only an admin can add, and must
+      // not be silenced either (the same skip run-once logs per cycle).
+      if ((error as Error)?.name === 'MissingApiKeyError') {
+        cycleLogger.warn(
+          { reason: (error as Error).message },
+          '[Monitoring] Skipped cycle — no API key configured for org'
+        );
+        consecutiveErrors = 0;
+        await sleep(config.pollingIntervalMs);
+        continue;
+      }
+
       const classified = classifyError(error as Error, 'monitoring-loop');
       reportError(classified, 'monitoring-loop', config.organizationId);
 
@@ -750,6 +764,14 @@ export async function runMonitoringCycle(
       eventsPublished: metrics.eventsPublished,
     });
   } catch (error) {
+    // A missing org key is a configuration skip, not a cycle failure — log it
+    // at WARN with the skip wording so run-once/Coolify logs never show an
+    // ERROR for an org that was deliberately not run.
+    if ((error as Error)?.name === 'MissingApiKeyError') {
+      emitProgress({ phase: 'error', message: (error as Error).message });
+      cycleLogger.warn({ reason: (error as Error).message }, '[Cycle] Skipped — no API key configured for org');
+      throw error;
+    }
     emitProgress({
       phase: 'error',
       message: (error as Error).message || 'Monitoring cycle failed',

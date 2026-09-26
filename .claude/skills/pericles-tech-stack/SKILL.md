@@ -32,7 +32,7 @@ file — see the warning below).
 | Agent runtime | **Mastra** | `@mastra/core ^0.24.8`, `@mastra/evals ^0.14.4`, `@mastra/pg ^0.17.10`, `@mastra/memory ^0.15.13`, `@mastra/loggers ^0.10.19`, `@mastra/libsql ^0.16.4` |
 | Persistence | **PostgreSQL** via Prisma | `@prisma/client ^6.12`; `getPostgresStore()` for Mastra storage |
 | Queue / KV | **PostgreSQL** | `MessageQueue` + `KeyValueStore` models; `monitoring/queue-client.ts`. **No Kafka. No Redis.** |
-| AI provider | **OpenAI** | `OPENAI_API_KEY` required; scorer judge `openai/gpt-4o-mini` |
+| AI provider | **OpenAI** (default) / OpenRouter | keys are org-scoped (`org.<provider>_api_key`), no platform fallback — orgs without a key are skipped; scorer judge `openai/gpt-4o-mini` still runs on the platform `OPENAI_API_KEY` (known gap) |
 | Realtime | **socket.io ^4.8** | websocket push to the frontend (not Kafka) |
 | Auth | JWT + bcrypt + Google OAuth | `jsonwebtoken`, `bcrypt`, `google-auth-library` |
 | HTTP | **Express 5** | `express ^5.2` (auth-server) |

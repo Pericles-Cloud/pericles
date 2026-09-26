@@ -3717,68 +3717,79 @@ app.post('/api/events/:id/ask', async (req: Request, res: Response) => {
       `User question: ${escapeForPromptContext(question)}`;
 
     // Resolve the org's configured AI model for this call — effective settings
-    // (an inherited child reads its owner's model config up the chain)
-    let agentModel: `${string}/${string}` | { id: `${string}/${string}`; apiKey: string } | undefined;
+    // (an inherited child reads its owner's model config up the chain).
+    //
+    // The API key is ORG-SCOPED ONLY: `org.<provider>_api_key` on the
+    // credentials owner, no environment fallback (mirrors monitoring's
+    // resolveModel). Without a key we answer 409 instead of falling through
+    // to the agent's default magic-string model, which would resolve a key
+    // from process.env and bill the platform key.
+    let agentModel: { id: `${string}/${string}`; apiKey: string };
     try {
       const { settings: orgSettings } = await getEffectiveSettings(event.organization_id, prisma);
       // API keys are parent-owned even in custom mode — resolve the
       // credentials owner (topmost non-root ancestor; a direct child of
       // Pericles resolves to itself), not the requested org.
       const keysOwnerId = (await resolveCredentialsOwner(event.organization_id, prisma)).id;
-      if (orgSettings?.ai_model_provider && orgSettings?.ai_model_name) {
-        const provider = orgSettings.ai_model_provider;
-        const modelName = orgSettings.ai_model_name;
+      // Default pair matches monitoring's DEFAULT_CONFIG (openai/gpt-4o-mini)
+      // so a settings-less org still needs org.openai_api_key — never env.
+      const provider = orgSettings?.ai_model_provider && orgSettings?.ai_model_name
+        ? orgSettings.ai_model_provider
+        : 'openai';
+      const modelName = orgSettings?.ai_model_name || 'gpt-4o-mini';
 
-        // Resolve API key: Secrets Manager first, then env var fallback
-        const resolveApiKey = async (secretName: string, envName: string): Promise<string> => {
-          try {
-            const { getOrgSecret } = await import('../secrets/index.js');
-            const key = await getOrgSecret(keysOwnerId, secretName, false);
-            if (key) return key;
-          } catch { /* fall through */ }
-          const envKey = process.env[envName];
-          if (!envKey) throw new Error(`${envName} not configured. Add "${secretName}" in Settings > Secrets or set ${envName} environment variable.`);
-          return envKey;
-        };
-
-        // Validate API key is available for the selected provider and ATTACH
-        // it to the model config — a bare string would make Mastra resolve the
-        // key from process.env, silently billing the platform key even when the
-        // org brought its own (Settings > Secrets). Mirrors monitoring's
-        // resolveModel() (monitoring/config.ts).
-        if (provider === 'openrouter') {
-          const apiKey = await resolveApiKey('openrouter_api_key', 'OPENROUTER_API_KEY');
-          if (!modelName.includes('/')) {
-            console.warn(`[EventQA] OpenRouter model name "${modelName}" does not include a provider prefix (e.g., "anthropic/claude-3.5-sonnet")`);
-          }
-          agentModel = { id: `openrouter/${modelName}`, apiKey };
-        } else if (provider === 'openai') {
-          const apiKey = await resolveApiKey('openai_api_key', 'OPENAI_API_KEY');
-          agentModel = { id: `openai/${modelName}`, apiKey };
-        } else {
-          agentModel = `${provider}/${modelName}`;
-        }
+      let apiKey: string | null = null;
+      try {
+        const { getOrgSecret } = await import('../secrets/index.js');
+        apiKey = await getOrgSecret(keysOwnerId, `${provider}_api_key`, false);
+      } catch {
+        // Secrets backend unavailable — treated as "no key" (skip, never env)
       }
+
+      if (!apiKey) {
+        res.status(409).json({
+          success: false,
+          error: {
+            code: 'ORGANIZATION_API_KEY_MISSING',
+            message:
+              `Organization has no API key for provider "${provider}" — ` +
+              `set ${provider}_api_key in Settings > Secrets for this organization (no platform key fallback).`,
+          },
+        });
+        return;
+      }
+
+      // ATTACH the key to the model config — a bare string would make Mastra
+      // resolve the key from process.env, silently billing the platform key.
+      if (provider === 'openrouter' && !modelName.includes('/')) {
+        console.warn(`[EventQA] OpenRouter model name "${modelName}" does not include a provider prefix (e.g., "anthropic/claude-3.5-sonnet")`);
+      }
+      agentModel = {
+        id: provider === 'openrouter' ? `openrouter/${modelName}` : `${provider}/${modelName}`,
+        apiKey,
+      };
     } catch (settingsErr) {
-      // Non-fatal: fall back to agent default if settings lookup fails
-      console.warn('Failed to load AI settings for event Q&A, using agent default:', settingsErr);
+      // Settings lookup itself failed (DB/error) — an explicit 500, not a
+      // silent fall-through to the agent default (that default resolves its
+      // key from process.env, re-opening the platform-key path).
+      console.error('Failed to load AI settings for event Q&A:', settingsErr);
+      res.status(500).json({
+        success: false,
+        error: { code: 'AI_SETTINGS_UNAVAILABLE', message: 'Could not load AI settings for this organization. Please try again.' },
+      });
+      return;
     }
 
     let result;
     try {
       // Create a per-request agent with the org's resolved model to avoid
       // mutating the singleton (unsafe under concurrent requests from different orgs).
-      let qaAgent;
-      if (agentModel) {
-        const baseAgent = mastra.getAgent('eventQaAgent');
-        qaAgent = new Agent({
-          name: 'event-qa-agent',
-          instructions: baseAgent.instructions,
-          model: agentModel,
-        });
-      } else {
-        qaAgent = mastra.getAgent('eventQaAgent');
-      }
+      const baseAgent = mastra.getAgent('eventQaAgent');
+      const qaAgent = new Agent({
+        name: 'event-qa-agent',
+        instructions: baseAgent.instructions,
+        model: agentModel,
+      });
       result = await qaAgent.generate(prompt, {
         structuredOutput: { schema: EventQaAnswerSchema },
         abortSignal: AbortSignal.timeout(EVENT_QA_TIMEOUT_MS),
@@ -4435,16 +4446,28 @@ app.post('/api/monitoring/trigger', async (req: Request, res: Response) => {
       },
     });
   } catch (error) {
-    console.error('Trigger monitoring error:', error);
     // Excluded orgs (root) are a policy refusal — 403, not 500. The class
     // arrives via dynamic import, so match on the error name.
     if ((error as Error)?.name === 'MonitoringExcludedError') {
+      console.warn('[Trigger] Excluded org refused:', (error as Error).message);
       res.status(403).json({
         success: false,
         error: { code: 'ORGANIZATION_EXCLUDED', message: (error as Error).message },
       });
       return;
     }
+    // Org without an API key for its provider: the cycle is skipped by
+    // policy (org-scoped keys only, no platform fallback). 409 — the request
+    // is fine, the org's configuration is what blocks the run.
+    if ((error as Error)?.name === 'MissingApiKeyError') {
+      console.warn('[Trigger] Skipped — no API key configured for org:', (error as Error).message);
+      res.status(409).json({
+        success: false,
+        error: { code: 'ORGANIZATION_SKIPPED', message: (error as Error).message },
+      });
+      return;
+    }
+    console.error('Trigger monitoring error:', error);
     res.status(500).json({
       success: false,
       error: {
@@ -4531,9 +4554,21 @@ app.get('/api/monitoring/trigger-stream', async (req: Request, res: Response) =>
         timestamp: new Date().toISOString(),
       })}\n\n`);
     } catch (error) {
-      console.error('Monitoring cycle error:', error);
+      // Same name-matched codes as the non-streaming trigger: root orgs are
+      // excluded (403 semantics), orgs without a provider key are skipped —
+      // both are policy outcomes logged at WARN, not cycle failures.
+      const errName = (error as Error)?.name;
+      if (errName === 'MonitoringExcludedError' || errName === 'MissingApiKeyError') {
+        console.warn(`[Trigger-stream] ${errName}:`, (error as Error).message);
+      } else {
+        console.error('Monitoring cycle error:', error);
+      }
       res.write(`data: ${JSON.stringify({
         type: 'error',
+        code:
+          errName === 'MonitoringExcludedError' ? 'ORGANIZATION_EXCLUDED'
+          : errName === 'MissingApiKeyError' ? 'ORGANIZATION_SKIPPED'
+          : 'CYCLE_ERROR',
         message: (error as Error).message || 'Monitoring cycle failed',
         timestamp: new Date().toISOString(),
       })}\n\n`);
@@ -4929,7 +4964,7 @@ app.get('/api/organizations/:orgId/settings/ai-models/openrouter', async (req: R
     if (error instanceof OpenRouterConfigError) {
       res.status(500).json({
         success: false,
-        error: { code: 'CONFIG_ERROR', message: 'OpenRouter API key not found. Add "openrouter_api_key" in Settings > Secrets, or set OPENROUTER_API_KEY environment variable.' },
+        error: { code: 'CONFIG_ERROR', message: 'OpenRouter API key not found. Add "openrouter_api_key" in Settings > Secrets for this organization.' },
       });
       return;
     }
@@ -6827,9 +6862,12 @@ app.get('/api/organizations/:id/key-status', async (req: Request, res: Response)
     // owner's keys so an inheriting child reports its parent's key state.
     const keysOwnerId = (await resolveCredentialsOwner(orgId, prisma)).id;
 
-    const checks = [
-      { name: 'openrouter_api_key', envVar: 'OPENROUTER_API_KEY', label: 'OpenRouter API Key' },
-      { name: 'openai_api_key', envVar: 'OPENAI_API_KEY', label: 'OpenAI API Key' },
+    // AI provider keys are org-scoped ONLY (no env fallback in monitoring /
+    // Event Q&A) — an env var must never report "configured" here, or the
+    // Settings UI would promise a working key while cycles get skipped.
+    const checks: Array<{ name: string; label: string; envVar?: string }> = [
+      { name: 'openrouter_api_key', label: 'OpenRouter API Key' },
+      { name: 'openai_api_key', label: 'OpenAI API Key' },
       { name: 'slack_webhook_url', envVar: 'SLACK_WEBHOOK_URL', label: 'Slack Webhook URL' },
     ];
 
@@ -6846,7 +6884,7 @@ app.get('/api/organizations/:id/key-status', async (req: Request, res: Response)
           }
         } catch { /* fall through */ }
 
-        if (!configured && process.env[check.envVar]) {
+        if (!configured && check.envVar && process.env[check.envVar]) {
           source = 'environment_variable';
           configured = true;
         }
@@ -7050,21 +7088,19 @@ app.get('/api/organizations/:id/test-ai', async (req: Request, res: Response) =>
     }
     const keysOwnerId = readAccess.ownerId;
 
-    // Try to get the OpenRouter API key from secrets manager
+    // Try to get the OpenRouter API key from secrets manager. Org-scoped
+    // only: no tenant path reads a platform/env AI key (monitoring skips orgs
+    // without one; only the scorer judges still use OPENAI_API_KEY), so testing
+    // must not report success against a key the org will never be billed with.
     let apiKey: string | null = null;
     let keySource = 'none';
 
     try {
       const { getOrgSecret } = await import('../secrets/index.js');
       apiKey = await getOrgSecret(keysOwnerId, 'openrouter_api_key', false);
-      keySource = 'secrets_manager';
+      if (apiKey) keySource = 'secrets_manager';
     } catch {
-      // Fall through to env var
-    }
-
-    if (!apiKey) {
-      apiKey = process.env.OPENROUTER_API_KEY || null;
-      if (apiKey) keySource = 'environment_variable';
+      // Secrets backend unavailable — reported as not_configured below
     }
 
     if (!apiKey) {
@@ -7072,7 +7108,7 @@ app.get('/api/organizations/:id/test-ai', async (req: Request, res: Response) =>
         success: true,
         data: {
           status: 'not_configured',
-          message: 'No OpenRouter API key found. Add one in Secrets Manager as "openrouter_api_key" or set OPENROUTER_API_KEY environment variable.',
+          message: 'No OpenRouter API key found for this organization. Add one in Secrets Manager as "openrouter_api_key" (Settings > Secrets).',
           keySource: null,
         },
       });

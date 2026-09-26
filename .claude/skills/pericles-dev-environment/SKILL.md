@@ -30,7 +30,7 @@ script; wiring CI; debugging an env-loading or local-Postgres issue.
 In order — `dev:all` fails without steps 1–3:
 
 ```bash
-cp .env.example .env.local     # repo ROOT, not backend/ — then add OPENAI_API_KEY
+cp .env.example .env.local     # repo ROOT, not backend/ — feed keys here; AI keys are per-org (Settings > Secrets)
 docker compose up -d           # Postgres + pgAdmin
 cd backend
 npm install
@@ -39,9 +39,11 @@ npm run prisma:seed            # seed a usable tenant
 npm run dev:all                # Mastra 4111 + auth/API 4112, on the host
 ```
 
-`OPENAI_API_KEY` is required — the agent will not start without it. Ports and their
-gotchas (notably that Mastra on 3001 is a local tool, not a deployment target) are in
-`CLAUDE.md` under Service Ports.
+`OPENAI_API_KEY` is **not** required for tenant LLM calls — each org brings its own
+key in Settings → Secrets, and an org without one is skipped with a log line. Keep it
+set anyway: the monitoring agent's scorer judges still run on it (known gap).
+Ports and their gotchas (notably that Mastra on 3001 is a local tool, not a
+deployment target) are in `CLAUDE.md` under Service Ports.
 
 ## docker-compose services
 
@@ -63,7 +65,7 @@ expecting it is why "I ran `docker compose up -d` but nothing is on 4111" happen
 
 Every script loads env via `dotenv -e ../.env.local …` from `backend/`, so the
 **canonical env file lives at the repo root**, not inside `backend/`. Required keys
-include `DATABASE_URL`, `OPENAI_API_KEY`, optional feed keys
+include `DATABASE_URL`, `OPENAI_API_KEY` (scorer judges only — see above), optional feed keys
 (`THENEWSAPI_API_KEY`, `TWITTERAPIIO_API_KEY`, `OPENWEATHER_API_KEY`,
 `MARINETRAFFIC_API_KEY`, …), and runtime knobs (`MONITORING_DEFAULT_INTERVAL_MS`,
 `LOG_LEVEL`). Never commit `.env.local`; never put secrets in any committed file.

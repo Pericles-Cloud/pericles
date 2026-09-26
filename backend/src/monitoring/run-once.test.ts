@@ -288,13 +288,14 @@ describe('resolveOrganizationIds', () => {
 
 describe('runCycles', () => {
   it('reports no failures when every cycle succeeds', async () => {
-    const failures = await runCycles(['a', 'b'], makeDeps(() => Promise.resolve(metrics())));
+    const { failures, skipped } = await runCycles(['a', 'b'], makeDeps(() => Promise.resolve(metrics())));
 
     expect(failures).toBe(0);
+    expect(skipped).toBe(0);
   });
 
   it('counts a thrown cycle as a failure', async () => {
-    const failures = await runCycles(
+    const { failures } = await runCycles(
       ['a'],
       makeDeps(() => Promise.reject(new Error('boom')))
     );
@@ -313,7 +314,7 @@ describe('runCycles', () => {
       overrides: {},
     };
 
-    const failures = await runCycles(['a', 'b', 'c'], deps);
+    const { failures } = await runCycles(['a', 'b', 'c'], deps);
 
     expect(seen).toEqual(['a', 'b', 'c']);
     expect(failures).toBe(1);
@@ -322,7 +323,7 @@ describe('runCycles', () => {
   it('counts a cycle where every tool failed as a failure, though it did not throw', async () => {
     // The expired-API-key case: the cycle returns normally, detects nothing,
     // and would otherwise leave the scheduled task green forever.
-    const failures = await runCycles(
+    const { failures } = await runCycles(
       ['a'],
       makeDeps(() =>
         Promise.resolve(metrics({ toolsExecuted: 3, toolsSucceeded: 0, toolsFailed: 3 }))
@@ -333,7 +334,7 @@ describe('runCycles', () => {
   });
 
   it('does not count a partial tool failure as a failure', async () => {
-    const failures = await runCycles(
+    const { failures } = await runCycles(
       ['a'],
       makeDeps(() =>
         Promise.resolve(metrics({ toolsExecuted: 3, toolsSucceeded: 1, toolsFailed: 2 }))
@@ -346,7 +347,7 @@ describe('runCycles', () => {
   it('does not count a cycle that ran no tools as a failure', async () => {
     // toolsExecuted === 0 means nothing was attempted (e.g. every source
     // disabled), which is not the same as everything failing.
-    const failures = await runCycles(
+    const { failures } = await runCycles(
       ['a'],
       makeDeps(() => Promise.resolve(metrics({ toolsExecuted: 0, toolsSucceeded: 0, toolsFailed: 0 })))
     );
@@ -359,7 +360,7 @@ describe('runCycles', () => {
     let inFlight = 0;
     let maxInFlight = 0;
 
-    const failures = await runCycles(
+    const { failures } = await runCycles(
       ['a', 'b', 'c'],
       makeDeps(async () => {
         inFlight++;
@@ -377,7 +378,57 @@ describe('runCycles', () => {
   it('returns zero for an empty org list', async () => {
     const runCycle = vi.fn();
 
-    expect(await runCycles([], makeDeps(runCycle))).toBe(0);
+    expect(await runCycles([], makeDeps(runCycle))).toEqual({ failures: 0, skipped: 0 });
     expect(runCycle).not.toHaveBeenCalled();
+  });
+
+  // MissingApiKeyError — the org-only key policy: skip, don't fail -----------
+
+  const missingKey = () => {
+    const error = new Error('no key');
+    error.name = 'MissingApiKeyError';
+    return error;
+  };
+
+  it('skips (does not fail) an org whose provider has no key', async () => {
+    const { failures, skipped } = await runCycles(
+      ['a'],
+      makeDeps(() => Promise.reject(missingKey()))
+    );
+
+    expect(skipped).toBe(1);
+    expect(failures).toBe(0);
+  });
+
+  it('keeps running other orgs after a key skip, and counts each skip', async () => {
+    const seen: string[] = [];
+    const deps: CycleDeps = {
+      loadConfig: (organizationId) => {
+        seen.push(organizationId);
+        return Promise.resolve({ ...CONFIG, organizationId } as MonitoringConfig);
+      },
+      runCycle: (config) =>
+        config.organizationId === 'a' ? Promise.reject(missingKey()) : Promise.resolve(metrics()),
+      overrides: {},
+    };
+
+    const { failures, skipped } = await runCycles(['a', 'b', 'c'], deps);
+
+    expect(seen).toEqual(['a', 'b', 'c']);
+    expect(skipped).toBe(1);
+    expect(failures).toBe(0);
+  });
+
+  it('reports skips and failures separately when both occur', async () => {
+    const deps: CycleDeps = {
+      loadConfig: (organizationId) => Promise.resolve({ ...CONFIG, organizationId } as MonitoringConfig),
+      runCycle: (config) =>
+        config.organizationId === 'skipme'
+          ? Promise.reject(missingKey())
+          : Promise.reject(new Error('boom')),
+      overrides: {},
+    };
+
+    expect(await runCycles(['skipme', 'failme'], deps)).toEqual({ failures: 1, skipped: 1 });
   });
 });

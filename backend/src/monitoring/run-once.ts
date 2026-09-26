@@ -18,13 +18,16 @@
  *
  * Environment Variables:
  *   DATABASE_URL   - PostgreSQL connection string (required)
- *   OPENAI_API_KEY / OPENROUTER_API_KEY - platform-level fallback keys; each
- *     org's provider/key also resolves from its AI + Secrets settings, so a
- *     global key is no longer required (orgs without any key fail loudly,
- *     per-org)
  *   LOG_LEVEL      - debug|info|warn|error (default: info)
  *
- * Exit codes: 0 = every cycle succeeded, 1 = at least one org failed.
+ * Tenant AI calls never read the environment: each org's provider/key resolves
+ * from its own AI + Secrets settings (org.<provider>_api_key). An org with no
+ * key is skipped with a per-org WARN log — it is a configuration state, not a
+ * failure. (Exception: the agent's scorer judges still run on the platform
+ * OPENAI_API_KEY — keep it set, known gap.)
+ *
+ * Exit codes: 0 = every cycle succeeded (skips are logged, not failures),
+ * 1 = at least one org failed.
  */
 
 import { realpathSync } from 'node:fs';
@@ -62,10 +65,11 @@ export function parseArgs(argv: string[] = process.argv.slice(2)): Args {
 }
 
 async function validateEnvironment(): Promise<void> {
-  // Only DATABASE_URL is global: the AI key is resolved PER ORG from its
-  // Secrets Manager entries (org.<provider>_api_key) with the env var as a
-  // platform-level fallback — requiring OPENAI_API_KEY here would block every
-  // OpenRouter-configured org on a key they never use.
+  // Only DATABASE_URL is global. The AI key is resolved PER ORG from its
+  // Secrets Manager entries (org.<provider>_api_key) with NO env fallback —
+  // requiring OPENAI_API_KEY here would block every OpenRouter-configured
+  // org on a key they never use, and an org without a key is skipped per
+  // cycle rather than failing the whole run.
   const missing = ['DATABASE_URL'].filter((key) => !process.env[key]);
 
   if (missing.length > 0) {
@@ -189,11 +193,23 @@ export interface CycleDeps {
   overrides: Partial<MonitoringConfig>;
 }
 
+export interface CycleSummary {
+  /** Orgs whose cycle ran but reported failure (or every tool failed). */
+  failures: number;
+  /** Orgs skipped because no API key is configured for their provider. */
+  skipped: number;
+}
+
 /**
- * Run one cycle per organization; return how many failed.
+ * Run one cycle per organization; return how many failed vs. were skipped.
  *
  * Sequential on purpose: cycles fan out to the same rate-limited external
  * feeds, so running every tenant concurrently would trip upstream limits.
+ *
+ * MissingApiKeyError is a skip, not a failure: a tenant that has not brought
+ * a key yet is a known configuration state. It is logged per org (WARN) so
+ * the run never goes silently green, and counted separately from cycles that
+ * actually ran and broke.
  *
  * `deps` is injectable for tests — the real ones reach OpenAI and every
  * monitoring feed.
@@ -205,8 +221,9 @@ export async function runCycles(
     runCycle: runMonitoringCycle,
     overrides: getEnvironmentOverrides(),
   }
-): Promise<number> {
+): Promise<CycleSummary> {
   let failures = 0;
+  let skipped = 0;
 
   for (const organizationId of organizationIds) {
     try {
@@ -245,13 +262,23 @@ export async function runCycles(
         '[RunOnce] Cycle complete'
       );
     } catch (error) {
+      // Skip (not fail) orgs that have no key for their provider — the fix
+      // is configuration, not code. Keep going either way: one tenant's bad
+      // config must not starve the others.
+      if ((error as Error)?.name === 'MissingApiKeyError') {
+        skipped++;
+        logger.warn(
+          { organizationId, reason: (error as Error).message },
+          '[RunOnce] Skipped cycle — no API key configured for org'
+        );
+        continue;
+      }
       failures++;
-      // Keep going: one tenant's bad config must not starve the others.
       logger.error({ error, organizationId }, '[RunOnce] Cycle failed');
     }
   }
 
-  return failures;
+  return { failures, skipped };
 }
 
 /**
@@ -308,14 +335,25 @@ async function main(): Promise<void> {
 
   logger.info({ organizationCount: organizationIds.length }, '[RunOnce] Starting cycle');
 
-  const failures = await runCycles(organizationIds);
+  const { failures, skipped } = await runCycles(organizationIds);
 
   if (failures > 0) {
     logger.error(
-      { failures, total: organizationIds.length },
+      { failures, skipped, total: organizationIds.length },
       '[RunOnce] Finished with failures'
     );
     await shutdown(1);
+  }
+
+  if (skipped > 0) {
+    // Skips are configuration, not faults: exit 0 so a tenant without a key
+    // does not page anyone, but log at WARN with the count so a run that did
+    // no work is never indistinguishable from a run that succeeded.
+    logger.warn(
+      { skipped, total: organizationIds.length },
+      '[RunOnce] Finished — organizations skipped (no API key configured)'
+    );
+    await shutdown(0);
   }
 
   logger.info({ total: organizationIds.length }, '[RunOnce] All cycles succeeded');

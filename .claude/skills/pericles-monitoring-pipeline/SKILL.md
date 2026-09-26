@@ -57,7 +57,11 @@ events flow automatically until that lands.
 - Standalone process: `npm run monitoring:start -- --organization-id=<uuid>`
   (`monitoring/start.ts` → `startMonitoring`/`stopMonitoring`); config via
   `loadMonitoringConfig` + env overrides; interval `MONITORING_DEFAULT_INTERVAL_MS`
-  (default 15000). Requires `DATABASE_URL`, `OPENAI_API_KEY`.
+  (default 15000). Requires `DATABASE_URL`. AI keys are org-scoped only
+  (`org.<provider>_api_key` in Secrets, no platform fallback) — an org with
+  no key has its cycle skipped with a WARN log (`MissingApiKeyError`).
+  Exception: the monitoring agent's scorer judges still run on the platform
+  `OPENAI_API_KEY` (known gap — keep it set; follow-up to org-key them).
 - Each cycle writes a `MonitoringAuditLog` (event_type `monitoring_cycle`/`source_fetch`/
   `deduplication`/`error`; counts; duration) — `pericles-observability`.
 - Durable hand-offs (event/incident/notification) go through `MessageQueue`

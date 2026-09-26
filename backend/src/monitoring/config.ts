@@ -316,14 +316,31 @@ export type ResolvedModel =
   | { id: `${string}/${string}`; apiKey: string };
 
 /**
+ * The organization has no API key for its selected provider. Callers map
+ * this to a skip: run-once logs and continues (a tenant without a key is a
+ * known configuration state, not a fault), the trigger endpoint answers 409.
+ * The message names the secret to add — there is deliberately no environment
+ * fallback, so the fix is always "bring a key", never "set a platform key".
+ */
+export class MissingApiKeyError extends Error {
+  constructor(organizationId: string, provider: string) {
+    super(
+      `Organization ${organizationId} has no API key for provider "${provider}" — ` +
+        `set ${provider}_api_key in Settings > Secrets for this organization (no platform key fallback)`
+    );
+    this.name = 'MissingApiKeyError';
+  }
+}
+
+/**
  * Resolve the API key for an organization's AI provider.
  *
- * Order: org-scoped Secrets Manager entry (`org.<provider>_api_key`) first,
- * then the platform-level environment variable. Mirrors the Event Q&A
- * resolution in auth-server.ts — the monitoring cron must honor the same
- * per-org keys, since tenants can bring their own provider credentials.
+ * Org-scoped Secrets Manager entry only (`org.<provider>_api_key`), with no
+ * environment fallback: an LLM call must never bill a platform key that
+ * Pericles holds for itself. Mirrors the Event Q&A resolution in
+ * auth-server.ts so the monitoring cron and the chat surface agree.
  *
- * @returns the key, or null when neither source has one
+ * @returns the key, or null when the org has none
  */
 export async function resolveAiApiKey(organizationId: string, provider: string): Promise<string | null> {
   const secretName = `${provider}_api_key`;
@@ -332,9 +349,10 @@ export async function resolveAiApiKey(organizationId: string, provider: string):
     const secretKey = await getOrgSecret(organizationId, secretName, false);
     if (secretKey) return secretKey;
   } catch {
-    // Secrets backend unavailable/unconfigured — fall through to env
+    // Secrets backend unavailable/unconfigured — treated as "no key" so the
+    // cycle is skipped rather than silently re-billed to the platform env.
   }
-  return process.env[`${provider.toUpperCase()}_API_KEY`] || null;
+  return null;
 }
 
 /**
@@ -344,12 +362,12 @@ export async function resolveAiApiKey(organizationId: string, provider: string):
  * OpenAI models use `openai/<model-id>`.
  *
  * The org's API key is attached as a config object, so a tenant bringing its
- * own OpenRouter/OpenAI key (Settings → Secrets) is billed to their account,
- * not the platform env key. Falls back to the platform env key when no org
- * secret exists.
+ * own OpenRouter/OpenAI key (Settings → Secrets) is billed to their account.
+ * There is no platform/env key fallback: without an org key this throws
+ * MissingApiKeyError, which callers treat as a skip.
  *
- * @returns ResolvedModel usable as Mastra's model (string or {id, apiKey})
- * @throws Error when no key is available for the org's selected provider
+ * @returns ResolvedModel usable as Mastra's model (config object with apiKey)
+ * @throws MissingApiKeyError when the org's credentials owner has no key for the selected provider
  */
 export async function resolveModel(config: MonitoringConfig): Promise<ResolvedModel> {
   const { provider, modelName } = config.ai;
@@ -357,9 +375,9 @@ export async function resolveModel(config: MonitoringConfig): Promise<ResolvedMo
   // API keys are parent-owned (settings-resolution invariant): read from the
   // topmost non-root ancestor even when this org runs on custom settings (a
   // direct child of Pericles resolves to itself). If the hierarchy cannot be
-  // read right now, fall back to the requested org — key resolution still
-  // reaches env defaults, and a monitoring cycle whose
-  // DB is down fails before it ever gets here.
+  // read right now, fall back to the requested org — the cycle will then
+  // resolve the key against the org itself (or skip if it has none), and a
+  // monitoring cycle whose DB is down fails before it ever gets here.
   let keysOrgId = config.organizationId;
   try {
     keysOrgId = (await resolveCredentialsOwner(config.organizationId, getPrismaClient())).id;
@@ -368,10 +386,7 @@ export async function resolveModel(config: MonitoringConfig): Promise<ResolvedMo
   }
   const apiKey = await resolveAiApiKey(keysOrgId, provider);
   if (!apiKey) {
-    const envName = `${provider.toUpperCase()}_API_KEY`;
-    const errorMsg = `AI provider "${provider}" selected for org ${config.organizationId} but no API key is configured. Add "${provider}_api_key" in Settings > Secrets or set the ${envName} environment variable and redeploy.`;
-    console.error(`[Config] ${errorMsg}`);
-    throw new Error(errorMsg);
+    throw new MissingApiKeyError(config.organizationId, provider);
   }
 
   const id: `${string}/${string}` =

@@ -44,8 +44,8 @@ Set these as container env vars (never commit them; see `.claude/rules/14-env-fi
 | `DATABASE_URL` | pericles DB (pooled if serverless Postgres) |
 | `MASTRA_DATABASE_URL` | mastra DB |
 | `JWT_SECRET`, `JWT_REFRESH_SECRET` | distinct, long random strings |
-| `OPENAI_API_KEY` | platform fallback for the OpenAI provider — orgs can bring their own key via Settings → Secrets (`openai_api_key`) |
-| `OPENROUTER_API_KEY` | platform fallback for the OpenRouter provider (AI Settings) — org-scoped `openrouter_api_key` wins when set |
+| `OPENAI_API_KEY` | **keep set — scorer judges only.** Tenant LLM calls (monitoring agent, Event Q&A) never read it: they use the org-scoped `org.openai_api_key` (Settings → Secrets), and an org without one is **skipped** with a per-org log line. The monitoring agent's scorer judges still run on this platform key (2–4 judge calls/cycle) — known gap, follow-up to org-key them; removing the env var does not stop monitoring, it makes scorer runs log failures |
+| `OPENROUTER_API_KEY` | no longer read anywhere — AI Settings, the model catalog, and test-connection all use `org.openrouter_api_key` only; safe to remove |
 | `CORS_ORIGINS` | `https://<your-frontend>.vercel.app` (comma-separated; also gates socket.io) |
 | `FRONTEND_URL` | `https://<your-frontend>.vercel.app` (OAuth redirects) |
 | `GOOGLE_MAPS_API_KEY` | BOL geocoding |

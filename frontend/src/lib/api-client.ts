@@ -1369,7 +1369,7 @@ export interface OpenRouterModel {
 
 /**
  * Get the OpenRouter model catalog for the AI provider picker. Fails with a
- * CONFIG_ERROR if the server has no OPENROUTER_API_KEY configured.
+ * CONFIG_ERROR if the organization has no `openrouter_api_key` in Settings > Secrets.
  */
 export async function getOpenRouterModels(
   orgId: string
