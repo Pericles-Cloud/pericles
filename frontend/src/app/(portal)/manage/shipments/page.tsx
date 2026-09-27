@@ -90,8 +90,8 @@ export default function ShipmentsPage() {
 
     const fetchData = async () => {
       const [shipmentsRes, suppliersRes, carriersRes] = await Promise.all([
-        getShipments(currentOrganization.id),
-        getSuppliers(),
+        getShipments(currentOrganization.id, { includeSubsidiaries: true }),
+        getSuppliers({ organizationId: currentOrganization.id, includeSubsidiaries: true }),
         getCarriers(),
       ]);
 
@@ -101,7 +101,10 @@ export default function ShipmentsPage() {
         setShipments(shipmentsRes.data);
       }
       if (suppliersRes.success && suppliersRes.data) {
-        setSuppliers(suppliersRes.data.filter(s => s.organizationId === currentOrganization.id));
+        // Already scoped to the org's subtree by the server — the previous
+        // own-org-only filter emptied the list (and the supplier dropdowns)
+        // for any parent/root view, which owns no rows of its own.
+        setSuppliers(suppliersRes.data);
       }
       if (carriersRes.success && carriersRes.data) {
         setCarriers(carriersRes.data);

@@ -73,7 +73,10 @@ export default function SuppliersPage() {
 
     const fetchData = async () => {
       const [suppliersRes, orgsRes] = await Promise.all([
-        getSuppliers(),
+        // Scope to the selected org + its subsidiaries — without this the page
+        // fell back to the caller's memberships (root users: the root org,
+        // which owns no suppliers) and always rendered empty.
+        getSuppliers({ organizationId: currentOrganization?.id, includeSubsidiaries: true }),
         getOrganizations(),
       ]);
 
