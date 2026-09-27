@@ -7,6 +7,7 @@
  */
 
 import type { PrismaClient } from '@prisma/client';
+import { collectSubtreeIds } from '../../organizations/org-tree.js';
 import type { ShipmentPositionFeed, TrackingConfig, PositionUpdate } from './types.js';
 import { MockPositionFeed } from './mock-feed.js';
 
@@ -73,19 +74,21 @@ export function getPositionFeed(config: TrackingConfig = loadTrackingConfig()): 
 
 /**
  * Vessel positions for an organization, optionally rolled up across its branded
- * subsidiaries (direct child orgs). Each PositionUpdate is tagged with its owning
- * organization (id + name) so Atlas can color and legend per subsidiary. The
- * caller is responsible for authorizing access to `organizationId`.
+ * subsidiaries (the FULL subtree below it — shared descendant-walk, grandchildren
+ * included). Each PositionUpdate is tagged with its owning organization (id +
+ * name) so Atlas can color and legend per subsidiary. The caller is responsible
+ * for authorizing access to `organizationId`.
  */
 export async function getOrganizationPositions(
   prisma: PrismaClient,
   organizationId: string,
   options: { includeSubsidiaries?: boolean } = {},
 ): Promise<PositionUpdate[]> {
+  const orgIds = options.includeSubsidiaries
+    ? await collectSubtreeIds(organizationId, prisma)
+    : [organizationId];
   const orgs = await prisma.organization.findMany({
-    where: options.includeSubsidiaries
-      ? { OR: [{ id: organizationId }, { parent_organization_id: organizationId }] }
-      : { id: organizationId },
+    where: { id: { in: orgIds } },
     select: { id: true, name: true },
   });
   const nameById = new Map(orgs.map((o) => [o.id, o.name]));

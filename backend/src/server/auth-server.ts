@@ -49,6 +49,7 @@ import {
   MAX_SETTINGS_HIERARCHY_DEPTH,
   type SettingsOwnership,
 } from '../organizations/settings-resolution.js';
+import { collectSubtreeIds } from '../organizations/org-tree.js';
 import { fetchOpenRouterModels, OpenRouterConfigError } from '../integrations/openrouter/client.js';
 import { OAuth2Client } from 'google-auth-library';
 import { createWorkflowExecutionService, type ExecutionMode as WorkflowExecutionMode } from '../workflow/index.js';
@@ -2272,14 +2273,10 @@ app.get('/api/suppliers', async (req: Request, res: Response) => {
         res.status(403).json({ success: false, error: { code: 'FORBIDDEN', message: 'Access denied to this organization' } });
         return;
       }
-      orgIds = [organizationId];
-      if (req.query.includeSubsidiaries === 'true') {
-        const children = await prisma.organization.findMany({
-          where: { parent_organization_id: organizationId },
-          select: { id: true },
-        });
-        orgIds.push(...children.map((c) => c.id));
-      }
+      orgIds =
+        req.query.includeSubsidiaries === 'true'
+          ? await collectSubtreeIds(organizationId, prisma)
+          : [organizationId];
     } else {
       const memberships = await prisma.userOrganization.findMany({
         where: { user_id: tokenPayload.userId, status: 'active' },
@@ -2813,14 +2810,11 @@ app.get('/api/shipments', async (req: Request, res: Response) => {
 
     // Roll up across branded subsidiaries when requested (?includeSubsidiaries=true)
     // so a parent org's stats/lines reflect its whole fleet, like the live layer.
-    const orgIds = [organizationId];
-    if (req.query.includeSubsidiaries === 'true') {
-      const children = await prisma.organization.findMany({
-        where: { parent_organization_id: organizationId },
-        select: { id: true },
-      });
-      orgIds.push(...children.map((c) => c.id));
-    }
+    // Full subtree — a one-level expansion missed grandchildren in deeper trees.
+    const orgIds =
+      req.query.includeSubsidiaries === 'true'
+        ? await collectSubtreeIds(organizationId, prisma)
+        : [organizationId];
 
     const shipments = await prisma.shipment.findMany({
       where: { organization_id: { in: orgIds } },
@@ -2912,15 +2906,12 @@ app.get('/api/intelligence/country-risk', async (req: Request, res: Response) =>
       return;
     }
 
-    const orgIds = [organizationId];
     // 'false' is a truthy string — compare explicitly, as the other endpoints do.
-    if (includeSubsidiaries === 'true') {
-      const children = await prisma.organization.findMany({
-        where: { parent_organization_id: organizationId },
-        select: { id: true },
-      });
-      orgIds.push(...children.map((c) => c.id));
-    }
+    // Full subtree via the shared descendant-walk (grandchildren included).
+    const orgIds =
+      includeSubsidiaries === 'true'
+        ? await collectSubtreeIds(organizationId, prisma)
+        : [organizationId];
 
     const [supplierRows, shipmentRows] = await Promise.all([
       prisma.$queryRaw<Array<{ country: string; country_code: string | null; supplier_count: number }>>(
@@ -3438,22 +3429,14 @@ app.get('/api/events', async (req: Request, res: Response) => {
     // Optional subsidiary rollup, matching the sibling endpoints. Atlas draws
     // suppliers and shipments rolled up across subsidiaries; without this the
     // events feed beside them would be scoped to the parent org alone and read
-    // as empty.
-    //
-    // Known limitation, shared verbatim with /api/suppliers and /api/shipments:
-    // this is ONE level (direct children only), while checkOrganizationAccess
-    // above grants access across the full ancestor chain. In an org tree deeper
-    // than two levels a grandparent-org user is authorised to read a
-    // grandchild's events but will not see them rolled up here. Fixing it means
-    // a shared descendant-walk used by all three endpoints, not a change here.
-    const orgIds = [organizationId];
-    if (req.query.includeSubsidiaries === 'true') {
-      const children = await prisma.organization.findMany({
-        where: { parent_organization_id: organizationId },
-        select: { id: true },
-      });
-      orgIds.push(...children.map((c) => c.id));
-    }
+    // as empty. Full descendant walk (shared with /api/suppliers, /api/shipments,
+    // country-risk and the positions feed): the previous one-level expansion
+    // stopped at direct children, which in the prod tree (root → parent →
+    // branded children) missed every event — they all live on the children.
+    const orgIds =
+      req.query.includeSubsidiaries === 'true'
+        ? await collectSubtreeIds(organizationId, prisma)
+        : [organizationId];
 
     // Build query filters
     const where: Prisma.EventWhereInput = { organization_id: { in: orgIds } };

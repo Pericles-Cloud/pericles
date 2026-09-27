@@ -38,20 +38,30 @@ describe('getPositionFeed', () => {
 });
 
 describe('getOrganizationPositions (subsidiary rollup)', () => {
-  const orgs = [
-    { id: 'parent', name: 'Helios' },
-    { id: 'subA', name: 'Sun Hydraulics' },
-    { id: 'subB', name: 'Faster' },
+  // Full tree incl. parent links: the rollup now walks the whole subtree
+  // (collectSubtreeIds reads findMany with no where) before the id-scoped org
+  // lookup (where.id.in) and the shipment query.
+  const tree = [
+    { id: 'parent', name: 'Helios', parent_organization_id: null },
+    { id: 'subA', name: 'Sun Hydraulics', parent_organization_id: 'parent' },
+    { id: 'subB', name: 'Faster', parent_organization_id: 'parent' },
+    { id: 'grandchild', name: 'Balboa Water Group', parent_organization_id: 'subA' },
   ];
   const shipments = [
     { id: 'shipA', organization_id: 'subA', vessel_name: 'V1', departure_port: null, destination_port: 'Sarasota', destination_latitude: 27.3, destination_longitude: -82.5, arrival_date: null, estimated_arrival_date: null, supplier: { name: 'S', latitude: 31.23, longitude: 121.47 } },
     { id: 'shipB', organization_id: 'subB', vessel_name: 'V2', departure_port: null, destination_port: 'Maumee', destination_latitude: 41.5, destination_longitude: -83.6, arrival_date: null, estimated_arrival_date: null, supplier: { name: 'S2', latitude: 45.46, longitude: 9.19 } },
+    { id: 'shipG', organization_id: 'grandchild', vessel_name: 'V3', departure_port: null, destination_port: 'Rotterdam', destination_latitude: 51.92, destination_longitude: 4.48, arrival_date: null, estimated_arrival_date: null, supplier: { name: 'S3', latitude: 52.37, longitude: 4.9 } },
   ];
   const prisma = {
     organization: {
-      findMany: vi.fn(({ where }: { where: { OR?: unknown; id?: string } }) =>
-        Promise.resolve(where.OR ? orgs : orgs.filter((o) => o.id === where.id)),
-      ),
+      findMany: vi.fn(({ where }: { where?: { id?: { in: string[] } } }) => {
+        if (!where) return Promise.resolve(tree); // subtree walk
+        if (where.id?.in) {
+          const ids = where.id.in;
+          return Promise.resolve(tree.filter((o) => ids.includes(o.id)));
+        }
+        return Promise.resolve(tree.filter((o) => o.id === (where as { id?: string }).id));
+      }),
     },
     shipment: {
       findMany: vi.fn(({ where }: { where: { organization_id: { in: string[] } } }) =>
@@ -64,10 +74,13 @@ describe('getOrganizationPositions (subsidiary rollup)', () => {
     const positions = await getOrganizationPositions(prisma as unknown as PrismaClient, 'parent', {
       includeSubsidiaries: true,
     });
-    expect(positions).toHaveLength(2);
+    expect(positions).toHaveLength(3);
     const byShip = Object.fromEntries(positions.map((p) => [p.shipmentId, p]));
     expect(byShip.shipA.organizationName).toBe('Sun Hydraulics');
     expect(byShip.shipA.organizationId).toBe('subA');
     expect(byShip.shipB.organizationName).toBe('Faster');
+    // Grandchild org (data lives two levels down in prod) rolls up too.
+    expect(byShip.shipG.organizationName).toBe('Balboa Water Group');
+    expect(byShip.shipG.organizationId).toBe('grandchild');
   });
 });
