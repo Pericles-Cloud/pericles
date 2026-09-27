@@ -98,7 +98,53 @@ interface MapPin {
 
 type TimelinessFilter = 'all' | 'active' | 'completed';
 type MapType = 'roadmap' | 'hybrid';
-type EventTypeFilter = 'all' | 'conflict' | 'political-violence' | 'strike' | 'weather' | 'financial' | 'generic';
+// 'all' or an exact stored Event.type (armed_conflict, maritime_event, …) —
+// chips are derived from the data (see `eventTypes`), never hardcoded.
+type EventTypeFilter = string;
+
+/** 'armed_conflict' → 'Armed Conflict' (chip labels, InfoWindow). */
+function formatEventType(type: string): string {
+  return type.replace(/_/g, ' ').replace(/\b\w/g, (c) => c.toUpperCase());
+}
+
+// Marker colors keyed by the types the pipeline ACTUALLY stores. The old
+// map only knew the hardcoded chip vocabulary (conflict/political-violence/…),
+// so nearly every real pin fell through to grey — GH #70.
+const EVENT_TYPE_COLORS: Record<string, string> = {
+  conflict: '#EF4444',
+  armed_conflict: '#EF4444',
+  geopolitical_conflict: '#EF4444',
+  'political-violence': '#F97316',
+  terrorist_attack: '#F97316',
+  military_action: '#F97316',
+  coup: '#F97316',
+  protest: '#F97316',
+  strike: '#F59E0B',
+  labor_action: '#F59E0B',
+  weather: '#3B82F6',
+  weather_alert: '#3B82F6',
+  wildfire: '#3B82F6',
+  health_emergency: '#3B82F6',
+  maritime_event: '#14B8A6',
+  piracy: '#14B8A6',
+  route_disruption: '#14B8A6',
+  port_closure: '#14B8A6',
+  container_shortage: '#14B8A6',
+  financial: '#10B981',
+  sanctions: '#10B981',
+  tariff: '#10B981',
+  trade_policy: '#10B981',
+  trade_war: '#10B981',
+  vulnerability: '#A855F7',
+  cyberattack: '#A855F7',
+  flood: '#3B82F6',
+  earthquake: '#3B82F6',
+  typhoon: '#3B82F6',
+  pandemic: '#3B82F6',
+  economic_crisis: '#10B981',
+  trade_restriction: '#10B981',
+  generic: '#6B7280',
+};
 
 export default function AtlasPage() {
   const { currentOrganization } = useAuth();
@@ -125,6 +171,11 @@ export default function AtlasPage() {
   // permanently (GH #68).
   const [isLegendOpen, setIsLegendOpen] = useState(false);
   const [eventTypeFilter, setEventTypeFilter] = useState<EventTypeFilter>('all');
+  // Event marker click target (GH #70) — stored as an ID and DERIVED from
+  // `events`, mirroring selectedPin (page precedent #11): an org switch or
+  // filter that removes the event auto-closes the window instead of leaving a
+  // stale object on screen.
+  const [selectedEventId, setSelectedEventId] = useState<string | null>(null);
   // Shared geocoder for the location search box. A supplier-city reverse
   // geocode used to live here too (GH #11) but was removed when the origin pin
   // became the Port of Origin (GH #9) — origin pins are ports, whose names come
@@ -179,7 +230,7 @@ export default function AtlasPage() {
       const [shipmentsRes, suppliersRes, eventsRes] = await Promise.all([
         getShipments(currentOrganization.id, { includeSubsidiaries: true }),
         getSuppliers({ organizationId: currentOrganization.id, includeSubsidiaries: true }),
-        getEvents({ organizationId: currentOrganization.id, limit: 50, includeSubsidiaries: true }),
+        getEvents({ organizationId: currentOrganization.id, limit: 100, includeSubsidiaries: true }),
       ]);
       if (!isMounted) return;
       if (shipmentsRes.success && shipmentsRes.data) setShipments(shipmentsRes.data);
@@ -330,6 +381,30 @@ export default function AtlasPage() {
     [mapPins, selectedPinId]
   );
 
+  // Chip vocabulary DERIVED from what the pipeline actually stores
+  // (armed_conflict, maritime_event, vulnerability, …), most-frequent first.
+  // The old hardcoded list (conflict/political-violence/weather/…) matched
+  // almost none of the real type strings, so every chip emptied both the map
+  // and the feed — GH #70.
+  const eventTypes = useMemo(() => {
+    const counts = new Map<string, number>();
+    for (const e of events) counts.set(e.type, (counts.get(e.type) ?? 0) + 1);
+    return [...counts.entries()]
+      .sort((a, b) => b[1] - a[1])
+      .slice(0, 8)
+      .map(([type]) => type);
+  }, [events]);
+
+  const selectedEvent = useMemo(
+    () => (selectedEventId ? (events.find((e) => e.id === selectedEventId) ?? null) : null),
+    [events, selectedEventId]
+  );
+
+  // A selected chip whose type vanishes (org switch) degrades to All — derived,
+  // not an effect that setStates (react-hooks lint + no cascade render).
+  const effectiveTypeFilter: EventTypeFilter =
+    eventTypeFilter === 'all' || eventTypes.includes(eventTypeFilter) ? eventTypeFilter : 'all';
+
   const openEvents = useMemo(
     () => {
       let filtered = events.filter(
@@ -337,13 +412,13 @@ export default function AtlasPage() {
       );
 
       // Filter by event type
-      if (eventTypeFilter !== 'all') {
-        filtered = filtered.filter((e) => e.type === eventTypeFilter);
+      if (effectiveTypeFilter !== 'all') {
+        filtered = filtered.filter((e) => e.type === effectiveTypeFilter);
       }
 
       return filtered.slice(0, 10);
     },
-    [events, eventTypeFilter],
+    [events, effectiveTypeFilter],
   );
 
   // Stats reflect the org's actual (subsidiary-rolled-up) data, not just the pins
@@ -359,7 +434,8 @@ export default function AtlasPage() {
   const handleMapClick = useCallback(() => {
     setSelectedPinId(null);
     setSelectedRoute(null);
-  }, [setSelectedPinId, setSelectedRoute]);
+    setSelectedEventId(null);
+  }, [setSelectedPinId, setSelectedRoute, setSelectedEventId]);
 
   // Location search (§3.1.1): geocode the query and recenter the map.
   const handleSearch = useCallback(
@@ -472,15 +548,18 @@ export default function AtlasPage() {
           </div>
 
           {/* Event type filter */}
-          <div className="flex items-center gap-1">
-            {(['all', 'conflict', 'political-violence', 'strike', 'weather', 'financial', 'generic'] as const).map((f) => (
+          <div className="flex flex-wrap items-center gap-1">
+            {['all', ...eventTypes].map((f) => (
               <Button
                 key={f}
                 size="sm"
-                variant={eventTypeFilter === f ? 'default' : 'outline'}
-                onClick={() => setEventTypeFilter(f as EventTypeFilter)}
+                variant={effectiveTypeFilter === f ? 'default' : 'outline'}
+                onClick={() => {
+                  setEventTypeFilter(f);
+                  setSelectedEventId(null);
+                }}
               >
-                {f === 'all' ? 'All' : f.charAt(0).toUpperCase() + f.slice(1)}
+                {f === 'all' ? 'All' : formatEventType(f)}
               </Button>
             ))}
           </div>
@@ -746,7 +825,10 @@ export default function AtlasPage() {
                     geodesic: false,
                     clickable: true,
                   }}
-                  onClick={() => setSelectedRoute(route)}
+                  onClick={() => {
+                    setSelectedRoute(route);
+                    setSelectedEventId(null);
+                  }}
                 />
                 <Polyline
                   path={upcoming}
@@ -774,7 +856,10 @@ export default function AtlasPage() {
                       },
                     ],
                   }}
-                  onClick={() => setSelectedRoute(route)}
+                  onClick={() => {
+                    setSelectedRoute(route);
+                    setSelectedEventId(null);
+                  }}
                 />
                 <OverlayView
                   position={route.path[splitIndex]}
@@ -811,27 +896,21 @@ export default function AtlasPage() {
                 geodesic: false,
                 clickable: true,
               }}
-              onClick={() => setSelectedRoute(route)}
+              onClick={() => {
+                    setSelectedRoute(route);
+                    setSelectedEventId(null);
+                  }}
             />
           );
         })}
 
-        {/* Event markers: different icons for different event types */}
+        {/* Event markers: colors keyed by the stored type (EVENT_TYPE_COLORS);
+            clicking opens the event InfoWindow (GH #70). */}
         {events.map((event) => {
           if (!event.latitude || !event.longitude) return null;
-          if (eventTypeFilter !== 'all' && event.type !== eventTypeFilter) return null;
+          if (effectiveTypeFilter !== 'all' && event.type !== effectiveTypeFilter) return null;
 
-          const typeToColor: Record<string, string> = {
-            conflict: '#EF4444',
-            'political-violence': '#F97316',
-            strike: '#F59E0B',
-            weather: '#3B82F6',
-            financial: '#10B981',
-            generic: '#6B7280',
-          };
-
-
-          const color = typeToColor[event.type] || typeToColor.generic;
+          const color = EVENT_TYPE_COLORS[event.type] ?? EVENT_TYPE_COLORS.generic;
           return (
             <Marker
               key={`event-${event.id}`}
@@ -843,6 +922,11 @@ export default function AtlasPage() {
                 fillOpacity: 1,
                 strokeColor: PERICLES.white,
                 strokeWeight: 2,
+              }}
+              onClick={() => {
+                setSelectedEventId(event.id);
+                setSelectedRoute(null);
+                setSelectedPinId(null);
               }}
             />
           );
@@ -873,7 +957,10 @@ export default function AtlasPage() {
           <Marker
             key={pin.id}
             position={pin.position}
-            onClick={() => setSelectedPinId(pin.id)}
+            onClick={() => {
+              setSelectedPinId(pin.id);
+              setSelectedEventId(null);
+            }}
             icon={{
               path: google.maps.SymbolPath.CIRCLE,
               scale: 8 + Math.min(pin.shipments.length * 2, 10),
@@ -984,6 +1071,39 @@ export default function AtlasPage() {
             </div>
           </InfoWindow>
         )}
+
+        {/* Event marker InfoWindow — same white-bubble/grey-ramp rules as the
+            port pin above (see the note there). Hidden again if the chip
+            filter would unpin the marker it came from. */}
+        {selectedEvent &&
+          selectedEvent.latitude != null &&
+          selectedEvent.longitude != null &&
+          (effectiveTypeFilter === 'all' || selectedEvent.type === effectiveTypeFilter) && (
+            <InfoWindow
+              position={{ lat: selectedEvent.latitude, lng: selectedEvent.longitude }}
+              onCloseClick={() => setSelectedEventId(null)}
+            >
+              <div className="p-2 w-[280px]">
+                <div className="font-medium text-grey-900 leading-snug">{selectedEvent.title}</div>
+                <div className="text-xs text-grey-600 mt-1">
+                  {formatEventType(selectedEvent.type)} · {severityLabel(selectedEvent.severity)} ·{' '}
+                  {formatShortDate(selectedEvent.eventTimestamp)}
+                </div>
+                {selectedEvent.locationName && (
+                  <div className="text-sm text-grey-800 mt-1">{selectedEvent.locationName}</div>
+                )}
+                <p className="text-xs text-grey-600 mt-2 max-h-24 overflow-y-auto line-clamp-4">
+                  {selectedEvent.description}
+                </p>
+                <Link
+                  href={`/intelligence?event=${encodeURIComponent(selectedEvent.id)}`}
+                  className="inline-block mt-2 text-xs font-medium text-grey-900 underline"
+                >
+                  Open in Intelligence →
+                </Link>
+              </div>
+            </InfoWindow>
+          )}
       </GoogleMap>
     </div>
   );
