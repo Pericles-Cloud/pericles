@@ -33,6 +33,7 @@ import { calculateDistance } from '../mastra/tools/weather-disaster-monitor-tool
 import { publishToQueue } from './queue-client.js';
 import {
   findDuplicateIncident,
+  chooseDuplicateWinner,
   DEFAULT_FUZZY_DEDUP_CALL_BUDGET,
   type FuzzyDedupBudget,
 } from './incident-similarity.js';
@@ -567,6 +568,18 @@ export async function runMonitoringCycle(
           continue;
         }
 
+        // Winner-rule demotion: the matched older report was marked
+        // duplicate in favor of this one — a merge, counted alongside the
+        // exact/fuzzy dedup figures so "duplicates handled per cycle" is
+        // complete.
+        if (storedEvent._replacedOlderId) {
+          metrics.duplicatesFiltered = (metrics.duplicatesFiltered || 0) + 1;
+          cycleLogger.info(
+            { eventId: storedEvent.id, demotedEventId: storedEvent._replacedOlderId, hash: eventData.event_hash },
+            '[Cycle] Duplicate merge — kept this report (most accurate/most recent), demoted the older one'
+          );
+        }
+
         metrics.eventsPublished++;
 
         // Emit to queue with error logging
@@ -817,7 +830,7 @@ export async function runMonitoringCycle(
  * @returns Stored event record
  */
 // eslint-disable-next-line @typescript-eslint/no-explicit-any -- Dynamic event data from agent, typed at Prisma layer
-function exactMatchWhere(organizationId: string, eventData: any): Prisma.EventWhereInput {
+export function exactMatchWhere(organizationId: string, eventData: any): Prisma.EventWhereInput {
   // Shared by the pre-check and the transaction's own check below — was
   // duplicated verbatim between the two, so a future change to match
   // criteria applied to only one would silently drift from the other.
@@ -837,8 +850,13 @@ function exactMatchWhere(organizationId: string, eventData: any): Prisma.EventWh
   if (isNonEmptyString(eventData.event_hash)) {
     orConditions.push({ event_hash: eventData.event_hash });
   }
-  if (isNonEmptyString(eventData.title) && isNonEmptyString(eventData.source) && isNonEmptyString(eventData.type)) {
-    orConditions.push({ title: eventData.title, source: eventData.source, type: eventData.type });
+  // Identity is title + source — NOT type. The agent's classification is
+  // prose-dependent, so the same article is routinely re-detected as a
+  // different type (cyberattack vs vulnerability for one CVE) and the old
+  // type-equality let every such re-ingestion through as "new". Same source
+  // + same headline = same article regardless of how it was classified.
+  if (isNonEmptyString(eventData.title) && isNonEmptyString(eventData.source)) {
+    orConditions.push({ title: eventData.title, source: eventData.source });
   }
 
   return {
@@ -903,7 +921,8 @@ async function storeEvent(organizationId: string, eventData: any, dedupBudget?: 
 
   return await prisma.$transaction(async (tx) => {
     // Server-side deduplication check - verify event doesn't already exist
-    // Check both by event_hash AND by content (title + source + type)
+    // Check both by event_hash AND by content (title + source — type is a
+    // prose-dependent classification and is deliberately not part of identity)
     const existingEvent = await tx.event.findFirst({
       where: exactMatchWhere(organizationId, eventData),
       select: { id: true, event_hash: true },
@@ -940,30 +959,121 @@ async function storeEvent(organizationId: string, eventData: any, dedupBudget?: 
     // this still satisfies "events should only show once" without deleting
     // or hiding the underlying data if the LLM judgment turns out wrong.
     if (fuzzyDuplicate) {
-      // Deliberately does NOT bump the primary's own EventHash (unlike the
-      // exact-match branch above): occurrence_count on a hash is meant to
-      // track how many times THAT EXACT hash was re-detected, and this new
-      // article has a different hash (eventData.event_hash, upserted inside
-      // createEventWithRiskAssessment) by definition — that's the whole
-      // reason an LLM had to be consulted. Bumping the primary's count here
-      // would inflate a figure incident-lookup-tool.ts surfaces to the
-      // Monitoring Agent as "number of times this event has been detected,"
-      // which becomes wrong the moment a fuzzy (non-identical) match occurs.
-      const duplicateEvent = await createEventWithRiskAssessment(tx, organizationId, eventData, {
-        validationStatus: 'duplicate',
-        // The confidence and the model's stated reason are persisted next to
-        // the link, not just logged: an operator looking at an event hidden
-        // as a duplicate needs to see WHY from the row itself, and logs age
-        // out long before events do.
-        rawData: {
-          ...(eventData.raw_data || {}),
-          duplicate_of_event_id: fuzzyDuplicate.id,
-          duplicate_match_confidence: fuzzyDuplicate.confidence,
-          duplicate_match_reason: fuzzyDuplicate.reason,
-        },
+      // Winner rule: keep ONE report of the incident — the most accurate
+      // (agent confidence), then the most recent (event_timestamp) — per the
+      // dedup ticket. The matched row keeps ITS OWN EventHash untouched in
+      // either direction (occurrence_count tracks re-detections of that exact
+      // hash; inflating it from a non-identical match would lie to
+      // incident-lookup-tool.ts).
+      const winner = chooseDuplicateWinner(eventData, {
+        event_timestamp: fuzzyDuplicate.event_timestamp,
+        confidence: fuzzyDuplicate.existingConfidence,
       });
 
-      return { ...duplicateEvent, _deduplicated: true, _fuzzyDuplicateOf: fuzzyDuplicate.id };
+      // Shared outcome whenever the matched report stays the visible one:
+      // store THIS report as a hidden duplicate pointing at `primaryId`. The
+      // confidence and the model's stated reason persist next to the link (an
+      // operator must see WHY a row is hidden from the row itself; logs age
+      // out first). A probabilistic verdict is never destructive — the row
+      // exists with full audit data and can be un-hidden (see the branch
+      // comment above), which is also why every race below lands here rather
+      // than deleting anything.
+      const storeIncomingAsDuplicateOf = async (primaryId: string) => {
+        const duplicateEvent = await createEventWithRiskAssessment(tx, organizationId, eventData, {
+          validationStatus: 'duplicate',
+          rawData: {
+            ...(eventData.raw_data || {}),
+            duplicate_of_event_id: primaryId,
+            duplicate_match_confidence: fuzzyDuplicate.confidence,
+            duplicate_match_reason: fuzzyDuplicate.reason,
+          },
+        });
+        return { ...duplicateEvent, _deduplicated: true, _fuzzyDuplicateOf: primaryId };
+      };
+
+      if (winner === 'existing') {
+        return storeIncomingAsDuplicateOf(fuzzyDuplicate.id);
+      }
+
+      // THIS report wins: keep it visible and demote the matched (older or
+      // less accurate) row instead — "the article to keep is the most
+      // accurate and more recent one." The demotion re-reads the candidate
+      // inside the transaction and only touches rows still `pending`: a
+      // concurrent cycle that already demoted it, or an operator who
+      // validated/rejected it, must not be overwritten. Every path here
+      // creates the incoming row EXACTLY ONCE. Residual race: the raw_data
+      // merge is built from the re-read snapshot, so a write landing between
+      // the re-read and the guarded update is lost — part of the documented
+      // no-per-org-lock gap.
+      const freshCandidate = await tx.event.findUnique({
+        where: { id: fuzzyDuplicate.id },
+        select: { validation_status: true, raw_data: true },
+      });
+
+      if (freshCandidate && freshCandidate.validation_status !== 'pending') {
+        // No longer demotable (operator validated/rejected it, or another
+        // cycle already demoted it): keep it visible, hide this report.
+        return storeIncomingAsDuplicateOf(fuzzyDuplicate.id);
+      }
+
+      if (freshCandidate) {
+        // Still pending: create THIS report, then guard-demotion of the
+        // candidate with an atomic status filter.
+        const event = await createEventWithRiskAssessment(tx, organizationId, eventData, {
+          validationStatus: 'pending',
+          rawData: eventData.raw_data || {},
+        });
+        // NOTE: the link now points at the NEW winner, so an older duplicate
+        // already linked to the demoted row ends up duplicate -> duplicate
+        // (feed visibility is status-based and unaffected; following the
+        // pointer chain can pass through a hidden row — the manual endpoint
+        // forbids exactly that chain, this automated merge tolerates it).
+        const demotion = await tx.event.updateMany({
+          where: { id: fuzzyDuplicate.id, validation_status: 'pending' },
+          data: {
+            validation_status: 'duplicate',
+            raw_data: {
+              // Merge into the DEMOTED candidate's own raw_data (it may
+              // already carry audit keys); only this row's payload is
+              // rewritten, never the kept winner's.
+              ...(freshCandidate.raw_data && typeof freshCandidate.raw_data === 'object' && !Array.isArray(freshCandidate.raw_data)
+                ? (freshCandidate.raw_data as Record<string, unknown>)
+                : {}),
+              duplicate_of_event_id: event.id,
+              duplicate_match_confidence: fuzzyDuplicate.confidence,
+              duplicate_match_reason: fuzzyDuplicate.reason,
+              demoted_by: 'winner rule: kept the most accurate, then most recent, report',
+            },
+          },
+        });
+        if (demotion.count === 1) {
+          return { ...event, _replacedOlderId: fuzzyDuplicate.id };
+        }
+
+        // Candidate changed across our window (count 0): convert the row we
+        // just created IN PLACE — never create a second row for one incoming
+        // event (a second create would double the EventHash occurrence and
+        // leave an orphan pending row in the feed).
+        const converted = await tx.event.update({
+          where: { id: event.id },
+          data: {
+            validation_status: 'duplicate',
+            raw_data: {
+              ...(eventData.raw_data || {}),
+              duplicate_of_event_id: fuzzyDuplicate.id,
+              duplicate_match_confidence: fuzzyDuplicate.confidence,
+              duplicate_match_reason: fuzzyDuplicate.reason,
+              demoted_by: 'winner rule fallback: candidate changed mid-merge',
+            },
+          },
+        });
+        return { ...converted, _deduplicated: true, _fuzzyDuplicateOf: fuzzyDuplicate.id };
+      }
+
+      // Candidate vanished entirely (deleted between pre-check and tx): the
+      // incident has no surviving row — fall through to the fresh-incident
+      // create below so it stays visible rather than hiding it behind a
+      // dangling pointer.
     }
 
     const event = await createEventWithRiskAssessment(tx, organizationId, eventData, {

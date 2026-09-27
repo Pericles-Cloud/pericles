@@ -3766,11 +3766,15 @@ app.post('/api/events/:id/ask', async (req: Request, res: Response) => {
     let result;
     try {
       // Create a per-request agent with the org's resolved model to avoid
-      // mutating the singleton (unsafe under concurrent requests from different orgs).
+      // mutating the singleton (unsafe under concurrent requests from different
+      // organizations). Instructions via await getInstructions() — the
+      // `.instructions` getter throws for array instructions
+      // (AGENT_INSTRUCTIONS_MUST_BE_STRING_FOR_DEPRECATED_GETTER), which made
+      // every Event Q&A request 502.
       const baseAgent = mastra.getAgent('eventQaAgent');
       const qaAgent = new Agent({
         name: 'event-qa-agent',
-        instructions: baseAgent.instructions,
+        instructions: await baseAgent.getInstructions(),
         model: agentModel,
       });
       result = await qaAgent.generate(prompt, {

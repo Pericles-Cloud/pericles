@@ -23,7 +23,7 @@ vi.mock('./db-client.js', () => ({
   getPostgresStore: () => undefined,
 }));
 
-import { runMonitoringCycle, MonitoringExcludedError } from './index.js';
+import { runMonitoringCycle, MonitoringExcludedError, exactMatchWhere } from './index.js';
 
 const ROOT_ID = '00000000-0000-0000-0000-000000000001';
 const CUSTOMER_ID = '11111111-1111-1111-1111-111111111111';
@@ -73,5 +73,31 @@ describe('runMonitoringCycle — root-org guard', () => {
     // this ever becomes a different failure, the cycle got further — update
     // this fixture deliberately rather than letting it reach live code.
     expect(outcome).toBeInstanceOf(TypeError);
+  });
+});
+
+describe('exactMatchWhere — identity is title + source (type-independent)', () => {
+  it('matches the same article re-detected under a different type', () => {
+    const where = exactMatchWhere('org-1', {
+      event_hash: 'h1',
+      title: 'Capgo plug-in flaw exposes tenant tokens',
+      source: 'gCaptain',
+      type: 'vulnerability', // stored rows say cyberattack — must still match
+    });
+    expect(where.organization_id).toBe('org-1');
+    expect(where.OR).toEqual(
+      expect.arrayContaining([
+        { event_hash: 'h1' },
+        { title: 'Capgo plug-in flaw exposes tenant tokens', source: 'gCaptain' },
+      ])
+    );
+    for (const branch of where.OR ?? []) {
+      expect(branch).not.toHaveProperty('type');
+    }
+  });
+
+  it('omits branches whose fields are missing (no undefined-collapse to match-all)', () => {
+    const where = exactMatchWhere('org-1', { title: 'Only a title' });
+    expect(where.OR).toEqual([]);
   });
 });

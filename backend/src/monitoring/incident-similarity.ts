@@ -14,14 +14,22 @@ const logger = toolLoggers.incidentSimilarity;
  * (#22 — e.g. "Iran launches strikes" vs "Iranian missile attack reported").
  *
  * The existing dedup (incident-lookup-tool.ts's content hash, and
- * storeEvent's exact title+source+type check) only catches near-identical
+ * storeEvent's exact title+source check) only catches near-identical
  * strings — genuinely different phrasing of the same incident hashes to a
  * completely different value and sails through as a "new" event. Lexical
  * similarity (even stemmed) doesn't reliably close that gap either: the
  * example above shares almost no vocabulary. Closing it needs semantic
  * judgment, so this makes one narrowly-scoped LLM call per candidate —
- * narrowed by type + geography + a time window first, so the common case
- * (no plausible candidates) costs nothing.
+ * narrowed by geography + a time window first (and, for pairs with no
+ * coordinates, by a normalized-title match), so the common case (no
+ * plausible candidates) costs nothing.
+ *
+ * Candidate matching is deliberately NOT filtered by `type`: the agent's
+ * classification is prose-dependent, so the same article routinely lands as
+ * `cyberattack` + `vulnerability` (or `coup` + `geopolitical_conflict`) in
+ * the same org — type-narrowing guaranteed those never met. The prompt's
+ * "same real-world incident, not just same topic" instruction is the
+ * judgment that separates a flood from a strike at the same port.
  */
 
 const TIME_WINDOW_MS = 24 * 60 * 60 * 1000; // ±24h
@@ -35,22 +43,25 @@ const NO_DISTANCE_SENTINEL = Number.MAX_SAFE_INTEGER;
 const LLM_TIMEOUT_MS = 10000;
 const SAME_INCIDENT_CONFIDENCE_THRESHOLD = 0.7;
 // A higher bar when neither side could be placed geographically (see the
-// geoNarrowed filter below): with no coordinates the type + ±24h window is
-// the ONLY narrowing left, so the two reports may be from opposite sides of
-// the planet and the model's judgment is carrying the entire decision.
-// Marking a real incident as a duplicate hides it from the default feed, so
-// that case has to be nearly certain, not merely likely.
+// geoNarrowed filter below): with no coordinates the only narrowing left is
+// the ±24h window plus a normalized-title match, so the two reports may be
+// from opposite sides of the planet and the model's judgment is carrying the
+// entire decision. Marking a real incident as a duplicate hides it from the
+// default feed, so that case has to be nearly certain, not merely likely.
 const NO_GEO_CONFIDENCE_THRESHOLD = 0.9;
 // Per-cycle ceiling on classifier calls, enforced by the caller's shared
-// budget object. Without one, a cycle detecting N new same-type events in one
+// budget object. Without one, a cycle detecting N plausible events in one
 // region fires up to N * MAX_CANDIDATES model calls: 15 events is up to 75
 // calls and, since storeEvent is awaited sequentially per event, >150s of
 // wall clock against a 15s default polling interval — unbounded spend and
-// cycle drift from one busy news day.
-export const DEFAULT_FUZZY_DEDUP_CALL_BUDGET = 25;
+// cycle drift from one busy news day. 60 lets a busy cycle classify most of
+// its fan-out (one small structured call per candidate on the org's own
+// configured model) before degrading to "not a duplicate" — which the
+// budget-exhausted warn makes visible rather than silent.
+export const DEFAULT_FUZZY_DEDUP_CALL_BUDGET = 60;
 
 /**
- * Kill switch for the whole fuzzy path. The exact-hash and title+source+type
+ * Kill switch for the whole fuzzy path. The exact-hash and title+source
  * dedup are unaffected; setting this to `false` just stops the LLM second
  * opinion, so a misbehaving classifier in production can be turned off
  * without a redeploy of the monitoring loop.
@@ -105,6 +116,10 @@ export interface DuplicateCandidate {
    */
   confidence: number;
   reason: string;
+  /** The matched event's own timestamp — the winner rule compares it. */
+  event_timestamp: Date;
+  /** The matched event's own confidence score (accuracy proxy). */
+  existingConfidence: number;
 }
 
 interface CandidateEventInput {
@@ -112,7 +127,45 @@ interface CandidateEventInput {
   title: string;
   description: string;
   event_timestamp: string | Date;
+  confidence?: number | null;
   location?: { latitude?: number | null; longitude?: number | null };
+}
+
+/**
+ * Which of two reports about the same incident stays visible ("only a single
+ * event", kept on the MOST ACCURATE, and among equally accurate the MOST
+ * RECENT — the ticket's rule). Ties fall to `existing` so the first-seen row
+ * remains canonical and re-ingestion can't flip the primary back and forth.
+ *
+ * `confidence` is the agent's own 0–1 accuracy score for the detection;
+ * missing scores count as 0 rather than being treated as best.
+ */
+export function chooseDuplicateWinner(
+  incoming: { event_timestamp: string | Date; confidence?: number | null },
+  existing: { event_timestamp: string | Date; confidence?: number | null },
+): 'incoming' | 'existing' {
+  const incomingAccuracy = incoming.confidence ?? 0;
+  const existingAccuracy = existing.confidence ?? 0;
+  if (incomingAccuracy !== existingAccuracy) {
+    return incomingAccuracy > existingAccuracy ? 'incoming' : 'existing';
+  }
+  const incomingTime = new Date(incoming.event_timestamp).getTime();
+  const existingTime = new Date(existing.event_timestamp).getTime();
+  if (incomingTime !== existingTime) {
+    return incomingTime > existingTime ? 'incoming' : 'existing';
+  }
+  return 'existing';
+}
+
+/**
+ * Cheap identity key for the no-geography narrowing: the same article
+ * re-detected (often under a different `type`) shares its headline, so a
+ * normalized 40-char prefix admits it while genuinely different reports about
+ * the region do not. Normalization strips case/punctuation/spacing so
+ * "US-National Guard" and "US National Guard!" collide.
+ */
+export function normalizedTitleKey(title: string): string {
+  return title.toLowerCase().replace(/[^a-z0-9]/g, '').slice(0, 40);
 }
 
 /**
@@ -158,6 +211,7 @@ export async function findDuplicateIncident(
     const windowEnd = new Date(eventTime.getTime() + TIME_WINDOW_MS);
     const lat = eventData.location?.latitude;
     const lon = eventData.location?.longitude;
+    const incomingTitleKey = normalizedTitleKey(eventData.title);
 
     // A rough bounding-box prefilter, applied in the DB query itself — not
     // just in the geoNarrowed JS filter below. Without this, `take: 20`
@@ -207,7 +261,13 @@ export async function findDuplicateIncident(
     const candidates = await client.event.findMany({
       where: {
         organization_id: organizationId,
-        type: eventData.type,
+        // Deliberately NO `type` filter — the agent's classification is
+        // prose-dependent, so the same article lands under two types in the
+        // same org (cyberattack+vulnerability, coup+geopolitical_conflict)
+        // and type-narrowing kept them from ever being compared. Time +
+        // geography (and, below, a title match for coordinate-less pairs)
+        // narrow instead; the LLM prompt is what separates same-topic from
+        // same-incident.
         event_timestamp: { gte: windowStart, lte: windowEnd },
         // Exclude events already marked as duplicates of something else (so
         // a match always links to the canonical primary rather than
@@ -220,12 +280,23 @@ export async function findDuplicateIncident(
         validation_status: { notIn: ['duplicate', 'rejected'] },
         ...(boundingBox
           ? // Events with no coordinates at all still pass through
-            // (fall back to type + time + LLM judgment alone), matching
-            // geoNarrowed's own missing-coordinate behavior below.
+            // (subject to the title check in geoNarrowed below), matching
+            // geoNarrowed's own missing-coordinate behavior.
             { OR: [{ latitude: null }, { longitude: null }, boundingBox] }
           : {}),
       },
-      select: { id: true, title: true, description: true, latitude: true, longitude: true },
+      select: {
+        id: true,
+        title: true,
+        description: true,
+        latitude: true,
+        longitude: true,
+        // Winner-rule inputs: the matched report's own recency + accuracy.
+        // (raw_data is re-read inside storeEvent's transaction at demotion
+        // time so a concurrent write isn't clobbered from this snapshot.)
+        event_timestamp: true,
+        confidence: true,
+      },
       orderBy: { event_timestamp: 'desc' },
       take: 20, // cap the pre-filter query before geo-narrowing below
     });
@@ -238,17 +309,22 @@ export async function findDuplicateIncident(
     // being linked.
     const geoNarrowed = candidates
       .map((c) => {
-        // Missing coordinates on either side: don't exclude on geography,
-        // fall back to type + time + LLM judgment alone — sorts after every
-        // geo-matched candidate (see NO_DISTANCE_SENTINEL below), preserving
-        // their original recency order relative to each other.
+        // Missing coordinates on either side: don't exclude on geography —
+        // fall back to a normalized-title match (the same article
+        // re-detected under another classification) + the ±24h window +
+        // LLM judgment. Without a title match the pair has NOTHING but the
+        // time window holding it together, so it is dropped here rather
+        // than fed to the model at the no-geo threshold.
         const distanceKm =
           typeof lat === 'number' && typeof lon === 'number' && typeof c.latitude === 'number' && typeof c.longitude === 'number'
             ? calculateDistance(lat, lon, c.latitude, c.longitude)
             : null;
         return { candidate: c, distanceKm };
       })
-      .filter(({ distanceKm }) => distanceKm === null || distanceKm <= GEO_RADIUS_KM)
+      .filter(({ candidate, distanceKm }) => {
+        if (distanceKm !== null) return distanceKm <= GEO_RADIUS_KM;
+        return normalizedTitleKey(candidate.title) === incomingTitleKey;
+      })
       .sort((a, b) => (a.distanceKm ?? NO_DISTANCE_SENTINEL) - (b.distanceKm ?? NO_DISTANCE_SENTINEL))
       // Capped by the remaining per-cycle budget as well as MAX_CANDIDATES:
       // the cap has to bind here, where the fan-out is actually created, or
@@ -260,10 +336,15 @@ export async function findDuplicateIncident(
     // Create a per-call agent with the org's resolved model (the singleton
     // similarityAgent holds the default; dynamic model override isn't supported
     // by Mastra's generate() options, so we instantiate here).
+    // NOTE: read via await getInstructions(), NOT the `.instructions` getter —
+    // the getter throws AGENT_INSTRUCTIONS_MUST_BE_STRING_FOR_DEPRECATED_GETTER
+    // for array instructions (this agent's own constructor takes the array),
+    // which made every check fail open ("treating as not a duplicate") and
+    // left prod with zero duplicates among ~1500 events.
     const agentModel = model ?? 'openai/gpt-4o-mini';
     const simAgent = new Agent({
       name: 'incident-similarity-classifier',
-      instructions: similarityAgent.instructions,
+      instructions: await similarityAgent.getInstructions(),
       model: agentModel,
     });
 
@@ -320,7 +401,13 @@ export async function findDuplicateIncident(
       // bar.
       const threshold = distanceKm === null ? NO_GEO_CONFIDENCE_THRESHOLD : SAME_INCIDENT_CONFIDENCE_THRESHOLD;
       if (verdict.same_incident && verdict.confidence >= threshold && verdict.confidence > bestConfidence) {
-        best = { id: candidate.id, confidence: verdict.confidence, reason: verdict.reason };
+        best = {
+          id: candidate.id,
+          confidence: verdict.confidence,
+          reason: verdict.reason,
+          event_timestamp: candidate.event_timestamp,
+          existingConfidence: candidate.confidence,
+        };
         bestConfidence = verdict.confidence;
       }
     }
