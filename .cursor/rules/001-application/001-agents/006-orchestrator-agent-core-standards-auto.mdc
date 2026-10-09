@@ -7,7 +7,7 @@ alwaysApply: false
 <rule>
   <meta>
     <title>Orchestrator Agent</title>
-    <description>Agent responsible for routing activities to the right agent or user, providing a chat-first orchestration layer across Pericles; integrates with Monitoring, Validation, Impact Assessment, Summarization, and Controller agents.</description>
+    <description>Agent responsible for routing activities to the right agent or user, providing a chat-first orchestration layer across Pericles; integrates with Monitoring, Validation, Impact Assessment, and Summarization agents.</description>
     <created-at utc-timestamp="1761004800">October 21, 2025, 00:00 UTC</created-at>
     <last-updated-at utc-timestamp="1761004800">October 21, 2025, 00:00 UTC</last-updated-at>
     <applies-to>
@@ -19,7 +19,7 @@ alwaysApply: false
   <!--
     Assumptions (technology-agnostic):
     - The Orchestrator sits on top of the chat UI and processes user or system intents to route to downstream agents or human users.
-    - Agent graph includes Monitoring, Validation, Impact Assessment, Summarization, and Controller.
+    - Agent graph includes Monitoring, Validation, Impact Assessment, and Summarization.
     - All operations are tenant-scoped; the Orchestrator must not leak data across tenants.
     - All timestamps MUST be timezone-aware and normalized (ISO 8601 recommended).
   -->
@@ -104,7 +104,7 @@ OrchestratorRoute {
   id: string
   intent_id: string
   tenant_id: string
-  target: { agent?: 'MONITORING' | 'VALIDATION' | 'IMPACT' | 'SUMMARIZATION' | 'CONTROLLER'; user_role?: string }
+  target: { agent?: 'MONITORING' | 'VALIDATION' | 'IMPACT' | 'SUMMARIZATION'; user_role?: string }
   action?: string // e.g., 'RECHECK', 'RESUMMARIZE', 'RECALCULATE', 'NOTIFY'
   policy_version: string
   created_at: string // ISO 8601
@@ -123,7 +123,7 @@ Name: Orchestrator Agent
 Description: Chat-first orchestration layer that routes activities to appropriate agents or human users while enforcing tenant isolation and auditability.
 Role:
   - Parse and classify intents from chat UI and system triggers.
-  - Route to Monitoring, Validation, Impact, Summarization, or Controller agents, or escalate to users.
+  - Route to Monitoring, Validation, Impact, or Summarization agents, or escalate to users.
   - Present routed outcomes back in the chat context.
 Responsibilities:
   - Enforce tenant isolation and authorization; maintain audit trails and metrics.
@@ -142,7 +142,6 @@ Requirements:
     <reference as="context" href=".cursor/rules/001-application-pericles/001-agents/004-validation-agent-core-standards-auto.mdc" reason="Event confirmation and impact">Validation Agent Standards</reference>
     <reference as="context" href=".cursor/rules/001-application-pericles/001-agents/002-impact-assessment-agent-core-standards-auto.mdc" reason="Financial impact updates">Impact Assessment Agent Standards</reference>
     <reference as="context" href=".cursor/rules/001-application-pericles/001-agents/003-summarization-agent-core-standards-auto.mdc" reason="Event summary updates">Summarization Agent Standards</reference>
-    <reference as="context" href=".cursor/rules/001-application-pericles/001-agents/005-controller-agent-core-standards-auto.mdc" reason="Notifications & coordination">Controller Agent Standards</reference>
   </references>
 </rule>
 

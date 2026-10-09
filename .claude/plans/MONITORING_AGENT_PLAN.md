@@ -561,9 +561,8 @@ pm2 startup
 1. **Integrate Real Data Sources**: Implement execute functions for News, Weather, Port, Social tools
 2. **Create Validation Agent**: Multi-source event confirmation
 3. **Build Impact Assessment Agent**: Calculate financial impact from ERP
-4. **Implement Controller Agent**: Orchestrate notifications and workflow
-5. **Create Summarization Agent**: Maintain event summaries
-6. **Add UI Dashboard**: Display detected events, incidents, risk scores
+4. **Create Summarization Agent**: Maintain event summaries
+5. **Add UI Dashboard**: Display detected events, incidents, risk scores
 
 ---
 

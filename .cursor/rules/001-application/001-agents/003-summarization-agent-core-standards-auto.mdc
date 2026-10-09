@@ -7,7 +7,7 @@ alwaysApply: false
 <rule>
   <meta>
     <title>Summarization Agent</title>
-    <description>Agent responsible for summarizing events based on information from multiple sources, periodically refreshing summaries as new data arrives or ground conditions change, and notifying Impact Assessment, Controller, and Monitoring agents when an event ends.</description>
+    <description>Agent responsible for summarizing events based on information from multiple sources, periodically refreshing summaries as new data arrives or ground conditions change, and notifying Impact Assessment and Monitoring agents when an event ends.</description>
     <created-at utc-timestamp="1761004800">October 21, 2025, 00:00 UTC</created-at>
     <last-updated-at utc-timestamp="1761004800">October 21, 2025, 00:00 UTC</last-updated-at>
     <applies-to>
@@ -75,7 +75,7 @@ summary = latest // no version bump recorded
     </requirement>
 
     <requirement priority="high">
-      <description>Event lifecycle: detect event conclusion (no new corroborating updates over a configured window or explicit end signal) and publish end-of-event signal to Impact Assessment, Controller, and Monitoring agents.</description>
+      <description>Event lifecycle: detect event conclusion (no new corroborating updates over a configured window or explicit end signal) and publish end-of-event signal to Impact Assessment and Monitoring agents.</description>
     </requirement>
 
     <requirement priority="medium">
@@ -115,7 +115,7 @@ EventSummary {
 
     <grammar-entry title="Event End Detection">
       <pattern description="Heuristic or signal">no_updates_window_exceeded OR received_end_signal -> set status=ENDED -> publish end-of-event signal</pattern>
-      <example description="Downstream notifications">notify Impact Assessment, Controller, and Monitoring with end-of-event payload</example>
+      <example description="Downstream notifications">notify Impact Assessment and Monitoring with end-of-event payload</example>
     </grammar-entry>
   </grammar>
 
@@ -126,7 +126,7 @@ Description: Produces concise, tenant-scoped summaries of events; periodically r
 Role:
   - Aggregate and reconcile multi-source facts into a single narrative suitable for UI and notifications.
   - Periodically fetch updates and increment versions on material changes.
-  - Signal event end to Impact Assessment, Controller, and Monitoring agents.
+  - Signal event end to Impact Assessment and Monitoring agents.
 Responsibilities:
   - Enforce tenant isolation and maintain source attribution.
   - Avoid speculative content; indicate confidence and last-updated time.
@@ -143,7 +143,6 @@ Requirements:
     <reference as="context" href=".cursor/rules/001-application/001-agents/001-pericles-monitoring-agent-core-standards-auto.mdc" reason="Upstream event identification">Monitoring Agent Standards</reference>
     <reference as="context" href=".cursor/rules/001-application/001-agents/004-validation-agent-core-standards-auto.mdc" reason="Event confirmation and impact">Validation Agent Standards</reference>
     <reference as="context" href=".cursor/rules/001-application/001-agents/002-pericles-impact-assessment-agent-core-standards-auto.mdc" reason="Downstream impact assessment">Impact Assessment Agent Standards</reference>
-    <reference as="context" href=".cursor/rules/001-application/001-agents/005-controller-agent-core-standards-auto.mdc" reason="Notifications and orchestration">Controller Agent Standards</reference>
   </references>
 </rule>
 

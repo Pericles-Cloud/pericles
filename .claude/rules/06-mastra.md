@@ -17,7 +17,6 @@ export const mastra = new Mastra({
     monitoringAgent,
     validationAgent,
     impactAssessmentAgent,
-    controllerAgent,
     summarizationAgent,
   },
   scorers: {
