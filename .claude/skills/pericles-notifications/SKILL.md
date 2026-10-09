@@ -1,8 +1,8 @@
 ---
 name: pericles-notifications
-version: 2026.05.0
+version: 2026.10.0
 description: >
-  How to deliver controller notifications (email, SMS, Slack, Teams) reliably and safely.
+  How to deliver platform notifications (email, SMS, Slack, Teams) reliably and safely.
   Use this WHENEVER you send an alert/notification, build a delivery channel, or handle
   retries. Encodes dispatch via the MessageQueue, delivery through the deterministic
   NotificationHandler (trial vs run mode), retries with backoff (attempts/max_attempts),
@@ -10,14 +10,15 @@ description: >
   and approval gate.
 doctrine_refs: [§3; Ops §3]
 depends_on: [pericles-execution-node, pericles-postgres-queue, pericles-functional-agent]
-last_reconciled: 2026-05-28
+last_reconciled: 2026-10-09
 ---
 
 # Pericles Notifications (build skill)
 
 Notifications are consequential, external-facing actions — so they follow §3 exactly: a
-supervisor (the Controller agent) **proposes**, a deterministic Execution Node commits,
-and external comms are **never auto-sent**. The substrate exists: the `NotificationHandler`
+supervisor agent or a deterministic trigger (event lifecycle change, Plans step)
+**proposes**, a deterministic Execution Node commits, and external comms are **never
+auto-sent**. The substrate exists: the `NotificationHandler`
 in the Workflow engine and the `MessageQueue`.
 
 ## When to use this skill
@@ -47,8 +48,8 @@ retries up to 3 times; on exhaustion mark `FAILED` with `error_message`/`failed_
 ## External comms are never auto-sent
 
 Sending a message to a customer, supplier, or external stakeholder requires the approval
-gate per deployment shape (`pericles-deployment-shapes`). The Controller agent proposes
-the notification; a human confirms; the Execution Node commits. Internal/system alerts
+gate per deployment shape (`pericles-deployment-shapes`). The proposing agent or trigger
+raises the notification; a human confirms; the Execution Node commits. Internal/system alerts
 may run automatically within policy, but anything leaving the org needs the gate.
 
 ## What this forbids
@@ -67,7 +68,7 @@ the Plan Admin; external comms pass the approval gate; each send writes an `Exec
 ## Existing standards (read alongside)
 
 `backend/src/workflow/handlers/notification-handler.ts`; Ops §3; `pericles-execution-node`,
-`pericles-postgres-queue`; `.cursor/rules/001-application/005-pericles-controller`* (controller agent).
+`pericles-postgres-queue`.
 
 ## Open questions
 
@@ -77,6 +78,9 @@ the Plan Admin; external comms pass the approval gate; each send writes an `Exec
   `pericles-data-model`.
 
 ## Changelog
+
+- 2026.10.0 — Removed the deprecated Controller agent. Notifications are proposed by the
+  owning agent or a deterministic trigger and committed by the NotificationHandler.
 
 - 2026.05.0 — Initial draft; dispatch via MessageQueue + delivery via the existing
   NotificationHandler (trial/run), retries, and the no-auto-send rule for external comms.

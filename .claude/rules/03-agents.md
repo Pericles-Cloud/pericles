@@ -7,14 +7,13 @@ paths:
 
 ## Agent Architecture
 
-Pericles uses five coordinated AI agents:
+Pericles uses four coordinated AI agents:
 
 | Agent | Responsibility |
 |-------|---------------|
 | **Monitoring Agent** | Scans 10 risk categories, detects events, deduplicates via content hashing |
 | **Validation Agent** | Multi-source confirmation, severity scoring, confidence assessment |
 | **Impact Assessment Agent** | Calculates financial impact using ERP/SAP data |
-| **Controller Agent** | Orchestrates notifications, coordinates agents, handles user interactions |
 | **Summarization Agent** | Maintains event summaries and contextual updates |
 
 ## Risk Monitoring Categories

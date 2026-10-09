@@ -46,7 +46,7 @@ alwaysApply: true
     </non-negotiable>
 
     <non-negotiable priority="critical">
-      <description>Implement agent architecture for real-time monitoring and validation. The system must include: Monitoring Agent (identifies risk events), Validation Agent (confirms event validity), Controller Agent (coordinates notifications), Impact Assessment Agent (calculates financial impact), and Summarization Agent (maintains event summaries).</description>
+      <description>Implement agent architecture for real-time monitoring and validation. The system must include: Monitoring Agent (identifies risk events), Validation Agent (confirms event validity), Impact Assessment Agent (calculates financial impact), and Summarization Agent (maintains event summaries).</description>
       <examples>
         <example title="Agent implementation pattern">
           <correct-example title="Typed agent interfaces with clear responsibilities" conditions="Implementing agent system" expected-result="Modular agent architecture" correctness-criteria="Each agent has single responsibility, typed interfaces, audit trail"><![CDATA[
@@ -58,12 +58,6 @@ interface MonitoringAgent {
 interface ValidationAgent {
   validateEvent(event: PotentialRiskEvent): Promise<ValidatedEvent | null>;
   checkMultipleSources(event: PotentialRiskEvent): Promise<SourceConfirmation[]>;
-}
-
-interface ControllerAgent {
-  coordinateAgents(event: ValidatedEvent): Promise<void>;
-  notifyUsers(event: ValidatedEvent, users: User[]): Promise<void>;
-  interactWithUser(userId: string, query: string): Promise<AgentResponse>;
 }
 
 interface ImpactAssessmentAgent {

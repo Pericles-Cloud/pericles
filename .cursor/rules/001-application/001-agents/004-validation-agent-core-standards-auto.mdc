@@ -1,5 +1,5 @@
 ---
-description: Defines an implementation-agnostic rule for a Validation Agent that confirms events identified by the Monitoring Agent and determines tenant impact before handing off to Controller and Summarization Agents.
+description: Defines an implementation-agnostic rule for a Validation Agent that confirms events identified by the Monitoring Agent and determines tenant impact before handing off to the Summarization Agent.
 globs: ".cursor/rules/validation-agent.mdc"
 alwaysApply: false
 ---
@@ -7,7 +7,7 @@ alwaysApply: false
 <rule>
   <meta>
     <title>Validation Agent</title>
-    <description>Agent responsible for confirming that a Monitoring Agent-identified event is real and impacts the tenant; performs multi-source corroboration; upon confirmation, forwards to Controller Agent and Summarization Agent.</description>
+    <description>Agent responsible for confirming that a Monitoring Agent-identified event is real and impacts the tenant; performs multi-source corroboration; upon confirmation, forwards to the Summarization Agent.</description>
     <created-at utc-timestamp="1750416000">June 20, 2025, 00:00 UTC</created-at>
     <last-updated-at utc-timestamp="1750416000">June 20, 2025, 00:00 UTC</last-updated-at>
     <applies-to>

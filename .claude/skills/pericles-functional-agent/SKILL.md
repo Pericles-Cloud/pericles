@@ -1,16 +1,16 @@
 ---
 name: pericles-functional-agent
-version: 2026.05.0
+version: 2026.10.0
 description: >
   How to build a Functional Agent/Skill and declare its pipeline position. Use this
   WHENEVER you create or modify a Mastra agent (Monitoring, Validation, Impact
-  Assessment, Controller, Summarization, or a new one) or set a Skill's
+  Assessment, Summarization, or a new one) or set a Skill's
   data_access.pattern. Encodes the §4 pre_validation / post_validation /
-  cross_pipeline rules, the audited gateway path, and how the five real agents map to
+  cross_pipeline rules, the audited gateway path, and how the four real agents map to
   those positions. Misclassifying pipeline position is a doctrine violation.
 doctrine_refs: [§3, §4; Agent Library]
 depends_on: [pericles-doctrine, pericles-skill-authoring, pericles-mastra-tool]
-last_reconciled: 2026-05-28
+last_reconciled: 2026-10-09
 ---
 
 # Pericles Functional Agent (build skill)
@@ -23,7 +23,7 @@ may touch and prevents cost, consistency, and auditability failures (§4).
 
 ## When to use this skill
 
-Building/modifying any of the five agents or a new Functional Agent; setting or
+Building/modifying any of the four agents or a new Functional Agent; setting or
 reviewing a Skill's `data_access.pattern`; deciding whether a Skill may compose
 Topical/Regional/Industry Skills.
 
@@ -38,10 +38,10 @@ Topical/Regional/Industry Skills.
   **Summarization** (event summaries/updates).
 - **`cross_pipeline`** — spans positions. Consumes pipeline inputs by default; composes
   a Topical/Regional/Industry Skill only by exception, via the **audited gateway path**
-  (`gateway_path: true`, logged with reasons). Example: the **Controller / Co-Pilot**
-  surface that orchestrates and occasionally needs fresh signal.
+  (`gateway_path: true`, logged with reasons). Example: the **Co-Pilot / Orchestrator**
+  surface that routes requests and occasionally needs fresh signal.
 
-## Mapping the five real agents (from .claude/rules/03-agents.md)
+## Mapping the four real agents (from .claude/rules/03-agents.md)
 
 | Agent | Position | Why |
 |---|---|---|
@@ -49,7 +49,6 @@ Topical/Regional/Industry Skills.
 | Validation (PoC) | `pre_validation` | must reach sources Monitoring didn't — proves truth |
 | Impact Assessment | `post_validation` | financial impact on validated events via ERP/SAP |
 | Summarization | `post_validation` | summaries/updates over validated truth |
-| Controller | supervisor + `cross_pipeline` | orchestrates; **proposes** actions, commits via Execution Nodes (`pericles-execution-node`) |
 
 ## The audited gateway path
 
@@ -65,8 +64,8 @@ allowing rare, audited exceptions.
 A Functional Agent is an LLM **supervisor**: it reasons and **proposes**. It must not
 commit a consequential action (notification, freight, outreach, customer message,
 audit record) from its own reasoning — that flows to a deterministic Execution Node
-(`pericles-execution-node`). The Controller agent "orchestrates notifications" by
-proposing; the NotificationHandler commits.
+(`pericles-execution-node`). Notifications are proposed by the owning agent or a
+deterministic trigger; the NotificationHandler commits (`pericles-notifications`).
 
 ## Build notes from the codebase
 
@@ -97,16 +96,18 @@ divergence cases; `organization_id` validated.
 
 Doctrine §4 + Agent Library (Notion); `.claude/rules/03-agents.md`;
 `.cursor/rules/001-application/001-agents/*` (monitoring, validation, impact-assessment,
-controller, summarization, orchestrator).
+summarization, orchestrator).
 
 ## Open questions
 
-- Which surface is the canonical `cross_pipeline` consumer (Controller agent vs a
-  distinct Co-Pilot) — confirm as Co-Pilot lands; affects the gateway path UX.
+- The Co-Pilot / Orchestrator is the canonical `cross_pipeline` consumer — confirm its
+  gateway path UX as it lands.
 - When agent Memory is re-enabled, how statefulness interacts with per-invocation
   lineage.
 
 ## Changelog
+
+- 2026.10.0 — Removed the deprecated Controller agent; four real agents mapped.
 
 - 2026.05.0 — Initial draft. §4 positions mapped to the five real agents; gateway path
   and supervisor/executor boundary grounded in the codebase.
