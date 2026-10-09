@@ -98,6 +98,21 @@ describe('MockPositionFeed', () => {
     expect(p0.polyline.length).toBeGreaterThan(2);
   });
 
+  it('freezes positions when timeCompression is 0 — and the ETA stays explorable', async () => {
+    // TRACKING_TIME_COMPRESSION=0 is the documented "no animation" setup; without
+    // the etaMs guard the ETA math divides by zero and toISOString() throws.
+    const frozen = new MockPositionFeed({ ...config, timeCompression: 0, loop: false });
+    const t0 = Date.parse('2026-06-05T00:00:00Z');
+    const [p0] = await frozen.getPositions([shanghaiShipment], t0);
+    const [p1] = await frozen.getPositions([shanghaiShipment], t0 + 7 * 24 * 60 * 60 * 1000);
+    // Positions never move.
+    expect(p1.percent).toBe(p0.percent);
+    expect(p1.position).toEqual(p0.position);
+    // ETA is a valid, finite ISO timestamp (falls back to the plan's arrival).
+    expect(Number.isFinite(Date.parse(p0.eta))).toBe(true);
+    expect(Number.isFinite(Date.parse(p1.eta))).toBe(true);
+  });
+
   it('emits a feed-agnostic shape with progress, eta and source', async () => {
     const [p] = await new MockPositionFeed(config).getPositions(
       [shanghaiShipment],

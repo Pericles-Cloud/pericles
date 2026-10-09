@@ -80,10 +80,15 @@ export class MockPositionFeed implements ShipmentPositionFeed {
     const { position, bearing } = pointAtDistance(plan.polyline, plan.cumulativeKm, coveredKm);
 
     // ETA in real wall-clock terms (so the demo's countdown reads naturally),
-    // derived from how much simulated voyage remains.
+    // derived from how much simulated voyage remains. A compression of 0 freezes
+    // positions; the simulated-ETA math then divides by zero, so read the plan's
+    // arrival directly (the real BOL arrival date when anchored).
     const remainingFraction = Math.max(0, 1 - percent);
-    const remainingRealMs = (remainingFraction * realDuration) / this.config.timeCompression;
-    const eta = new Date(now + remainingRealMs).toISOString();
+    const etaMs =
+      this.config.timeCompression > 0
+        ? now + (remainingFraction * realDuration) / this.config.timeCompression
+        : Math.max(now, plan.arriveMs);
+    const eta = new Date(etaMs).toISOString();
 
     return {
       shipmentId: plan.shipmentId,

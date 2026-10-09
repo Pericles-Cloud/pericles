@@ -37,7 +37,9 @@ export function loadTrackingConfig(env: NodeJS.ProcessEnv = process.env): Tracki
   const oceanKmPerDay = Number(env.TRACKING_OCEAN_KM_PER_DAY ?? 800);
   return {
     mode,
-    timeCompression: Number.isFinite(timeCompression) && timeCompression > 0 ? timeCompression : 2000,
+    // 0 is a valid, intentional value: it freezes vessel positions (no animation).
+    // The default 2000 gives a trans-Pacific crossing in ~10 min of wall time.
+    timeCompression: Number.isFinite(timeCompression) && timeCompression >= 0 ? timeCompression : 2000,
     loop,
     oceanKmPerDay: Number.isFinite(oceanKmPerDay) && oceanKmPerDay > 0 ? oceanKmPerDay : 800,
   };

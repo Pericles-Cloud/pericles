@@ -8,8 +8,17 @@
  */
 import { describe, it, expect, vi } from 'vitest';
 import type { PrismaClient } from '@prisma/client';
-import { getPositionFeed, getOrganizationPositions } from './index.js';
+import { getPositionFeed, getOrganizationPositions, loadTrackingConfig } from './index.js';
 import type { TrackableShipment } from './types.js';
+
+describe('loadTrackingConfig', () => {
+  it('accepts 0 as an intentional timeCompression (freeze), still guards garbage', () => {
+    expect(loadTrackingConfig({ TRACKING_TIME_COMPRESSION: '0' }).timeCompression).toBe(0);
+    expect(loadTrackingConfig({ TRACKING_TIME_COMPRESSION: '-5' }).timeCompression).toBe(2000);
+    expect(loadTrackingConfig({ TRACKING_TIME_COMPRESSION: 'abc' }).timeCompression).toBe(2000);
+    expect(loadTrackingConfig({}).timeCompression).toBe(2000);
+  });
+});
 
 const ship: TrackableShipment = {
   id: 'shp_idx_1',

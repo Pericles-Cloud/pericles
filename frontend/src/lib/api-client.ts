@@ -1,4 +1,4 @@
-const API_URL = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:4111';
+const API_URL = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:4112';
 
 // Session expiration callback - set by AuthProvider
 let onSessionExpired: (() => void) | null = null;

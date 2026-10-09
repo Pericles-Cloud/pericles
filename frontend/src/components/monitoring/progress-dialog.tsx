@@ -4,7 +4,7 @@ import { useState, useEffect, useCallback, useRef } from 'react';
 import { Button } from '@/components/ui/button';
 import { getAccessToken } from '@/lib/api-client';
 
-const API_URL = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:4111';
+const API_URL = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:4112';
 
 // Tool display names mapping
 const TOOL_DISPLAY_NAMES: Record<string, string> = {
