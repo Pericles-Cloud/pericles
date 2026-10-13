@@ -16,6 +16,8 @@ Pericles uses four coordinated AI agents:
 | **Impact Assessment Agent** | Calculates financial impact using ERP/SAP data |
 | **Summarization Agent** | Maintains event summaries and contextual updates |
 
+**Implementation status:** the only Mastra agents under `backend/src/mastra/agents/` are `monitoringAgent` and `eventQaAgent` (a per-event Q&A agent that is not in the table above). The Validation, Impact Assessment and Summarization agents are not implemented as Mastra agents yet.
+
 ## Risk Monitoring Categories
 
 The Monitoring Agent covers 10 risk categories with dedicated tools:

@@ -16,9 +16,9 @@ last_reconciled: 2026-10-09
 # Pericles Notifications (build skill)
 
 Notifications are consequential, external-facing actions — so they follow §3 exactly: a
-supervisor agent or a deterministic trigger (event lifecycle change, Plans step)
-**proposes**, a deterministic Execution Node commits, and external comms are **never
-auto-sent**. The substrate exists: the `NotificationHandler`
+supervisor agent or a deterministic trigger (for example an event lifecycle change or a
+Plans step; neither is implemented yet) **proposes**, a deterministic Execution Node
+commits, and external comms are **never auto-sent**. The substrate exists: the `NotificationHandler`
 in the Workflow engine and the `MessageQueue`.
 
 ## When to use this skill
@@ -76,6 +76,18 @@ the Plan Admin; external comms pass the approval gate; each send writes an `Exec
   with the platform team; keep secrets in the secret store.
 - Per-recipient notification preferences storage (`OrganizationSettings`?) — confirm with
   `pericles-data-model`.
+- Notification policy from the deprecated Controller rule (removed 2026.10.0; find it with
+  `git log --all -- .cursor/rules/001-application/001-agents/005-controller-agent-core-standards-auto.mdc`)
+  that this skill does not yet specify: quiet hours and locale; per-user channel
+  preferences; escalation rules; rate limits; channel fallback; an in-app channel;
+  acknowledge, snooze and escalate endpoints; a per-event notification state machine
+  (NEW → NOTIFYING → WAITING_ACK → ACKED/SNOOZED/ESCALATED → CLOSED); a per-tenant SLA for
+  notify dispatch; dead-letter handling beyond the FAILED status; webhook payload signing
+  and replay protection (timestamps and nonces); an idempotency key so retries do not
+  re-send (the old rule used `hash(event_id|tenant_id|channel|template_version)`);
+  tenant-scoped delivery (`organization_id` on every notification); and redaction of
+  sensitive content on channels that do not allow it. Confirm which of these are still
+  required before building them.
 
 ## Changelog
 

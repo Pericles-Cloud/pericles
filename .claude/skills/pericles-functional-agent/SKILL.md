@@ -6,7 +6,7 @@ description: >
   WHENEVER you create or modify a Mastra agent (Monitoring, Validation, Impact
   Assessment, Summarization, or a new one) or set a Skill's
   data_access.pattern. Encodes the §4 pre_validation / post_validation /
-  cross_pipeline rules, the audited gateway path, and how the four real agents map to
+  cross_pipeline rules, the audited gateway path, and how the four design-level agents map to
   those positions. Misclassifying pipeline position is a doctrine violation.
 doctrine_refs: [§3, §4; Agent Library]
 depends_on: [pericles-doctrine, pericles-skill-authoring, pericles-mastra-tool]
@@ -41,7 +41,11 @@ Topical/Regional/Industry Skills.
   (`gateway_path: true`, logged with reasons). Example: the **Co-Pilot / Orchestrator**
   surface that routes requests and occasionally needs fresh signal.
 
-## Mapping the four real agents (from .claude/rules/03-agents.md)
+## Mapping the four agents (from .claude/rules/03-agents.md)
+
+Of these four, only Monitoring is implemented today; the other three are design positions.
+(The Mastra index also registers `eventQaAgent`, a per-event Q&A agent that is not one of
+the four.) See the implementation status note in `.claude/rules/03-agents.md`.
 
 | Agent | Position | Why |
 |---|---|---|
@@ -100,14 +104,15 @@ summarization, orchestrator).
 
 ## Open questions
 
-- The Co-Pilot / Orchestrator is the canonical `cross_pipeline` consumer — confirm its
-  gateway path UX as it lands.
+- The Co-Pilot (`pericles-copilot-ui`) is the intended canonical `cross_pipeline` consumer.
+  Neither the Co-Pilot nor the Orchestrator (`.cursor` rule 006) is implemented in
+  `backend/src` yet; confirm the gateway path UX and the router role as they land.
 - When agent Memory is re-enabled, how statefulness interacts with per-invocation
   lineage.
 
 ## Changelog
 
-- 2026.10.0 — Removed the deprecated Controller agent; four real agents mapped.
+- 2026.10.0 — Removed the deprecated Controller agent; mapped the four design-level agents.
 
 - 2026.05.0 — Initial draft. §4 positions mapped to the five real agents; gateway path
   and supervisor/executor boundary grounded in the codebase.
