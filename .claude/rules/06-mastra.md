@@ -15,7 +15,7 @@ import { getPostgresStore } from '../monitoring/db-client.js';
 
 const storage = getPostgresStore(); // undefined in stateless mode; storage is attached only when present
 
-const mastraConfig = {
+const mastraConfig: ConstructorParameters<typeof Mastra>[0] = {
   agents: {
     monitoringAgent,
     eventQaAgent,
