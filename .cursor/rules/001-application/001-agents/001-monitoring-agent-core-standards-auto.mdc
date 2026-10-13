@@ -210,7 +210,7 @@ Requirements:
   </context>
 
   <references>
-    <reference as="dependency" href=".cursor/rules/002-cursor-rules-creation.mdc" reason="Adhere to Cursor .mdc structure">Cursor Rule File Format (.mdc)</reference>
+    <reference as="dependency" href=".cursor/rules/000-core/002-cursor-rules-creation.mdc" reason="Adhere to Cursor .mdc structure">Cursor Rule File Format (.mdc)</reference>
   </references>
 </rule>
 

@@ -138,10 +138,10 @@ Requirements:
 
   <references>
     <reference as="dependency" href=".cursor/rules/000-core/002-cursor-rules-creation.mdc" reason="Follows standard rule format">Cursor Rule File Format (.mdc)</reference>
-    <reference as="context" href=".cursor/rules/001-application-pericles/001-agents/001-monitoring-agent-core-standards-auto.mdc" reason="Upstream monitoring">Monitoring Agent Standards</reference>
-    <reference as="context" href=".cursor/rules/001-application-pericles/001-agents/004-validation-agent-core-standards-auto.mdc" reason="Event confirmation and impact">Validation Agent Standards</reference>
-    <reference as="context" href=".cursor/rules/001-application-pericles/001-agents/002-impact-assessment-agent-core-standards-auto.mdc" reason="Financial impact updates">Impact Assessment Agent Standards</reference>
-    <reference as="context" href=".cursor/rules/001-application-pericles/001-agents/003-summarization-agent-core-standards-auto.mdc" reason="Event summary updates">Summarization Agent Standards</reference>
+    <reference as="context" href=".cursor/rules/001-application/001-agents/001-monitoring-agent-core-standards-auto.mdc" reason="Upstream monitoring">Monitoring Agent Standards</reference>
+    <reference as="context" href=".cursor/rules/001-application/001-agents/004-validation-agent-core-standards-auto.mdc" reason="Event confirmation and impact">Validation Agent Standards</reference>
+    <reference as="context" href=".cursor/rules/001-application/001-agents/002-impact-assessment-agent-core-standards-auto.mdc" reason="Financial impact updates">Impact Assessment Agent Standards</reference>
+    <reference as="context" href=".cursor/rules/001-application/001-agents/003-summarization-agent-core-standards-auto.mdc" reason="Event summary updates">Summarization Agent Standards</reference>
   </references>
 </rule>
 

@@ -8,28 +8,34 @@ paths:
 ## Mastra Configuration
 
 ```typescript
-// backend/src/mastra/index.ts
-import { Mastra, PinoLogger } from '@mastra/core';
-import { PostgresStore } from '@mastra/pg-store';
+// backend/src/mastra/index.ts (abridged: see the file for the log-key redaction and observability block)
+import { Mastra } from '@mastra/core/mastra';
+import { PinoLogger } from '@mastra/loggers';
+import { getPostgresStore } from '../monitoring/db-client.js';
 
-export const mastra = new Mastra({
+const storage = getPostgresStore(); // undefined in stateless mode; storage is attached only when present
+
+const mastraConfig = {
   agents: {
     monitoringAgent,
-    validationAgent,
-    impactAssessmentAgent,
-    summarizationAgent,
+    eventQaAgent,
   },
   scorers: {
     relevanceScorer,
     severityAccuracyScorer,
     deduplicationScorer,
+    factualityScorer,
   },
-  storage: new PostgresStore({
-    connectionString: process.env.MASTRA_DATABASE_URL,
-  }),
   logger: new PinoLogger({ name: 'Mastra', level: 'info' }),
-  observability: { default: { enabled: true } },
-});
+  // telemetry and observability blocks: see index.ts
+};
+
+// Add storage only if available
+if (storage) {
+  mastraConfig.storage = storage;
+}
+
+export const mastra = new Mastra(mastraConfig);
 ```
 
 ## Agent Definition
