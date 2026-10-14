@@ -836,11 +836,40 @@ model MessageQueue {
   failed_at       DateTime?
   error_message   String?   @db.Text
 
+  // Idempotency and claim state (§13). The key is record_id:record_version.
+  // NULLs are distinct in Postgres, so rows without a key are unaffected.
+  idempotency_key String?
+  locked_at       DateTime?
+  locked_by       String?
+
   created_at      DateTime  @default(now())
 
+  @@unique([queue_name, idempotency_key])
   @@index([queue_name, status])
   @@index([organization_id, queue_name])
   @@index([status, scheduled_at])
+}
+
+// One row per consumer per change-record version (§13). The unique key makes a
+// redelivered record a no-op for each consumer. Every row is tenant-scoped, except
+// global records, which carry a null organization_id.
+model DispatchLog {
+  id               String   @id @default(uuid())
+  queue_message_id String?
+  record_id        String
+  record_version   Int
+  record_type      String
+  organization_id  String?
+
+  consumer         String
+  status           String   // dispatched | skipped_noop | completed | failed | duplicate
+  error_message    String?  @db.Text
+
+  created_at       DateTime @default(now())
+
+  @@unique([consumer, record_id, record_version])
+  @@index([organization_id, created_at])
+  @@index([record_id])
 }
 
 // ============================================================================

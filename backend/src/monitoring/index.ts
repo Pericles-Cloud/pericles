@@ -30,7 +30,9 @@ import {
 } from './error-reporter.js';
 import { requestValidation } from './validation-client.js';
 import { calculateDistance } from '../mastra/tools/weather-disaster-monitor-tool.js';
-import { publishToQueue } from './queue-client.js';
+import { enqueueInTransaction, CHANGE_RECORD_QUEUE } from './queue-client.js';
+import { globalEventChangeRecord } from '../workflow/records/global-event-change.js';
+import { changeRecordKey } from '../workflow/records/change-record.js';
 import {
   findDuplicateIncident,
   chooseDuplicateWinner,
@@ -581,20 +583,6 @@ export async function runMonitoringCycle(
         }
 
         metrics.eventsPublished++;
-
-        // Emit to queue with error logging. Publishing is not gated on the metrics flag.
-        publishToQueue('events-queue', {
-          type: 'event',
-          payload: storedEvent,
-          timestamp: new Date().toISOString(),
-          organizationId: config.organizationId,
-        }).catch((queueError: unknown) => {
-          // Log queue publishing failure but don't fail the overall cycle
-          cycleLogger.warn(
-            { error: queueError, eventId: storedEvent.id },
-            '[Cycle] Failed to publish event to queue - event was stored but may not trigger downstream processing'
-          );
-        });
 
         // Pass to Validation Agent
         requestValidation({
@@ -1160,6 +1148,21 @@ async function createEventWithRiskAssessment(
       mitigation_suggestions: [], // To be filled by Impact Assessment Agent
     },
   });
+
+  // Outbox (§13): the change record commits with the event, or neither does.
+  // Duplicate rows are not new events, so they produce no record.
+  if (options.validationStatus !== 'duplicate') {
+    const record = globalEventChangeRecord(
+      { id: event.id, organization_id: organizationId, severity: event.severity, type: event.type },
+      event.created_at
+    );
+    await enqueueInTransaction(tx, CHANGE_RECORD_QUEUE, {
+      type: 'change_record',
+      payload: record,
+      timestamp: record.produced_at,
+      organizationId,
+    }, { idempotencyKey: changeRecordKey(record) });
+  }
 
   return event;
 }

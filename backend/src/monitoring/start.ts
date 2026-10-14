@@ -22,6 +22,7 @@
 import { loadMonitoringConfig, getEnvironmentOverrides } from './config.js';
 import { startMonitoring, stopMonitoring } from './index.js';
 import { logger } from './logger.js';
+import { startDispatchWorker } from '../workflow/dispatch/dispatch-worker.js';
 
 // ============================================================================
 // Parse Command Line Arguments
@@ -93,14 +94,20 @@ async function main() {
       '[Start] Configuration loaded'
     );
 
+    // Change-record dispatch (Doctrine §13). Opt-in, off by default.
+    const dispatchWorker =
+      process.env.DISPATCH_WORKER_ENABLED === 'true' ? startDispatchWorker() : null;
+
     // Setup graceful shutdown
     process.on('SIGINT', () => {
       logger.info('[Start] Received SIGINT, shutting down...');
+      dispatchWorker?.stop();
       stopMonitoring();
     });
 
     process.on('SIGTERM', () => {
       logger.info('[Start] Received SIGTERM, shutting down...');
+      dispatchWorker?.stop();
       stopMonitoring();
     });
 
