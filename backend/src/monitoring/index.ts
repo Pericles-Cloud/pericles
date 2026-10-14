@@ -582,21 +582,19 @@ export async function runMonitoringCycle(
 
         metrics.eventsPublished++;
 
-        // Emit to queue with error logging
-        if (config.observability.enableMetrics) {
-          publishToQueue('events-queue', {
-            type: 'event',
-            payload: storedEvent,
-            timestamp: new Date().toISOString(),
-            organizationId: config.organizationId,
-          }).catch((queueError: unknown) => {
-            // Log queue publishing failure but don't fail the overall cycle
-            cycleLogger.warn(
-              { error: queueError, eventId: storedEvent.id },
-              '[Cycle] Failed to publish event to queue - event was stored but may not trigger downstream processing'
-            );
-          });
-        }
+        // Emit to queue with error logging. Publishing is not gated on the metrics flag.
+        publishToQueue('events-queue', {
+          type: 'event',
+          payload: storedEvent,
+          timestamp: new Date().toISOString(),
+          organizationId: config.organizationId,
+        }).catch((queueError: unknown) => {
+          // Log queue publishing failure but don't fail the overall cycle
+          cycleLogger.warn(
+            { error: queueError, eventId: storedEvent.id },
+            '[Cycle] Failed to publish event to queue - event was stored but may not trigger downstream processing'
+          );
+        });
 
         // Pass to Validation Agent
         requestValidation({

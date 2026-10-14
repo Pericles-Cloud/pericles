@@ -345,18 +345,13 @@ async function fetchLaborRSSFeeds(
     try {
       logger.debug({ feedName: feed.name }, 'Fetching RSS feed');
 
-      const controller = new AbortController();
-      const timeoutId = setTimeout(() => { controller.abort(); }, 15000);
-
       const response = await fetch(feed.url, {
-        signal: controller.signal,
+        signal: AbortSignal.timeout(15000),
         headers: {
           'User-Agent': 'Mozilla/5.0 (compatible; PericlesBot/1.0; +https://pericles.cloud)',
           'Accept': 'application/rss+xml, application/xml, text/xml, */*'
         }
       });
-
-      clearTimeout(timeoutId);
 
       if (!response.ok) {
         logger.warn({ feedName: feed.name, status: response.status }, 'Feed returned non-OK status');
@@ -436,7 +431,7 @@ async function fetchLaborRSSFeeds(
       await sleep(200);
 
     } catch (error) {
-      if (error instanceof Error && error.name === 'AbortError') {
+      if (error instanceof Error && (error.name === 'AbortError' || error.name === 'TimeoutError')) {
         logger.warn({ feedName: feed.name }, 'Timeout fetching feed');
       } else {
         logger.error({ feedName: feed.name, err: error }, 'Error fetching feed');
@@ -764,17 +759,12 @@ async function fetchGDELTLaborNews(
 
         logger.debug({ query }, 'GDELT query');
 
-        const controller = new AbortController();
-        const timeoutId = setTimeout(() => { controller.abort(); }, 15000);
-
         const response = await fetch(url, {
-          signal: controller.signal,
+          signal: AbortSignal.timeout(15000),
           headers: {
             'Accept': 'application/json'
           }
         });
-
-        clearTimeout(timeoutId);
 
         if (!response.ok) {
           logger.warn({ status: response.status }, 'GDELT returned non-OK status');
@@ -853,7 +843,7 @@ async function fetchGDELTLaborNews(
         await sleep(500);
 
       } catch (error) {
-        if (error instanceof Error && error.name === 'AbortError') {
+        if (error instanceof Error && (error.name === 'AbortError' || error.name === 'TimeoutError')) {
           logger.warn({ query }, 'GDELT timeout');
         } else {
           logger.error({ query, err: error }, 'GDELT error');

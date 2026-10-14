@@ -27,6 +27,7 @@ async function main() {
 
     const suppliersResult = await sapGetSuppliersT.execute({
       context: {
+        organization_id: 'sap-mock-test-org',
         country_filter: 'VN',
         critical_only: true,
         max_results: 10,
@@ -56,6 +57,7 @@ async function main() {
 
     const plantsResult = await sapGetPlantsT.execute({
       context: {
+        organization_id: 'sap-mock-test-org',
         plant_type: 'all',
         max_results: 20,
       },
@@ -88,6 +90,7 @@ async function main() {
 
     const stockResult = await sapGetMaterialStockTool.execute({
       context: {
+        organization_id: 'sap-mock-test-org',
         plant_id: '1000',
         max_results: 10,
       },
@@ -122,6 +125,7 @@ async function main() {
 
     const lanesResult = await sapGetShippingLanesTool.execute({
       context: {
+        organization_id: 'sap-mock-test-org',
         mode: 'ocean',
         active_only: true,
         max_results: 10,

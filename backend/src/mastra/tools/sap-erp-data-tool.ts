@@ -201,6 +201,7 @@ export const sapGetSuppliersT = createTool({
     'Fetch supplier master data from SAP S/4HANA Cloud including locations, tiers, criticality flags, and risk scores. Returns suppliers with geocoded addresses for proximity analysis.',
 
   inputSchema: z.object({
+    organization_id: z.string().min(1).describe('Tenant organization ID (required for tenant isolation)'),
     country_filter: z
       .string()
       .length(2)
@@ -229,17 +230,15 @@ export const sapGetSuppliersT = createTool({
   }),
 
   execute: async ({ context }) => {
-    const { country_filter, critical_only, max_results } = context;
+    const { organization_id, country_filter, critical_only, max_results } = context;
+    // Tenant context is validated here. The SAP client has no per-organization scope yet.
+    if (!organization_id) {
+      throw new Error('organization_id required for tenant isolation');
+    }
 
     logger.info({ country_filter, critical_only, max_results }, 'Fetching suppliers from SAP S/4HANA Cloud');
 
-    // Set timeout for SAP API call (30 seconds max)
-    const controller = new AbortController();
-    const _timeout = setTimeout(() => {
-      controller.abort();
-      logger.error('Request timeout after 30 seconds');
-    }, 30000);
-
+    // The SAP client applies AbortSignal.timeout to every request.
     try {
       // Build OData filter
       let filter = 'to_Supplier ne null';
@@ -254,8 +253,6 @@ export const sapGetSuppliersT = createTool({
         $filter: filter,
         $top: max_results,
       });
-
-      clearTimeout(_timeout);
 
       // Transform and filter
       let suppliers = response.d.results
@@ -278,7 +275,6 @@ export const sapGetSuppliersT = createTool({
         timestamp: new Date().toISOString(),
       };
     } catch (error) {
-      clearTimeout(_timeout);
       logger.error({ err: error }, 'Failed to fetch suppliers');
       throw new Error(
         `SAP API error: ${error instanceof Error ? error.message : 'Unknown error'}`
@@ -298,6 +294,7 @@ export const sapGetPlantsT = createTool({
     'Fetch plant and warehouse data from SAP S/4HANA Cloud including locations, capacity, and utilization metrics. Useful for manufacturing and distribution center monitoring.',
 
   inputSchema: z.object({
+    organization_id: z.string().min(1).describe('Tenant organization ID (required for tenant isolation)'),
     plant_type: z
       .enum(['manufacturing', 'warehouse', 'all'])
       .optional()
@@ -326,12 +323,13 @@ export const sapGetPlantsT = createTool({
   }),
 
   execute: async ({ context }) => {
-    const { plant_type, country_filter, max_results } = context;
+    const { organization_id, plant_type, country_filter, max_results } = context;
+    // Tenant context is validated here. The SAP client has no per-organization scope yet.
+    if (!organization_id) {
+      throw new Error('organization_id required for tenant isolation');
+    }
 
     logger.info({ plant_type, country_filter, max_results }, 'Fetching plants from SAP S/4HANA Cloud');
-
-    const controller = new AbortController();
-    const _timeout = setTimeout(() => { controller.abort(); }, 30000);
 
     try {
       // Build OData filter
@@ -346,8 +344,6 @@ export const sapGetPlantsT = createTool({
         $filter: filter || undefined,
         $top: max_results,
       });
-
-      clearTimeout(_timeout);
 
       // Transform and filter by plant type
       let plants = response.d.results.map(_transformSAPPlant);
@@ -367,7 +363,6 @@ export const sapGetPlantsT = createTool({
         timestamp: new Date().toISOString(),
       };
     } catch (error) {
-      clearTimeout(_timeout);
       logger.error({ err: error }, 'Failed to fetch plants');
       throw new Error(
         `SAP API error: ${error instanceof Error ? error.message : 'Unknown error'}`
@@ -387,6 +382,7 @@ export const sapGetMaterialStockTool = createTool({
     'Fetch real-time material stock levels from SAP S/4HANA Cloud for a specific plant. Returns inventory quantities, values, and units.',
 
   inputSchema: z.object({
+    organization_id: z.string().min(1).describe('Tenant organization ID (required for tenant isolation)'),
     plant_id: z.string().describe('SAP Plant ID (e.g., "1000")'),
     material_filter: z.string().optional().describe('Filter by material number (_optional)'),
     max_results: z.number().int().min(1).max(100).optional().default(50),
@@ -401,20 +397,19 @@ export const sapGetMaterialStockTool = createTool({
   }),
 
   execute: async ({ context }) => {
-    const { plant_id, material_filter, max_results } = context;
+    const { organization_id, plant_id, material_filter, max_results } = context;
+    // Tenant context is validated here. The SAP client has no per-organization scope yet.
+    if (!organization_id) {
+      throw new Error('organization_id required for tenant isolation');
+    }
 
     logger.info({ plant_id, material_filter, max_results }, 'Fetching material stock from SAP');
-
-    const controller = new AbortController();
-    const _timeout = setTimeout(() => { controller.abort(); }, 30000);
 
     try {
       const client = await sapClient;
       const response = await client.getMaterialStock(plant_id, {
         $top: max_results,
       });
-
-      clearTimeout(_timeout);
 
       let stock = response.d.results.map(_transformSAPMaterialStock);
 
@@ -434,7 +429,6 @@ export const sapGetMaterialStockTool = createTool({
         timestamp: new Date().toISOString(),
       };
     } catch (error) {
-      clearTimeout(_timeout);
       logger.error({ err: error }, 'Failed to fetch material stock');
       throw new Error(
         `SAP API error: ${error instanceof Error ? error.message : 'Unknown error'}`
@@ -454,6 +448,7 @@ export const sapGetShippingLanesTool = createTool({
     'Fetch active shipping lanes from SAP S/4HANA Cloud including origin/destination plants, carriers, modes (air/ocean/truck/rail), and transit times.',
 
   inputSchema: z.object({
+    organization_id: z.string().min(1).describe('Tenant organization ID (required for tenant isolation)'),
     origin_plant: z.string().optional().describe('Filter by origin plant ID'),
     destination_plant: z.string().optional().describe('Filter by destination plant ID'),
     mode: z
@@ -473,12 +468,13 @@ export const sapGetShippingLanesTool = createTool({
   }),
 
   execute: async ({ context }) => {
-    const { origin_plant, destination_plant, mode, active_only, max_results } = context;
+    const { organization_id, origin_plant, destination_plant, mode, active_only, max_results } = context;
+    // Tenant context is validated here. The SAP client has no per-organization scope yet.
+    if (!organization_id) {
+      throw new Error('organization_id required for tenant isolation');
+    }
 
     logger.info({ origin_plant, destination_plant, mode, active_only, max_results }, 'Fetching shipping lanes from SAP');
-
-    const controller = new AbortController();
-    const timeout = setTimeout(() => { controller.abort(); }, 30000);
 
     try {
       // Fetch shipping lanes
@@ -487,8 +483,6 @@ export const sapGetShippingLanesTool = createTool({
         client.getShippingLanes({ $top: max_results }),
         client.getPlants(), // Need plant data for transformations
       ]);
-
-      clearTimeout(timeout);
 
       // Create plants map for lookups
       const plantsMap = new Map(plantsResponse.d.results.map((p) => [p.Plant, p]));
@@ -525,7 +519,6 @@ export const sapGetShippingLanesTool = createTool({
         timestamp: new Date().toISOString(),
       };
     } catch (error) {
-      clearTimeout(timeout);
       logger.error({ err: error }, 'Failed to fetch shipping lanes');
       throw new Error(
         `SAP API error: ${error instanceof Error ? error.message : 'Unknown error'}`
