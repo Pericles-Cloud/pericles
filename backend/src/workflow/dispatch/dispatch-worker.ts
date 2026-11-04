@@ -16,6 +16,7 @@ import { logger } from '../../monitoring/logger.js';
 import { changeRecordKey, parseChangeRecord } from '../records/change-record.js';
 import { createConsumerRegistry, type ConsumerRegistry } from './consumer-registry.js';
 import { dispatchRecord, DEFAULT_STAGE_TIMEOUT_MS } from './dispatcher.js';
+import { clientMonitoringConsumer } from '../consumers/client-monitoring.js';
 
 export interface DispatchWorkerOptions {
   prisma?: PrismaClient;
@@ -25,9 +26,24 @@ export interface DispatchWorkerOptions {
   pollIntervalMs?: number;
 }
 
+/**
+ * Default consumer registry with registered consumers.
+ * Add new consumers here as they are implemented.
+ */
+function createDefaultRegistry(): ConsumerRegistry {
+  return createConsumerRegistry({
+    client_monitoring: clientMonitoringConsumer,
+    // Add more consumers as they are implemented:
+    // event_verification: eventVerificationConsumer,
+    // exposure_validation: exposureValidationConsumer,
+    // impact_assessment: impactAssessmentConsumer,
+    // notification_rules: notificationRulesConsumer,
+  });
+}
+
 export function startDispatchWorker(options: DispatchWorkerOptions = {}): { stop: () => void } {
   const prisma = options.prisma ?? getPrismaClient();
-  const registry = options.registry ?? createConsumerRegistry();
+  const registry = options.registry ?? createDefaultRegistry();
   const stageTimeoutMs = options.stageTimeoutMs ?? DEFAULT_STAGE_TIMEOUT_MS;
 
   logger.info('[DispatchWorker] Starting change-record dispatch worker');

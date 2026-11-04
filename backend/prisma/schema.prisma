@@ -54,6 +54,8 @@ model Organization {
   riskAssessments     RiskAssessment[]
   eventHashes         EventHash[]
   context             OrganizationContext?
+  clientExposureProfile ClientExposureProfile?
+  candidateExposures  CandidateExposure[]
   settings            OrganizationSettings?
   toolConfigs         DataSourceToolConfig[]
   suppliers           Supplier[]
@@ -968,4 +970,205 @@ enum MessageStatus {
   COMPLETED
   FAILED
   DEAD_LETTER
+}
+
+// ============================================================================
+// GLOBAL EVENT STORE (Doctrine §13 - Global Monitoring Agent)
+// Single source of truth for world events, shared across all organizations.
+// The Global Monitoring Agent writes here; Client Monitoring Agents read.
+// ============================================================================
+model GlobalEvent {
+  id                String   @id @default(uuid())
+  event_hash        String   @unique // SHA256 of source+title+timestamp
+
+  // Event identity (Actor + Action + Target + Location + Timestamp)
+  headline          String   // Actor–Action–Target–Location–Timestamp form, terse ticker style
+  actor             String?
+  action            String?
+  target            String?
+
+  // Timestamps
+  occurred_at       DateTime? // When event actually occurred
+  scheduled_at      DateTime? // For scheduled events (e.g., strike deadline)
+  forecast_at       DateTime? // For forecast events (e.g., hurricane track)
+  first_reported_at DateTime? // When first reported by sources
+  first_detected_at DateTime  @default(now()) // When Pericles first detected
+
+  // Taxonomy (exactly one primary category + subcategory)
+  category          String   // Meteorological, Geopolitical, Sanctions, Regulatory, Labor, Logistics, Industrial, Cyber, Economic, Public Health
+  subcategory       String?
+  secondary_categories String[] @default([])
+
+  // Lifecycle: Forecast → Developing → Active → De-escalating → Resolved (+ Retracted, Merged)
+  status            GlobalEventStatus @default(FORECAST)
+  resolved_at       DateTime?
+  resolution_basis  String?  // 'source_restoration' | 'no_signal_timeout'
+
+  // Intrinsic severity (customer-agnostic disruptive potential)
+  intrinsic_severity String  // 'critical' | 'high' | 'medium' | 'low'
+  severity_rationale String? // One-line rationale required
+
+  // Confidence and source reliability
+  confidence        String   // 'unverified' | 'reported' | 'corroborated' | 'official'
+  corroborating_source_count Int @default(0)
+
+  // Location (critical for Client Monitoring Agent matching)
+  latitude          Float?
+  longitude         Float?
+  affected_area     Json?    // {radius_km} or {polygon: [[lat,lng],...]}
+  country_iso       String?  // ISO 3166 alpha-2
+  admin1_region     String?  // State/province/region
+  named_infrastructure Json? // [{type: 'port'|'airport'|'chokepoint', code: 'UN/LOCODE'|'IATA', name}]
+
+  // Affected dimensions
+  affected_dimensions Json?  // {transport_modes: [], commodities: [{hs_chapter, name}], industries: [], organizations: [{name, lei?}]}
+
+  // Duration
+  expected_duration Json?    // Only if stated by sources: {value, unit, attribution}
+  duration_estimate Json?    // Best/base/worst ranges: {best: {min, max}, base: {min, max}, worst: {min, max}, basis, confidence}
+
+  // Event statement (neutral, factual, for downstream agents - NEVER shown to customers)
+  event_statement   String?  @db.Text // 2-3 neutral sentences
+
+  // Hierarchy & linking
+  parent_event_id   String?  // For child events (e.g., port closure from typhoon)
+  related_event_ids Json     @default("[]") // [{event_id, type: 'caused_by'|'related_to'}]
+
+  // Sources & context
+  sources           Json     @default("[]") // [{url, publisher, tier: 1-4, language, published_at, retrieved_at}]
+  context_items     Json     @default("[]") // Attached narrative/analysis content
+
+  // Timeline (append-only update log)
+  timeline          Json     @default("[]") // [{timestamp, field, old_value, new_value, source}]
+
+  // Scheduling & staleness
+  last_checked_at   DateTime?
+  next_check_due    DateTime?
+  stale             Boolean  @default(false)
+
+  // Verification (Validation Agent writes this; Global Agent never edits)
+  verification_ref  String?  // Pointer to current Event Verification record
+
+  // Raw data preservation
+  raw_data          Json?
+
+  created_at        DateTime @default(now())
+  updated_at        DateTime @updatedAt
+
+  @@index([status])
+  @@index([intrinsic_severity])
+  @@index([occurred_at])
+  @@index([category])
+  @@index([latitude, longitude])
+  @@index([next_check_due])
+  @@index([first_detected_at])
+}
+
+enum GlobalEventStatus {
+  FORECAST
+  DEVELOPING
+  ACTIVE
+  DE_ESCALATING
+  RESOLVED
+  RETRACTED
+  MERGED
+}
+
+// ============================================================================
+// CANDIDATE EXPOSURE (Doctrine §13 - Client Monitoring Agent)
+// Per-org candidate events for validation. Created when a GlobalEvent
+// matches an exposure pathway for this customer.
+// ============================================================================
+model CandidateExposure {
+  id                String   @id @default(uuid())
+  organization_id   String
+  organization      Organization @relation(fields: [organization_id], references: [id], onDelete: Cascade)
+
+  global_event_id   String
+  global_event_hash String   // Denormalized for quick lookup
+
+  // Exposure analysis
+  exposure_pathways Json     // [{pathway: 'geographic_site'|'geographic_flow'|'entity'|'product'|'regulatory'|'indirect'|'strategic', match_basis, confidence}]
+  exposure_strength String   // 'direct' | 'probable' | 'possible' | 'strategic'
+  exposed_assets    Json     // [{asset_type: 'facility'|'supplier'|'shipment'|'sku'|'carrier'|'lane', asset_id, distance_or_match_basis}]
+  match_confidence  Json     // Confidence per entity/location/product match
+  temporal_relevance Json?   // When exposure applies: {shipment_eta, event_window, regulation_effective_date}
+  strategic_context Json?    // Org Memory documents/initiatives cited: [{doc_ref, initiative}]
+
+  // Rationale (2-4 plain sentences explaining why this event reaches this customer)
+  rationale         String   @db.Text
+
+  // Provisional priority (replaced by Impact Assessment Agent's impact_severity)
+  exposure_priority String   // 'critical' | 'high' | 'medium' | 'low'
+
+  // Lifecycle: Watching → Candidate → Validated/Rejected → Cleared
+  validation_status ExposureValidationStatus @default(WATCHING)
+  validation_ref    String?  // Pointer to Validation Agent record
+  cleared_at        DateTime?
+  cleared_reason    String?  // 'shipment_delivered' | 'shipment_rerouted' | 'event_resolved' | 'event_retracted' | 'supplier_removed'
+
+  // Audit
+  profile_snapshot_ref String? // Reference to profile version evaluated against
+
+  created_at        DateTime @default(now())
+  updated_at        DateTime @updatedAt
+
+  @@unique([organization_id, global_event_hash]) // Prevent duplicates
+  @@index([organization_id, validation_status])
+  @@index([global_event_id])
+  @@index([exposure_strength])
+  @@index([exposure_priority])
+  @@index([created_at])
+}
+
+enum ExposureValidationStatus {
+  WATCHING      // On watch list (Possible strength)
+  CANDIDATE     // Sent to Validation Agent
+  VALIDATED     // Confirmed by Validation Agent
+  REJECTED      // Rejected by Validation Agent
+  CLEARED       // Exposure ended
+}
+
+// ============================================================================
+// CLIENT EXPOSURE PROFILE (Doctrine §13 - Client Monitoring Agent)
+// Extends OrganizationContext with detailed ERP + Org Memory derived data.
+// The Client Monitoring Agent builds and maintains this profile.
+// ============================================================================
+model ClientExposureProfile {
+  id                  String   @id @default(uuid())
+  organization_id     String   @unique
+  organization        Organization @relation(fields: [organization_id], references: [id], onDelete: Cascade)
+
+  // From ERP (structural footprint)
+  own_facilities      Json     @default("[]") // [{id, name, type: 'plant'|'warehouse'|'dc'|'office', lat, lng, criticality}]
+  suppliers           Json     @default("[]") // [{id, name, lat, lng, supplies: [{sku, commodity}], spend_pct, single_source: bool}]
+  products            Json     @default("[]") // [{sku, name, bom: [{input_sku, qty}], hs_codes: []}]
+  logistics           Json     @default("[]") // [{carriers: [{id, name}], routes: [{origin, destination, mode, ports: []}]}]
+  shipments_in_transit Json    @default("[]") // [{id, origin, destination, route, carrier, eta, contents: [{sku, qty}]}]
+  customers           Json     @default("[]") // [{id, name, ship_to_locations: [{lat, lng}]}]
+
+  // From Organizational Memory (strategic context)
+  strategic_priorities Json?   // [{initiative, description, target_date, locations: [], partners: []}]
+  key_account_commitments Json? // [{account, sla, dependent_supply: []}]
+  stated_concerns       Json?  // [{concern, risk_appetite, past_events: []}]
+  past_events           Json?  // [{event_id, response, outcome}]
+
+  // From admin configuration
+  sensitivity_config    Json?  // Per-category sensitivity: {meteorological: 'high', geopolitical: 'medium', ...}
+  excluded_categories   String[] @default([])
+  excluded_regions      String[] @default([])
+  buffer_distances      Json?  // Per-category buffer: {meteorological: 200, labor: 50, ...} (km)
+  min_severity          Json?  // Per-category minimum: {meteorological: 'medium', labor: 'low', ...}
+
+  // Metadata
+  last_erp_sync         DateTime @default(now())
+  last_shipment_sync    DateTime @default(now())
+  last_org_memory_sync  DateTime @default(now())
+  profile_version       Int      @default(1)
+
+  created_at            DateTime @default(now())
+  updated_at            DateTime @updatedAt
+
+  @@index([organization_id])
+  @@index([profile_version])
 }

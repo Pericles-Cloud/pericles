@@ -27,7 +27,8 @@ export interface QueueMessage {
   // eslint-disable-next-line @typescript-eslint/no-explicit-any -- Generic payload supports any message type
   payload: any;
   timestamp: string;
-  organizationId: string;
+  /** Organization ID, or null for global records (e.g., global_event_change) */
+  organizationId: string | null;
 }
 
 export interface PublishOptions {

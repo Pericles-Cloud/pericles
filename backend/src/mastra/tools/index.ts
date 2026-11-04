@@ -57,3 +57,32 @@ export { pandemicHealthMonitorTool } from './pandemic-health-monitor-tool.js';
 
 // 10. Geopolitical & Conflict
 export { geopoliticalConflictMonitorTool } from './geopolitical-conflict-monitor-tool.js';
+
+// ============================================================================
+// Global Event Store Tools (Doctrine §13 - Global Monitoring Agent)
+// ============================================================================
+
+// Global event deduplication
+export { globalEventLookupTool } from './global-event-lookup-tool.js';
+
+// Global event lifecycle management
+export { globalEventResolutionTool } from './global-event-resolution-tool.js';
+
+// Event linking (caused_by, related_to)
+export { eventLinkingTool } from './event-linking-tool.js';
+
+// Duration estimation
+export { durationEstimateTool } from './duration-estimate-tool.js';
+
+// ============================================================================
+// Client Monitoring Tools (Doctrine §13 - Client Monitoring Agent)
+// ============================================================================
+
+// Client exposure profile management
+export { clientExposureProfileTool } from './client-exposure-profile-tool.js';
+
+// Exposure pathway evaluation
+export { exposurePathwayEvaluatorTool } from './exposure-pathway-evaluator-tool.js';
+
+// Candidate exposure creation
+export { candidateExposureTool } from './candidate-exposure-tool.js';
