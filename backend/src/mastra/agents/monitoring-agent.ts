@@ -33,6 +33,20 @@ import { monitoringScorers } from '../scorers/monitoring-scorer.js';
 /**
  * Monitoring Agent
  *
+ * @deprecated This agent is being replaced by the split architecture:
+ * - GlobalMonitoringAgent: Monitors external sources globally (no org context)
+ * - ClientMonitoringAgent: Evaluates exposure per customer from Global Event Store
+ *
+ * See GitHub issue #76 for details. This agent will be removed after the
+ * migration is complete and all orgs are using the new architecture.
+ *
+ * Migration path:
+ * 1. Run migrate-events-to-global.ts to backfill GlobalEvent table
+ * 2. Enable DISPATCH_WORKER_ENABLED=true to start client_monitoring consumer
+ * 3. Start global monitoring process: npm run monitoring:global:start
+ * 4. Verify new pipeline is working
+ * 5. Deprecate per-org monitoring loops
+ *
  * Purpose: Real-time supply chain risk event detection across 10 risk categories.
  *
  * Agent Flow:
