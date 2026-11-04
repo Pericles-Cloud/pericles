@@ -6,7 +6,14 @@
  * the same severity/type formatting; this is the single source.
  */
 
-import type { Event } from '@/lib/api-client';
+import type {
+  Event,
+  ExposurePriority,
+  ExposureStrength,
+  ExposureValidationStatus,
+  GlobalEventStatus,
+  IntrinsicSeverity,
+} from '@/lib/api-client';
 
 export type EventStatus = 'awaiting' | 'ongoing' | 'delayed' | 'resolved';
 
@@ -67,6 +74,58 @@ export const SEVERITY_CONFIG: Record<number, { label: string; color: string }> =
   1: { label: '1', color: 'border border-risk-low-accent/40 bg-risk-low text-risk-low-fg' },
   2: { label: '2', color: 'border border-risk-elevated-accent/40 bg-risk-elevated text-risk-elevated-fg' },
   3: { label: '3', color: 'border border-risk-critical-accent/40 bg-risk-critical text-risk-critical-fg' },
+};
+
+/**
+ * §13 Global Monitoring Agent enums, mapped onto the same four risk families
+ * by meaning. Each family is used exactly once per table where possible so
+ * the chip colour stays discriminating; where two values share a family
+ * (e.g. retracted/merged are both terminal-neutral) the label disambiguates.
+ */
+
+/** Global-event lifecycle. Active is the only urgent state; forecast and
+    de-escalating are watch states; resolved/retracted/merged are done. */
+export const GLOBAL_EVENT_STATUS_CONFIG: Record<GlobalEventStatus, StatusConfig> = {
+  FORECAST: { label: 'Forecast', bgColor: 'bg-risk-monitoring', textColor: 'text-risk-monitoring-fg' },
+  DEVELOPING: { label: 'Developing', bgColor: 'bg-risk-elevated', textColor: 'text-risk-elevated-fg' },
+  ACTIVE: { label: 'Active', bgColor: 'bg-risk-critical', textColor: 'text-risk-critical-fg' },
+  DE_ESCALATING: { label: 'De-escalating', bgColor: 'bg-risk-monitoring', textColor: 'text-risk-monitoring-fg' },
+  RESOLVED: { label: 'Resolved', bgColor: 'bg-risk-low', textColor: 'text-risk-low-fg' },
+  RETRACTED: { label: 'Retracted', bgColor: 'bg-risk-low', textColor: 'text-risk-low-fg' },
+  MERGED: { label: 'Merged', bgColor: 'bg-risk-low', textColor: 'text-risk-low-fg' },
+};
+
+/** Client-side severity of the global event itself (before org exposure). */
+export const INTRINSIC_SEVERITY_CONFIG: Record<IntrinsicSeverity, StatusConfig> = {
+  critical: { label: 'Critical', bgColor: 'bg-risk-critical', textColor: 'text-risk-critical-fg' },
+  high: { label: 'High', bgColor: 'bg-risk-elevated', textColor: 'text-risk-elevated-fg' },
+  medium: { label: 'Medium', bgColor: 'bg-risk-monitoring', textColor: 'text-risk-monitoring-fg' },
+  low: { label: 'Low', bgColor: 'bg-risk-low', textColor: 'text-risk-low-fg' },
+};
+
+/** Exposure strength reads as certainty, not urgency: a strategic match still
+    needs watching (monitoring), a possible one is only an early hint (low). */
+export const EXPOSURE_STRENGTH_CONFIG: Record<ExposureStrength, StatusConfig> = {
+  direct: { label: 'Direct', bgColor: 'bg-risk-critical', textColor: 'text-risk-critical-fg' },
+  probable: { label: 'Probable', bgColor: 'bg-risk-elevated', textColor: 'text-risk-elevated-fg' },
+  possible: { label: 'Possible', bgColor: 'bg-risk-low', textColor: 'text-risk-low-fg' },
+  strategic: { label: 'Strategic', bgColor: 'bg-risk-monitoring', textColor: 'text-risk-monitoring-fg' },
+};
+
+export const EXPOSURE_PRIORITY_CONFIG: Record<ExposurePriority, StatusConfig> = {
+  critical: { label: 'Critical', bgColor: 'bg-risk-critical', textColor: 'text-risk-critical-fg' },
+  high: { label: 'High', bgColor: 'bg-risk-elevated', textColor: 'text-risk-elevated-fg' },
+  medium: { label: 'Medium', bgColor: 'bg-risk-monitoring', textColor: 'text-risk-monitoring-fg' },
+  low: { label: 'Low', bgColor: 'bg-risk-low', textColor: 'text-risk-low-fg' },
+};
+
+/** Client Monitoring Agent validation lifecycle for a candidate exposure. */
+export const EXPOSURE_VALIDATION_CONFIG: Record<ExposureValidationStatus, StatusConfig> = {
+  WATCHING: { label: 'Watching', bgColor: 'bg-risk-monitoring', textColor: 'text-risk-monitoring-fg' },
+  CANDIDATE: { label: 'Candidate', bgColor: 'bg-risk-elevated', textColor: 'text-risk-elevated-fg' },
+  VALIDATED: { label: 'Validated', bgColor: 'bg-risk-critical', textColor: 'text-risk-critical-fg' },
+  REJECTED: { label: 'Rejected', bgColor: 'bg-risk-low', textColor: 'text-risk-low-fg' },
+  CLEARED: { label: 'Cleared', bgColor: 'bg-risk-low', textColor: 'text-risk-low-fg' },
 };
 
 export const TYPE_ICONS: Record<string, string> = {

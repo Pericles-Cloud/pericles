@@ -8,10 +8,14 @@ import {
   Shipment,
   Supplier,
   Event,
+  GlobalEvent,
+  CandidateExposure,
   TransportMode,
   getShipments,
   getSuppliers,
   getEvents,
+  getGlobalEvents,
+  getCandidateExposures,
 } from '@/lib/api-client';
 import {
   GoogleMap,
@@ -158,6 +162,8 @@ export default function AtlasPage() {
   const [shipments, setShipments] = useState<Shipment[]>([]);
   const [suppliers, setSuppliers] = useState<Supplier[]>([]);
   const [events, setEvents] = useState<Event[]>([]);
+  const [globalEvents, setGlobalEvents] = useState<GlobalEvent[]>([]);
+  const [candidateExposures, setCandidateExposures] = useState<CandidateExposure[]>([]);
   const [isLoading, setIsLoading] = useState(true);
   const [timeliness, setTimeliness] = useState<TimelinessFilter>('all');
   const [mapType, setMapType] = useState<MapType>('roadmap');
@@ -176,6 +182,10 @@ export default function AtlasPage() {
   // filter that removes the event auto-closes the window instead of leaving a
   // stale object on screen.
   const [selectedEventId, setSelectedEventId] = useState<string | null>(null);
+  // Layer visibility toggles for Global Events and Candidate Exposures
+  const [showGlobalEvents, setShowGlobalEvents] = useState(true);
+  const [showCandidateExposures, setShowCandidateExposures] = useState(true);
+  const [selectedGlobalEventId, setSelectedGlobalEventId] = useState<string | null>(null);
   // Shared geocoder for the location search box. A supplier-city reverse
   // geocode used to live here too (GH #11) but was removed when the origin pin
   // became the Port of Origin (GH #9) — origin pins are ports, whose names come
@@ -227,10 +237,12 @@ export default function AtlasPage() {
       // Roll up across branded subsidiaries so the stats + supplier/port lines
       // match the live vessel layer (which also rolls up). The server scopes to
       // the org + its subsidiaries, so no client-side org filter is needed.
-      const [shipmentsRes, suppliersRes, eventsRes] = await Promise.all([
+      const [shipmentsRes, suppliersRes, eventsRes, globalEventsRes, exposuresRes] = await Promise.all([
         getShipments(currentOrganization.id, { includeSubsidiaries: true }),
         getSuppliers({ organizationId: currentOrganization.id, includeSubsidiaries: true }),
         getEvents({ organizationId: currentOrganization.id, limit: 100, includeSubsidiaries: true }),
+        getGlobalEvents({ status: ['ACTIVE', 'DEVELOPING', 'FORECAST'], limit: 100 }),
+        getCandidateExposures({ organizationId: currentOrganization.id, limit: 100, includeGlobalEvent: true }),
       ]);
       if (!isMounted) return;
       if (shipmentsRes.success && shipmentsRes.data) setShipments(shipmentsRes.data);
@@ -238,6 +250,8 @@ export default function AtlasPage() {
         setSuppliers(suppliersRes.data);
       }
       if (eventsRes.success && eventsRes.data) setEvents(eventsRes.data.events);
+      if (globalEventsRes.success && globalEventsRes.data) setGlobalEvents(globalEventsRes.data.events);
+      if (exposuresRes.success && exposuresRes.data) setCandidateExposures(exposuresRes.data.exposures);
       setIsLoading(false);
     };
 
@@ -400,6 +414,18 @@ export default function AtlasPage() {
     [events, selectedEventId]
   );
 
+  // A global event can be selected from either §13 layer, and an exposure's
+  // event may be absent from the fetched global list (different filters), so
+  // the exposure join is the fallback.
+  const selectedGlobalEvent = useMemo(() => {
+    if (!selectedGlobalEventId) return null;
+    return (
+      globalEvents.find((e) => e.id === selectedGlobalEventId) ??
+      candidateExposures.find((x) => x.globalEventId === selectedGlobalEventId)?.globalEvent ??
+      null
+    );
+  }, [globalEvents, candidateExposures, selectedGlobalEventId]);
+
   // A selected chip whose type vanishes (org switch) degrades to All — derived,
   // not an effect that setStates (react-hooks lint + no cascade render).
   const effectiveTypeFilter: EventTypeFilter =
@@ -435,7 +461,8 @@ export default function AtlasPage() {
     setSelectedPinId(null);
     setSelectedRoute(null);
     setSelectedEventId(null);
-  }, [setSelectedPinId, setSelectedRoute, setSelectedEventId]);
+    setSelectedGlobalEventId(null);
+  }, [setSelectedPinId, setSelectedRoute, setSelectedEventId, setSelectedGlobalEventId]);
 
   // Location search (§3.1.1): geocode the query and recenter the map.
   const handleSearch = useCallback(
@@ -755,6 +782,33 @@ export default function AtlasPage() {
             </div>
           </div>
         )}
+
+        {/* Layer toggles for Global Events and Candidate Exposures */}
+        <div className="mt-2 pt-2 border-t border-border">
+          <div className="font-medium mb-1">Event Layers</div>
+          <div className="space-y-1">
+            <label className="flex items-center gap-2 cursor-pointer">
+              <input
+                type="checkbox"
+                checked={showGlobalEvents}
+                onChange={(e) => setShowGlobalEvents(e.target.checked)}
+                className="rounded border-grey-300"
+              />
+              <span className="w-3 h-3 rounded-full bg-red-500 shrink-0" />
+              <span>Global Events ({globalEvents.length})</span>
+            </label>
+            <label className="flex items-center gap-2 cursor-pointer">
+              <input
+                type="checkbox"
+                checked={showCandidateExposures}
+                onChange={(e) => setShowCandidateExposures(e.target.checked)}
+                className="rounded border-grey-300"
+              />
+              <span className="w-3 h-3 rounded-full bg-orange-500 shrink-0" />
+              <span>Your Exposures ({candidateExposures.length})</span>
+            </label>
+          </div>
+        </div>
         </div>
         )}
       </div>
@@ -828,6 +882,7 @@ export default function AtlasPage() {
                   onClick={() => {
                     setSelectedRoute(route);
                     setSelectedEventId(null);
+                    setSelectedGlobalEventId(null);
                   }}
                 />
                 <Polyline
@@ -859,6 +914,7 @@ export default function AtlasPage() {
                   onClick={() => {
                     setSelectedRoute(route);
                     setSelectedEventId(null);
+                    setSelectedGlobalEventId(null);
                   }}
                 />
                 <OverlayView
@@ -899,6 +955,7 @@ export default function AtlasPage() {
               onClick={() => {
                     setSelectedRoute(route);
                     setSelectedEventId(null);
+                    setSelectedGlobalEventId(null);
                   }}
             />
           );
@@ -925,6 +982,79 @@ export default function AtlasPage() {
               }}
               onClick={() => {
                 setSelectedEventId(event.id);
+                setSelectedRoute(null);
+                setSelectedPinId(null);
+                setSelectedGlobalEventId(null);
+              }}
+            />
+          );
+        })}
+
+        {/* Global Event markers (Doctrine §13): shared across all orgs */}
+        {showGlobalEvents && globalEvents.map((event) => {
+          if (!event.location?.latitude || !event.location?.longitude) return null;
+
+          // Color by intrinsic severity
+          const severityColors: Record<string, string> = {
+            critical: '#DC2626', // red-600
+            high: '#EA580C',     // orange-600
+            medium: '#CA8A04',   // yellow-600
+            low: '#6B7280',      // grey-500
+          };
+          const color = severityColors[event.intrinsicSeverity] ?? severityColors.low;
+
+          return (
+            <Marker
+              key={`global-event-${event.id}`}
+              position={{ lat: event.location.latitude, lng: event.location.longitude }}
+              icon={{
+                path: google.maps.SymbolPath.CIRCLE,
+                scale: 8,
+                fillColor: color,
+                fillOpacity: 0.8,
+                strokeColor: PERICLES.white,
+                strokeWeight: 2,
+              }}
+              onClick={() => {
+                setSelectedGlobalEventId(event.id);
+                setSelectedEventId(null);
+                setSelectedRoute(null);
+                setSelectedPinId(null);
+              }}
+            />
+          );
+        })}
+
+        {/* Candidate Exposure markers (Doctrine §13): org-specific exposures */}
+        {showCandidateExposures && candidateExposures.map((exposure) => {
+          // Use the global event's location if available
+          const globalEvent = exposure.globalEvent;
+          if (!globalEvent?.location?.latitude || !globalEvent?.location?.longitude) return null;
+
+          // Color by exposure strength
+          const strengthColors: Record<string, string> = {
+            direct: '#DC2626',    // red-600
+            probable: '#EA580C',  // orange-600
+            possible: '#CA8A04',  // yellow-600
+            strategic: '#7C3AED', // violet-600
+          };
+          const color = strengthColors[exposure.exposureStrength] ?? strengthColors.possible;
+
+          return (
+            <Marker
+              key={`exposure-${exposure.id}`}
+              position={{ lat: globalEvent.location.latitude, lng: globalEvent.location.longitude }}
+              icon={{
+                path: google.maps.SymbolPath.CIRCLE,
+                scale: 5,
+                fillColor: color,
+                fillOpacity: 1,
+                strokeColor: PERICLES.white,
+                strokeWeight: 1,
+              }}
+              onClick={() => {
+                setSelectedGlobalEventId(exposure.globalEventId);
+                setSelectedEventId(null);
                 setSelectedRoute(null);
                 setSelectedPinId(null);
               }}
@@ -960,6 +1090,7 @@ export default function AtlasPage() {
             onClick={() => {
               setSelectedPinId(pin.id);
               setSelectedEventId(null);
+              setSelectedGlobalEventId(null);
             }}
             icon={{
               path: google.maps.SymbolPath.CIRCLE,
@@ -1097,6 +1228,87 @@ export default function AtlasPage() {
                 </p>
                 <Link
                   href={`/intelligence?event=${encodeURIComponent(selectedEvent.id)}`}
+                  className="inline-block mt-2 text-xs font-medium text-grey-900 underline"
+                >
+                  Open in Intelligence →
+                </Link>
+              </div>
+            </InfoWindow>
+          )}
+
+        {/* Global-event InfoWindow (§13) — same white-bubble/grey-ramp rules as
+            the port pin above (see the note there). Hidden again when the layer
+            toggle would unpin the marker it came from, same rule as the event
+            chip filter above. */}
+        {selectedGlobalEvent &&
+          selectedGlobalEvent.location.latitude != null &&
+          selectedGlobalEvent.location.longitude != null &&
+          ((showGlobalEvents &&
+            globalEvents.some((e) => e.id === selectedGlobalEvent.id)) ||
+            (showCandidateExposures &&
+              candidateExposures.some(
+                (x) =>
+                  x.globalEventId === selectedGlobalEvent.id &&
+                  x.globalEvent?.location?.latitude &&
+                  x.globalEvent?.location?.longitude,
+              ))) && (
+            <InfoWindow
+              position={{
+                lat: selectedGlobalEvent.location.latitude,
+                lng: selectedGlobalEvent.location.longitude,
+              }}
+              onCloseClick={() => setSelectedGlobalEventId(null)}
+            >
+              <div className="p-2 w-[280px]">
+                <div className="font-medium text-grey-900 leading-snug">
+                  {selectedGlobalEvent.headline}
+                </div>
+                <div className="text-xs text-grey-600 mt-1">
+                  {formatEventType(selectedGlobalEvent.category)}
+                  {selectedGlobalEvent.subcategory &&
+                    ` · ${formatEventType(selectedGlobalEvent.subcategory)}`}{' '}
+                  · {selectedGlobalEvent.intrinsicSeverity} ·{' '}
+                  {formatEventType(selectedGlobalEvent.status.toLowerCase())}
+                  {selectedGlobalEvent.occurredAt &&
+                    ` · ${formatShortDate(selectedGlobalEvent.occurredAt)}`}
+                </div>
+                {(() => {
+                  const place = [
+                    selectedGlobalEvent.location.admin1Region,
+                    selectedGlobalEvent.location.countryIso,
+                  ]
+                    .filter(Boolean)
+                    .join(', ');
+                  const infra = selectedGlobalEvent.location.namedInfrastructure
+                    ?.map((i) => i.name)
+                    .join(', ');
+                  const location = [place, infra].filter(Boolean).join(' · ');
+                  return location ? (
+                    <div className="text-sm text-grey-800 mt-1">{location}</div>
+                  ) : null;
+                })()}
+                {/* severityRationale, not eventStatement: the schema marks
+                    eventStatement "NEVER shown to customers" (agent-only). */}
+                {selectedGlobalEvent.severityRationale && (
+                  <p className="text-xs text-grey-600 mt-2 max-h-24 overflow-y-auto line-clamp-4">
+                    {selectedGlobalEvent.severityRationale}
+                  </p>
+                )}
+                {(() => {
+                  // How many of THIS org's candidate exposures trace back to
+                  // this event — the bridge from the shared layer to the
+                  // tenant-scoped one.
+                  const count = candidateExposures.filter(
+                    (x) => x.globalEventId === selectedGlobalEvent.id,
+                  ).length;
+                  return count > 0 ? (
+                    <div className="text-xs font-medium text-grey-900 mt-2">
+                      {count} candidate exposure{count !== 1 ? 's' : ''} for your organization
+                    </div>
+                  ) : null;
+                })()}
+                <Link
+                  href={`/intelligence?global=${encodeURIComponent(selectedGlobalEvent.id)}`}
                   className="inline-block mt-2 text-xs font-medium text-grey-900 underline"
                 >
                   Open in Intelligence →

@@ -1,11 +1,14 @@
 'use client';
 
 /**
- * Intelligence — the merged Events + Insights module (GH #12).
- *
- * One event stream, two views over it:
+ * Intelligence — the merged Events + Insights module (GH #12), extended with
+ * the Doctrine §13 Global/Client agent split:
  *   • Feed      — the monitored event list, its filters, and full event detail
  *                 (formerly /events) plus the per-event analysis tabs.
+ *   • Global    — GlobalEvent's detected by the Global Monitoring Agent,
+ *                 shared across all organizations (Atlas deep-links ?global=).
+ *   • Exposures — this org's CandidateExposure's derived from global events
+ *                 by the Client Monitoring Agent (Atlas deep-links ?exposure=).
  *   • Analytics — country/sector/trend risk analysis (formerly /insights).
  *
  * Selection is shared: picking an event in the feed keeps it selected when you
@@ -18,8 +21,13 @@ import { useAuth } from '@/providers/auth-provider';
 import {
   CountryRiskAggregate,
   Event,
+  GlobalEvent,
+  CandidateExposure,
   getCountryRisk,
   getEvents,
+  getGlobalEvents,
+  getGlobalEvent,
+  getCandidateExposures,
 } from '@/lib/api-client';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
@@ -27,6 +35,14 @@ import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/com
 import { cn } from '@/lib/utils';
 import { EventList } from '@/components/intelligence/event-list';
 import { AnalysisTabs } from '@/components/intelligence/analysis-tabs';
+import {
+  GlobalEventDetail,
+  GlobalEventList,
+} from '@/components/intelligence/global-events-view';
+import {
+  ExposureDetail,
+  ExposureList,
+} from '@/components/intelligence/exposures-view';
 import { RiskAnalytics, overallRiskScore } from '@/components/intelligence/risk-analytics';
 import {
   EventDetailCard,
@@ -36,7 +52,7 @@ import {
 import { formatTypeLabel, getEventStatus, getRiskColor } from '@/lib/intelligence-utils';
 import { Fillet } from '@/components/ui/fillet';
 
-type IntelligenceView = 'feed' | 'analytics';
+type IntelligenceView = 'feed' | 'analytics' | 'global' | 'exposures';
 
 export default function IntelligencePage() {
   // useSearchParams needs a Suspense boundary to keep the route prerenderable.
@@ -55,8 +71,14 @@ function IntelligenceContent() {
   // next.config.ts carries the old query string through unchanged, so honour it
   // rather than silently dropping a bookmarked link's selection.
   const deepLinkedEventId = searchParams.get('event') ?? searchParams.get('selected');
+  // Atlas's global-event InfoWindow deep-links here as ?global=<id> /
+  // ?exposure=<id> (Doctrine §13 surfaces).
+  const deepLinkedGlobalId = searchParams.get('global');
+  const deepLinkedExposureId = searchParams.get('exposure');
 
   const [events, setEvents] = useState<Event[]>([]);
+  const [globalEvents, setGlobalEvents] = useState<GlobalEvent[]>([]);
+  const [candidateExposures, setCandidateExposures] = useState<CandidateExposure[]>([]);
   // Pre-aggregated analytics data (GH #13): fetched lazily the first time the
   // Analytics view opens, never on mount — the Feed must not pay for it.
   const [countryRisk, setCountryRisk] = useState<CountryRiskAggregate[]>([]);
@@ -64,6 +86,8 @@ function IntelligenceContent() {
   // Only the user's explicit pick is state; the deep link and the
   // newest-event default are derived below.
   const [userSelectedId, setUserSelectedId] = useState<string | null>(null);
+  const [userSelectedGlobalId, setUserSelectedGlobalId] = useState<string | null>(null);
+  const [userSelectedExposureId, setUserSelectedExposureId] = useState<string | null>(null);
   const [isLoadingEvents, setIsLoadingEvents] = useState(true);
   const [isLoadingAnalytics, setIsLoadingAnalytics] = useState(false);
   const [loadError, setLoadError] = useState<string | null>(null);
@@ -72,7 +96,10 @@ function IntelligenceContent() {
   // returning does not refetch — the data is cached for the session.
   const [analyticsRequested, setAnalyticsRequested] = useState(false);
 
-  const [view, setView] = useState<IntelligenceView>('feed');
+  const [view, setView] = useState<IntelligenceView>(
+    // A §13 deep link opens on its own view, not the Feed.
+    deepLinkedExposureId ? 'exposures' : deepLinkedGlobalId ? 'global' : 'feed',
+  );
   const [searchQuery, setSearchQuery] = useState('');
   const [statusFilter, setStatusFilter] = useState<string>('all');
   const [typeFilter, setTypeFilter] = useState<string>('all');
@@ -90,15 +117,27 @@ function IntelligenceContent() {
       // Without this, a failed fetch after an org switch leaves the previous
       // tenant's events on screen under the incoming tenant's name.
       setEvents([]);
+      setGlobalEvents([]);
+      setCandidateExposures([]);
       setTotal(0);
       setUserSelectedId(null);
+      setUserSelectedGlobalId(null);
+      setUserSelectedExposureId(null);
 
       // Tenant-scoped server-side by organizationId — never filtered client-side.
-      const eventsRes = await getEvents({
-        organizationId: currentOrganization.id,
-        limit: 100,
-        includeSubsidiaries: true,
-      });
+      const [eventsRes, globalEventsRes, exposuresRes] = await Promise.all([
+        getEvents({
+          organizationId: currentOrganization.id,
+          limit: 100,
+          includeSubsidiaries: true,
+        }),
+        getGlobalEvents({ status: ['ACTIVE', 'DEVELOPING', 'FORECAST'], limit: 100 }),
+        getCandidateExposures({
+          organizationId: currentOrganization.id,
+          limit: 100,
+          includeGlobalEvent: true,
+        }),
+      ]);
 
       if (!isMounted) return;
 
@@ -110,6 +149,14 @@ function IntelligenceContent() {
           `Could not load events for ${currentOrganization.name}. ` +
             'What is shown may be incomplete — reload to try again.',
         );
+      }
+
+      if (globalEventsRes.success && globalEventsRes.data) {
+        setGlobalEvents(globalEventsRes.data.events);
+      }
+
+      if (exposuresRes.success && exposuresRes.data) {
+        setCandidateExposures(exposuresRes.data.exposures);
       }
 
       setIsLoadingEvents(false);
@@ -204,6 +251,65 @@ function IntelligenceContent() {
 
   const handleSelect = useCallback((event: Event) => setUserSelectedId(event.id), []);
 
+  // Global + exposure selection: the user's pick wins; then the deep link; then
+  // the newest item.
+  const selectedGlobalEventId = useMemo(() => {
+    if (userSelectedGlobalId) return userSelectedGlobalId;
+    if (deepLinkedGlobalId) return deepLinkedGlobalId;
+    return globalEvents[0]?.id ?? null;
+  }, [userSelectedGlobalId, deepLinkedGlobalId, globalEvents]);
+
+  // A selected global event can be missing from the fetched list (an exposure
+  // deep-link or cross-link may point at an event outside the status window or
+  // beyond the limit). The exposure join carries only a partial event, so the
+  // full record is fetched on demand for the detail view. Global events are
+  // org-independent (§13), so the cache is valid across org switches.
+  const [fetchedGlobalEvents, setFetchedGlobalEvents] = useState<Record<string, GlobalEvent>>({});
+
+  useEffect(() => {
+    if (!selectedGlobalEventId || globalEvents.some((e) => e.id === selectedGlobalEventId)) {
+      return;
+    }
+    let isMounted = true;
+    getGlobalEvent(selectedGlobalEventId).then((res) => {
+      const fetched = res.success ? res.data : undefined;
+      if (isMounted && fetched) {
+        setFetchedGlobalEvents((prev) => ({ ...prev, [fetched.id]: fetched }));
+      }
+    });
+    return () => {
+      isMounted = false;
+    };
+  }, [selectedGlobalEventId, globalEvents]);
+
+  const selectedGlobalEvent = useMemo(() => {
+    if (!selectedGlobalEventId) return null;
+    return (
+      globalEvents.find((e) => e.id === selectedGlobalEventId) ??
+      fetchedGlobalEvents[selectedGlobalEventId] ??
+      null
+    );
+  }, [globalEvents, fetchedGlobalEvents, selectedGlobalEventId]);
+
+  const selectedExposureId = useMemo(() => {
+    if (userSelectedExposureId) return userSelectedExposureId;
+    if (deepLinkedExposureId && candidateExposures.some((x) => x.id === deepLinkedExposureId)) {
+      return deepLinkedExposureId;
+    }
+    return candidateExposures[0]?.id ?? null;
+  }, [userSelectedExposureId, deepLinkedExposureId, candidateExposures]);
+
+  const selectedExposure = useMemo(
+    () => candidateExposures.find((x) => x.id === selectedExposureId) ?? null,
+    [candidateExposures, selectedExposureId],
+  );
+
+  // Cross-link: an exposure detail opens the underlying global event's view.
+  const handleOpenGlobalEvent = useCallback((globalEventId: string) => {
+    setUserSelectedGlobalId(globalEventId);
+    setView('global');
+  }, []);
+
   // Generation and the Create Memo/Report/Dashboard actions all route through
   // the Co-Pilot path (pericles-copilot-ui), which is not built yet. The
   // controls stay visible so the shape of the module is legible, but they are
@@ -242,7 +348,7 @@ function IntelligenceContent() {
             <span className="font-medium">{total}</span> total events
           </div>
           <div className="flex items-center rounded-md border overflow-hidden" role="tablist">
-            {(['feed', 'analytics'] as const).map((v) => (
+            {(['feed', 'global', 'exposures', 'analytics'] as const).map((v) => (
               <button
                 key={v}
                 role="tab"
@@ -260,7 +366,7 @@ function IntelligenceContent() {
                     : 'text-muted-foreground hover:bg-muted',
                 )}
               >
-                {v === 'feed' ? 'Feed' : 'Analytics'}
+                {v === 'feed' ? 'Feed' : v === 'global' ? 'Global' : v === 'exposures' ? 'Exposures' : 'Analytics'}
               </button>
             ))}
           </div>
@@ -378,6 +484,63 @@ function IntelligenceContent() {
             </div>
           </div>
         </>
+      ) : view === 'global' ? (
+        /* Doctrine §13 Global view: events the Global Monitoring Agent detected,
+           shared across all organizations. */
+        <div className="grid gap-6 lg:grid-cols-3">
+          <div className="space-y-4">
+            <h3 className="text-sm font-medium text-muted-foreground uppercase tracking-wide">
+              {globalEvents.length} Global Event{globalEvents.length !== 1 ? 's' : ''}
+            </h3>
+            <div className="space-y-3 max-h-[700px] overflow-y-auto pr-2">
+              <GlobalEventList
+                events={globalEvents}
+                selectedEventId={selectedGlobalEventId}
+                onSelect={(event) => setUserSelectedGlobalId(event.id)}
+              />
+            </div>
+          </div>
+          <div className="lg:col-span-2">
+            {selectedGlobalEvent ? (
+              <GlobalEventDetail event={selectedGlobalEvent} />
+            ) : (
+              <Card>
+                <CardContent className="py-12 text-center">
+                  <p className="text-muted-foreground">Select a global event to view details</p>
+                </CardContent>
+              </Card>
+            )}
+          </div>
+        </div>
+      ) : view === 'exposures' ? (
+        /* Doctrine §13 Exposures view: this org's candidate exposures, derived
+           by the Client Monitoring Agent from the global events. */
+        <div className="grid gap-6 lg:grid-cols-3">
+          <div className="space-y-4">
+            <h3 className="text-sm font-medium text-muted-foreground uppercase tracking-wide">
+              {candidateExposures.length} Candidate Exposure
+              {candidateExposures.length !== 1 ? 's' : ''}
+            </h3>
+            <div className="space-y-3 max-h-[700px] overflow-y-auto pr-2">
+              <ExposureList
+                exposures={candidateExposures}
+                selectedExposureId={selectedExposureId}
+                onSelect={(exposure) => setUserSelectedExposureId(exposure.id)}
+              />
+            </div>
+          </div>
+          <div className="lg:col-span-2">
+            {selectedExposure ? (
+              <ExposureDetail exposure={selectedExposure} onOpenGlobalEvent={handleOpenGlobalEvent} />
+            ) : (
+              <Card>
+                <CardContent className="py-12 text-center">
+                  <p className="text-muted-foreground">Select an exposure to view details</p>
+                </CardContent>
+              </Card>
+            )}
+          </div>
+        </div>
       ) : (
         <div className="space-y-4">
           {/* Report actions */}
