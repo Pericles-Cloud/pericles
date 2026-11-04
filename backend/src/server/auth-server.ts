@@ -1528,6 +1528,19 @@ function getParam(param: string | string[] | undefined): string {
   return param || '';
 }
 
+function getQuery(param: unknown): string | undefined {
+  if (Array.isArray(param)) return param[0] as string | undefined;
+  if (typeof param === 'string') return param;
+  return undefined;
+}
+
+function getQueryArray(param: unknown): string[] {
+  if (!param) return [];
+  if (Array.isArray(param)) return param as string[];
+  if (typeof param === 'string') return [param];
+  return [];
+}
+
 function formatOrganization(org: OrgWithCount, role: 'OWNER' | 'ADMIN' | 'MEMBER' | 'GUEST') {
   return {
     id: org.id,
@@ -3981,6 +3994,381 @@ app.patch('/api/events/:id/validation', async (req: Request, res: Response) => {
     });
   } catch (error) {
     console.error('Update event validation error:', error);
+    res.status(500).json({ success: false, error: { code: 'INTERNAL_ERROR', message: 'An unexpected error occurred' } });
+  }
+});
+
+// ============================================================================
+// GLOBAL EVENT STORE API (Doctrine §13 - Global Monitoring Agent)
+// ============================================================================
+
+/**
+ * Get all global events (shared across all organizations)
+ */
+app.get('/api/global-events', async (req: Request, res: Response) => {
+  try {
+    const tokenPayload = authenticateRequest(req);
+    if (!tokenPayload) {
+      res.status(401).json({ success: false, error: { code: 'UNAUTHORIZED', message: 'Authentication required' } });
+      return;
+    }
+
+    // Parse query params
+    const status = getQueryArray(req.query.status);
+    const category = getQuery(req.query.category);
+    const intrinsicSeverity = getQueryArray(req.query.intrinsicSeverity);
+    const since = getQuery(req.query.since);
+    const until = getQuery(req.query.until);
+    const limit = Math.min(parseInt(getQuery(req.query.limit) || '100', 10), 500);
+    const offset = parseInt(getQuery(req.query.offset) || '0', 10);
+
+    // Build where clause
+    const where: any = {};
+    if (status.length > 0) where.status = { in: status };
+    if (category) where.category = category;
+    if (intrinsicSeverity.length > 0) where.intrinsic_severity = { in: intrinsicSeverity };
+    if (since || until) {
+      where.occurred_at = {};
+      if (since) where.occurred_at.gte = new Date(since);
+      if (until) where.occurred_at.lte = new Date(until);
+    }
+
+    const [events, total] = await Promise.all([
+      prisma.globalEvent.findMany({
+        where,
+        take: limit,
+        skip: offset,
+        orderBy: { first_detected_at: 'desc' },
+      }),
+      prisma.globalEvent.count({ where }),
+    ]);
+
+    res.status(200).json({
+      success: true,
+      data: {
+        events: events.map((e) => ({
+          id: e.id,
+          eventHash: e.event_hash,
+          headline: e.headline,
+          actor: e.actor,
+          action: e.action,
+          target: e.target,
+          occurredAt: e.occurred_at?.toISOString() || null,
+          scheduledAt: e.scheduled_at?.toISOString() || null,
+          forecastAt: e.forecast_at?.toISOString() || null,
+          firstReportedAt: e.first_reported_at?.toISOString() || null,
+          firstDetectedAt: e.first_detected_at.toISOString(),
+          category: e.category,
+          subcategory: e.subcategory,
+          secondaryCategories: e.secondary_categories,
+          status: e.status,
+          resolvedAt: e.resolved_at?.toISOString() || null,
+          resolutionBasis: e.resolution_basis,
+          intrinsicSeverity: e.intrinsic_severity,
+          severityRationale: e.severity_rationale,
+          confidence: e.confidence,
+          corroboratingSourceCount: e.corroborating_source_count,
+          location: {
+            latitude: e.latitude,
+            longitude: e.longitude,
+            countryIso: e.country_iso,
+            admin1Region: e.admin1_region,
+            namedInfrastructure: e.named_infrastructure,
+            affectedArea: e.affected_area,
+          },
+          affectedDimensions: e.affected_dimensions,
+          expectedDuration: e.expected_duration,
+          durationEstimate: e.duration_estimate,
+          eventStatement: e.event_statement,
+          parentEventId: e.parent_event_id,
+          relatedEventIds: e.related_event_ids,
+          sources: e.sources,
+          lastCheckedAt: e.last_checked_at?.toISOString() || null,
+          nextCheckDue: e.next_check_due?.toISOString() || null,
+          stale: e.stale,
+          createdAt: e.created_at.toISOString(),
+          updatedAt: e.updated_at.toISOString(),
+        })),
+        total,
+      },
+    });
+  } catch (error) {
+    console.error('Get global events error:', error);
+    res.status(500).json({ success: false, error: { code: 'INTERNAL_ERROR', message: 'An unexpected error occurred' } });
+  }
+});
+
+/**
+ * Get a single global event by ID
+ */
+app.get('/api/global-events/:id', async (req: Request, res: Response) => {
+  try {
+    const tokenPayload = authenticateRequest(req);
+    if (!tokenPayload) {
+      res.status(401).json({ success: false, error: { code: 'UNAUTHORIZED', message: 'Authentication required' } });
+      return;
+    }
+
+    const eventId = getParam(req.params.id);
+
+    const event = await prisma.globalEvent.findUnique({
+      where: { id: eventId },
+    });
+
+    if (!event) {
+      res.status(404).json({ success: false, error: { code: 'NOT_FOUND', message: 'Global event not found' } });
+      return;
+    }
+
+    res.status(200).json({
+      success: true,
+      data: {
+        id: event.id,
+        eventHash: event.event_hash,
+        headline: event.headline,
+        actor: event.actor,
+        action: event.action,
+        target: event.target,
+        occurredAt: event.occurred_at?.toISOString() || null,
+        scheduledAt: event.scheduled_at?.toISOString() || null,
+        forecastAt: event.forecast_at?.toISOString() || null,
+        firstReportedAt: event.first_reported_at?.toISOString() || null,
+        firstDetectedAt: event.first_detected_at.toISOString(),
+        category: event.category,
+        subcategory: event.subcategory,
+        secondaryCategories: event.secondary_categories,
+        status: event.status,
+        resolvedAt: event.resolved_at?.toISOString() || null,
+        resolutionBasis: event.resolution_basis,
+        intrinsicSeverity: event.intrinsic_severity,
+        severityRationale: event.severity_rationale,
+        confidence: event.confidence,
+        corroboratingSourceCount: event.corroborating_source_count,
+        location: {
+          latitude: event.latitude,
+          longitude: event.longitude,
+          countryIso: event.country_iso,
+          admin1Region: event.admin1_region,
+          namedInfrastructure: event.named_infrastructure,
+          affectedArea: event.affected_area,
+        },
+        affectedDimensions: event.affected_dimensions,
+        expectedDuration: event.expected_duration,
+        durationEstimate: event.duration_estimate,
+        eventStatement: event.event_statement,
+        parentEventId: event.parent_event_id,
+        relatedEventIds: event.related_event_ids,
+        sources: event.sources,
+        lastCheckedAt: event.last_checked_at?.toISOString() || null,
+        nextCheckDue: event.next_check_due?.toISOString() || null,
+        stale: event.stale,
+        createdAt: event.created_at.toISOString(),
+        updatedAt: event.updated_at.toISOString(),
+      },
+    });
+  } catch (error) {
+    console.error('Get global event error:', error);
+    res.status(500).json({ success: false, error: { code: 'INTERNAL_ERROR', message: 'An unexpected error occurred' } });
+  }
+});
+
+// ============================================================================
+// CANDIDATE EXPOSURE API (Doctrine §13 - Client Monitoring Agent)
+// ============================================================================
+
+/**
+ * Get candidate exposures for an organization
+ */
+app.get('/api/candidate-exposures', async (req: Request, res: Response) => {
+  try {
+    const tokenPayload = authenticateRequest(req);
+    if (!tokenPayload) {
+      res.status(401).json({ success: false, error: { code: 'UNAUTHORIZED', message: 'Authentication required' } });
+      return;
+    }
+
+    const organizationId = getQuery(req.query.organizationId);
+    if (!organizationId) {
+      res.status(400).json({ success: false, error: { code: 'MISSING_PARAM', message: 'organizationId is required' } });
+      return;
+    }
+
+    // Check access
+    const access = await checkOrganizationAccess(tokenPayload.userId, organizationId);
+    if (!access.hasAccess) {
+      res.status(403).json({ success: false, error: { code: 'FORBIDDEN', message: 'Access denied' } });
+      return;
+    }
+
+    // Parse query params
+    const validationStatus = getQueryArray(req.query.validationStatus);
+    const exposureStrength = getQueryArray(req.query.exposureStrength);
+    const exposurePriority = getQueryArray(req.query.exposurePriority);
+    const globalEventId = getQuery(req.query.globalEventId);
+    const includeGlobalEvent = getQuery(req.query.includeGlobalEvent) === 'true';
+    const limit = Math.min(parseInt(getQuery(req.query.limit) || '100', 10), 500);
+    const offset = parseInt(getQuery(req.query.offset) || '0', 10);
+
+    // Build where clause
+    const where: any = { organization_id: organizationId };
+    if (validationStatus.length > 0) where.validation_status = { in: validationStatus };
+    if (exposureStrength.length > 0) where.exposure_strength = { in: exposureStrength };
+    if (exposurePriority.length > 0) where.exposure_priority = { in: exposurePriority };
+    if (globalEventId) where.global_event_id = globalEventId;
+
+    const [exposures, total] = await Promise.all([
+      prisma.candidateExposure.findMany({
+        where,
+        take: limit,
+        skip: offset,
+        orderBy: { created_at: 'desc' },
+      }),
+      prisma.candidateExposure.count({ where }),
+    ]);
+
+    // Optionally fetch global events
+    let globalEventsMap = new Map<string, any>();
+    if (includeGlobalEvent && exposures.length > 0) {
+      const eventIds = [...new Set(exposures.map((e) => e.global_event_id))];
+      const globalEvents = await prisma.globalEvent.findMany({
+        where: { id: { in: eventIds } },
+      });
+      globalEventsMap = new Map(globalEvents.map((e) => [e.id, e]));
+    }
+
+    res.status(200).json({
+      success: true,
+      data: {
+        exposures: exposures.map((e) => {
+          const globalEvent = globalEventsMap.get(e.global_event_id);
+          return {
+            id: e.id,
+            organizationId: e.organization_id,
+            globalEventId: e.global_event_id,
+            globalEventHash: e.global_event_hash,
+            exposurePathways: e.exposure_pathways,
+            exposureStrength: e.exposure_strength,
+            exposedAssets: e.exposed_assets,
+            matchConfidence: e.match_confidence,
+            temporalRelevance: e.temporal_relevance,
+            strategicContext: e.strategic_context,
+            rationale: e.rationale,
+            exposurePriority: e.exposure_priority,
+            validationStatus: e.validation_status,
+            validationRef: e.validation_ref,
+            clearedAt: e.cleared_at?.toISOString() || null,
+            clearedReason: e.cleared_reason,
+            profileSnapshotRef: e.profile_snapshot_ref,
+            createdAt: e.created_at.toISOString(),
+            updatedAt: e.updated_at.toISOString(),
+            globalEvent: globalEvent
+              ? {
+                  id: globalEvent.id,
+                  headline: globalEvent.headline,
+                  category: globalEvent.category,
+                  status: globalEvent.status,
+                  intrinsicSeverity: globalEvent.intrinsic_severity,
+                  location: {
+                    latitude: globalEvent.latitude,
+                    longitude: globalEvent.longitude,
+                    countryIso: globalEvent.country_iso,
+                  },
+                }
+              : undefined,
+          };
+        }),
+        total,
+      },
+    });
+  } catch (error) {
+    console.error('Get candidate exposures error:', error);
+    res.status(500).json({ success: false, error: { code: 'INTERNAL_ERROR', message: 'An unexpected error occurred' } });
+  }
+});
+
+/**
+ * Get a single candidate exposure by ID
+ */
+app.get('/api/candidate-exposures/:id', async (req: Request, res: Response) => {
+  try {
+    const tokenPayload = authenticateRequest(req);
+    if (!tokenPayload) {
+      res.status(401).json({ success: false, error: { code: 'UNAUTHORIZED', message: 'Authentication required' } });
+      return;
+    }
+
+    const exposureId = getParam(req.params.id);
+    const includeGlobalEvent = getQuery(req.query.includeGlobalEvent) !== 'false';
+
+    const exposure = await prisma.candidateExposure.findUnique({
+      where: { id: exposureId },
+    });
+
+    if (!exposure) {
+      res.status(404).json({ success: false, error: { code: 'NOT_FOUND', message: 'Candidate exposure not found' } });
+      return;
+    }
+
+    // Check access
+    const access = await checkOrganizationAccess(tokenPayload.userId, exposure.organization_id);
+    if (!access.hasAccess) {
+      res.status(403).json({ success: false, error: { code: 'FORBIDDEN', message: 'Access denied' } });
+      return;
+    }
+
+    // Optionally fetch global event
+    let globalEvent = null;
+    if (includeGlobalEvent) {
+      globalEvent = await prisma.globalEvent.findUnique({
+        where: { id: exposure.global_event_id },
+      });
+    }
+
+    res.status(200).json({
+      success: true,
+      data: {
+        id: exposure.id,
+        organizationId: exposure.organization_id,
+        globalEventId: exposure.global_event_id,
+        globalEventHash: exposure.global_event_hash,
+        exposurePathways: exposure.exposure_pathways,
+        exposureStrength: exposure.exposure_strength,
+        exposedAssets: exposure.exposed_assets,
+        matchConfidence: exposure.match_confidence,
+        temporalRelevance: exposure.temporal_relevance,
+        strategicContext: exposure.strategic_context,
+        rationale: exposure.rationale,
+        exposurePriority: exposure.exposure_priority,
+        validationStatus: exposure.validation_status,
+        validationRef: exposure.validation_ref,
+        clearedAt: exposure.cleared_at?.toISOString() || null,
+        clearedReason: exposure.cleared_reason,
+        profileSnapshotRef: exposure.profile_snapshot_ref,
+        createdAt: exposure.created_at.toISOString(),
+        updatedAt: exposure.updated_at.toISOString(),
+        globalEvent: globalEvent
+          ? {
+              id: globalEvent.id,
+              eventHash: globalEvent.event_hash,
+              headline: globalEvent.headline,
+              category: globalEvent.category,
+              status: globalEvent.status,
+              intrinsicSeverity: globalEvent.intrinsic_severity,
+              confidence: globalEvent.confidence,
+              location: {
+                latitude: globalEvent.latitude,
+                longitude: globalEvent.longitude,
+                countryIso: globalEvent.country_iso,
+                admin1Region: globalEvent.admin1_region,
+              },
+              eventStatement: globalEvent.event_statement,
+              sources: globalEvent.sources,
+            }
+          : null,
+      },
+    });
+  } catch (error) {
+    console.error('Get candidate exposure error:', error);
     res.status(500).json({ success: false, error: { code: 'INTERNAL_ERROR', message: 'An unexpected error occurred' } });
   }
 });

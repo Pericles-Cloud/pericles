@@ -294,18 +294,19 @@ async function syncFromOrgMemory(organizationId: string): Promise<{
   keyAccountCommitments: any[] | null;
   statedConcerns: any[] | null;
 }> {
-  // TODO: Implement Org Memory integration
-  // This would query the vector store for strategic documents
-  // and extract structured data about:
-  // - Strategic priorities and initiatives
-  // - Key account commitments and SLAs
-  // - Stated concerns and risk appetite
+  // Import dynamically to avoid circular dependency
+  const { getStrategicPriorities, getKeyAccountCommitments, getStatedConcerns } = await import('./org-memory.js');
 
-  // For now, return null (no Org Memory integration yet)
+  const [strategicPriorities, keyAccountCommitments, statedConcerns] = await Promise.all([
+    getStrategicPriorities(organizationId),
+    getKeyAccountCommitments(organizationId),
+    getStatedConcerns(organizationId),
+  ]);
+
   return {
-    strategicPriorities: null,
-    keyAccountCommitments: null,
-    statedConcerns: null,
+    strategicPriorities: strategicPriorities.length > 0 ? strategicPriorities : null,
+    keyAccountCommitments: keyAccountCommitments.length > 0 ? keyAccountCommitments : null,
+    statedConcerns: statedConcerns.length > 0 ? statedConcerns : null,
   };
 }
 

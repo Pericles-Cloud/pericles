@@ -1044,6 +1044,270 @@ export async function updateEventValidation(
   });
 }
 
+// ============================================================================
+// Global Event Store (Doctrine §13 - Global Monitoring Agent)
+// ============================================================================
+
+export type GlobalEventStatus =
+  | 'FORECAST'
+  | 'DEVELOPING'
+  | 'ACTIVE'
+  | 'DE_ESCALATING'
+  | 'RESOLVED'
+  | 'RETRACTED'
+  | 'MERGED';
+
+export type IntrinsicSeverity = 'critical' | 'high' | 'medium' | 'low';
+
+export type ConfidenceLevel = 'unverified' | 'reported' | 'corroborated' | 'official';
+
+export interface GlobalEventLocation {
+  latitude: number | null;
+  longitude: number | null;
+  countryIso: string | null;
+  admin1Region: string | null;
+  namedInfrastructure: Array<{
+    type: 'port' | 'airport' | 'chokepoint' | 'canal' | 'industrial_park';
+    code?: string;
+    name: string;
+  }> | null;
+  affectedArea: {
+    radiusKm?: number;
+    polygon?: Array<[number, number]>;
+  } | null;
+}
+
+export interface GlobalEvent {
+  id: string;
+  eventHash: string;
+  headline: string;
+  actor: string | null;
+  action: string | null;
+  target: string | null;
+  occurredAt: string | null;
+  scheduledAt: string | null;
+  forecastAt: string | null;
+  firstReportedAt: string | null;
+  firstDetectedAt: string;
+  category: string;
+  subcategory: string | null;
+  secondaryCategories: string[];
+  status: GlobalEventStatus;
+  resolvedAt: string | null;
+  resolutionBasis: string | null;
+  intrinsicSeverity: IntrinsicSeverity;
+  severityRationale: string | null;
+  confidence: ConfidenceLevel;
+  corroboratingSourceCount: number;
+  location: GlobalEventLocation;
+  affectedDimensions: {
+    transportModes?: string[];
+    commodities?: Array<{ hsChapter?: string; name?: string }>;
+    industries?: string[];
+    organizations?: Array<{ name: string; lei?: string }>;
+  } | null;
+  expectedDuration: { value: number; unit: string; attribution: string } | null;
+  durationEstimate: {
+    best: { minHours: number; maxHours: number };
+    base: { minHours: number; maxHours: number };
+    worst: { minHours: number; maxHours: number };
+    basis: string;
+    confidence: string;
+  } | null;
+  eventStatement: string | null;
+  parentEventId: string | null;
+  relatedEventIds: Array<{ eventId: string; type: 'caused_by' | 'related_to' }>;
+  sources: Array<{
+    url: string | null;
+    publisher: string;
+    tier: number;
+    language?: string;
+    publishedAt?: string;
+    retrievedAt?: string;
+  }>;
+  lastCheckedAt: string | null;
+  nextCheckDue: string | null;
+  stale: boolean;
+  createdAt: string;
+  updatedAt: string;
+}
+
+export interface GlobalEventsQueryParams {
+  status?: GlobalEventStatus | GlobalEventStatus[];
+  category?: string;
+  intrinsicSeverity?: IntrinsicSeverity | IntrinsicSeverity[];
+  since?: string; // ISO date
+  until?: string; // ISO date
+  limit?: number;
+  offset?: number;
+}
+
+/**
+ * Get all global events (shared across all organizations).
+ */
+export async function getGlobalEvents(
+  params: GlobalEventsQueryParams = {}
+): Promise<ApiResponse<{ events: GlobalEvent[]; total: number }>> {
+  const queryParams = new URLSearchParams();
+  if (params.status) {
+    const statuses = Array.isArray(params.status) ? params.status : [params.status];
+    statuses.forEach((s) => queryParams.append('status', s));
+  }
+  if (params.category) queryParams.append('category', params.category);
+  if (params.intrinsicSeverity) {
+    const severities = Array.isArray(params.intrinsicSeverity)
+      ? params.intrinsicSeverity
+      : [params.intrinsicSeverity];
+    severities.forEach((s) => queryParams.append('intrinsicSeverity', s));
+  }
+  if (params.since) queryParams.append('since', params.since);
+  if (params.until) queryParams.append('until', params.until);
+  if (params.limit) queryParams.append('limit', params.limit.toString());
+  if (params.offset) queryParams.append('offset', params.offset.toString());
+
+  return apiRequest<{ events: GlobalEvent[]; total: number }>(
+    `/api/global-events?${queryParams.toString()}`
+  );
+}
+
+/**
+ * Get a single global event by ID.
+ */
+export async function getGlobalEvent(id: string): Promise<ApiResponse<GlobalEvent>> {
+  return apiRequest<GlobalEvent>(`/api/global-events/${id}`);
+}
+
+// ============================================================================
+// Candidate Exposure (Doctrine §13 - Client Monitoring Agent)
+// ============================================================================
+
+export type ExposureStrength = 'direct' | 'probable' | 'possible' | 'strategic';
+
+export type ExposurePriority = 'critical' | 'high' | 'medium' | 'low';
+
+export type ExposureValidationStatus =
+  | 'WATCHING'
+  | 'CANDIDATE'
+  | 'VALIDATED'
+  | 'REJECTED'
+  | 'CLEARED';
+
+export type ExposurePathway =
+  | 'geographic_site'
+  | 'geographic_flow'
+  | 'entity'
+  | 'product'
+  | 'regulatory'
+  | 'indirect'
+  | 'strategic';
+
+export interface ExposedAsset {
+  assetType: 'facility' | 'supplier' | 'shipment' | 'sku' | 'carrier' | 'lane' | 'customer';
+  assetId: string;
+  assetName?: string;
+  distanceOrMatchBasis: string;
+}
+
+export interface CandidateExposure {
+  id: string;
+  organizationId: string;
+  globalEventId: string;
+  globalEventHash: string;
+  exposurePathways: Array<{
+    pathway: ExposurePathway;
+    matchBasis: string;
+    confidence: number;
+  }>;
+  exposureStrength: ExposureStrength;
+  exposedAssets: ExposedAsset[];
+  matchConfidence: {
+    entity?: number;
+    location?: number;
+    product?: number;
+  };
+  temporalRelevance: {
+    shipmentEta?: string | null;
+    eventWindow?: string | null;
+    regulationEffectiveDate?: string | null;
+  } | null;
+  strategicContext: Array<{
+    docRef: string;
+    initiative: string;
+  }> | null;
+  rationale: string;
+  exposurePriority: ExposurePriority;
+  validationStatus: ExposureValidationStatus;
+  validationRef: string | null;
+  clearedAt: string | null;
+  clearedReason: string | null;
+  profileSnapshotRef: string | null;
+  createdAt: string;
+  updatedAt: string;
+  // Joined data
+  globalEvent?: GlobalEvent;
+}
+
+export interface CandidateExposuresQueryParams {
+  organizationId: string;
+  validationStatus?: ExposureValidationStatus | ExposureValidationStatus[];
+  exposureStrength?: ExposureStrength | ExposureStrength[];
+  exposurePriority?: ExposurePriority | ExposurePriority[];
+  globalEventId?: string;
+  limit?: number;
+  offset?: number;
+  includeGlobalEvent?: boolean;
+}
+
+/**
+ * Get candidate exposures for an organization.
+ */
+export async function getCandidateExposures(
+  params: CandidateExposuresQueryParams
+): Promise<ApiResponse<{ exposures: CandidateExposure[]; total: number }>> {
+  const queryParams = new URLSearchParams();
+  queryParams.append('organizationId', params.organizationId);
+  if (params.validationStatus) {
+    const statuses = Array.isArray(params.validationStatus)
+      ? params.validationStatus
+      : [params.validationStatus];
+    statuses.forEach((s) => queryParams.append('validationStatus', s));
+  }
+  if (params.exposureStrength) {
+    const strengths = Array.isArray(params.exposureStrength)
+      ? params.exposureStrength
+      : [params.exposureStrength];
+    strengths.forEach((s) => queryParams.append('exposureStrength', s));
+  }
+  if (params.exposurePriority) {
+    const priorities = Array.isArray(params.exposurePriority)
+      ? params.exposurePriority
+      : [params.exposurePriority];
+    priorities.forEach((p) => queryParams.append('exposurePriority', p));
+  }
+  if (params.globalEventId) queryParams.append('globalEventId', params.globalEventId);
+  if (params.limit) queryParams.append('limit', params.limit.toString());
+  if (params.offset) queryParams.append('offset', params.offset.toString());
+  if (params.includeGlobalEvent) queryParams.append('includeGlobalEvent', 'true');
+
+  return apiRequest<{ exposures: CandidateExposure[]; total: number }>(
+    `/api/candidate-exposures?${queryParams.toString()}`
+  );
+}
+
+/**
+ * Get a single candidate exposure by ID.
+ */
+export async function getCandidateExposure(
+  id: string,
+  includeGlobalEvent = true
+): Promise<ApiResponse<CandidateExposure>> {
+  const queryParams = new URLSearchParams();
+  if (includeGlobalEvent) queryParams.append('includeGlobalEvent', 'true');
+  return apiRequest<CandidateExposure>(
+    `/api/candidate-exposures/${id}?${queryParams.toString()}`
+  );
+}
+
 /**
  * Ask a question about a specific event (#23) — the per-event Q&A box under
  * Intelligence's Analysis tab. Answers are scoped to that one event's data.
