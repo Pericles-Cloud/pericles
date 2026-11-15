@@ -751,7 +751,7 @@ function classifyExposure(
   const severityOrder = { low: 1, medium: 2, high: 3, critical: 4 };
   const strengthOrder = { possible: 1, strategic: 2, probable: 3, direct: 4 };
   const severityValue = severityOrder[intrinsicSeverity as keyof typeof severityOrder] ?? 1;
-  const strengthValue = strengthOrder[exposureStrength as keyof typeof strengthOrder] ?? 1;
+  const strengthValue = strengthOrder[exposureStrength] ?? 1;
 
   let exposurePriority: ExposurePriority;
   const combinedScore = severityValue + strengthValue;

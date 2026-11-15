@@ -244,7 +244,7 @@ A wrong link can merge two impacts downstream.
     suggestedLinks.sort((a, b) => b.confidence - a.confidence);
 
     // Create links if requested
-    let createdLinks: Array<{ target_event_id: string; link_type: string; confidence: number; success: boolean }> = [];
+    const createdLinks: Array<{ target_event_id: string; link_type: string; confidence: number; success: boolean }> = [];
     
     if (create_links && links && links.length > 0) {
       const newRelatedEventIds = [...currentLinksRaw];

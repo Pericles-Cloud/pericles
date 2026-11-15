@@ -17,6 +17,7 @@ import type { ConsumerHandler } from '../dispatch/consumer-registry.js';
 import { getPrismaClient } from '../../monitoring/db-client.js';
 import { mastra } from '../../mastra/index.js';
 import { logger } from '../../monitoring/logger.js';
+import { upsertCandidateExposure } from '../../monitoring/candidate-exposure-store.js';
 
 /**
  * Handle a global_event_change record.
@@ -37,6 +38,8 @@ export const clientMonitoringConsumer: ConsumerHandler = async ({ record, signal
     event_id?: string;
     global_event_id?: string;
     change_type?: string;
+    /** Set by profile back-matching: evaluate only this org, not every tenant. */
+    target_organization_id?: string;
   };
 
   const globalEventId = payload.event_id ?? payload.global_event_id;
@@ -62,9 +65,13 @@ export const clientMonitoringConsumer: ConsumerHandler = async ({ record, signal
       return;
     }
 
-    // Fetch all customer organizations (exclude root org)
+    // Fetch customer organizations (exclude root org). A back-match record
+    // targets a single org; a real global event change fans out to all.
+    const targetOrgId =
+      typeof payload.target_organization_id === 'string' ? payload.target_organization_id : undefined;
     const organizations = await prisma.organization.findMany({
       where: {
+        ...(targetOrgId ? { id: targetOrgId } : {}),
         is_root: false,
         settings: {
           monitoring_agent_enabled: true,
@@ -318,83 +325,52 @@ Evaluate all 7 exposure pathways against this event. Return JSON with:
 }
 
 /**
- * Create a CandidateExposure record
- * Returns true if a new record was created, false if it already existed
+ * Create or refresh a CandidateExposure and hand it to Validation.
+ * Returns true if a new record was created.
  */
 async function createCandidateExposure(
   organizationId: string,
-  globalEvent: any,
-  candidate: any,
+  globalEvent: { id: string; event_hash: string },
+  candidate: Record<string, unknown>,
   profileVersion: number
 ): Promise<boolean> {
-  const prisma = getPrismaClient();
-
-  // Check for existing candidate exposure
-  const existing = await prisma.candidateExposure.findUnique({
-    where: {
-      organization_id_global_event_hash: {
-        organization_id: organizationId,
-        global_event_hash: globalEvent.event_hash,
-      },
-    },
-  });
-
-  if (existing) {
-    // Update if status allows
-    if (existing.validation_status === 'WATCHING' || existing.validation_status === 'REJECTED') {
-      await prisma.candidateExposure.update({
-        where: { id: existing.id },
-        data: {
-          exposure_pathways: candidate.exposure_pathways,
-          exposure_strength: candidate.exposure_strength,
-          exposed_assets: candidate.exposed_assets,
-          match_confidence: candidate.match_confidence,
-          temporal_relevance: candidate.temporal_relevance,
-          strategic_context: candidate.strategic_context,
-          rationale: candidate.rationale,
-          exposure_priority: candidate.exposure_priority,
-          validation_status: candidate.exposure_strength === 'possible' ? 'WATCHING' : 'CANDIDATE',
-          profile_snapshot_ref: `v${profileVersion}`,
-          updated_at: new Date(),
-        },
-      });
-      return false; // Updated, not new
-    }
-    return false; // Already in pipeline
+  const strength = candidate.exposure_strength;
+  if (strength !== 'direct' && strength !== 'probable' && strength !== 'possible' && strength !== 'strategic') {
+    logger.warn(
+      { organization_id: organizationId, global_event_id: globalEvent.id, exposure_strength: strength },
+      '[ClientMonitoring] Skipping candidate with invalid exposure_strength'
+    );
+    return false;
   }
 
-  // Create new candidate exposure
-  const validationStatus = candidate.exposure_strength === 'possible' ? 'WATCHING' : 'CANDIDATE';
-
-  await prisma.candidateExposure.create({
-    data: {
-      organization_id: organizationId,
-      global_event_id: globalEvent.id,
-      global_event_hash: globalEvent.event_hash,
-      exposure_pathways: candidate.exposure_pathways,
-      exposure_strength: candidate.exposure_strength,
-      exposed_assets: candidate.exposed_assets,
-      match_confidence: candidate.match_confidence,
-      temporal_relevance: candidate.temporal_relevance,
-      strategic_context: candidate.strategic_context,
-      rationale: candidate.rationale,
-      exposure_priority: candidate.exposure_priority,
-      validation_status: validationStatus as any,
-      profile_snapshot_ref: `v${profileVersion}`,
-    },
+  const result = await upsertCandidateExposure({
+    organization_id: organizationId,
+    global_event_id: globalEvent.id,
+    global_event_hash: globalEvent.event_hash,
+    exposure_pathways: candidate.exposure_pathways,
+    exposure_strength: strength,
+    exposed_assets: candidate.exposed_assets,
+    match_confidence: candidate.match_confidence,
+    temporal_relevance: candidate.temporal_relevance,
+    strategic_context: candidate.strategic_context,
+    rationale: typeof candidate.rationale === 'string' ? candidate.rationale : '',
+    exposure_priority: typeof candidate.exposure_priority === 'string' ? candidate.exposure_priority : 'low',
+    profile_snapshot_ref: `v${profileVersion}`,
   });
 
   logger.info(
     {
       organization_id: organizationId,
       global_event_id: globalEvent.id,
-      exposure_strength: candidate.exposure_strength,
-      validation_status: validationStatus,
+      exposure_strength: strength,
+      validation_status: result.validation_status,
+      outcome: result.outcome,
+      change_record_emitted: result.change_record_emitted,
     },
-    '[ClientMonitoring] Created candidate exposure'
+    '[ClientMonitoring] Upserted candidate exposure'
   );
 
-  return true;
+  return result.outcome === 'created';
 }
 
 /**

@@ -1,8 +1,6 @@
 import { createTool } from '@mastra/core/tools';
 import { z } from 'zod';
-import { getPrismaClient } from '../../monitoring/db-client.js';
-import { enqueueInTransaction, CHANGE_RECORD_QUEUE } from '../../monitoring/queue-client.js';
-import { changeRecordKey } from '../../workflow/records/change-record.js';
+import { upsertCandidateExposure } from '../../monitoring/candidate-exposure-store.js';
 
 /**
  * Candidate Exposure Tool
@@ -75,138 +73,20 @@ Emits a candidate_exposure change record for the Validation Agent.
     error: z.string().nullable(),
   }),
   execute: async ({ context }) => {
-    const prisma = getPrismaClient();
-
-    const {
-      organization_id,
-      global_event_id,
-      global_event_hash,
-      exposure_pathways,
-      exposure_strength,
-      exposed_assets,
-      match_confidence,
-      temporal_relevance,
-      strategic_context,
-      rationale,
-      exposure_priority,
-      profile_snapshot_ref,
-    } = context;
+    const { organization_id, global_event_id } = context;
+    if (!organization_id) {
+      throw new Error('organization_id required for tenant isolation');
+    }
 
     try {
-      // Check for existing candidate exposure (deduplication)
-      const existing = await prisma.candidateExposure.findUnique({
-        where: {
-          organization_id_global_event_hash: {
-            organization_id,
-            global_event_hash,
-          },
-        },
-      });
-
-      if (existing) {
-        // Update existing if status allows
-        if (existing.validation_status === 'WATCHING' || existing.validation_status === 'REJECTED') {
-          const updated = await prisma.candidateExposure.update({
-            where: { id: existing.id },
-            data: {
-              exposure_pathways: exposure_pathways as any,
-              exposure_strength,
-              exposed_assets: exposed_assets as any,
-              match_confidence: match_confidence as any,
-              temporal_relevance: temporal_relevance as any,
-              strategic_context: strategic_context as any,
-              rationale,
-              exposure_priority,
-              profile_snapshot_ref,
-              validation_status: exposure_strength === 'possible' ? 'WATCHING' : 'CANDIDATE',
-              updated_at: new Date(),
-            },
-          });
-
-          return {
-            success: true,
-            candidate_exposure_id: updated.id,
-            organization_id,
-            global_event_id,
-            validation_status: updated.validation_status,
-            change_record_emitted: false, // Updated, not new
-            error: null,
-          };
-        }
-
-        // Already in pipeline
-        return {
-          success: true,
-          candidate_exposure_id: existing.id,
-          organization_id,
-          global_event_id,
-          validation_status: existing.validation_status,
-          change_record_emitted: false,
-          error: null,
-        };
-      }
-
-      // Create new candidate exposure
-      const validationStatus = exposure_strength === 'possible' ? 'WATCHING' : 'CANDIDATE';
-
-      const candidateExposure = await prisma.candidateExposure.create({
-        data: {
-          organization_id,
-          global_event_id,
-          global_event_hash,
-          exposure_pathways: exposure_pathways as any,
-          exposure_strength,
-          exposed_assets: exposed_assets as any,
-          match_confidence: match_confidence as any,
-          temporal_relevance: temporal_relevance as any,
-          strategic_context: strategic_context as any,
-          rationale,
-          exposure_priority,
-          validation_status: validationStatus as any,
-          profile_snapshot_ref,
-        },
-      });
-
-      // Emit change record for Validation Agent (only for CANDIDATE status)
-      let changeRecordEmitted = false;
-      if (validationStatus === 'CANDIDATE') {
-        const record = {
-          record_id: candidateExposure.id,
-          record_version: 1,
-          record_type: 'candidate_exposure' as const,
-          organization_id,
-          produced_at: new Date().toISOString(),
-          payload: {
-            global_event_id,
-            global_event_hash,
-            exposure_strength,
-            exposure_priority,
-            has_valid_verification: false,
-          },
-        };
-
-        await enqueueInTransaction(
-          prisma,
-          CHANGE_RECORD_QUEUE,
-          {
-            type: 'change_record',
-            payload: record,
-            timestamp: record.produced_at,
-            organizationId: organization_id,
-          },
-          { idempotencyKey: changeRecordKey(record) }
-        );
-
-        changeRecordEmitted = true;
-      }
-
+      const result = await upsertCandidateExposure(context);
       return {
         success: true,
-        candidate_exposure_id: candidateExposure.id,
+        candidate_exposure_id: result.candidate_exposure_id,
         organization_id,
         global_event_id,
-        validation_status: validationStatus,
-        change_record_emitted: changeRecordEmitted,
+        validation_status: result.validation_status,
+        change_record_emitted: result.change_record_emitted,
         error: null,
       };
     } catch (error) {

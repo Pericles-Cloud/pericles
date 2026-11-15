@@ -438,7 +438,7 @@ async function main() {
     batchSize,
   });
 
-  console.log('\n' + '='.repeat(60));
+  console.log(`\n${  '='.repeat(60)}`);
   console.log('Migration Summary');
   console.log('='.repeat(60));
   console.log(`Events processed:           ${stats.eventsProcessed}`);
@@ -450,7 +450,7 @@ async function main() {
 
   if (stats.errors.length > 0) {
     console.log('\nErrors:');
-    stats.errors.slice(0, 10).forEach((e) => console.log(`  - ${e}`));
+    stats.errors.slice(0, 10).forEach((e) => { console.log(`  - ${e}`); });
     if (stats.errors.length > 10) {
       console.log(`  ... and ${stats.errors.length - 10} more`);
     }

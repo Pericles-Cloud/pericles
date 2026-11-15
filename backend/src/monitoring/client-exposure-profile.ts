@@ -12,6 +12,9 @@
 
 import { getPrismaClient } from './db-client.js';
 import { logger } from './logger.js';
+import { createHash } from 'node:crypto';
+import { enqueueInTransaction, CHANGE_RECORD_QUEUE } from './queue-client.js';
+import { changeRecordKey, type ChangeRecord } from '../workflow/records/change-record.js';
 
 export interface SyncResult {
   organizationId: string;
@@ -21,7 +24,32 @@ export interface SyncResult {
   productsSynced: number;
   shipmentsSynced: number;
   strategicSynced: boolean;
+  /** Active global events enqueued for re-evaluation because the profile changed. */
+  backMatchEventsEnqueued: number;
   errors: string[];
+}
+
+type ProfileContent = Record<(typeof PROFILE_CONTENT_FIELDS)[number], unknown>;
+
+/** Fields whose change can alter which global events expose this customer. */
+const PROFILE_CONTENT_FIELDS = [
+  'own_facilities',
+  'suppliers',
+  'products',
+  'logistics',
+  'shipments_in_transit',
+  'strategic_priorities',
+  'key_account_commitments',
+  'stated_concerns',
+  'excluded_categories',
+  'excluded_regions',
+  'min_severity',
+] as const;
+
+/** Stable fingerprint of the exposure-relevant profile content. */
+export function profileFingerprint(profile: ProfileContent | null): string {
+  const content = PROFILE_CONTENT_FIELDS.map((field) => (profile ? (profile[field] ?? null) : null));
+  return createHash('sha256').update(JSON.stringify(content)).digest('hex');
 }
 
 /**
@@ -54,6 +82,8 @@ export async function syncClientExposureProfile(organizationId: string): Promise
       });
       logger.info({ organizationId, profileId: profile.id }, '[ProfileSync] Created new profile');
     }
+
+    const fingerprintBefore = profileFingerprint(profile);
 
     // Sync from ERP (facilities, suppliers, products, logistics)
     try {
@@ -125,6 +155,19 @@ export async function syncClientExposureProfile(organizationId: string): Promise
       },
     });
 
+    // Back-match only when exposure-relevant content changed; a no-op sync
+    // must not re-run the Client Monitoring Agent over every active event.
+    let backMatchEventsEnqueued = 0;
+    if (profileFingerprint(updatedProfile) !== fingerprintBefore) {
+      try {
+        backMatchEventsEnqueued = await triggerBackMatching(organizationId, updatedProfile.profile_version);
+      } catch (error) {
+        const msg = error instanceof Error ? error.message : 'Unknown error';
+        errors.push(`Back-matching failed: ${msg}`);
+        logger.error({ error, organizationId }, '[ProfileSync] Back-matching failed');
+      }
+    }
+
     const result: SyncResult = {
       organizationId,
       profileVersion: updatedProfile.profile_version,
@@ -133,6 +176,7 @@ export async function syncClientExposureProfile(organizationId: string): Promise
       productsSynced,
       shipmentsSynced,
       strategicSynced,
+      backMatchEventsEnqueued,
       errors,
     };
 
@@ -310,34 +354,74 @@ async function syncFromOrgMemory(organizationId: string): Promise<{
   };
 }
 
+/** Active (non-terminal) Global Event statuses that a profile change can newly expose. */
+const BACK_MATCH_STATUSES = ['FORECAST', 'DEVELOPING', 'ACTIVE', 'DE_ESCALATING'] as const;
+const BACK_MATCH_LIMIT = 1000;
+
 /**
- * Trigger back-matching when profile changes
- * Re-scans all active global events against the updated profile
+ * Trigger back-matching when a profile changes (issue #76).
+ *
+ * Re-scans active Global Events against the updated profile by enqueueing one
+ * org-scoped global_event_change record per event. The client_monitoring
+ * consumer sees `target_organization_id` and evaluates only this org, so a
+ * single tenant's profile change never re-runs every other tenant.
+ *
+ * Records are keyed by (event, org, profile_version), so re-running a sync for
+ * the same version does not enqueue duplicates.
+ *
+ * Returns the number of events enqueued for re-evaluation.
  */
-export async function triggerBackMatching(organizationId: string): Promise<void> {
+export async function triggerBackMatching(organizationId: string, profileVersion: number): Promise<number> {
+  if (!organizationId) {
+    throw new Error('organization_id required for tenant isolation');
+  }
+
   const prisma = getPrismaClient();
 
-  logger.info({ organizationId }, '[ProfileSync] Triggering back-matching for profile changes');
-
-  // Get all active global events
   const activeEvents = await prisma.globalEvent.findMany({
-    where: {
-      status: {
-        in: ['FORECAST', 'DEVELOPING', 'ACTIVE'],
-      },
-    },
-    take: 1000, // Limit for performance
+    where: { status: { in: [...BACK_MATCH_STATUSES] } },
+    select: { id: true, event_hash: true, intrinsic_severity: true, status: true },
+    orderBy: { updated_at: 'desc' },
+    take: BACK_MATCH_LIMIT,
   });
 
-  // For each event, re-evaluate exposure
-  // This would emit change records to trigger client_monitoring consumer
-  // For now, just log the count
+  if (activeEvents.length === 0) {
+    logger.info({ organizationId }, '[ProfileSync] Back-matching: no active global events');
+    return 0;
+  }
+
+  const producedAt = new Date().toISOString();
+
+  await prisma.$transaction(async (tx) => {
+    for (const event of activeEvents) {
+      const record: ChangeRecord = {
+        record_id: `${event.id}:backmatch:${organizationId}`,
+        record_version: profileVersion,
+        record_type: 'global_event_change',
+        organization_id: organizationId,
+        produced_at: producedAt,
+        payload: {
+          event_id: event.id,
+          event_hash: event.event_hash,
+          change_type: 'back_match',
+          status: event.status,
+          intrinsic_severity: event.intrinsic_severity,
+          target_organization_id: organizationId,
+        },
+      };
+      await enqueueInTransaction(
+        tx,
+        CHANGE_RECORD_QUEUE,
+        { type: 'change_record', payload: record, timestamp: producedAt, organizationId },
+        { idempotencyKey: changeRecordKey(record) }
+      );
+    }
+  });
+
   logger.info(
-    { organizationId, activeEvents: activeEvents.length },
-    '[ProfileSync] Back-matching would re-evaluate these events'
+    { organizationId, profileVersion, eventsEnqueued: activeEvents.length },
+    '[ProfileSync] Back-matching enqueued active global events for re-evaluation'
   );
 
-  // TODO: Implement actual back-matching logic
-  // This should emit synthetic global_event_change records for each active event
-  // to trigger the client_monitoring consumer
+  return activeEvents.length;
 }
