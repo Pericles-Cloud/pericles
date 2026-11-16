@@ -51,22 +51,24 @@ const PROFILE_CONTENT_FIELDS = [
 ] as const;
 
 /**
- * Shipment fields that change on almost every sync without changing which
- * events can reach the customer. A new, removed or re-routed shipment still
- * changes the fingerprint; an ETA drift alone does not, so it cannot trigger a
- * full back-match (one LLM call per active event) on every sync.
+ * In-transit shipments enter the fingerprint as the set of lanes they put the
+ * customer on (ports, route, carrier), not as individual shipments. Exposure
+ * through the flow pathway depends on which ports/routes are in use, so a new
+ * lane or port triggers a back-match. A new shipment on an existing lane, an
+ * arrival, or ETA drift does not; those happen on nearly every sync and would
+ * otherwise re-run the agent against every active event each time.
  */
-const VOLATILE_SHIPMENT_FIELDS = new Set(['eta']);
-
 function stableShipments(value: unknown): unknown {
   if (!Array.isArray(value)) return value ?? null;
-  return value.map((shipment) =>
-    shipment && typeof shipment === 'object'
-      ? Object.fromEntries(
-          Object.entries(shipment as Record<string, unknown>).filter(([k]) => !VOLATILE_SHIPMENT_FIELDS.has(k))
-        )
-      : shipment
+  const lanes = new Set(
+    value.map((shipment) => {
+      const s = (shipment ?? {}) as Record<string, unknown>;
+      return [s.departure_port_code ?? s.origin, s.destination_port_code ?? s.destination, s.route, s.carrier]
+        .map((part) => (typeof part === 'string' || typeof part === 'number' ? String(part) : ''))
+        .join('|');
+    })
   );
+  return [...lanes].sort();
 }
 
 /**

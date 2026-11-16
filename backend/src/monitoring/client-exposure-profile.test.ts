@@ -122,14 +122,22 @@ describe('profileFingerprint', () => {
     expect(profileFingerprint({ min_severity: {} } as never)).toBe(profileFingerprint({} as never));
   });
 
-  it('ignores ETA drift but not a new or re-routed shipment', () => {
-    const shipment = { id: 'sh-1', origin: 'CNSHA', destination: 'USBAL', eta: '2026-11-20T00:00:00Z' };
-    const base = profileFingerprint({ shipments_in_transit: [shipment] } as never);
-    expect(profileFingerprint({ shipments_in_transit: [{ ...shipment, eta: '2026-11-22T00:00:00Z' }] } as never)).toBe(base);
-    expect(profileFingerprint({ shipments_in_transit: [{ ...shipment, destination: 'USNYC' }] } as never)).not.toBe(base);
-    expect(
-      profileFingerprint({ shipments_in_transit: [shipment, { ...shipment, id: 'sh-2' }] } as never)
-    ).not.toBe(base);
+  it('fingerprints in-transit shipments by lane, not by shipment', () => {
+    const shipment = {
+      id: 'sh-1',
+      departure_port_code: 'CNSHA',
+      destination_port_code: 'USBAL',
+      carrier: 'Maersk',
+      eta: '2026-11-20T00:00:00Z',
+    };
+    const fpOf = (list: object[]) => profileFingerprint({ shipments_in_transit: list } as never);
+    const base = fpOf([shipment]);
+    // ETA drift, a second shipment on the same lane: no change.
+    expect(fpOf([{ ...shipment, eta: '2026-11-22T00:00:00Z' }])).toBe(base);
+    expect(fpOf([shipment, { ...shipment, id: 'sh-2' }])).toBe(base);
+    // A new destination port or carrier: a new lane, so a change.
+    expect(fpOf([{ ...shipment, destination_port_code: 'USNYC' }])).not.toBe(base);
+    expect(fpOf([shipment, { ...shipment, id: 'sh-3', carrier: 'MSC' }])).not.toBe(base);
   });
 });
 

@@ -11,11 +11,17 @@
 
 import type { PrismaClient } from '@prisma/client';
 import { getPrismaClient } from '../../monitoring/db-client.js';
-import { CHANGE_RECORD_QUEUE, consumeFromQueue, PermanentMessageError } from '../../monitoring/queue-client.js';
+import {
+  CHANGE_RECORD_QUEUE,
+  consumeFromQueue,
+  DEFAULT_CLAIM_BATCH_SIZE,
+  PermanentMessageError,
+  STALE_LOCK_SECONDS,
+} from '../../monitoring/queue-client.js';
 import { logger } from '../../monitoring/logger.js';
 import { changeRecordKey, parseChangeRecord } from '../records/change-record.js';
 import { createConsumerRegistry, type ConsumerRegistry } from './consumer-registry.js';
-import { dispatchRecord, DEFAULT_STAGE_TIMEOUT_MS } from './dispatcher.js';
+import { dispatchRecord, DEFAULT_STAGE_TIMEOUT_MS, maxRecordBudgetMs } from './dispatcher.js';
 import { clientMonitoringConsumer } from '../consumers/client-monitoring.js';
 
 export interface DispatchWorkerOptions {
@@ -41,12 +47,31 @@ function createDefaultRegistry(): ConsumerRegistry {
   });
 }
 
+/** Share of the queue lease a claimed batch may use; the rest is margin. */
+const LEASE_SAFETY = 0.8;
+
+/**
+ * A claimed batch is processed sequentially, and a row still waiting after
+ * STALE_LOCK_SECONDS is reclaimed by another worker (and run twice). Cap the
+ * batch so that batch × worst-case record time fits the lease, never below 1.
+ */
+export function leaseSafeBatchSize(requested: number | undefined, stageTimeoutMs: number): number {
+  const leaseMs = STALE_LOCK_SECONDS * 1000 * LEASE_SAFETY;
+  const safe = Math.max(1, Math.floor(leaseMs / maxRecordBudgetMs(stageTimeoutMs)));
+  const wanted = requested ?? DEFAULT_CLAIM_BATCH_SIZE;
+  if (wanted > safe) {
+    logger.warn({ requested: wanted, safe }, '[DispatchWorker] Batch size capped to fit the queue lease');
+  }
+  return Math.min(wanted, safe);
+}
+
 export function startDispatchWorker(options: DispatchWorkerOptions = {}): { stop: () => void } {
   const prisma = options.prisma ?? getPrismaClient();
   const registry = options.registry ?? createDefaultRegistry();
   const stageTimeoutMs = options.stageTimeoutMs ?? DEFAULT_STAGE_TIMEOUT_MS;
+  const batchSize = leaseSafeBatchSize(options.batchSize, stageTimeoutMs);
 
-  logger.info('[DispatchWorker] Starting change-record dispatch worker');
+  logger.info({ batchSize }, '[DispatchWorker] Starting change-record dispatch worker');
 
   return consumeFromQueue(
     CHANGE_RECORD_QUEUE,
@@ -70,6 +95,6 @@ export function startDispatchWorker(options: DispatchWorkerOptions = {}): { stop
         throw new Error(`${summary.failed} consumer(s) failed for ${changeRecordKey(record)}`);
       }
     },
-    { batchSize: options.batchSize, pollIntervalMs: options.pollIntervalMs }
+    { batchSize, pollIntervalMs: options.pollIntervalMs }
   );
 }

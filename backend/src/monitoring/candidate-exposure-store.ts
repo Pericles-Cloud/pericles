@@ -15,7 +15,7 @@ import { Prisma } from '@prisma/client';
 import { z } from 'zod';
 import { getPrismaClient } from './db-client.js';
 import { enqueueInTransaction, CHANGE_RECORD_QUEUE } from './queue-client.js';
-import { changeRecordKey, type ChangeRecord } from '../workflow/records/change-record.js';
+import { changeRecordQueueItem, type ChangeRecord } from '../workflow/records/change-record.js';
 import { STRENGTH_RANK, statusForStrength, type ExposureStrength } from './exposure-strength.js';
 
 export { STRENGTH_RANK, statusForStrength, type ExposureStrength };
@@ -24,40 +24,45 @@ export { STRENGTH_RANK, statusForStrength, type ExposureStrength };
  * The exposure evaluation an agent produces (Client Monitoring spec §8).
  * The dispatch consumer parses untrusted LLM output with it.
  */
+const PathwaySchema = z.object({
+  pathway: z.enum(['geographic_site', 'geographic_flow', 'entity', 'product', 'regulatory', 'indirect', 'strategic']),
+  match_basis: z.string().default(''),
+  confidence: z.number().min(0).max(1).catch(0.5),
+});
+
+const AssetSchema = z.object({
+  asset_type: z.enum(['facility', 'supplier', 'shipment', 'sku', 'carrier', 'lane', 'customer']),
+  asset_id: z.string().min(1),
+  asset_name: z.string().optional(),
+  distance_or_match_basis: z.string().default(''),
+});
+
+/**
+ * Keep the valid items of an LLM-written array and drop the malformed ones, so
+ * one bad asset or pathway does not discard a real exposure (the worse error at
+ * this layer, Client spec §5).
+ */
+function validItems<T extends z.ZodTypeAny>(item: T) {
+  return z.preprocess(
+    (value) =>
+      Array.isArray(value) ? value.filter((entry) => item.safeParse(entry).success) : value,
+    z.array(item)
+  );
+}
+
 export const CandidateEvaluationSchema = z.object({
-  exposure_pathways: z.array(
-    z.object({
-      pathway: z.enum([
-        'geographic_site',
-        'geographic_flow',
-        'entity',
-        'product',
-        'regulatory',
-        'indirect',
-        'strategic',
-      ]),
-      match_basis: z.string(),
-      confidence: z.number().min(0).max(1),
-    })
-  ),
+  exposure_pathways: validItems(PathwaySchema),
   exposure_strength: z.enum(['direct', 'probable', 'possible', 'strategic']),
-  exposed_assets: z.array(
-    z.object({
-      asset_type: z.enum(['facility', 'supplier', 'shipment', 'sku', 'carrier', 'lane', 'customer']),
-      asset_id: z.string(),
-      asset_name: z.string().optional(),
-      distance_or_match_basis: z.string(),
-    })
-  ),
+  exposed_assets: validItems(AssetSchema),
   // LLM output: confidence may be omitted, and dates arrive in mixed formats
-  // (date-only, with offsets). Dropping a real exposure over formatting is the
-  // worse error at this layer (Client spec §5), so these are lenient.
+  // (date-only, with offsets). These are lenient for the same reason.
   match_confidence: z
     .object({
       entity: z.number().min(0).max(1).optional(),
       location: z.number().min(0).max(1).optional(),
       product: z.number().min(0).max(1).optional(),
     })
+    .catch({})
     .default({}),
   temporal_relevance: z
     .object({
@@ -66,16 +71,59 @@ export const CandidateEvaluationSchema = z.object({
       regulation_effective_date: z.string().nullable().optional(),
     })
     .nullable()
-    .optional(),
-  strategic_context: z
-    .array(z.object({ doc_ref: z.string(), initiative: z.string() }))
+    .optional()
+    .catch(null),
+  strategic_context: validItems(z.object({ doc_ref: z.string(), initiative: z.string() }))
     .nullable()
-    .optional(),
-  rationale: z.string().min(10).describe('2-4 plain sentences explaining why'),
-  exposure_priority: z.enum(['critical', 'high', 'medium', 'low']),
+    .optional()
+    .catch(null),
+  rationale: z.string().min(1).describe('2-4 plain sentences explaining why'),
+  exposure_priority: z.enum(['critical', 'high', 'medium', 'low']).catch('medium'),
 });
 
 export type CandidateEvaluation = z.infer<typeof CandidateEvaluationSchema>;
+
+const PRIORITY_RANK: Record<CandidateEvaluation['exposure_priority'], number> = {
+  low: 1,
+  medium: 2,
+  high: 3,
+  critical: 4,
+};
+
+/**
+ * Merge every evaluation of one event for one org into the single exposure row
+ * that (org, event) allows: strongest strength and highest priority win;
+ * pathways, assets and strategic context are unioned. Returns null if empty.
+ */
+export function mergeEvaluations(evaluations: CandidateEvaluation[]): CandidateEvaluation | null {
+  if (evaluations.length === 0) return null;
+  const strongest = evaluations.reduce((a, b) =>
+    STRENGTH_RANK[b.exposure_strength] > STRENGTH_RANK[a.exposure_strength] ? b : a
+  );
+  const uniqueBy = <T>(items: T[], key: (item: T) => string): T[] => {
+    const seen = new Map<string, T>();
+    for (const item of items) if (!seen.has(key(item))) seen.set(key(item), item);
+    return [...seen.values()];
+  };
+  const strategic = evaluations.flatMap((e) => e.strategic_context ?? []);
+  return {
+    ...strongest,
+    exposure_pathways: uniqueBy(
+      evaluations.flatMap((e) => e.exposure_pathways),
+      (p) => `${p.pathway}|${p.match_basis}`
+    ),
+    exposed_assets: uniqueBy(
+      evaluations.flatMap((e) => e.exposed_assets),
+      (a) => `${a.asset_type}:${a.asset_id.trim().toLowerCase()}`
+    ),
+    exposure_priority: evaluations.reduce((a, b) =>
+      PRIORITY_RANK[b.exposure_priority] > PRIORITY_RANK[a.exposure_priority] ? b : a
+    ).exposure_priority,
+    strategic_context: strategic.length > 0 ? uniqueBy(strategic, (c) => `${c.doc_ref}|${c.initiative}`) : null,
+    temporal_relevance: strongest.temporal_relevance ?? evaluations.find((e) => e.temporal_relevance)?.temporal_relevance,
+    rationale: [...new Set(evaluations.map((e) => e.rationale.trim()))].join(' '),
+  };
+}
 
 export interface CandidateExposureInput extends CandidateEvaluation {
   organization_id: string;
@@ -157,22 +205,18 @@ export function buildCandidateExposureRecord(
 
 /** Enqueue the record; returns false if an identical record was already queued. */
 async function emitRecord(tx: Prisma.TransactionClient, record: ChangeRecord): Promise<boolean> {
-  const { deduplicated } = await enqueueInTransaction(
-    tx,
-    CHANGE_RECORD_QUEUE,
-    {
-      type: 'change_record',
-      payload: record,
-      timestamp: record.produced_at,
-      organizationId: record.organization_id,
-    },
-    { idempotencyKey: changeRecordKey(record) }
-  );
+  const { message, idempotencyKey } = changeRecordQueueItem(record);
+  const { deduplicated } = await enqueueInTransaction(tx, CHANGE_RECORD_QUEUE, message, { idempotencyKey });
   return !deduplicated;
 }
 
 const isUniqueViolation = (error: unknown): boolean =>
   error instanceof Prisma.PrismaClientKnownRequestError && error.code === 'P2002';
+
+/** handoff_version the migration sets on pre-existing CANDIDATE rows. */
+export const LEGACY_PENDING = -1;
+/** Hand-off version used for those rows: above any v1 the old tool emitted. */
+const LEGACY_HANDOFF_VERSION = 2;
 
 /** Another evaluation changed the row between our read and our write. */
 class ConcurrentUpdateError extends Error {
@@ -251,12 +295,12 @@ async function upsertOnce(input: CandidateExposureInput): Promise<UpsertCandidat
       existing.validation_status === 'WATCHING' ||
       (existing.validation_status === 'REJECTED' && hasNewEvidence(existing, input));
 
-    // A CANDIDATE that was never handed off (created before the hand-off
-    // existed, or by migrate-events-to-global) gets its first record now, so no
-    // CANDIDATE row is left without one. If one was already queued under v1
-    // the insert is a no-op.
-    if (existing.validation_status === 'CANDIDATE' && existing.handoff_version === 0) {
-      await updateIfUnchanged(tx, existing, { handoff_version: 1 });
+    // A CANDIDATE row from before hand-offs were versioned is marked
+    // LEGACY_PENDING by the migration: we cannot tell whether it was ever handed
+    // off (the old tool emitted v1, the old consumer emitted nothing). Hand it
+    // off now as v2, which can never collide with an old v1 record.
+    if (existing.validation_status === 'CANDIDATE' && existing.handoff_version === LEGACY_PENDING) {
+      await updateIfUnchanged(tx, existing, { handoff_version: LEGACY_HANDOFF_VERSION });
       // Hand off what is stored, not this evaluation, so the record and the row agree.
       const stored = {
         organization_id: existing.organization_id,
@@ -265,7 +309,10 @@ async function upsertOnce(input: CandidateExposureInput): Promise<UpsertCandidat
         exposure_strength: existing.exposure_strength as ExposureStrength,
         exposure_priority: existing.exposure_priority as CandidateEvaluation['exposure_priority'],
       };
-      const emitted = await emitRecord(tx, buildCandidateExposureRecord(existing.id, 1, stored, now));
+      const emitted = await emitRecord(
+        tx,
+        buildCandidateExposureRecord(existing.id, LEGACY_HANDOFF_VERSION, stored, now)
+      );
       return {
         candidate_exposure_id: existing.id,
         validation_status: existing.validation_status,
@@ -293,6 +340,8 @@ async function upsertOnce(input: CandidateExposureInput): Promise<UpsertCandidat
       ...fields,
       global_event_id: input.global_event_id,
       handoff_version: handoffVersion,
+      // A reopened rejection is undecided again; drop the pointer to the old verdict.
+      ...(existing.validation_status === 'REJECTED' && emit ? { validation_ref: null } : {}),
       updated_at: now,
     });
 

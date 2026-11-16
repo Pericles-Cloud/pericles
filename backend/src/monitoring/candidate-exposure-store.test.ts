@@ -17,6 +17,9 @@ import {
   upsertCandidateExposure,
   statusForStrength,
   CandidateEvaluationSchema,
+  LEGACY_PENDING,
+  mergeEvaluations,
+  type CandidateEvaluation,
   type CandidateExposureInput,
 } from './candidate-exposure-store.js';
 
@@ -77,10 +80,28 @@ describe('CandidateEvaluationSchema', () => {
     expect(parsed.success && parsed.data.match_confidence).toEqual({});
   });
 
-  it('rejects an invalid exposure_priority from the agent', () => {
+  it('keeps a candidate when one asset or pathway is malformed, dropping only that item', () => {
     const { organization_id: _o, global_event_id: _g, global_event_hash: _h, ...evaluation } = INPUT;
-    expect(CandidateEvaluationSchema.safeParse(evaluation).success).toBe(true);
-    expect(CandidateEvaluationSchema.safeParse({ ...evaluation, exposure_priority: 'urgent' }).success).toBe(false);
+    const parsed = CandidateEvaluationSchema.safeParse({
+      ...evaluation,
+      exposure_priority: 'urgent',
+      exposed_assets: [
+        ...evaluation.exposed_assets,
+        { asset_type: 'port', asset_id: 'USBAL' },
+        { asset_type: 'supplier', asset_id: 's-2' },
+      ],
+      exposure_pathways: [...evaluation.exposure_pathways, { pathway: 'vibes', match_basis: '?' }],
+    });
+    expect(parsed.success).toBe(true);
+    if (!parsed.success) return;
+    expect(parsed.data.exposed_assets.map((a) => a.asset_id)).toEqual(['f-1', 's-2']);
+    expect(parsed.data.exposure_pathways).toHaveLength(1);
+    expect(parsed.data.exposure_priority).toBe('medium');
+  });
+
+  it('still rejects an item with no usable exposure_strength', () => {
+    const { organization_id: _o, global_event_id: _g, global_event_hash: _h, ...evaluation } = INPUT;
+    expect(CandidateEvaluationSchema.safeParse({ ...evaluation, exposure_strength: 'maybe' }).success).toBe(false);
   });
 });
 
@@ -175,6 +196,8 @@ describe('upsertCandidateExposure', () => {
 
     expect(result.change_record_emitted).toBe(true);
     expect(enqueuedRows()[0].payload.record_version).toBe(2);
+    // Undecided again: the pointer to the old rejection is cleared.
+    expect(fake.candidateExposure.updateMany.mock.calls[0][0].data.validation_ref).toBeNull();
   });
 
   it('emits v1 for a legacy CANDIDATE row from the stored fields, not the new evaluation', async () => {
@@ -187,22 +210,23 @@ describe('upsertCandidateExposure', () => {
         organization_id: ORG,
         global_event_id: INPUT.global_event_id,
         global_event_hash: INPUT.global_event_hash,
-        handoff_version: 0,
+        handoff_version: LEGACY_PENDING,
       })
     );
 
     const result = await upsertCandidateExposure({ ...INPUT, exposure_strength: 'possible', exposure_priority: 'low' });
 
     expect(result.change_record_emitted).toBe(true);
-    expect(fake.candidateExposure.updateMany.mock.calls[0][0].data).toEqual({ handoff_version: 1 });
+    expect(fake.candidateExposure.updateMany.mock.calls[0][0].data).toEqual({ handoff_version: 2 });
     const [row] = enqueuedRows();
-    expect(row.idempotency_key).toBe('ce-9:1');
+    // v2, never v1: an old candidateExposureTool may already have emitted v1.
+    expect(row.idempotency_key).toBe('ce-9:2');
     expect(row.payload.payload).toMatchObject({ exposure_strength: 'direct', exposure_priority: 'critical' });
   });
 
   it('reports change_record_emitted false when the record was already queued', async () => {
     fake.candidateExposure.findUnique.mockResolvedValue(
-      existingRow({ id: 'ce-10', validation_status: 'CANDIDATE', exposure_strength: 'direct', handoff_version: 0 })
+      existingRow({ id: 'ce-10', validation_status: 'CANDIDATE', exposure_strength: 'direct', handoff_version: LEGACY_PENDING })
     );
     fake.messageQueue.createMany.mockResolvedValue({ count: 0 });
 
@@ -306,3 +330,41 @@ describe('upsertCandidateExposure', () => {
     expect(fake.$transaction).toHaveBeenCalledTimes(1);
   });
 });
+
+describe('mergeEvaluations', () => {
+  const base: CandidateEvaluation = {
+    exposure_pathways: [{ pathway: 'entity', match_basis: 'named supplier', confidence: 0.8 }],
+    exposure_strength: 'probable',
+    exposed_assets: [{ asset_type: 'supplier', asset_id: 's-1', distance_or_match_basis: 'named' }],
+    match_confidence: {},
+    rationale: 'Supplier is named in the event.',
+    exposure_priority: 'medium',
+  };
+
+  it('returns null for no evaluations', () => {
+    expect(mergeEvaluations([])).toBeNull();
+  });
+
+  it('keeps the strongest exposure and unions assets and pathways from all items', () => {
+    const merged = mergeEvaluations([
+      base,
+      {
+        ...base,
+        exposure_strength: 'direct',
+        exposure_priority: 'high',
+        exposure_pathways: [{ pathway: 'geographic_site', match_basis: 'plant in zone', confidence: 0.9 }],
+        exposed_assets: [
+          { asset_type: 'facility', asset_id: 'f-1', distance_or_match_basis: '3km' },
+          { asset_type: 'supplier', asset_id: ' S-1 ', distance_or_match_basis: 'dup' },
+        ],
+        rationale: 'Plant is inside the zone.',
+      },
+    ]);
+    expect(merged?.exposure_strength).toBe('direct');
+    expect(merged?.exposure_priority).toBe('high');
+    expect(merged?.exposed_assets.map((a) => a.asset_id)).toEqual(['s-1', 'f-1']);
+    expect(merged?.exposure_pathways.map((p) => p.pathway)).toEqual(['entity', 'geographic_site']);
+    expect(merged?.rationale).toBe('Supplier is named in the event. Plant is inside the zone.');
+  });
+});
+

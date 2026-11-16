@@ -12,8 +12,16 @@ const fake = vi.hoisted(() => ({
 }));
 
 vi.mock('../../monitoring/db-client.js', () => ({ getPrismaClient: () => fake }));
-vi.mock('../../mastra/index.js', () => ({ mastra: { getAgent: vi.fn() } }));
+const agent = vi.hoisted(() => ({ generate: vi.fn() }));
+const upsert = vi.hoisted(() => vi.fn());
 
+vi.mock('../../mastra/index.js', () => ({ mastra: { getAgent: () => agent } }));
+vi.mock('../../monitoring/candidate-exposure-store.js', async (importOriginal) => ({
+  ...(await importOriginal<typeof Store>()),
+  upsertCandidateExposure: upsert,
+}));
+
+import type * as Store from '../../monitoring/candidate-exposure-store.js';
 import { clientMonitoringConsumer } from './client-monitoring.js';
 import type { ChangeRecord } from '../records/change-record.js';
 
@@ -123,3 +131,57 @@ describe('clientMonitoringConsumer failure handling', () => {
     expect(fake.messageQueue.createMany).not.toHaveBeenCalled();
   });
 });
+
+describe('clientMonitoringConsumer agent output', () => {
+  const exposure = (strength: string, assetId: string) => ({
+    exposure_pathways: [{ pathway: 'geographic_site', match_basis: 'in zone', confidence: 0.9 }],
+    exposure_strength: strength,
+    exposed_assets: [{ asset_type: 'facility', asset_id: assetId, distance_or_match_basis: '3km' }],
+    match_confidence: {},
+    rationale: `Asset ${assetId} is exposed.`,
+    exposure_priority: 'high',
+  });
+
+  beforeEach(() => {
+    fake.globalEvent.findUnique.mockResolvedValue({ id: 'ge-1', status: 'ACTIVE', event_hash: 'h', category: 'x' });
+    fake.organization.findMany.mockResolvedValue([{ id: ORG_A, name: 'A' }]);
+    fake.clientExposureProfile.findUnique.mockResolvedValue({ profile_version: 3 });
+    upsert.mockReset().mockResolvedValue({
+      candidate_exposure_id: 'ce-1',
+      validation_status: 'CANDIDATE',
+      outcome: 'created',
+      change_record_emitted: true,
+    });
+  });
+
+  it('merges every item for the event into one upsert, keeping the strongest', async () => {
+    agent.generate.mockResolvedValue({
+      text: JSON.stringify({ candidate_exposures: [exposure('probable', 'f-1'), exposure('direct', 'f-2')] }),
+    });
+
+    await run(record(null, { event_id: 'ge-1' }));
+
+    expect(upsert).toHaveBeenCalledTimes(1);
+    const input = upsert.mock.calls[0][0];
+    expect(input.organization_id).toBe(ORG_A);
+    expect(input.exposure_strength).toBe('direct');
+    expect(input.exposed_assets.map((a: { asset_id: string }) => a.asset_id)).toEqual(['f-1', 'f-2']);
+  });
+
+  it('stores a watch-list item as a possible exposure', async () => {
+    const { exposure_strength: _s, ...watched } = exposure('possible', 'f-9');
+    agent.generate.mockResolvedValue({ text: JSON.stringify({ candidate_exposures: [], watch_list: [watched] }) });
+
+    await run(record(null, { event_id: 'ge-1' }));
+
+    expect(upsert).toHaveBeenCalledTimes(1);
+    expect(upsert.mock.calls[0][0].exposure_strength).toBe('possible');
+  });
+
+  it('writes nothing when the agent finds no exposure', async () => {
+    agent.generate.mockResolvedValue({ text: JSON.stringify({ candidate_exposures: [], watch_list: [] }) });
+    await run(record(null, { event_id: 'ge-1' }));
+    expect(upsert).not.toHaveBeenCalled();
+  });
+});
+

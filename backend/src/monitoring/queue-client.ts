@@ -190,6 +190,9 @@ export async function publishBatchToQueue(queueName: string, messages: QueueMess
 /** A claimed row lock older than this is treated as abandoned by its worker. */
 export const STALE_LOCK_SECONDS = 300;
 
+/** Rows claimed per poll when the caller does not choose. */
+export const DEFAULT_CLAIM_BATCH_SIZE = 10;
+
 const BASE_BACKOFF_MS = 1_000;
 const MAX_BACKOFF_MS = 60_000;
 
@@ -341,7 +344,7 @@ export function consumeFromQueue(
   handler: (message: QueueMessage, ctx: { id: string; attempts: number }) => Promise<void>,
   options: { batchSize?: number; pollIntervalMs?: number } = {}
 ): { stop: () => void } {
-  const { batchSize = 10, pollIntervalMs = 1000 } = options;
+  const { batchSize = DEFAULT_CLAIM_BATCH_SIZE, pollIntervalMs = 1000 } = options;
   const prisma = getPrismaClient();
   const workerId = workerIdentity();
   let running = true;

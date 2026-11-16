@@ -230,11 +230,7 @@ Always respond with structured JSON matching this schema:
     }
   ],
   "watch_list": [
-    {
-      "global_event_id": "uuid",
-      "exposure_strength": "possible",
-      "reason": "why this is on the watch list"
-    }
+    "Same shape as a candidate_exposures item, with exposure_strength possible. Watch-list items are stored (status Watching) and re-evaluated on change; they are not sent to Validation."
   ],
   "not_exposed": [
     {

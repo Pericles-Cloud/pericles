@@ -19,7 +19,12 @@ import type { ConsumerHandler } from '../dispatch/consumer-registry.js';
 import { getPrismaClient } from '../../monitoring/db-client.js';
 import { mastra } from '../../mastra/index.js';
 import { logger } from '../../monitoring/logger.js';
-import { CandidateEvaluationSchema, upsertCandidateExposure } from '../../monitoring/candidate-exposure-store.js';
+import {
+  CandidateEvaluationSchema,
+  mergeEvaluations,
+  upsertCandidateExposure,
+  type CandidateEvaluation,
+} from '../../monitoring/candidate-exposure-store.js';
 
 /**
  * Handle a global_event_change record.
@@ -291,14 +296,34 @@ async function evaluateExposureForOrg(
     return { candidatesCreated, cleared };
   }
 
-  // Process candidate exposures
-  const candidateExposures = parsedResult.candidate_exposures || [];
+  // Process candidate exposures. Watch-list (possible) items are stored too,
+  // so they can be promoted later (Client spec §5). One exposure row exists
+  // per (org, event), so every item for this event is merged into one.
+  const items: unknown[] = [
+    ...(Array.isArray(parsedResult.candidate_exposures) ? parsedResult.candidate_exposures : []),
+    ...(Array.isArray(parsedResult.watch_list) ? parsedResult.watch_list : []).map((item: unknown) =>
+      item && typeof item === 'object' ? { exposure_strength: 'possible', ...item } : item
+    ),
+  ];
 
-  // A schema-invalid candidate is skipped inside createCandidateExposure.
-  // Anything thrown here is infrastructure (DB, queue) and must propagate so
-  // the dispatch stage fails and is retried; the upsert is idempotent.
-  for (const candidate of candidateExposures) {
-    const created = await createCandidateExposure(organizationId, globalEvent, candidate, profile.profile_version);
+  const evaluations: CandidateEvaluation[] = [];
+  for (const item of items) {
+    const parsed = CandidateEvaluationSchema.safeParse(item);
+    if (parsed.success) {
+      evaluations.push(parsed.data);
+    } else {
+      logger.warn(
+        { organization_id: organizationId, global_event_id: globalEvent.id, issues: parsed.error.issues },
+        '[ClientMonitoring] Skipping exposure item that failed schema validation'
+      );
+    }
+  }
+
+  const merged = mergeEvaluations(evaluations);
+  if (merged) {
+    // Anything thrown here is infrastructure (DB, queue) and propagates so the
+    // org is retried; the upsert and the hand-off are idempotent.
+    const created = await createCandidateExposure(organizationId, globalEvent, merged, profile.profile_version);
     if (created) candidatesCreated++;
   }
 
@@ -379,22 +404,13 @@ Evaluate all 7 exposure pathways against this event. Return JSON with:
 async function createCandidateExposure(
   organizationId: string,
   globalEvent: { id: string; event_hash: string },
-  candidate: unknown,
+  evaluation: CandidateEvaluation,
   profileVersion: number
 ): Promise<boolean> {
-  // The agent's output is untrusted; validate it with the same schema the tool uses.
-  const parsed = CandidateEvaluationSchema.safeParse(candidate);
-  if (!parsed.success) {
-    logger.warn(
-      { organization_id: organizationId, global_event_id: globalEvent.id, issues: parsed.error.issues },
-      '[ClientMonitoring] Skipping candidate that failed schema validation'
-    );
-    return false;
-  }
-  const strength = parsed.data.exposure_strength;
+  const strength = evaluation.exposure_strength;
 
   const result = await upsertCandidateExposure({
-    ...parsed.data,
+    ...evaluation,
     organization_id: organizationId,
     global_event_id: globalEvent.id,
     global_event_hash: globalEvent.event_hash,
