@@ -1171,6 +1171,11 @@ model ClientExposureProfile {
   // Fingerprint of the content last successfully back-matched. A failed
   // back-match leaves it stale, so the next sync retries.
   back_match_fingerprint String?
+  // Back-match run counter (record_version of back-match records) and the
+  // fingerprint that run was started for. A retry of the same content reuses
+  // the seq; any new content, including a revert to older content, bumps it.
+  back_match_seq                 Int     @default(0)
+  back_match_attempt_fingerprint String?
 
   created_at            DateTime @default(now())
   updated_at            DateTime @updatedAt

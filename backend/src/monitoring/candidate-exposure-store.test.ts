@@ -180,16 +180,27 @@ describe('upsertCandidateExposure', () => {
     expect(enqueuedRows()[0].payload.record_version).toBe(2);
   });
 
-  it('emits v1 for a legacy CANDIDATE row that was never handed off', async () => {
+  it('emits v1 for a legacy CANDIDATE row from the stored fields, not the new evaluation', async () => {
     fake.candidateExposure.findUnique.mockResolvedValue(
-      existingRow({ id: 'ce-9', validation_status: 'CANDIDATE', exposure_strength: 'direct', handoff_version: 0 })
+      existingRow({
+        id: 'ce-9',
+        validation_status: 'CANDIDATE',
+        exposure_strength: 'direct',
+        exposure_priority: 'critical',
+        organization_id: ORG,
+        global_event_id: INPUT.global_event_id,
+        global_event_hash: INPUT.global_event_hash,
+        handoff_version: 0,
+      })
     );
 
-    const result = await upsertCandidateExposure(INPUT);
+    const result = await upsertCandidateExposure({ ...INPUT, exposure_strength: 'possible', exposure_priority: 'low' });
 
     expect(result.change_record_emitted).toBe(true);
     expect(fake.candidateExposure.update.mock.calls[0][0].data).toEqual({ handoff_version: 1 });
-    expect(enqueuedRows()[0].idempotency_key).toBe('ce-9:1');
+    const [row] = enqueuedRows();
+    expect(row.idempotency_key).toBe('ce-9:1');
+    expect(row.payload.payload).toMatchObject({ exposure_strength: 'direct', exposure_priority: 'critical' });
   });
 
   it('reports change_record_emitted false when the record was already queued', async () => {
@@ -201,6 +212,33 @@ describe('upsertCandidateExposure', () => {
     const result = await upsertCandidateExposure(INPUT);
 
     expect(result.change_record_emitted).toBe(false);
+  });
+
+  it('keeps a REJECTED exposure rejected when the model only renames the same assets', async () => {
+    fake.candidateExposure.findUnique.mockResolvedValue(
+      existingRow({ id: 'ce-11', validation_status: 'REJECTED', exposure_strength: 'direct', handoff_version: 1 })
+    );
+
+    const result = await upsertCandidateExposure({
+      ...INPUT,
+      exposed_assets: [{ asset_type: 'facility', asset_id: 'Plant One (F-1)', distance_or_match_basis: '12km' }],
+    });
+
+    expect(result.outcome).toBe('unchanged');
+    expect(fake.messageQueue.createMany).not.toHaveBeenCalled();
+  });
+
+  it('matches asset ids case- and whitespace-insensitively', async () => {
+    fake.candidateExposure.findUnique.mockResolvedValue(
+      existingRow({ id: 'ce-12', validation_status: 'REJECTED', exposure_strength: 'direct', handoff_version: 1 })
+    );
+
+    const result = await upsertCandidateExposure({
+      ...INPUT,
+      exposed_assets: [{ asset_type: 'facility', asset_id: ' F-1 ', distance_or_match_basis: '12km' }],
+    });
+
+    expect(result.outcome).toBe('unchanged');
   });
 
   it('leaves an exposure already in the pipeline untouched', async () => {

@@ -12,7 +12,8 @@
  * to all customer organizations.
  */
 
-import type { ChangeRecord } from '../records/change-record.js';
+import { changeRecordKey, type ChangeRecord } from '../records/change-record.js';
+import { enqueueManyIdempotent, CHANGE_RECORD_QUEUE } from '../../monitoring/queue-client.js';
 import type { ConsumerHandler } from '../dispatch/consumer-registry.js';
 import { getPrismaClient } from '../../monitoring/db-client.js';
 import { mastra } from '../../mastra/index.js';
@@ -98,21 +99,17 @@ export const clientMonitoringConsumer: ConsumerHandler = async ({ record, signal
     // Process each organization
     let totalCandidatesCreated = 0;
     let totalCleared = 0;
-    const failedOrgIds: string[] = [];
+    const pendingOrgIds: string[] = [];
 
-    for (const org of organizations) {
+    for (const [index, org] of organizations.entries()) {
       if (signal.aborted) {
         logger.warn({ global_event_id: globalEventId }, '[ClientMonitoring] Aborted during fan-out');
+        pendingOrgIds.push(...organizations.slice(index).map((o) => o.id));
         break;
       }
 
       try {
-        const result = await evaluateExposureForOrg(
-          org.id,
-          globalEvent,
-          signal
-        );
-
+        const result = await evaluateExposureForOrg(org.id, globalEvent, signal);
         totalCandidatesCreated += result.candidatesCreated;
         totalCleared += result.cleared;
       } catch (error) {
@@ -120,28 +117,31 @@ export const clientMonitoringConsumer: ConsumerHandler = async ({ record, signal
           { error, organization_id: org.id, global_event_id: globalEventId },
           '[ClientMonitoring] Failed to evaluate exposure for org'
         );
-        // Keep evaluating the other orgs, then fail the stage below.
-        failedOrgIds.push(org.id);
+        pendingOrgIds.push(org.id);
       }
     }
 
     logger.info(
       {
         global_event_id: globalEventId,
-        orgs_processed: organizations.length,
+        orgs_processed: organizations.length - pendingOrgIds.length,
+        orgs_pending_retry: pendingOrgIds.length,
         candidates_created: totalCandidatesCreated,
         exposures_cleared: totalCleared,
       },
       '[ClientMonitoring] Completed global event fan-out'
     );
 
-    // Fail the stage so the dispatcher retries instead of marking the record
-    // completed with exposures lost. Orgs that succeeded are re-evaluated on
-    // retry; the upsert and the hand-off are idempotent.
-    if (failedOrgIds.length > 0) {
-      throw new Error(
-        `[ClientMonitoring] Exposure evaluation failed for ${failedOrgIds.length} of ${organizations.length} organization(s)`
-      );
+    if (pendingOrgIds.length > 0) {
+      // A single-org record has nothing to split off: fail the stage so the
+      // dispatcher retries it with backoff.
+      if (targetOrgId) {
+        throw new Error(`[ClientMonitoring] Exposure evaluation for ${targetOrgId} did not complete`);
+      }
+      // Fan-out: hand each failed or not-reached org its own org-scoped record
+      // instead of failing the whole stage, so a retry re-runs only those orgs
+      // (each with its own attempts and backoff), not every org that succeeded.
+      await enqueueOrgRetries(record, globalEventId, pendingOrgIds);
     }
   } catch (error) {
     logger.error(
@@ -151,6 +151,36 @@ export const clientMonitoringConsumer: ConsumerHandler = async ({ record, signal
     throw error;
   }
 };
+
+/**
+ * Enqueue one org-scoped global_event_change per org whose evaluation did not
+ * complete. Keyed by (source record, org) and the source version, so a
+ * redelivery of the source record does not enqueue duplicates. The payload is
+ * minimal on purpose: it routes only to client_monitoring (no change_kind or
+ * severity, so it cannot re-trigger Event Verification).
+ */
+async function enqueueOrgRetries(source: ChangeRecord, globalEventId: string, orgIds: string[]): Promise<void> {
+  const producedAt = new Date().toISOString();
+  const items = orgIds.map((orgId) => {
+    const retry: ChangeRecord = {
+      record_id: `${source.record_id}:org:${orgId}`,
+      record_version: source.record_version,
+      record_type: 'global_event_change',
+      organization_id: orgId,
+      produced_at: producedAt,
+      payload: { event_id: globalEventId, change_type: 'org_retry', target_organization_id: orgId },
+    };
+    return {
+      message: { type: 'change_record' as const, payload: retry, timestamp: producedAt, organizationId: orgId },
+      idempotencyKey: changeRecordKey(retry),
+    };
+  });
+  await enqueueManyIdempotent(getPrismaClient(), CHANGE_RECORD_QUEUE, items);
+  logger.warn(
+    { source_record_id: source.record_id, global_event_id: globalEventId, orgs: orgIds.length },
+    '[ClientMonitoring] Enqueued org-scoped retries for incomplete evaluations'
+  );
+}
 
 interface ExposureResult {
   candidatesCreated: number;

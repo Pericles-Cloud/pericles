@@ -1,6 +1,7 @@
 import { createTool } from '@mastra/core/tools';
 import { z } from 'zod';
 import { CandidateEvaluationSchema, upsertCandidateExposure } from '../../monitoring/candidate-exposure-store.js';
+import { getPrismaClient } from '../../monitoring/db-client.js';
 
 /**
  * Candidate Exposure Tool
@@ -41,6 +42,16 @@ Emits a candidate_exposure change record for the Validation Agent.
     }
 
     try {
+      // Arguments may be model-written: the event must exist and its hash must
+      // match, so a made-up or truncated hash cannot create a second row.
+      const event = await getPrismaClient().globalEvent.findUnique({
+        where: { id: global_event_id },
+        select: { event_hash: true },
+      });
+      if (event?.event_hash !== context.global_event_hash) {
+        throw new Error('global_event_id/global_event_hash do not match a Global Event');
+      }
+
       const result = await upsertCandidateExposure(context);
       return {
         success: true,

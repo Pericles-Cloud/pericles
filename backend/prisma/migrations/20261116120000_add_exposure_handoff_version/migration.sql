@@ -11,3 +11,5 @@ UPDATE "CandidateExposure" SET "handoff_version" = 1
 
 -- Content fingerprint last successfully back-matched for a Client Exposure Profile
 ALTER TABLE "ClientExposureProfile" ADD COLUMN "back_match_fingerprint" TEXT;
+ALTER TABLE "ClientExposureProfile" ADD COLUMN "back_match_seq" INTEGER NOT NULL DEFAULT 0;
+ALTER TABLE "ClientExposureProfile" ADD COLUMN "back_match_attempt_fingerprint" TEXT;

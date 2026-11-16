@@ -99,22 +99,22 @@ export function statusForStrength(strength: ExposureStrength): 'WATCHING' | 'CAN
 /** Single ordering of exposure strength, weakest first. Shared with the pathway evaluator. */
 export const STRENGTH_RANK: Record<ExposureStrength, number> = { possible: 1, strategic: 2, probable: 3, direct: 4 };
 
-/** Stable key for an exposed-asset set, independent of order. */
-function assetSetKey(assets: unknown): string {
-  if (!Array.isArray(assets)) return '';
-  return assets
-    .map((a) => {
+/** Normalized asset keys. Asset ids are LLM-written, so compare loosely. */
+function assetKeys(assets: unknown): Set<string> {
+  if (!Array.isArray(assets)) return new Set();
+  return new Set(
+    assets.map((a) => {
       const asset = a as { asset_type?: unknown; asset_id?: unknown };
-      return `${String(asset.asset_type)}:${String(asset.asset_id)}`;
+      return `${String(asset.asset_type).trim().toLowerCase()}:${String(asset.asset_id).trim().toLowerCase()}`;
     })
-    .sort()
-    .join('|');
+  );
 }
 
 /**
  * A Validation rejection stands unless the new evaluation brings new evidence:
- * a stronger exposure, or a different set of exposed assets. Otherwise every
- * event update would re-send the same rejected exposure.
+ * a stronger exposure, or every previously named asset plus at least one more.
+ * A different spelling of the same assets is not a strict superset, so model
+ * run-to-run variation cannot reopen a rejection on its own.
  */
 function hasNewEvidence(
   existing: { exposure_strength: string; exposed_assets: unknown },
@@ -122,7 +122,11 @@ function hasNewEvidence(
 ): boolean {
   const before = STRENGTH_RANK[existing.exposure_strength as ExposureStrength] ?? 0;
   if (STRENGTH_RANK[input.exposure_strength] > before) return true;
-  return assetSetKey(existing.exposed_assets) !== assetSetKey(input.exposed_assets);
+  const previous = assetKeys(existing.exposed_assets);
+  const next = assetKeys(input.exposed_assets);
+  if (next.size <= previous.size) return false;
+  for (const key of previous) if (!next.has(key)) return false;
+  return true;
 }
 
 const toJson = (value: unknown): Prisma.InputJsonValue => value as Prisma.InputJsonValue;
@@ -233,7 +237,15 @@ async function upsertOnce(input: CandidateExposureInput): Promise<UpsertCandidat
     // the insert is a no-op.
     if (existing.validation_status === 'CANDIDATE' && existing.handoff_version === 0) {
       await tx.candidateExposure.update({ where: { id: existing.id }, data: { handoff_version: 1 } });
-      const emitted = await emitRecord(tx, buildCandidateExposureRecord(existing.id, 1, input, now));
+      // Hand off what is stored, not this evaluation, so the record and the row agree.
+      const stored = {
+        organization_id: existing.organization_id,
+        global_event_id: existing.global_event_id,
+        global_event_hash: existing.global_event_hash,
+        exposure_strength: existing.exposure_strength as ExposureStrength,
+        exposure_priority: existing.exposure_priority as CandidateEvaluation['exposure_priority'],
+      };
+      const emitted = await emitRecord(tx, buildCandidateExposureRecord(existing.id, 1, stored, now));
       return {
         candidate_exposure_id: existing.id,
         validation_status: existing.validation_status,

@@ -8,6 +8,7 @@ const fake = vi.hoisted(() => ({
   globalEvent: { findUnique: vi.fn() },
   organization: { findMany: vi.fn() },
   clientExposureProfile: { findUnique: vi.fn() },
+  messageQueue: { createMany: vi.fn() },
 }));
 
 vi.mock('../../monitoring/db-client.js', () => ({ getPrismaClient: () => fake }));
@@ -35,7 +36,18 @@ beforeEach(() => {
   fake.globalEvent.findUnique.mockReset().mockResolvedValue({ id: 'ge-1', status: 'RESOLVED', event_hash: 'h' });
   fake.organization.findMany.mockReset().mockResolvedValue([]);
   fake.clientExposureProfile.findUnique.mockReset();
+  fake.messageQueue.createMany.mockReset().mockImplementation(({ data }: { data: unknown[] }) =>
+    Promise.resolve({ count: data.length })
+  );
 });
+
+interface QueueRow {
+  idempotency_key: string;
+  organization_id: string;
+  payload: ChangeRecord;
+}
+const retryRows = (): QueueRow[] =>
+  fake.messageQueue.createMany.mock.calls.flatMap((c) => (c[0] as { data: QueueRow[] }).data);
 
 describe('clientMonitoringConsumer target_organization_id', () => {
   it('ignores a record whose target org differs from its own scope', async () => {
@@ -56,14 +68,52 @@ describe('clientMonitoringConsumer target_organization_id', () => {
 });
 
 describe('clientMonitoringConsumer failure handling', () => {
-  it('fails the stage when an org evaluation hits an infrastructure error, after trying the rest', async () => {
+  beforeEach(() => {
     fake.globalEvent.findUnique.mockResolvedValue({ id: 'ge-1', status: 'ACTIVE', event_hash: 'h' });
-    fake.organization.findMany.mockResolvedValue([{ id: ORG_A, name: 'A' }, { id: ORG_B, name: 'B' }]);
+    fake.organization.findMany.mockResolvedValue([
+      { id: ORG_A, name: 'A' },
+      { id: ORG_B, name: 'B' },
+    ]);
+  });
+
+  it('completes the fan-out and hands only the failed org an org-scoped retry record', async () => {
     fake.clientExposureProfile.findUnique
       .mockRejectedValueOnce(new Error('connection reset'))
       .mockResolvedValueOnce(null);
 
-    await expect(run(record(null, { event_id: 'ge-1' }))).rejects.toThrow('failed for 1 of 2');
+    await run(record(null, { event_id: 'ge-1' }));
+
     expect(fake.clientExposureProfile.findUnique).toHaveBeenCalledTimes(2);
+    const rows = retryRows();
+    expect(rows).toHaveLength(1);
+    expect(rows[0].organization_id).toBe(ORG_A);
+    expect(rows[0].idempotency_key).toBe(`ge-1:backmatch:org:${ORG_A}:1`);
+    expect(rows[0].payload.payload).toEqual({
+      event_id: 'ge-1',
+      change_type: 'org_retry',
+      target_organization_id: ORG_A,
+    });
+  });
+
+  it('hands every org not yet reached a retry record when aborted mid-fan-out', async () => {
+    const controller = new AbortController();
+    fake.clientExposureProfile.findUnique.mockImplementationOnce(() => {
+      controller.abort();
+      return Promise.resolve(null);
+    });
+
+    await clientMonitoringConsumer({ record: record(null, { event_id: 'ge-1' }), signal: controller.signal } as never);
+
+    expect(retryRows().map((r) => r.organization_id)).toEqual([ORG_B]);
+  });
+
+  it('fails the stage for a single-org record so the dispatcher retries it', async () => {
+    fake.organization.findMany.mockResolvedValue([{ id: ORG_A, name: 'A' }]);
+    fake.clientExposureProfile.findUnique.mockRejectedValueOnce(new Error('connection reset'));
+
+    await expect(run(record(ORG_A, { event_id: 'ge-1', target_organization_id: ORG_A }))).rejects.toThrow(
+      'did not complete'
+    );
+    expect(fake.messageQueue.createMany).not.toHaveBeenCalled();
   });
 });

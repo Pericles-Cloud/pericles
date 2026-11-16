@@ -100,7 +100,18 @@ export async function backMatchIfProfileChanged(organizationId: string): Promise
   const fingerprint = profileFingerprint(profile);
   if (fingerprint === profile.back_match_fingerprint) return 0;
 
-  const enqueued = await triggerBackMatching(organizationId, fingerprint);
+  // Retrying the same content reuses the run's seq, so already-enqueued events
+  // dedupe. New content (even a revert to earlier content) starts a new run.
+  let seq = profile.back_match_seq;
+  if (fingerprint !== profile.back_match_attempt_fingerprint) {
+    seq += 1;
+    await prisma.clientExposureProfile.update({
+      where: { organization_id: organizationId },
+      data: { back_match_seq: seq, back_match_attempt_fingerprint: fingerprint },
+    });
+  }
+
+  const enqueued = await triggerBackMatching(organizationId, seq);
   await prisma.clientExposureProfile.update({
     where: { organization_id: organizationId },
     data: { back_match_fingerprint: fingerprint },
@@ -326,7 +337,11 @@ async function syncFromERP(organizationId: string): Promise<{
       }
     }
   }
-  const productsData = Array.from(productMap.values());
+  // Sorted so shipment order cannot change the fingerprint by itself.
+  const productsData = Array.from(productMap.values()).sort((a, b) => String(a.sku).localeCompare(String(b.sku)));
+  routesData.sort((a, b) =>
+    `${a.origin}|${a.destination}|${a.mode}`.localeCompare(`${b.origin}|${b.destination}|${b.mode}`)
+  );
 
   // Own facilities - would come from ERP plant/warehouse data
   // For now, return empty array (to be populated by SAP adapter)
@@ -428,22 +443,21 @@ const BACK_MATCH_PAGE_SIZE = 500;
  * consumer sees `target_organization_id` and evaluates only this org, so a
  * single tenant's profile change never re-runs every other tenant.
  *
- * Records are keyed by (event, org, content fingerprint), so retrying a
- * partially failed back-match for the same content does not enqueue any event
- * twice, while a genuine content change produces new records.
+ * Records are keyed by (event, org) with the back-match run `seq` as
+ * record_version. A retry of a partially failed run reuses its seq, so no
+ * event is enqueued twice; every new run (any content change) gets a new seq.
  *
  * Returns the number of events enqueued for re-evaluation.
  */
-export async function triggerBackMatching(organizationId: string, fingerprint: string): Promise<number> {
+export async function triggerBackMatching(organizationId: string, seq: number): Promise<number> {
   if (!organizationId) {
     throw new Error('organization_id required for tenant isolation');
   }
 
   const prisma = getPrismaClient();
-  if (!fingerprint) {
-    throw new Error('fingerprint required to key back-match records');
+  if (!Number.isInteger(seq) || seq < 1) {
+    throw new Error('back-match seq must be a positive integer');
   }
-  const contentKey = fingerprint.slice(0, 16);
   const producedAt = new Date().toISOString();
   let enqueued = 0;
   let cursor: string | undefined;
@@ -462,8 +476,8 @@ export async function triggerBackMatching(organizationId: string, fingerprint: s
 
     const items = page.map((event) => {
       const record: ChangeRecord = {
-        record_id: `${event.id}:backmatch:${organizationId}:${contentKey}`,
-        record_version: 1,
+        record_id: `${event.id}:backmatch:${organizationId}`,
+        record_version: seq,
         record_type: 'global_event_change',
         organization_id: organizationId,
         produced_at: producedAt,
@@ -482,17 +496,17 @@ export async function triggerBackMatching(organizationId: string, fingerprint: s
       };
     });
 
-    await enqueueManyIdempotent(prisma, CHANGE_RECORD_QUEUE, items);
-    enqueued += page.length;
+    // Count rows actually inserted; a retry's already-queued rows are skipped.
+    enqueued += await enqueueManyIdempotent(prisma, CHANGE_RECORD_QUEUE, items);
 
     if (page.length < BACK_MATCH_PAGE_SIZE) break;
     cursor = page[page.length - 1].id;
   }
 
   logger.info(
-    { organizationId, contentKey, eventsEnqueued: enqueued },
+    { organizationId, seq, eventsEnqueued: enqueued },
     enqueued === 0
-      ? '[ProfileSync] Back-matching: no active global events'
+      ? '[ProfileSync] Back-matching: nothing new to enqueue'
       : '[ProfileSync] Back-matching enqueued active global events for re-evaluation'
   );
 

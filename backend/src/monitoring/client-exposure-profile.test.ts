@@ -17,7 +17,6 @@ import { routesFor } from '../workflow/dispatch/dispatch-table.js';
 import { parseChangeRecord } from '../workflow/records/change-record.js';
 
 const ORG = '11111111-1111-1111-1111-111111111111';
-const FP = 'abcdef0123456789ffffffffffffffff';
 
 const event = (n: number) => ({
   id: `ge-${String(n).padStart(4, '0')}`,
@@ -47,7 +46,7 @@ describe('triggerBackMatching', () => {
   it('enqueues one org-scoped global_event_change per active event in a single insert', async () => {
     fake.globalEvent.findMany.mockResolvedValueOnce([event(1), event(2)]);
 
-    const count = await triggerBackMatching(ORG, FP);
+    const count = await triggerBackMatching(ORG, 3);
 
     expect(count).toBe(2);
     expect(fake.globalEvent.findMany.mock.calls[0][0].where.status.in).toEqual(['FORECAST', 'DEVELOPING', 'ACTIVE']);
@@ -57,8 +56,8 @@ describe('triggerBackMatching', () => {
     expect(fake.messageQueue.createMany.mock.calls[0][0].skipDuplicates).toBe(true);
 
     const [rows] = insertCalls();
-    // Keyed by content, not profile version: a retry for the same content dedupes.
-    expect(rows[0].idempotency_key).toBe(`ge-0001:backmatch:${ORG}:abcdef0123456789:1`);
+    // Keyed by (event, org) with the back-match run seq as version.
+    expect(rows[0].idempotency_key).toBe(`ge-0001:backmatch:${ORG}:3`);
     const record = parseChangeRecord(rows[0].payload);
     expect(record.record_type).toBe('global_event_change');
     expect(record.organization_id).toBe(ORG);
@@ -76,7 +75,7 @@ describe('triggerBackMatching', () => {
       .mockResolvedValueOnce(page2)
       .mockResolvedValueOnce(page3);
 
-    const count = await triggerBackMatching(ORG, FP);
+    const count = await triggerBackMatching(ORG, 4);
 
     expect(count).toBe(1120);
     expect(insertCalls().map((rows) => rows.length)).toEqual([500, 500, 120]);
@@ -88,12 +87,18 @@ describe('triggerBackMatching', () => {
 
   it('enqueues nothing when there are no active events', async () => {
     fake.globalEvent.findMany.mockResolvedValueOnce([]);
-    expect(await triggerBackMatching(ORG, FP)).toBe(0);
+    expect(await triggerBackMatching(ORG, 1)).toBe(0);
     expect(fake.messageQueue.createMany).not.toHaveBeenCalled();
   });
 
   it('rejects a missing organization_id', async () => {
-    await expect(triggerBackMatching('', FP)).rejects.toThrow('organization_id required');
+    await expect(triggerBackMatching('', 1)).rejects.toThrow('organization_id required');
+  });
+
+  it('counts only rows actually inserted, not ones a retry deduplicated', async () => {
+    fake.globalEvent.findMany.mockResolvedValueOnce([event(1), event(2)]);
+    fake.messageQueue.createMany.mockResolvedValueOnce({ count: 0 });
+    expect(await triggerBackMatching(ORG, 2)).toBe(0);
   });
 });
 
@@ -122,37 +127,71 @@ describe('profileFingerprint', () => {
 });
 
 describe('backMatchIfProfileChanged', () => {
+  const A = { suppliers: [{ id: 's-a' }] };
+  const B = { suppliers: [{ id: 's-b' }] };
+  const fp = (p: object) => profileFingerprint(p as never);
+  const updates = () => fake.clientExposureProfile.update.mock.calls.map((c) => c[0].data);
+  const backMatchKeys = () => insertCalls().flat().map((r) => r.idempotency_key);
+
   it('does nothing when content matches the last back-matched fingerprint', async () => {
-    const profile = { suppliers: [{ id: 's1' }] };
-    fake.clientExposureProfile.findUnique.mockResolvedValue({
-      ...profile,
-      back_match_fingerprint: profileFingerprint(profile as never),
-    });
+    fake.clientExposureProfile.findUnique.mockResolvedValue({ ...A, back_match_fingerprint: fp(A), back_match_seq: 1 });
 
     expect(await backMatchIfProfileChanged(ORG)).toBe(0);
     expect(fake.globalEvent.findMany).not.toHaveBeenCalled();
     expect(fake.clientExposureProfile.update).not.toHaveBeenCalled();
   });
 
-  it('back-matches and stores the fingerprint only after success', async () => {
-    const profile = { suppliers: [{ id: 's2' }] };
-    fake.clientExposureProfile.findUnique.mockResolvedValue({ ...profile, back_match_fingerprint: 'old' });
+  it('starts a new run (seq+1) for new content and stores the fingerprint after success', async () => {
+    fake.clientExposureProfile.findUnique.mockResolvedValue({
+      ...B,
+      back_match_fingerprint: fp(A),
+      back_match_seq: 1,
+      back_match_attempt_fingerprint: fp(A),
+    });
     fake.globalEvent.findMany.mockResolvedValueOnce([event(1)]);
 
     expect(await backMatchIfProfileChanged(ORG)).toBe(1);
-    expect(fake.clientExposureProfile.update).toHaveBeenCalledWith({
-      where: { organization_id: ORG },
-      data: { back_match_fingerprint: profileFingerprint(profile as never) },
+    expect(updates()).toEqual([
+      { back_match_seq: 2, back_match_attempt_fingerprint: fp(B) },
+      { back_match_fingerprint: fp(B) },
+    ]);
+    expect(backMatchKeys()).toEqual([`ge-0001:backmatch:${ORG}:2`]);
+  });
+
+  it('reuses the seq when retrying a failed run for the same content', async () => {
+    fake.clientExposureProfile.findUnique.mockResolvedValue({
+      ...B,
+      back_match_fingerprint: fp(A),
+      back_match_seq: 2,
+      back_match_attempt_fingerprint: fp(B),
     });
+    fake.globalEvent.findMany.mockResolvedValueOnce([event(1)]);
+
+    await backMatchIfProfileChanged(ORG);
+    expect(updates()).toEqual([{ back_match_fingerprint: fp(B) }]);
+    expect(backMatchKeys()).toEqual([`ge-0001:backmatch:${ORG}:2`]);
+  });
+
+  it('re-runs when content reverts to an earlier fingerprint (A → B → A)', async () => {
+    fake.clientExposureProfile.findUnique.mockResolvedValue({
+      ...A,
+      back_match_fingerprint: fp(B),
+      back_match_seq: 2,
+      back_match_attempt_fingerprint: fp(B),
+    });
+    fake.globalEvent.findMany.mockResolvedValueOnce([event(1)]);
+
+    await backMatchIfProfileChanged(ORG);
+    expect(backMatchKeys()).toEqual([`ge-0001:backmatch:${ORG}:3`]);
   });
 
   it('leaves the fingerprint stale on failure so the next call retries', async () => {
-    fake.clientExposureProfile.findUnique.mockResolvedValue({ suppliers: [], back_match_fingerprint: 'old' });
+    fake.clientExposureProfile.findUnique.mockResolvedValue({ ...B, back_match_fingerprint: fp(A), back_match_seq: 0 });
     fake.globalEvent.findMany.mockResolvedValueOnce([event(1)]);
     fake.messageQueue.createMany.mockRejectedValueOnce(new Error('db down'));
 
     await expect(backMatchIfProfileChanged(ORG)).rejects.toThrow('db down');
-    expect(fake.clientExposureProfile.update).not.toHaveBeenCalled();
+    expect(updates()).toEqual([{ back_match_seq: 1, back_match_attempt_fingerprint: fp(B) }]);
   });
 
   it('returns 0 when the org has no profile', async () => {
