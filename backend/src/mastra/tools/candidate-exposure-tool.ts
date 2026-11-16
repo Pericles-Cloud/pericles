@@ -1,6 +1,6 @@
 import { createTool } from '@mastra/core/tools';
 import { z } from 'zod';
-import { upsertCandidateExposure } from '../../monitoring/candidate-exposure-store.js';
+import { CandidateEvaluationSchema, upsertCandidateExposure } from '../../monitoring/candidate-exposure-store.js';
 
 /**
  * Candidate Exposure Tool
@@ -19,48 +19,10 @@ Possible exposures go to the watch list (not sent to Validation).
 
 Emits a candidate_exposure change record for the Validation Agent.
 `,
-  inputSchema: z.object({
-    organization_id: z.string().uuid(),
+  inputSchema: CandidateEvaluationSchema.extend({
+    organization_id: z.string().uuid().describe('Required for tenant isolation'),
     global_event_id: z.string().uuid(),
     global_event_hash: z.string(),
-
-    // Exposure analysis
-    exposure_pathways: z.array(z.object({
-      pathway: z.enum([
-        'geographic_site',
-        'geographic_flow',
-        'entity',
-        'product',
-        'regulatory',
-        'indirect',
-        'strategic',
-      ]),
-      match_basis: z.string(),
-      confidence: z.number().min(0).max(1),
-    })),
-    exposure_strength: z.enum(['direct', 'probable', 'possible', 'strategic']),
-    exposed_assets: z.array(z.object({
-      asset_type: z.enum(['facility', 'supplier', 'shipment', 'sku', 'carrier', 'lane', 'customer']),
-      asset_id: z.string(),
-      asset_name: z.string().optional(),
-      distance_or_match_basis: z.string(),
-    })),
-    match_confidence: z.object({
-      entity: z.number().min(0).max(1).optional(),
-      location: z.number().min(0).max(1).optional(),
-      product: z.number().min(0).max(1).optional(),
-    }),
-    temporal_relevance: z.object({
-      shipment_eta: z.string().datetime().nullable().optional(),
-      event_window: z.string().nullable().optional(),
-      regulation_effective_date: z.string().datetime().nullable().optional(),
-    }).nullable().optional(),
-    strategic_context: z.array(z.object({
-      doc_ref: z.string(),
-      initiative: z.string(),
-    })).nullable().optional(),
-    rationale: z.string().min(10).describe('2-4 plain sentences explaining why'),
-    exposure_priority: z.enum(['critical', 'high', 'medium', 'low']),
     profile_snapshot_ref: z.string().optional(),
   }),
   outputSchema: z.object({

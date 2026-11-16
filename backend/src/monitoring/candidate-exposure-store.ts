@@ -10,25 +10,70 @@
  * CANDIDATE row is never left without its record.
  */
 
-import type { Prisma } from '@prisma/client';
+import { Prisma } from '@prisma/client';
+import { z } from 'zod';
 import { getPrismaClient } from './db-client.js';
 import { enqueueInTransaction, CHANGE_RECORD_QUEUE } from './queue-client.js';
 import { changeRecordKey, type ChangeRecord } from '../workflow/records/change-record.js';
 
-export type ExposureStrength = 'direct' | 'probable' | 'possible' | 'strategic';
+/**
+ * The exposure evaluation an agent produces (Client Monitoring spec §8).
+ * Shared by candidateExposureTool's inputSchema and the dispatch consumer, which
+ * parses untrusted LLM output with it.
+ */
+export const CandidateEvaluationSchema = z.object({
+  exposure_pathways: z.array(
+    z.object({
+      pathway: z.enum([
+        'geographic_site',
+        'geographic_flow',
+        'entity',
+        'product',
+        'regulatory',
+        'indirect',
+        'strategic',
+      ]),
+      match_basis: z.string(),
+      confidence: z.number().min(0).max(1),
+    })
+  ),
+  exposure_strength: z.enum(['direct', 'probable', 'possible', 'strategic']),
+  exposed_assets: z.array(
+    z.object({
+      asset_type: z.enum(['facility', 'supplier', 'shipment', 'sku', 'carrier', 'lane', 'customer']),
+      asset_id: z.string(),
+      asset_name: z.string().optional(),
+      distance_or_match_basis: z.string(),
+    })
+  ),
+  match_confidence: z.object({
+    entity: z.number().min(0).max(1).optional(),
+    location: z.number().min(0).max(1).optional(),
+    product: z.number().min(0).max(1).optional(),
+  }),
+  temporal_relevance: z
+    .object({
+      shipment_eta: z.string().datetime().nullable().optional(),
+      event_window: z.string().nullable().optional(),
+      regulation_effective_date: z.string().datetime().nullable().optional(),
+    })
+    .nullable()
+    .optional(),
+  strategic_context: z
+    .array(z.object({ doc_ref: z.string(), initiative: z.string() }))
+    .nullable()
+    .optional(),
+  rationale: z.string().min(10).describe('2-4 plain sentences explaining why'),
+  exposure_priority: z.enum(['critical', 'high', 'medium', 'low']),
+});
 
-export interface CandidateExposureInput {
+export type CandidateEvaluation = z.infer<typeof CandidateEvaluationSchema>;
+export type ExposureStrength = CandidateEvaluation['exposure_strength'];
+
+export interface CandidateExposureInput extends CandidateEvaluation {
   organization_id: string;
   global_event_id: string;
   global_event_hash: string;
-  exposure_pathways: unknown;
-  exposure_strength: ExposureStrength;
-  exposed_assets: unknown;
-  match_confidence: unknown;
-  temporal_relevance?: unknown;
-  strategic_context?: unknown;
-  rationale: string;
-  exposure_priority: string;
   profile_snapshot_ref?: string | null;
 }
 
@@ -46,14 +91,43 @@ export function statusForStrength(strength: ExposureStrength): 'WATCHING' | 'CAN
   return strength === 'possible' ? 'WATCHING' : 'CANDIDATE';
 }
 
-const asJson = (value: unknown): Prisma.InputJsonValue => (value ?? []) as Prisma.InputJsonValue;
-const asNullableJson = (value: unknown): Prisma.InputJsonValue | undefined =>
-  value === null || value === undefined ? undefined : (value as Prisma.InputJsonValue);
+const STRENGTH_RANK: Record<ExposureStrength, number> = { possible: 1, strategic: 2, probable: 3, direct: 4 };
+
+/** Stable key for an exposed-asset set, independent of order. */
+function assetSetKey(assets: unknown): string {
+  if (!Array.isArray(assets)) return '';
+  return assets
+    .map((a) => {
+      const asset = a as { asset_type?: unknown; asset_id?: unknown };
+      return `${String(asset.asset_type)}:${String(asset.asset_id)}`;
+    })
+    .sort()
+    .join('|');
+}
+
+/**
+ * A Validation rejection stands unless the new evaluation brings new evidence:
+ * a stronger exposure, or a different set of exposed assets. Otherwise every
+ * event update would re-send the same rejected exposure.
+ */
+function hasNewEvidence(
+  existing: { exposure_strength: string; exposed_assets: unknown },
+  input: CandidateExposureInput
+): boolean {
+  const before = STRENGTH_RANK[existing.exposure_strength as ExposureStrength] ?? 0;
+  if (STRENGTH_RANK[input.exposure_strength] > before) return true;
+  return assetSetKey(existing.exposed_assets) !== assetSetKey(input.exposed_assets);
+}
+
+const toJson = (value: unknown): Prisma.InputJsonValue => value as Prisma.InputJsonValue;
+/** On update, an absent value must clear the column, not leave it unchanged. */
+const toNullableJson = (value: unknown): Prisma.InputJsonValue | typeof Prisma.DbNull =>
+  value === null || value === undefined ? Prisma.DbNull : (value as Prisma.InputJsonValue);
 
 /** Build the change record that routes a candidate to event_verification + exposure_validation. */
 export function buildCandidateExposureRecord(
   candidateExposureId: string,
-  recordVersion: number,
+  handoffVersion: number,
   input: Pick<
     CandidateExposureInput,
     'organization_id' | 'global_event_id' | 'global_event_hash' | 'exposure_strength' | 'exposure_priority'
@@ -62,7 +136,7 @@ export function buildCandidateExposureRecord(
 ): ChangeRecord {
   return {
     record_id: candidateExposureId,
-    record_version: recordVersion,
+    record_version: handoffVersion,
     record_type: 'candidate_exposure',
     organization_id: input.organization_id,
     produced_at: producedAt.toISOString(),
@@ -90,32 +164,21 @@ async function emitRecord(tx: Prisma.TransactionClient, record: ChangeRecord): P
   );
 }
 
-/**
- * Create or refresh the candidate exposure for (organization, global event).
- *
- * - No row: create it. If it is a CANDIDATE, emit record version 1.
- * - WATCHING or REJECTED row: refresh it with the new evaluation. If that
- *   promotes it to CANDIDATE, emit a new record version so Validation sees it.
- * - Any other status: the exposure is already in the pipeline; leave it.
- */
-export async function upsertCandidateExposure(
-  input: CandidateExposureInput
-): Promise<UpsertCandidateExposureResult> {
-  if (!input.organization_id) {
-    throw new Error('organization_id required for tenant isolation');
-  }
+const isUniqueViolation = (error: unknown): boolean =>
+  error instanceof Prisma.PrismaClientKnownRequestError && error.code === 'P2002';
 
+async function upsertOnce(input: CandidateExposureInput): Promise<UpsertCandidateExposureResult> {
   const prisma = getPrismaClient();
   const status = statusForStrength(input.exposure_strength);
   const now = new Date();
 
   const fields = {
-    exposure_pathways: asJson(input.exposure_pathways),
+    exposure_pathways: toJson(input.exposure_pathways),
     exposure_strength: input.exposure_strength,
-    exposed_assets: asJson(input.exposed_assets),
-    match_confidence: asJson(input.match_confidence ?? {}),
-    temporal_relevance: asNullableJson(input.temporal_relevance),
-    strategic_context: asNullableJson(input.strategic_context),
+    exposed_assets: toJson(input.exposed_assets),
+    match_confidence: toJson(input.match_confidence),
+    temporal_relevance: toNullableJson(input.temporal_relevance),
+    strategic_context: toNullableJson(input.strategic_context),
     rationale: input.rationale,
     exposure_priority: input.exposure_priority,
     profile_snapshot_ref: input.profile_snapshot_ref ?? null,
@@ -133,15 +196,16 @@ export async function upsertCandidateExposure(
     });
 
     if (!existing) {
+      const emit = status === 'CANDIDATE';
       const created = await tx.candidateExposure.create({
         data: {
           organization_id: input.organization_id,
           global_event_id: input.global_event_id,
           global_event_hash: input.global_event_hash,
           ...fields,
+          handoff_version: emit ? 1 : 0,
         },
       });
-      const emit = status === 'CANDIDATE';
       if (emit) {
         await emitRecord(tx, buildCandidateExposureRecord(created.id, 1, input, now));
       }
@@ -153,7 +217,11 @@ export async function upsertCandidateExposure(
       };
     }
 
-    if (existing.validation_status !== 'WATCHING' && existing.validation_status !== 'REJECTED') {
+    const refreshable =
+      existing.validation_status === 'WATCHING' ||
+      (existing.validation_status === 'REJECTED' && hasNewEvidence(existing, input));
+
+    if (!refreshable) {
       return {
         candidate_exposure_id: existing.id,
         validation_status: existing.validation_status,
@@ -162,16 +230,17 @@ export async function upsertCandidateExposure(
       };
     }
 
+    // A promotion to CANDIDATE is a new hand-off with the next small version.
+    const emit = status === 'CANDIDATE';
+    const handoffVersion = emit ? existing.handoff_version + 1 : existing.handoff_version;
+
     const updated = await tx.candidateExposure.update({
       where: { id: existing.id },
-      data: { ...fields, global_event_id: input.global_event_id, updated_at: now },
+      data: { ...fields, global_event_id: input.global_event_id, handoff_version: handoffVersion, updated_at: now },
     });
 
-    // A promotion to CANDIDATE is a new hand-off; version by time so the
-    // idempotency key differs from any earlier hand-off for this row.
-    const emit = status === 'CANDIDATE';
     if (emit) {
-      await emitRecord(tx, buildCandidateExposureRecord(updated.id, now.getTime(), input, now));
+      await emitRecord(tx, buildCandidateExposureRecord(updated.id, handoffVersion, input, now));
     }
     return {
       candidate_exposure_id: updated.id,
@@ -180,4 +249,32 @@ export async function upsertCandidateExposure(
       change_record_emitted: emit,
     };
   });
+}
+
+/**
+ * Create or refresh the candidate exposure for (organization, global event).
+ *
+ * - No row: create it. If it is a CANDIDATE, emit hand-off version 1.
+ * - WATCHING row: refresh it with the new evaluation; a promotion to
+ *   CANDIDATE emits the next hand-off version.
+ * - REJECTED row: refresh and re-send only with new evidence (stronger
+ *   exposure or a different asset set). Otherwise the rejection stands.
+ * - Any other status: the exposure is already in the pipeline; leave it.
+ *
+ * Two concurrent evaluations can race on the unique (org, event_hash) key; the
+ * loser's transaction rolls back and is retried once against the winner's row.
+ */
+export async function upsertCandidateExposure(
+  input: CandidateExposureInput
+): Promise<UpsertCandidateExposureResult> {
+  if (!input.organization_id) {
+    throw new Error('organization_id required for tenant isolation');
+  }
+
+  try {
+    return await upsertOnce(input);
+  } catch (error) {
+    if (!isUniqueViolation(error)) throw error;
+    return upsertOnce(input);
+  }
 }

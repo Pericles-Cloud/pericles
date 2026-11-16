@@ -133,6 +133,24 @@ export async function enqueueInTransaction(
 }
 
 /**
+ * Enqueue many messages in one INSERT, each with its own idempotency key.
+ * A single statement is atomic, so there is no interactive transaction to time
+ * out; rows whose key already exists are skipped. Returns rows inserted.
+ */
+export async function enqueueManyIdempotent(
+  client: Prisma.TransactionClient,
+  queueName: string,
+  items: Array<{ message: QueueMessage; idempotencyKey: string }>
+): Promise<number> {
+  if (items.length === 0) return 0;
+  const { count } = await client.messageQueue.createMany({
+    data: items.map(({ message, idempotencyKey }) => toRow(queueName, message, idempotencyKey)),
+    skipDuplicates: true,
+  });
+  return count;
+}
+
+/**
  * Publish batch of messages to queue
  */
 export async function publishBatchToQueue(queueName: string, messages: QueueMessage[]): Promise<void> {

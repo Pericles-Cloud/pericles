@@ -13,7 +13,7 @@
 import { getPrismaClient } from './db-client.js';
 import { logger } from './logger.js';
 import { createHash } from 'node:crypto';
-import { enqueueInTransaction, CHANGE_RECORD_QUEUE } from './queue-client.js';
+import { enqueueManyIdempotent, CHANGE_RECORD_QUEUE } from './queue-client.js';
 import { changeRecordKey, type ChangeRecord } from '../workflow/records/change-record.js';
 
 export interface SyncResult {
@@ -83,7 +83,6 @@ export async function syncClientExposureProfile(organizationId: string): Promise
       logger.info({ organizationId, profileId: profile.id }, '[ProfileSync] Created new profile');
     }
 
-    const fingerprintBefore = profileFingerprint(profile);
 
     // Sync from ERP (facilities, suppliers, products, logistics)
     try {
@@ -155,12 +154,18 @@ export async function syncClientExposureProfile(organizationId: string): Promise
       },
     });
 
-    // Back-match only when exposure-relevant content changed; a no-op sync
-    // must not re-run the Client Monitoring Agent over every active event.
+    // Back-match only when exposure-relevant content differs from what was last
+    // successfully back-matched. Comparing against the stored fingerprint (not
+    // the pre-sync one) means a failed back-match is retried on the next sync.
     let backMatchEventsEnqueued = 0;
-    if (profileFingerprint(updatedProfile) !== fingerprintBefore) {
+    const fingerprint = profileFingerprint(updatedProfile);
+    if (fingerprint !== updatedProfile.back_match_fingerprint) {
       try {
         backMatchEventsEnqueued = await triggerBackMatching(organizationId, updatedProfile.profile_version);
+        await prisma.clientExposureProfile.update({
+          where: { organization_id: organizationId },
+          data: { back_match_fingerprint: fingerprint },
+        });
       } catch (error) {
         const msg = error instanceof Error ? error.message : 'Unknown error';
         errors.push(`Back-matching failed: ${msg}`);
@@ -205,8 +210,11 @@ async function syncFromERP(organizationId: string): Promise<{
   const prisma = getPrismaClient();
 
   // Get suppliers from Supplier table
+  // Every query feeding the profile is ordered, so an unchanged dataset
+  // yields an identical fingerprint (no spurious back-matching).
   const suppliers = await prisma.supplier.findMany({
     where: { organization_id: organizationId },
+    orderBy: { id: 'asc' },
   });
 
   const suppliersData = suppliers.map((s) => ({
@@ -224,13 +232,13 @@ async function syncFromERP(organizationId: string): Promise<{
   const shipments = await prisma.shipment.findMany({
     where: { organization_id: organizationId },
     take: 1000, // Limit for performance
-    orderBy: { created_at: 'desc' },
+    orderBy: [{ created_at: 'desc' }, { id: 'asc' }],
   });
 
   // Derive carriers from shipments
   const carrierIds = [...new Set(shipments.map((s) => s.carrier_id).filter(Boolean))] as string[];
   const carriers = carrierIds.length > 0
-    ? await prisma.carrier.findMany({ where: { id: { in: carrierIds } } })
+    ? await prisma.carrier.findMany({ where: { id: { in: carrierIds } }, orderBy: { id: 'asc' } })
     : [];
 
   const carriersData = carriers.map((c) => ({
@@ -310,6 +318,7 @@ async function syncShipmentsInTransit(organizationId: string): Promise<any[]> {
       carrier: true,
     },
     take: 500, // Limit for performance
+    orderBy: { id: 'asc' },
   });
 
   return shipments.map((s) => ({
@@ -360,7 +369,8 @@ async function syncFromOrgMemory(organizationId: string): Promise<{
  * deliberately excluded.
  */
 const BACK_MATCH_STATUSES = ['FORECAST', 'DEVELOPING', 'ACTIVE'] as const;
-const BACK_MATCH_LIMIT = 1000;
+/** Events enqueued per INSERT; all active events are paged through, none dropped. */
+const BACK_MATCH_PAGE_SIZE = 500;
 
 /**
  * Trigger back-matching when a profile changes (issue #76).
@@ -381,23 +391,23 @@ export async function triggerBackMatching(organizationId: string, profileVersion
   }
 
   const prisma = getPrismaClient();
-
-  const activeEvents = await prisma.globalEvent.findMany({
-    where: { status: { in: [...BACK_MATCH_STATUSES] } },
-    select: { id: true, event_hash: true, intrinsic_severity: true, status: true },
-    orderBy: { updated_at: 'desc' },
-    take: BACK_MATCH_LIMIT,
-  });
-
-  if (activeEvents.length === 0) {
-    logger.info({ organizationId }, '[ProfileSync] Back-matching: no active global events');
-    return 0;
-  }
-
   const producedAt = new Date().toISOString();
+  let enqueued = 0;
+  let cursor: string | undefined;
 
-  await prisma.$transaction(async (tx) => {
-    for (const event of activeEvents) {
+  // Page through every active event by id. Each page is one atomic INSERT with
+  // per-row idempotency keys, so a retry after a partial failure is safe.
+  for (;;) {
+    const page = await prisma.globalEvent.findMany({
+      where: { status: { in: [...BACK_MATCH_STATUSES] } },
+      select: { id: true, event_hash: true, intrinsic_severity: true, status: true },
+      orderBy: { id: 'asc' },
+      take: BACK_MATCH_PAGE_SIZE,
+      ...(cursor ? { cursor: { id: cursor }, skip: 1 } : {}),
+    });
+    if (page.length === 0) break;
+
+    const items = page.map((event) => {
       const record: ChangeRecord = {
         record_id: `${event.id}:backmatch:${organizationId}`,
         record_version: profileVersion,
@@ -413,19 +423,25 @@ export async function triggerBackMatching(organizationId: string, profileVersion
           target_organization_id: organizationId,
         },
       };
-      await enqueueInTransaction(
-        tx,
-        CHANGE_RECORD_QUEUE,
-        { type: 'change_record', payload: record, timestamp: producedAt, organizationId },
-        { idempotencyKey: changeRecordKey(record) }
-      );
-    }
-  });
+      return {
+        message: { type: 'change_record' as const, payload: record, timestamp: producedAt, organizationId },
+        idempotencyKey: changeRecordKey(record),
+      };
+    });
+
+    await enqueueManyIdempotent(prisma, CHANGE_RECORD_QUEUE, items);
+    enqueued += page.length;
+
+    if (page.length < BACK_MATCH_PAGE_SIZE) break;
+    cursor = page[page.length - 1].id;
+  }
 
   logger.info(
-    { organizationId, profileVersion, eventsEnqueued: activeEvents.length },
-    '[ProfileSync] Back-matching enqueued active global events for re-evaluation'
+    { organizationId, profileVersion, eventsEnqueued: enqueued },
+    enqueued === 0
+      ? '[ProfileSync] Back-matching: no active global events'
+      : '[ProfileSync] Back-matching enqueued active global events for re-evaluation'
   );
 
-  return activeEvents.length;
+  return enqueued;
 }

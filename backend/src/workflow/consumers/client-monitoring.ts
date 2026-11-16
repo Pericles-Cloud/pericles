@@ -17,7 +17,7 @@ import type { ConsumerHandler } from '../dispatch/consumer-registry.js';
 import { getPrismaClient } from '../../monitoring/db-client.js';
 import { mastra } from '../../mastra/index.js';
 import { logger } from '../../monitoring/logger.js';
-import { upsertCandidateExposure } from '../../monitoring/candidate-exposure-store.js';
+import { CandidateEvaluationSchema, upsertCandidateExposure } from '../../monitoring/candidate-exposure-store.js';
 
 /**
  * Handle a global_event_change record.
@@ -49,6 +49,18 @@ export const clientMonitoringConsumer: ConsumerHandler = async ({ record, signal
     return;
   }
 
+  // A back-match record targets a single org; a real global event change fans out to all.
+  const targetOrgId =
+    typeof payload.target_organization_id === 'string' ? payload.target_organization_id : undefined;
+  // Tenant isolation: a targeted record may only target its own scope.
+  if (targetOrgId !== undefined && targetOrgId !== record.organization_id) {
+    logger.warn(
+      { record_id: record.record_id, record_org: record.organization_id, target_org: targetOrgId },
+      '[ClientMonitoring] target_organization_id does not match record scope; ignoring record'
+    );
+    return;
+  }
+
   logger.info(
     { global_event_id: globalEventId, change_type: payload.change_type },
     '[ClientMonitoring] Processing global event change'
@@ -67,8 +79,6 @@ export const clientMonitoringConsumer: ConsumerHandler = async ({ record, signal
 
     // Fetch customer organizations (exclude root org). A back-match record
     // targets a single org; a real global event change fans out to all.
-    const targetOrgId =
-      typeof payload.target_organization_id === 'string' ? payload.target_organization_id : undefined;
     const organizations = await prisma.organization.findMany({
       where: {
         ...(targetOrgId ? { id: targetOrgId } : {}),
@@ -244,14 +254,22 @@ async function evaluateExposureForOrg(
   // Process candidate exposures
   const candidateExposures = parsedResult.candidate_exposures || [];
 
+  // One bad candidate must not drop the rest of this org's candidates.
   for (const candidate of candidateExposures) {
-    const created = await createCandidateExposure(
-      organizationId,
-      globalEvent,
-      candidate,
-      profile.profile_version
-    );
-    if (created) candidatesCreated++;
+    try {
+      const created = await createCandidateExposure(
+        organizationId,
+        globalEvent,
+        candidate,
+        profile.profile_version
+      );
+      if (created) candidatesCreated++;
+    } catch (error) {
+      logger.error(
+        { error, organization_id: organizationId, global_event_id: globalEvent.id },
+        '[ClientMonitoring] Failed to upsert candidate exposure'
+      );
+    }
   }
 
   return { candidatesCreated, cleared };
@@ -331,30 +349,25 @@ Evaluate all 7 exposure pathways against this event. Return JSON with:
 async function createCandidateExposure(
   organizationId: string,
   globalEvent: { id: string; event_hash: string },
-  candidate: Record<string, unknown>,
+  candidate: unknown,
   profileVersion: number
 ): Promise<boolean> {
-  const strength = candidate.exposure_strength;
-  if (strength !== 'direct' && strength !== 'probable' && strength !== 'possible' && strength !== 'strategic') {
+  // The agent's output is untrusted; validate it with the same schema the tool uses.
+  const parsed = CandidateEvaluationSchema.safeParse(candidate);
+  if (!parsed.success) {
     logger.warn(
-      { organization_id: organizationId, global_event_id: globalEvent.id, exposure_strength: strength },
-      '[ClientMonitoring] Skipping candidate with invalid exposure_strength'
+      { organization_id: organizationId, global_event_id: globalEvent.id, issues: parsed.error.issues },
+      '[ClientMonitoring] Skipping candidate that failed schema validation'
     );
     return false;
   }
+  const strength = parsed.data.exposure_strength;
 
   const result = await upsertCandidateExposure({
+    ...parsed.data,
     organization_id: organizationId,
     global_event_id: globalEvent.id,
     global_event_hash: globalEvent.event_hash,
-    exposure_pathways: candidate.exposure_pathways,
-    exposure_strength: strength,
-    exposed_assets: candidate.exposed_assets,
-    match_confidence: candidate.match_confidence,
-    temporal_relevance: candidate.temporal_relevance,
-    strategic_context: candidate.strategic_context,
-    rationale: typeof candidate.rationale === 'string' ? candidate.rationale : '',
-    exposure_priority: typeof candidate.exposure_priority === 'string' ? candidate.exposure_priority : 'low',
     profile_snapshot_ref: `v${profileVersion}`,
   });
 

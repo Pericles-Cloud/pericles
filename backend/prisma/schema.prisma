@@ -1104,6 +1104,9 @@ model CandidateExposure {
   // Lifecycle: Watching → Candidate → Validated/Rejected → Cleared
   validation_status ExposureValidationStatus @default(WATCHING)
   validation_ref    String?  // Pointer to Validation Agent record
+  // Count of candidate_exposure hand-offs to Validation; the change record's
+  // record_version. Small and monotonic (DispatchLog.record_version is Int).
+  handoff_version   Int      @default(0)
   cleared_at        DateTime?
   cleared_reason    String?  // 'shipment_delivered' | 'shipment_rerouted' | 'event_resolved' | 'event_retracted' | 'supplier_removed'
 
@@ -1165,6 +1168,9 @@ model ClientExposureProfile {
   last_shipment_sync    DateTime @default(now())
   last_org_memory_sync  DateTime @default(now())
   profile_version       Int      @default(1)
+  // Fingerprint of the content last successfully back-matched. A failed
+  // back-match leaves it stale, so the next sync retries.
+  back_match_fingerprint String?
 
   created_at            DateTime @default(now())
   updated_at            DateTime @updatedAt
