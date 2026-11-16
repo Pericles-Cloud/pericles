@@ -24,7 +24,7 @@ import { isMaterialChange } from '../workflow/records/global-event-change.js';
 import { TERMINAL_EVENT_STATUSES } from './exposure-strength.js';
 import type { Prisma } from '@prisma/client';
 import { GlobalBillingConfigError, modelContext, resolveGlobalMonitoringModel } from './agent-models.js';
-import { MissingApiKeyError } from './config.js';
+import { MissingApiKeyError, agentTimeoutMs } from './config.js';
 
 // ============================================================================
 // Global State
@@ -171,10 +171,9 @@ export async function runGlobalMonitoringCycle(): Promise<GlobalCycleMetrics> {
     // Bounded like the per-org cycle (MONITORING_AGENT_TIMEOUT_MS, 5 min): a hung
     // provider must fail the cycle, so the loop's error handling (and, after
     // repeated failures, the service restart) can take over.
-    const timeoutMs = parseInt(process.env.MONITORING_AGENT_TIMEOUT_MS || '300000', 10);
     const response = await agent.generate(prompt, {
       runtimeContext: modelContext(model),
-      abortSignal: AbortSignal.timeout(Number.isInteger(timeoutMs) && timeoutMs > 0 ? timeoutMs : 300000),
+      abortSignal: AbortSignal.timeout(agentTimeoutMs()),
     });
 
     // Parse agent response
@@ -193,9 +192,8 @@ export async function runGlobalMonitoringCycle(): Promise<GlobalCycleMetrics> {
     // Extract metrics from response
     const responseMetrics = parsedResult.metrics || {};
     metrics.signalsProcessed = responseMetrics.signals_processed || 0;
-    metrics.eventsCreated = responseMetrics.events_created || 0;
-    metrics.eventsUpdated = responseMetrics.events_updated || 0;
-    metrics.eventsResolved = responseMetrics.events_resolved || 0;
+    // Created/updated/resolved are counted below from what was actually
+    // stored; seeding them from the agent's self-reported numbers doubled them.
     metrics.duplicatesFound = responseMetrics.duplicates_found || 0;
     metrics.contextItemsAttached = responseMetrics.context_items_attached || 0;
 

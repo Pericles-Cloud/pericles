@@ -151,6 +151,9 @@ export async function syncClientExposureProfile(organizationId: string): Promise
   return result;
 }
 
+/** Profile Json columns that are nullable; the others are NOT NULL (default []). */
+const NULLABLE_PROFILE_FIELDS = new Set(['strategic_priorities', 'key_account_commitments', 'stated_concerns']);
+
 /** Exposure-relevant profile content, as written by a sync. */
 export type ProfileContentPatch = Partial<Record<(typeof PROFILE_CONTENT_FIELDS)[number], unknown>>;
 
@@ -204,7 +207,10 @@ async function writeProfileContentOnce(
       ? {
           ...extra,
           ...(Object.fromEntries(
-            Object.entries(patch).map(([field, value]) => [field, value ?? Prisma.DbNull])
+            Object.entries(patch).map(([field, value]) => [
+              field,
+              value ?? (NULLABLE_PROFILE_FIELDS.has(field) ? Prisma.DbNull : []),
+            ])
           ) as Prisma.ClientExposureProfileUpdateInput),
           profile_version: { increment: 1 },
         }
@@ -318,16 +324,18 @@ async function syncFromERP(organizationId: string): Promise<{
   const ownFacilities = [
     // `type` uses the profile schema's enum (plant | warehouse | dc | office);
     // SAP's plant_type (e.g. manufacturing) is kept as a subtype.
-    ...located(context?.plants).map((p) => ({
-      id: String(p.plant_id),
+    // Ids are namespaced by kind (plant 1000 and warehouse 1000 are different
+    // sites), and an entry without an id is dropped rather than called "undefined".
+    ...located(context?.plants).filter((p) => p.plant_id !== undefined && p.plant_id !== null).map((p) => ({
+      id: `plant:${String(p.plant_id)}`,
       name: p.name,
       type: 'plant' as const,
       subtype: p.plant_type ?? null,
       ...coords(p.location),
       country_iso: p.country ?? null,
     })),
-    ...located(context?.warehouses).map((w) => ({
-      id: String(w.warehouse_id),
+    ...located(context?.warehouses).filter((w) => w.warehouse_id !== undefined && w.warehouse_id !== null).map((w) => ({
+      id: `warehouse:${String(w.warehouse_id)}`,
       name: w.name,
       type: 'warehouse' as const,
       ...coords(w.location),

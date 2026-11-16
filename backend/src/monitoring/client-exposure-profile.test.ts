@@ -80,7 +80,7 @@ describe('syncClientExposureProfile', () => {
 
     await syncClientExposureProfile('org-1');
 
-    expect((writtenField('own_facilities') as Array<{ id: string }>).map((f) => f.id)).toEqual(['P1', 'W1']);
+    expect((writtenField('own_facilities') as Array<{ id: string }>).map((f) => f.id)).toEqual(['plant:P1', 'warehouse:W1']);
     // Context supplier with the same name as a table supplier is not duplicated.
     expect((writtenField('suppliers') as Array<{ id: string }>).map((s) => s.id)).toEqual(['s-db', 'S-SAP']);
   });
@@ -121,7 +121,7 @@ describe('syncClientExposureProfile', () => {
     });
     await syncClientExposureProfile('org-1');
     expect(writtenField('own_facilities')).toEqual([
-      expect.objectContaining({ id: 'P0', type: 'plant', latitude: null, longitude: null }),
+      expect.objectContaining({ id: 'plant:P0', type: 'plant', latitude: null, longitude: null }),
     ]);
   });
 });
@@ -186,6 +186,21 @@ describe('syncClientExposureProfile — round 3', () => {
     const result = await syncClientExposureProfile('org-1');
     expect(fake.$transaction).toHaveBeenCalledTimes(2);
     expect(result.profileVersion).toBe(5);
+  });
+});
+
+describe('syncClientExposureProfile — round 4', () => {
+  it('namespaces facility ids by kind and drops entries without an id', async () => {
+    fake.organizationContext.findUnique.mockResolvedValue({
+      plants: [{ plant_id: '1000', name: 'Plant', location: { latitude: 1, longitude: 1 } }, { name: 'No id' }],
+      warehouses: [{ warehouse_id: '1000', name: 'WH', location: { latitude: 2, longitude: 2 } }],
+      suppliers: [],
+    });
+    await syncClientExposureProfile('org-1');
+    expect((writtenField('own_facilities') as Array<{ id: string }>).map((f) => f.id)).toEqual([
+      'plant:1000',
+      'warehouse:1000',
+    ]);
   });
 });
 

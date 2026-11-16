@@ -237,19 +237,6 @@ async function fanOutOrgIds(globalEventId: string, terminal: boolean): Promise<s
 const FANOUT_INSERT_CHUNK = 1000;
 
 /**
- * The profile version at write time. The evaluation can take minutes and
- * profiles change often (syncs, Org Memory edits), so the exposure cites the
- * version current when it is written, falling back to the one evaluated.
- */
-async function currentProfileVersion(organizationId: string, evaluated: number): Promise<number> {
-  const current = await getPrismaClient().clientExposureProfile.findUnique({
-    where: { organization_id: organizationId },
-    select: { profile_version: true },
-  });
-  return current?.profile_version ?? evaluated;
-}
-
-/**
  * Enqueue one org-scoped evaluation per organization. Keyed by (source record,
  * org) and the source version, so a redelivery of the source record does not
  * enqueue duplicates.
@@ -545,7 +532,8 @@ async function createCandidateExposure(
     organization_id: organizationId,
     global_event_id: globalEvent.id,
     global_event_hash: globalEvent.event_hash,
-    profile_snapshot_ref: `v${await currentProfileVersion(organizationId, profileVersion)}`,
+    // The version the agent evaluated against (its provenance), not a later one.
+    profile_snapshot_ref: `v${profileVersion}`,
   });
 
   logger.info(
