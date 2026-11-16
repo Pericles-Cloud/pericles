@@ -21,9 +21,9 @@
 
 import { startGlobalMonitoring, stopGlobalMonitoring } from './global-index.js';
 import { logger } from './logger.js';
-import { getPrismaClient } from './db-client.js';
 import { refreshClientExposureProfile } from './client-exposure-profile.js';
 import { startDispatchWorker } from '../workflow/dispatch/dispatch-worker.js';
+import { resolveOrganizationIds } from './run-once.js';
 
 // ============================================================================
 // Parse Command Line Arguments
@@ -83,14 +83,13 @@ async function refreshAllProfiles(): Promise<void> {
   if (refreshing) return;
   refreshing = true;
   try {
-    const orgs = await getPrismaClient().organization.findMany({
-      where: { is_root: false, settings: { monitoring_agent_enabled: true } },
-      select: { id: true },
-    });
-    for (const org of orgs) {
-      await refreshClientExposureProfile(org.id, 'periodic');
+    // Same eligibility as the per-org monitoring cron (inherited
+    // monitoring_agent_enabled, root excluded, has an OrganizationContext).
+    const orgIds = await resolveOrganizationIds({ all: true, organizationIds: [] });
+    for (const orgId of orgIds) {
+      await refreshClientExposureProfile(orgId, 'periodic');
     }
-    logger.info({ orgs: orgs.length }, '[GlobalStart] Periodic profile refresh complete');
+    logger.info({ orgs: orgIds.length }, '[GlobalStart] Periodic profile refresh complete');
   } catch (error) {
     logger.error({ error }, '[GlobalStart] Periodic profile refresh failed');
   } finally {

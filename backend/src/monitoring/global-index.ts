@@ -168,7 +168,14 @@ export async function runGlobalMonitoringCycle(): Promise<GlobalCycleMetrics> {
     }
 
     // Execute agent
-    const response = await agent.generate(prompt, { runtimeContext: modelContext(model) });
+    // Bounded like the per-org cycle (MONITORING_AGENT_TIMEOUT_MS, 5 min): a hung
+    // provider must fail the cycle, so the loop's error handling (and, after
+    // repeated failures, the service restart) can take over.
+    const timeoutMs = parseInt(process.env.MONITORING_AGENT_TIMEOUT_MS || '300000', 10);
+    const response = await agent.generate(prompt, {
+      runtimeContext: modelContext(model),
+      abortSignal: AbortSignal.timeout(Number.isInteger(timeoutMs) && timeoutMs > 0 ? timeoutMs : 300000),
+    });
 
     // Parse agent response
     const result = response.text || '';

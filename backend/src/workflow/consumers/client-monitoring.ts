@@ -30,6 +30,7 @@ import {
   type CandidateEvaluation,
   type UpsertCandidateExposureResult,
 } from '../../monitoring/candidate-exposure-store.js';
+import { resolveOrganizationIds } from '../../monitoring/run-once.js';
 
 /**
  * Handle a global_event_change record.
@@ -220,19 +221,33 @@ async function fanOutOrgIds(globalEventId: string, terminal: boolean): Promise<s
     });
     return open.map((row) => row.organization_id);
   }
-  const eligible = await prisma.organization.findMany({
-    where: {
-      is_root: false,
-      settings: { monitoring_agent_enabled: true },
-      clientExposureProfile: { isNot: null },
-    },
-    select: { id: true },
+  // Same eligibility as the per-org monitoring cron (inherited
+  // monitoring_agent_enabled, root excluded, has an OrganizationContext),
+  // narrowed to orgs that have a Client Exposure Profile to evaluate against.
+  const monitored = await resolveOrganizationIds({ all: true, organizationIds: [] });
+  if (monitored.length === 0) return [];
+  const withProfile = await prisma.clientExposureProfile.findMany({
+    where: { organization_id: { in: monitored } },
+    select: { organization_id: true },
   });
-  return eligible.map((o) => o.id);
+  return withProfile.map((p) => p.organization_id);
 }
 
 /** Rows per INSERT: stays far below Postgres's 65,535 bind-parameter limit. */
 const FANOUT_INSERT_CHUNK = 1000;
+
+/**
+ * The profile version at write time. The evaluation can take minutes and
+ * profiles change often (syncs, Org Memory edits), so the exposure cites the
+ * version current when it is written, falling back to the one evaluated.
+ */
+async function currentProfileVersion(organizationId: string, evaluated: number): Promise<number> {
+  const current = await getPrismaClient().clientExposureProfile.findUnique({
+    where: { organization_id: organizationId },
+    select: { profile_version: true },
+  });
+  return current?.profile_version ?? evaluated;
+}
 
 /**
  * Enqueue one org-scoped evaluation per organization. Keyed by (source record,
@@ -530,7 +545,7 @@ async function createCandidateExposure(
     organization_id: organizationId,
     global_event_id: globalEvent.id,
     global_event_hash: globalEvent.event_hash,
-    profile_snapshot_ref: `v${profileVersion}`,
+    profile_snapshot_ref: `v${await currentProfileVersion(organizationId, profileVersion)}`,
   });
 
   logger.info(

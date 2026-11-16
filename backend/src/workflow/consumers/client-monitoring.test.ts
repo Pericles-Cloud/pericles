@@ -7,7 +7,7 @@ import { describe, it, expect, vi, beforeEach } from 'vitest';
 const fake = vi.hoisted(() => ({
   globalEvent: { findUnique: vi.fn() },
   organization: { findMany: vi.fn() },
-  clientExposureProfile: { findUnique: vi.fn() },
+  clientExposureProfile: { findUnique: vi.fn(), findMany: vi.fn() },
   candidateExposure: { findMany: vi.fn(), updateMany: vi.fn() },
   messageQueue: { createMany: vi.fn() },
 }));
@@ -18,6 +18,8 @@ const upsert = vi.hoisted(() => vi.fn());
 
 vi.mock('../../mastra/index.js', () => ({ mastra: { getAgent: () => agent } }));
 const resolveModel = vi.hoisted(() => vi.fn());
+const monitoredOrgs = vi.hoisted(() => vi.fn());
+vi.mock('../../monitoring/run-once.js', () => ({ resolveOrganizationIds: monitoredOrgs }));
 vi.mock('../../monitoring/agent-models.js', () => ({
   resolveClientMonitoringModel: resolveModel,
   modelContext: (model: unknown) => ({ model }),
@@ -57,6 +59,8 @@ beforeEach(() => {
   fake.clientExposureProfile.findUnique.mockReset();
   agent.generate.mockReset();
   resolveModel.mockReset().mockResolvedValue({ id: 'openai/gpt-4o-mini', apiKey: 'org-key' });
+  monitoredOrgs.mockReset().mockResolvedValue([]);
+  fake.clientExposureProfile.findMany.mockReset().mockResolvedValue([]);
   fake.messageQueue.createMany.mockReset().mockImplementation(({ data }: { data: unknown[] }) =>
     Promise.resolve({ count: data.length })
   );
@@ -71,8 +75,13 @@ const queuedRows = (): QueueRow[] =>
   fake.messageQueue.createMany.mock.calls.flatMap((c) => (c[0] as { data: QueueRow[] }).data);
 
 describe('clientMonitoringConsumer fan-out', () => {
+  const eligible = (...ids: string[]) => {
+    monitoredOrgs.mockResolvedValue(ids);
+    fake.clientExposureProfile.findMany.mockResolvedValue(ids.map((organization_id) => ({ organization_id })));
+  };
+
   it('enqueues one org-scoped record per eligible org and evaluates none inline', async () => {
-    fake.organization.findMany.mockResolvedValue([{ id: ORG_A }, { id: ORG_B }]);
+    eligible(ORG_A, ORG_B);
 
     await run(record(null, { event_id: 'ge-1', change_type: 'created' }));
 
@@ -87,21 +96,27 @@ describe('clientMonitoringConsumer fan-out', () => {
       change_type: 'org_fanout',
       target_organization_id: ORG_A,
     });
-    expect(fake.organization.findMany.mock.calls[0][0].where.id).toBeUndefined();
+    // Eligibility is the per-org cron's (inherited setting, root excluded, has context).
+    expect(monitoredOrgs).toHaveBeenCalledWith({ all: true, organizationIds: [] });
   });
 
   it('ignores an org-scoped record without a target instead of fanning out to every tenant', async () => {
-    fake.organization.findMany.mockResolvedValue([{ id: ORG_A }, { id: ORG_B }]);
+    eligible(ORG_A, ORG_B);
     await run(record(ORG_A, { event_id: 'ge-1' }));
     expect(fake.messageQueue.createMany).not.toHaveBeenCalled();
     expect(fake.globalEvent.findUnique).not.toHaveBeenCalled();
   });
 
-  it('only fans out to orgs that have a Client Exposure Profile', async () => {
+  it('only fans out to monitored orgs that have a Client Exposure Profile', async () => {
+    monitoredOrgs.mockResolvedValue([ORG_A, ORG_B]);
+    fake.clientExposureProfile.findMany.mockResolvedValue([{ organization_id: ORG_A }]);
+
     await run(record(null, { event_id: 'ge-1' }));
-    expect(fake.organization.findMany.mock.calls[0][0].where).toMatchObject({
-      clientExposureProfile: { isNot: null },
+
+    expect(fake.clientExposureProfile.findMany.mock.calls[0][0].where).toEqual({
+      organization_id: { in: [ORG_A, ORG_B] },
     });
+    expect(queuedRows().map((r) => r.organization_id)).toEqual([ORG_A]);
   });
 
   it('enqueues nothing when no org is eligible', async () => {
@@ -126,9 +141,7 @@ describe('clientMonitoringConsumer fan-out', () => {
   });
 
   it('chunks a large fan-out into several inserts', async () => {
-    fake.organization.findMany.mockResolvedValue(
-      Array.from({ length: 2500 }, (_, i) => ({ id: `org-${String(i).padStart(4, '0')}` }))
-    );
+    eligible(...Array.from({ length: 2500 }, (_, i) => `org-${String(i).padStart(4, '0')}`));
 
     await run(record(null, { event_id: 'ge-1' }));
 

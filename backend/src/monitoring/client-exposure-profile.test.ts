@@ -14,11 +14,12 @@ const fake = vi.hoisted(() => ({
   organizationContext: { findUnique: vi.fn() },
 }));
 
-vi.mock('./org-memory.js', () => ({
-  getStrategicPriorities: vi.fn().mockResolvedValue([]),
-  getKeyAccountCommitments: vi.fn().mockResolvedValue([]),
-  getStatedConcerns: vi.fn().mockResolvedValue([]),
+const orgMemory = vi.hoisted(() => ({
+  getStrategicPriorities: vi.fn(),
+  getKeyAccountCommitments: vi.fn(),
+  getStatedConcerns: vi.fn(),
 }));
+vi.mock('./org-memory.js', () => orgMemory);
 
 vi.mock('./db-client.js', () => ({ getPrismaClient: () => fake }));
 
@@ -40,6 +41,9 @@ beforeEach(() => {
   fake.shipment.findMany.mockReset().mockResolvedValue([]);
   fake.carrier.findMany.mockReset().mockResolvedValue([]);
   fake.organizationContext.findUnique.mockReset().mockResolvedValue(null);
+  orgMemory.getStrategicPriorities.mockReset().mockResolvedValue([]);
+  orgMemory.getKeyAccountCommitments.mockReset().mockResolvedValue([]);
+  orgMemory.getStatedConcerns.mockReset().mockResolvedValue([]);
 });
 
 const versionBumped = () =>
@@ -127,6 +131,61 @@ describe('canonicalJson', () => {
     expect(canonicalJson({ b: 1, a: { d: 2, c: 3 } })).toBe(canonicalJson({ a: { c: 3, d: 2 }, b: 1 }));
     expect(canonicalJson([1, 2])).not.toBe(canonicalJson([2, 1]));
     expect(canonicalJson(null)).toBe(canonicalJson(undefined));
+  });
+});
+
+describe('syncClientExposureProfile — round 3', () => {
+  it('creates no profile for an org with no exposure-relevant data', async () => {
+    fake.clientExposureProfile.findUnique.mockResolvedValue(null);
+    const result = await syncClientExposureProfile('org-empty');
+    expect(result.profileVersion).toBe(0);
+    expect(fake.clientExposureProfile.upsert).not.toHaveBeenCalled();
+  });
+
+  it('does not rewrite content when nothing changed (only the sync stamps)', async () => {
+    fake.clientExposureProfile.findUniqueOrThrow.mockResolvedValue({
+      ...PROFILE,
+      own_facilities: [],
+      suppliers: [],
+      products: [],
+      logistics: { carriers: [], routes: [] },
+      shipments_in_transit: [],
+      strategic_priorities: null,
+      key_account_commitments: null,
+      stated_concerns: null,
+    });
+    await syncClientExposureProfile('org-1');
+    const data = fake.clientExposureProfile.update.mock.calls[0][0].data;
+    expect(Object.keys(data).sort()).toEqual(['last_erp_sync', 'last_org_memory_sync', 'last_shipment_sync']);
+  });
+
+  it('keeps the context tier/critical flags on a supplier that is also in the Supplier table', async () => {
+    fake.supplier.findMany.mockResolvedValue([
+      { id: 's-db', name: 'Acme', latitude: 1, longitude: 2, country_code: 'US', hs_codes: [] },
+    ]);
+    fake.organizationContext.findUnique.mockResolvedValue({
+      plants: [],
+      warehouses: [],
+      suppliers: [{ supplier_id: 'S-ACME', name: 'ACME', tier: 1, critical: true, location: { latitude: 1, longitude: 2 } }],
+    });
+    await syncClientExposureProfile('org-1');
+    expect(writtenField('suppliers')).toEqual([expect.objectContaining({ id: 's-db', tier: 1, critical: true })]);
+  });
+
+  it('caps in-transit shipments to those arriving soonest', async () => {
+    await syncClientExposureProfile('org-1');
+    const inTransit = fake.shipment.findMany.mock.calls.map((c) => c[0]).find((q) => q.take === 500);
+    expect(inTransit.orderBy).toEqual([{ estimated_arrival_date: { sort: 'asc', nulls: 'last' } }, { id: 'asc' }]);
+  });
+
+  it('retries once when a concurrent first writer created the profile row', async () => {
+    fake.clientExposureProfile.findUniqueOrThrow.mockResolvedValue({ ...PROFILE, suppliers: [{ id: 'old' }] });
+    fake.$transaction
+      .mockImplementationOnce(() => Promise.reject(Object.assign(new Error('unique'), { code: 'P2002' })))
+      .mockImplementation((fn: (tx: unknown) => unknown) => fn(fake));
+    const result = await syncClientExposureProfile('org-1');
+    expect(fake.$transaction).toHaveBeenCalledTimes(2);
+    expect(result.profileVersion).toBe(5);
   });
 });
 

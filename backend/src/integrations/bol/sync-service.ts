@@ -177,7 +177,9 @@ export async function syncBolContextForOrganization(
     } else {
       await persistContext(prisma, organizationId, contextData);
       log('OrganizationContext upserted');
-      await refreshClientExposureProfile(organizationId, 'bol_sync');
+      // The profile writer uses the shared client; with an injected one (tests,
+        // another DB) the data it would read is not this sync's, so skip.
+        if (prisma === defaultPrisma) await refreshClientExposureProfile(organizationId, 'bol_sync');
     }
 
     return {
@@ -418,7 +420,9 @@ export async function syncBolContextForSubsidiaries(
         }
         log(`${created ? 'Created' : 'Updated'} subsidiary "${brand}" (${organizationId})`);
         // Suppliers/shipments changed: rebuild the profile Client Monitoring reads.
-        await refreshClientExposureProfile(organizationId, 'bol_sync');
+        // The profile writer uses the shared client; with an injected one (tests,
+        // another DB) the data it would read is not this sync's, so skip.
+        if (prisma === defaultPrisma) await refreshClientExposureProfile(organizationId, 'bol_sync');
       } else {
         log(`DRY RUN — would seed "${brand}": ${JSON.stringify(counts)}`);
       }

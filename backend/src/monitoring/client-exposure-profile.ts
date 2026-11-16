@@ -13,6 +13,7 @@
 import { Prisma } from '@prisma/client';
 import { getPrismaClient } from './db-client.js';
 import { logger } from './logger.js';
+import { isUniqueViolation } from './prisma-errors.js';
 
 export interface SyncResult {
   organizationId: string;
@@ -36,6 +37,15 @@ const PROFILE_CONTENT_FIELDS = [
   'key_account_commitments',
   'stated_concerns',
 ] as const;
+
+/** The empty value of the same shape (for "does this sync carry any content?"). */
+function emptyLike(value: unknown): unknown {
+  if (Array.isArray(value)) return [];
+  if (value && typeof value === 'object') {
+    return Object.fromEntries(Object.entries(value as Record<string, unknown>).map(([k, v]) => [k, emptyLike(v)]));
+  }
+  return null;
+}
 
 /** JSON with object keys sorted, so jsonb key reordering is not a "change". */
 export function canonicalJson(value: unknown): string {
@@ -102,6 +112,29 @@ export async function syncClientExposureProfile(organizationId: string): Promise
     logger.error({ error, organizationId }, '[ProfileSync] Org Memory sync failed');
   }
 
+  // An org with nothing to expose (no facilities, suppliers, products,
+  // shipments or strategic context) gets no profile: a profile makes it
+  // eligible for Client Monitoring, which would then spend its LLM calls on an
+  // empty footprint.
+  const hasContent = Object.values(patch).some((value) => canonicalJson(value) !== canonicalJson(emptyLike(value)));
+  const existing = await getPrismaClient().clientExposureProfile.findUnique({
+    where: { organization_id: organizationId },
+    select: { profile_version: true },
+  });
+  if (!existing && !hasContent) {
+    logger.info({ organizationId }, '[ProfileSync] No exposure-relevant data; no profile created');
+    return {
+      organizationId,
+      profileVersion: 0,
+      facilitiesSynced,
+      suppliersSynced,
+      productsSynced,
+      shipmentsSynced,
+      strategicSynced,
+      errors,
+    };
+  }
+
   const { profileVersion } = await writeProfileContent(organizationId, patch, stamps);
 
   const result: SyncResult = {
@@ -138,6 +171,21 @@ export async function writeProfileContent(
   if (!organizationId) {
     throw new Error('organization_id required for tenant isolation');
   }
+  try {
+    return await writeProfileContentOnce(organizationId, patch, extra);
+  } catch (error) {
+    // Two first writers for a new org can both try to create the row; the
+    // loser's transaction aborts on the unique key. Retry once: the row exists.
+    if (!isUniqueViolation(error)) throw error;
+    return writeProfileContentOnce(organizationId, patch, extra);
+  }
+}
+
+async function writeProfileContentOnce(
+  organizationId: string,
+  patch: ProfileContentPatch,
+  extra: Prisma.ClientExposureProfileUpdateInput
+): Promise<{ profileVersion: number; changed: boolean }> {
   return getPrismaClient().$transaction(async (tx) => {
     await tx.clientExposureProfile.upsert({
       where: { organization_id: organizationId },
@@ -150,13 +198,17 @@ export async function writeProfileContent(
     const changed = (Object.keys(patch) as Array<keyof ProfileContentPatch>).some(
       (field) => canonicalJson(current[field]) !== canonicalJson(patch[field])
     );
-    const data = {
-      ...extra,
-      ...(Object.fromEntries(
-        Object.entries(patch).map(([field, value]) => [field, value ?? Prisma.DbNull])
-      ) as Prisma.ClientExposureProfileUpdateInput),
-      ...(changed ? { profile_version: { increment: 1 }, updated_at: new Date() } : {}),
-    };
+    // Unchanged content is not rewritten (only the sync stamps are), so an
+    // hourly refresh of identical data costs no jsonb rewrite.
+    const data = changed
+      ? {
+          ...extra,
+          ...(Object.fromEntries(
+            Object.entries(patch).map(([field, value]) => [field, value ?? Prisma.DbNull])
+          ) as Prisma.ClientExposureProfileUpdateInput),
+          profile_version: { increment: 1 },
+        }
+      : extra;
     const written = await tx.clientExposureProfile.update({ where: { organization_id: organizationId }, data });
     return { profileVersion: written.profile_version, changed };
   });
@@ -283,10 +335,17 @@ async function syncFromERP(organizationId: string): Promise<{
     })),
   ].sort((a, b) => a.id.localeCompare(b.id));
 
-  // ERP suppliers not already in the Supplier table (e.g. from SAP).
-  const knownSupplierNames = new Set(suppliersData.map((s) => String(s.name).trim().toLowerCase()));
+  // Context suppliers: a supplier also in the Supplier table keeps that record
+  // but gains the context's tier/critical flags (the BOL transformer marks
+  // high-volume shippers critical); one only in the context (e.g. SAP) is added.
+  const byName = new Map(suppliersData.map((s) => [String(s.name).trim().toLowerCase(), s]));
   for (const cs of located(context?.suppliers)) {
-    if (knownSupplierNames.has(String(cs.name).trim().toLowerCase())) continue;
+    const known = byName.get(String(cs.name).trim().toLowerCase());
+    if (known) {
+      known.tier = cs.tier ?? known.tier ?? 1;
+      known.critical = cs.critical === true;
+      continue;
+    }
     suppliersData.push({
       id: cs.supplier_id,
       name: cs.name,
@@ -333,8 +392,8 @@ async function syncShipmentsInTransit(organizationId: string): Promise<any[]> {
       supplier: true,
       carrier: true,
     },
-    take: 500, // Limit for performance
-    orderBy: { id: 'asc' },
+    take: 500, // Limit for performance: the 500 arriving soonest
+    orderBy: [{ estimated_arrival_date: { sort: 'asc', nulls: 'last' } }, { id: 'asc' }],
   });
 
   return shipments.map((s) => ({
