@@ -22,11 +22,11 @@ jobs:
           cache: 'npm'
           cache-dependency-path: backend/package-lock.json
 
-      # Use the npm major developers use (11). Node 20 ships npm 10, which
-      # resolves vitest's optional esbuild peer differently and rejects a
-      # lockfile written by npm 11 ("Missing: esbuild@... from lock file"),
-      # the failure behind #52 and #86. npm 11 accepts both lockfile forms.
-      - run: npm install -g npm@11
+      # Run the same npm as developers, pinned exactly. Node 20 ships npm 10,
+      # which resolves vitest's optional esbuild peer differently and rejects
+      # lockfiles written by npm 11 with "Missing: esbuild@... from lock file"
+      # (the cause of the CI failures fixed in #52 and again here).
+      - run: npm install -g npm@11.19.0
 
       - run: npm ci
       - run: npm run lint
