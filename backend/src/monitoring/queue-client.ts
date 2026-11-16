@@ -412,7 +412,7 @@ export function consumeFromQueue(
   queueName: string,
   handler: (message: QueueMessage, ctx: { id: string; attempts: number }) => Promise<void>,
   options: { batchSize?: number; pollIntervalMs?: number; maxLockHoldMs?: number } = {}
-): { stop: () => void } {
+): { stop: () => Promise<void> } {
   const { batchSize = DEFAULT_CLAIM_BATCH_SIZE, pollIntervalMs = 1000, maxLockHoldMs = MAX_LOCK_HOLD_MS } = options;
   const prisma = getPrismaClient();
   const workerId = workerIdentity();
@@ -510,11 +510,14 @@ export function consumeFromQueue(
   };
 
   // Start polling in background
-  void poll();
+  const polling = poll();
 
   return {
+    // Stops claiming new rows; resolves once the row in flight has finished
+    // (callers that need a graceful drain await it, others may ignore it).
     stop: () => {
       running = false;
+      return polling;
     },
   };
 }

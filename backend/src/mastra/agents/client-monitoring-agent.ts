@@ -4,6 +4,7 @@ import { Agent } from '@mastra/core/agent';
 import { erpContextTool } from '../tools/index.js';
 import { clientExposureProfileTool } from '../tools/client-exposure-profile-tool.js';
 import { exposurePathwayEvaluatorTool } from '../tools/exposure-pathway-evaluator-tool.js';
+import { modelFromContext } from '../../monitoring/agent-models.js';
 
 /**
  * Client Monitoring Agent (Doctrine §13)
@@ -256,9 +257,8 @@ Always respond with structured JSON matching this schema:
 
 Begin monitoring when given an organization_id and a Global Event Store change record to process.
 `,
-  // Using gpt-4o-mini for higher rate limits and faster execution
-  // The client monitoring agent primarily orchestrates tool calls and reasoning
-  model: 'openai/gpt-4o-mini',
+  // Resolved per call (the tenant's own key), never a static platform-key model.
+  model: modelFromContext('Client Monitoring Agent'),
   tools: {
     // ERP context (existing)
     erpContextTool,

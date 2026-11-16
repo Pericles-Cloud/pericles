@@ -125,6 +125,8 @@ export async function storeDocument(
     '[OrgMemory] Document stored'
   );
 
+  await refreshStrategicContext(organizationId);
+
   return docId;
 }
 
@@ -196,7 +198,35 @@ export async function deleteDocument(
     },
   });
 
+  // A deleted priority or commitment must stop shaping exposures now, not at
+  // the next periodic refresh.
+  if (result.count > 0) await refreshStrategicContext(organizationId);
+
   return result.count > 0;
+}
+
+/**
+ * Strategic context changed (a document stored or deleted): refresh the
+ * profile's strategic fields only, which is cheap, when the profile exists;
+ * otherwise build the full profile. Never throws: a profile problem must not
+ * fail the document write.
+ */
+async function refreshStrategicContext(organizationId: string): Promise<void> {
+  try {
+    const exists = await getPrismaClient().clientExposureProfile.findUnique({
+      where: { organization_id: organizationId },
+      select: { id: true },
+    });
+    if (exists) {
+      await syncToClientExposureProfile(organizationId);
+    } else {
+      // Imported lazily: client-exposure-profile imports this module.
+      const { refreshClientExposureProfile } = await import('./client-exposure-profile.js');
+      await refreshClientExposureProfile(organizationId, 'org_memory');
+    }
+  } catch (error) {
+    logger.error({ error, organizationId }, '[OrgMemory] Profile strategic refresh failed');
+  }
 }
 
 // ============================================================================
@@ -340,25 +370,26 @@ export async function syncToClientExposureProfile(
   keyAccountCommitments: KeyAccountCommitment[];
   statedConcerns: StatedConcern[];
 }> {
-  const prisma = getPrismaClient();
-
   const [strategicPriorities, keyAccountCommitments, statedConcerns] = await Promise.all([
     getStrategicPriorities(organizationId),
     getKeyAccountCommitments(organizationId),
     getStatedConcerns(organizationId),
   ]);
 
-  // Update ClientExposureProfile
-  await prisma.clientExposureProfile.update({
-    where: { organization_id: organizationId },
-    data: {
-      strategic_priorities: strategicPriorities as any,
-      key_account_commitments: keyAccountCommitments as any,
-      stated_concerns: statedConcerns as any,
-      last_org_memory_sync: new Date(),
-      updated_at: new Date(),
+  // Through the shared profile writer, so a strategic change bumps
+  // profile_version in the same transaction (exposures cite that version).
+  // Empty lists are stored as null, matching the full profile sync.
+  // Imported lazily: client-exposure-profile imports this module.
+  const { writeProfileContent } = await import('./client-exposure-profile.js');
+  await writeProfileContent(
+    organizationId,
+    {
+      strategic_priorities: strategicPriorities.length > 0 ? strategicPriorities : null,
+      key_account_commitments: keyAccountCommitments.length > 0 ? keyAccountCommitments : null,
+      stated_concerns: statedConcerns.length > 0 ? statedConcerns : null,
     },
-  });
+    { last_org_memory_sync: new Date() }
+  );
 
   logger.info(
     {

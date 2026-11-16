@@ -20,6 +20,8 @@ import { getPrismaClient } from '../../monitoring/db-client.js';
 import { mastra } from '../../mastra/index.js';
 import { logger } from '../../monitoring/logger.js';
 import { severityRank, TERMINAL_EVENT_STATUSES } from '../../monitoring/exposure-strength.js';
+import { modelContext, resolveClientMonitoringModel } from '../../monitoring/agent-models.js';
+import { MissingApiKeyError } from '../../monitoring/config.js';
 import {
   CandidateEvaluationSchema,
   clearWatchingExposure,
@@ -28,6 +30,8 @@ import {
   type CandidateEvaluation,
   type UpsertCandidateExposureResult,
 } from '../../monitoring/candidate-exposure-store.js';
+import { resolveOrganizationIds } from '../../monitoring/run-once.js';
+import { isOrganizationMonitored } from '../../monitoring/eligibility.js';
 
 /**
  * Handle a global_event_change record.
@@ -106,14 +110,11 @@ export const clientMonitoringConsumer: ConsumerHandler = async ({ record, signal
 
   // A terminal event only clears exposures, which must happen even for an org
   // that has since turned monitoring off. Anything else needs an eligible org.
-  const organizations = isTerminal(globalEvent.status)
-    ? [{ id: targetOrgId }]
-    : await prisma.organization.findMany({
-        where: { id: targetOrgId, is_root: false, settings: { monitoring_agent_enabled: true } },
-        select: { id: true },
-      });
+  // Same eligibility rule as the fan-out (and the per-org cron), so an org the
+  // fan-out queued is never refused here.
+  const eligible = isTerminal(globalEvent.status) || (await isOrganizationMonitored(targetOrgId));
 
-  if (organizations.length === 0) {
+  if (!eligible) {
     logger.info(
       { organization_id: targetOrgId, global_event_id: globalEventId },
       '[ClientMonitoring] Target org not eligible for monitoring; skipping'
@@ -218,15 +219,16 @@ async function fanOutOrgIds(globalEventId: string, terminal: boolean): Promise<s
     });
     return open.map((row) => row.organization_id);
   }
-  const eligible = await prisma.organization.findMany({
-    where: {
-      is_root: false,
-      settings: { monitoring_agent_enabled: true },
-      clientExposureProfile: { isNot: null },
-    },
-    select: { id: true },
+  // Same eligibility as the per-org monitoring cron (inherited
+  // monitoring_agent_enabled, root excluded, has an OrganizationContext),
+  // narrowed to orgs that have a Client Exposure Profile to evaluate against.
+  const monitored = await resolveOrganizationIds({ all: true, organizationIds: [] });
+  if (monitored.length === 0) return [];
+  const withProfile = await prisma.clientExposureProfile.findMany({
+    where: { organization_id: { in: monitored } },
+    select: { organization_id: true },
   });
-  return eligible.map((o) => o.id);
+  return withProfile.map((p) => p.organization_id);
 }
 
 /** Rows per INSERT: stays far below Postgres's 65,535 bind-parameter limit. */
@@ -349,8 +351,25 @@ async function evaluateExposureForOrg(
   const prompt = buildClientMonitoringPrompt(globalEvent, profile, organizationId);
 
   // Execute the agent
+  // The tenant's own model + key (no platform env fallback). An org without a
+  // key is a configuration state, not a fault: skip it, as monitoring does.
+  let model;
+  try {
+    model = await resolveClientMonitoringModel(organizationId);
+  } catch (error) {
+    if (error instanceof MissingApiKeyError) {
+      logger.warn(
+        { organization_id: organizationId, error: error.message },
+        '[ClientMonitoring] Skipped: organization has no AI key'
+      );
+      return { exposuresWritten, handoffsEmitted, cleared };
+    }
+    throw error;
+  }
+
   const response = await agent.generate(prompt, {
     abortSignal: signal,
+    runtimeContext: modelContext(model),
   });
 
   // Parse the response. An unreadable response is a failed evaluation, not
@@ -511,6 +530,7 @@ async function createCandidateExposure(
     organization_id: organizationId,
     global_event_id: globalEvent.id,
     global_event_hash: globalEvent.event_hash,
+    // The version the agent evaluated against (its provenance), not a later one.
     profile_snapshot_ref: `v${profileVersion}`,
   });
 

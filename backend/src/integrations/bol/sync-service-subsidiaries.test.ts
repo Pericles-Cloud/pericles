@@ -13,6 +13,10 @@ import { syncBolContextForSubsidiaries } from './sync-service.js';
 import { createStubGeocoder } from './geocode.js';
 import type { BolRow } from './types.js';
 
+// The profile refresh after a sync uses the shared DB client; asserted, not run.
+const refreshProfile = vi.hoisted(() => vi.fn());
+vi.mock('../../monitoring/client-exposure-profile.js', () => ({ refreshClientExposureProfile: refreshProfile }));
+
 const PARENT_ID = '00000000-0000-0000-0000-000000000001';
 const geocoder = createStubGeocoder({});
 
@@ -108,6 +112,15 @@ describe('syncBolContextForSubsidiaries', () => {
     expect(suppliersFor(upserts, faster.id)).toEqual(['Milano Servo SRL']);
   });
 
+  it("refreshes each subsidiary's Client Exposure Profile, also with an injected client (as onboarding passes)", async () => {
+    refreshProfile.mockClear();
+    const { prisma, children } = makePrisma();
+    await syncBolContextForSubsidiaries(PARENT_ID, { rows, geocoder, prisma: prisma as unknown as PrismaClient });
+
+    expect(refreshProfile.mock.calls.map((c) => c[0]).sort()).toEqual(children.map((c) => c.id).sort());
+    expect(refreshProfile.mock.calls.every((c) => c[1] === 'bol_sync')).toBe(true);
+  });
+
   it('is idempotent — reuses an existing child instead of duplicating it', async () => {
     const { prisma, upserts } = makePrisma({
       seeded: [{ id: 'existing-sun', parent_organization_id: PARENT_ID, name: 'Sun Hydraulics' }],
@@ -141,6 +154,7 @@ describe('syncBolContextForSubsidiaries', () => {
     expect(res.errors?.[0]).toContain('not found');
     expect(prisma.organization.create).not.toHaveBeenCalled();
     expect(prisma.organizationContext.upsert).not.toHaveBeenCalled();
+    expect(refreshProfile).not.toHaveBeenCalled();
   });
 
   it('does not write on dry run but still reports per-subsidiary counts', async () => {

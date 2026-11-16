@@ -420,3 +420,14 @@ export function getEnvironmentOverrides(): Partial<MonitoringConfig> {
 
   return overrides;
 }
+
+/**
+ * Agent execution timeout (MONITORING_AGENT_TIMEOUT_MS, default 5 min), shared
+ * by the per-org and global cycles. An invalid value falls back to the
+ * default instead of becoming NaN (which setTimeout reads as ~1ms).
+ */
+export function agentTimeoutMs(): number {
+  const value = Number(process.env.MONITORING_AGENT_TIMEOUT_MS);
+  return Number.isInteger(value) && value > 0 ? value : 300000;
+}
+

@@ -11,6 +11,9 @@ import { onboardCustomerFromBol } from './onboard.js';
 import { createStubGeocoder } from './geocode.js';
 import type { BolRow } from './types.js';
 
+// The profile refresh after a sync uses the shared DB client; not under test here.
+vi.mock('../../monitoring/client-exposure-profile.js', () => ({ refreshClientExposureProfile: vi.fn() }));
+
 const geocoder = createStubGeocoder({});
 
 const rows: BolRow[] = [

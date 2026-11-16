@@ -128,6 +128,27 @@ Coolify service** from the same repo with start command
 `npx tsx src/monitoring/start.ts --organization-id=<uuid>` and disable the
 scheduled task above.
 
+### Global + Client Monitoring worker (#76)
+The Global Monitoring Agent, the change-record dispatch worker (which runs the
+Client Monitoring evaluations) and the periodic Client Exposure Profile refresh
+all run in **one persistent process**. It is separate from the per-org
+`monitoring-cycle` task above, and that task keeps running unchanged.
+
+| | |
+|---|---|
+| Service | second Coolify application from this repo, same image as the backend |
+| Start command | `npx tsx src/monitoring/global-start.ts` |
+| Replicas | **1**. The global loop is not locked, so two instances would detect the same events twice. |
+| Env | same as the backend (`DATABASE_URL`, `SECRETS_KEK`, …). Optional: `GLOBAL_MONITORING_INTERVAL_MS` (default 300000) and `PROFILE_REFRESH_INTERVAL_MS` (default 3600000). |
+
+**Keys: no platform key.**
+- **Global Monitoring** is billed to the **Pericles root organization**, using
+  the root org's own `<provider>_api_key` in Settings → Secrets. Without that
+  key, every global cycle is skipped and logged as an error.
+- **Client Monitoring** is billed to **each tenant's own key**, resolved the
+  same way as the per-org cycle. A tenant without a key is skipped.
+
+
 > Replaced: this used to be a Vercel Cron hitting a serverless
 > `/api/monitoring/trigger` endpoint. That path is gone with the rest of the
 > Vercel backend — and it never worked, since the cron issued a GET while the

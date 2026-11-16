@@ -13,7 +13,7 @@
 import type { Prisma } from '@prisma/client';
 import { mastra } from '../mastra/index.js';
 import { updateScorerJudgeModels } from '../mastra/scorers/monitoring-scorer.js';
-import { type MonitoringConfig, type ResolvedModel, resolveModel } from './config.js';
+import { type MonitoringConfig, type ResolvedModel, resolveModel, agentTimeoutMs } from './config.js';
 import { getPrismaClient } from './db-client.js';
 import { logger, createLogger } from './logger.js';
 import {
@@ -309,7 +309,7 @@ export async function runMonitoringCycle(
     // Create a timeout promise for the overall agent execution. 5 minutes is
     // the cap for a full cycle. (The old 280s Vercel-serverless branch went
     // with the serverless deploy — the backend is a Coolify container now.)
-    const AGENT_TIMEOUT_MS = parseInt(process.env.MONITORING_AGENT_TIMEOUT_MS || '300000', 10);
+    const AGENT_TIMEOUT_MS = agentTimeoutMs();
 
     // The handle is cleared in `finally`. Left pending it keeps the event loop
     // alive for the full timeout after the cycle has already returned, which

@@ -234,7 +234,7 @@ describe('consumeFromQueue', () => {
       // poll wait. A leaked renewal interval would add one per batch.
       await vi.advanceTimersByTimeAsync(0);
       expect(vi.getTimerCount()).toBe(1);
-      consumer.stop();
+      void consumer.stop();
     } finally {
       vi.useRealTimers();
     }
@@ -254,7 +254,7 @@ describe('consumeFromQueue', () => {
       expect(fake.$queryRaw).toHaveBeenCalledTimes(2);
 
       await vi.advanceTimersByTimeAsync(60_000);
-      consumer.stop();
+      void consumer.stop();
       expect(fake.$queryRaw).toHaveBeenCalledTimes(3);
     } finally {
       vi.useRealTimers();
@@ -274,7 +274,7 @@ describe('consumeFromQueue', () => {
 
       await vi.advanceTimersByTimeAsync(LOCK_RENEW_INTERVAL_MS * 5);
       expect(renewCalls().length).toBe(renewsAtLimit);
-      consumer.stop();
+      void consumer.stop();
     } finally {
       vi.useRealTimers();
     }
@@ -290,7 +290,7 @@ describe('consumeFromQueue', () => {
         .mockResolvedValue([]);
       const consumer = consumeFromQueue(QUEUE, vi.fn().mockResolvedValue(undefined), { pollIntervalMs: 1000 });
       await vi.advanceTimersByTimeAsync(0);
-      consumer.stop();
+      void consumer.stop();
 
       const sweeps = fake.$executeRaw.mock.calls.filter((c) => sqlOf(c).includes('lock expired after final attempt'));
       expect(fake.$queryRaw.mock.calls.length).toBeGreaterThanOrEqual(3);
@@ -311,7 +311,7 @@ describe('consumeFromQueue', () => {
       const handler = vi.fn().mockResolvedValueOnce(undefined).mockRejectedValueOnce(new Error('boom'));
       const consumer = consumeFromQueue(QUEUE, handler);
       await vi.advanceTimersByTimeAsync(0);
-      consumer.stop();
+      void consumer.stop();
 
       const wheres = fake.messageQueue.updateMany.mock.calls.map((c) => c[0].where);
       expect(wheres).toEqual([
@@ -339,7 +339,7 @@ describe('consumeFromQueue', () => {
       // Neither the hung row nor the released rows are renewed afterwards.
       const renewsAfterRelease = renewCalls().length;
       await vi.advanceTimersByTimeAsync(LOCK_RENEW_INTERVAL_MS * 3);
-      consumer.stop();
+      void consumer.stop();
       expect(renewCalls().length).toBe(renewsAfterRelease);
     } finally {
       vi.useRealTimers();
@@ -355,11 +355,33 @@ describe('consumeFromQueue', () => {
 
       await vi.advanceTimersByTimeAsync(1_000);
       const claimsDuringBackoff = fake.$queryRaw.mock.calls.length;
-      consumer.stop();
+      void consumer.stop();
       expect(claimsDuringBackoff).toBe(1);
     } finally {
       vi.useRealTimers();
     }
+  });
+
+  it('stop() resolves only after the row in flight finishes (graceful drain)', async () => {
+    fake.$queryRaw.mockResolvedValueOnce([row('in-flight')]).mockResolvedValue([]);
+    let finish: () => void = () => undefined;
+    const handler = vi.fn(() => new Promise<void>((resolve) => (finish = resolve)));
+    const consumer = consumeFromQueue(QUEUE, handler, { pollIntervalMs: 10 });
+    await vi.waitFor(() => {
+      expect(handler).toHaveBeenCalled();
+    });
+
+    let stopped = false;
+    const stopping = consumer.stop().then(() => {
+      stopped = true;
+    });
+    await new Promise((resolve) => setTimeout(resolve, 20));
+    expect(stopped).toBe(false);
+
+    finish();
+    await stopping;
+    expect(stopped).toBe(true);
+    expect(fake.messageQueue.updateMany.mock.calls.map((c) => c[0].where.id)).toEqual(['in-flight']);
   });
 });
 
