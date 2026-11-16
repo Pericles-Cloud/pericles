@@ -202,9 +202,10 @@ const isTerminal = (status: string): boolean => TERMINAL_EVENT_STATUSES.has(stat
  * - Otherwise: monitoring-enabled customer orgs that have a Client Exposure
  *   Profile (an org without one would exit without evaluating).
  *
- * These are the platform fan-out's tenant-listing queries: they decide which
- * tenants get an org-scoped record; each record is then processed within its
- * own organization. See the open tenant-isolation question in the wiki (D41).
+ * These are the platform fan-out's tenant-listing queries, a documented
+ * exception to the organization_id rule (.claude/adr/0002): they return org ids
+ * only, run only for a global record, and every listed org is then processed
+ * in its own org-scoped record, filtered by its organization_id.
  */
 async function fanOutOrgIds(globalEventId: string, terminal: boolean): Promise<string[]> {
   const prisma = getPrismaClient();

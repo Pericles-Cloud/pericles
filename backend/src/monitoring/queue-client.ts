@@ -284,9 +284,14 @@ export async function sweepExhaustedLocks(queueName: string, prisma = getPrismaC
 export const LOCK_RENEW_INTERVAL_MS = Math.floor((STALE_LOCK_SECONDS * 1000) / 3);
 
 /**
- * Longest a worker keeps renewing a batch. Past this the handler is treated as
- * hung (e.g. an SDK call that ignores its abort signal): renewal stops, the
- * lease expires, and stale-lock recovery can reclaim or dead-letter the row.
+ * Longest a worker keeps renewing the row it is running. Past this the handler
+ * is treated as hung (e.g. an SDK call that ignores its abort signal): renewal
+ * stops, the lease expires, and stale-lock recovery can reclaim or dead-letter
+ * the row. Accepted trade-off: if the hung handler later finishes, the row may
+ * have run twice. That is bounded because consumers are idempotent (versioned
+ * records, compare-and-set writes) and a worker that lost the lock cannot
+ * overwrite the row's queue state. The alternative, renewing forever, strands
+ * the row until the process restarts.
  */
 export const MAX_LOCK_HOLD_MS = 15 * 60 * 1000;
 
