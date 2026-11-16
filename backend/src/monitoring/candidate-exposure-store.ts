@@ -53,13 +53,14 @@ function validItems<T extends z.ZodTypeAny>(item: T) {
 
 export const CandidateEvaluationSchema = z.object({
   exposure_pathways: validItems(PathwaySchema),
-  // Normalize wording ("Direct exposure" -> direct). A missing or unreadable
-  // strength falls back to possible: the item is kept on the watch list and
-  // re-evaluated, never sent to Validation on a guess.
+  // Accept the strength only when it is the first word ("Direct exposure" ->
+  // direct). Anything else, including negated or hedged wording ("not direct",
+  // "indirect", "improbable"), falls back to possible: kept on the watch list
+  // and re-evaluated, never sent to Validation on a guess.
   exposure_strength: z.preprocess((value) => {
     if (typeof value !== 'string') return 'possible';
-    const word = value.trim().toLowerCase();
-    return (['direct', 'probable', 'possible', 'strategic'] as const).find((s) => word.includes(s)) ?? 'possible';
+    const first = /^[a-z]+/.exec(value.trim().toLowerCase())?.[0];
+    return (['direct', 'probable', 'possible', 'strategic'] as const).find((s) => s === first) ?? 'possible';
   }, z.enum(['direct', 'probable', 'possible', 'strategic'])),
   exposed_assets: validItems(AssetSchema),
   // LLM output: confidence may be omitted, and dates arrive in mixed formats
@@ -291,7 +292,10 @@ async function upsertOnce(input: CandidateExposureInput): Promise<UpsertCandidat
     // LEGACY_PENDING by the migration: we cannot tell whether it was ever handed
     // off (the old tool emitted v1, the old consumer emitted nothing). Hand it
     // off now as v2, which can never collide with an old v1 record.
-    if (existing.validation_status === 'CANDIDATE' && existing.handoff_version === LEGACY_PENDING) {
+    // handoff_version 0 also counts: the store never creates a CANDIDATE at 0,
+    // so such a row was written by another path (e.g. migrate-events-to-global)
+    // and has never been handed off.
+    if (existing.validation_status === 'CANDIDATE' && existing.handoff_version <= 0) {
       await updateIfUnchanged(tx, existing, { handoff_version: LEGACY_HANDOFF_VERSION });
       // Hand off what is stored, not this evaluation, so the record and the row agree.
       const stored = {

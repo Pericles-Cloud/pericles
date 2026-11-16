@@ -17,6 +17,7 @@
 import { getPrismaClient } from '../monitoring/db-client.js';
 import { logger } from '../monitoring/logger.js';
 import crypto from 'crypto';
+import { LEGACY_PENDING } from '../monitoring/candidate-exposure-store.js';
 
 interface MigrationStats {
   eventsProcessed: number;
@@ -289,6 +290,9 @@ async function migrateToCandidateExposure(
       cleared_at: null,
       cleared_reason: null,
       profile_snapshot_ref: 'migration-v1',
+      // Not handed off by this script: the store hands a LEGACY_PENDING
+      // CANDIDATE to Validation on its next evaluation.
+      handoff_version: LEGACY_PENDING,
     };
 
     await prisma.candidateExposure.create({ data: candidateData as any });

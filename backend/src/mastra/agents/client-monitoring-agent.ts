@@ -230,7 +230,14 @@ Always respond with structured JSON matching this schema:
     }
   ],
   "watch_list": [
-    "Same shape as a candidate_exposures item, with exposure_strength possible. Watch-list items are stored (status Watching) and re-evaluated on change; they are not sent to Validation."
+    {
+      "global_event_id": "uuid",
+      "exposure_pathways": [{ "pathway": "indirect", "match_basis": "tier-2 dependency inferred", "confidence": 0.4 }],
+      "exposure_strength": "possible",
+      "exposed_assets": [{ "asset_type": "supplier", "asset_id": "erp-reference-id", "distance_or_match_basis": "country-level only" }],
+      "rationale": "Why this is only a possible exposure",
+      "exposure_priority": "low"
+    }
   ],
   "not_exposed": [
     {

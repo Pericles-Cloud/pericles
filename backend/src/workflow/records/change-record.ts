@@ -57,8 +57,14 @@ export function changeRecordKey(record: Pick<ChangeRecord, 'record_id' | 'record
   return `${record.record_id}:${record.record_version}`;
 }
 
-/** Queue message + idempotency key for a change record. */
-export function changeRecordQueueItem(record: ChangeRecord): {
+/**
+ * Queue message + idempotency key for a change record. `runAt` schedules it
+ * later (the queue's scheduled_at); by default it is due when produced.
+ */
+export function changeRecordQueueItem(
+  record: ChangeRecord,
+  runAt?: Date
+): {
   message: { type: 'change_record'; payload: ChangeRecord; timestamp: string; organizationId: string | null };
   idempotencyKey: string;
 } {
@@ -66,7 +72,7 @@ export function changeRecordQueueItem(record: ChangeRecord): {
     message: {
       type: 'change_record',
       payload: record,
-      timestamp: record.produced_at,
+      timestamp: runAt ? runAt.toISOString() : record.produced_at,
       organizationId: record.organization_id,
     },
     idempotencyKey: changeRecordKey(record),

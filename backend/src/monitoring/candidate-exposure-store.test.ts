@@ -107,6 +107,10 @@ describe('CandidateEvaluationSchema', () => {
     };
     expect(strengthOf('Direct exposure')).toBe('direct');
     expect(strengthOf('maybe')).toBe('possible');
+    // Negated or hedged wording must not upgrade the item.
+    expect(strengthOf('not direct, possible')).toBe('possible');
+    expect(strengthOf('indirect')).toBe('possible');
+    expect(strengthOf('improbable')).toBe('possible');
     expect(strengthOf(undefined)).toBe('possible');
   });
 
@@ -224,6 +228,26 @@ describe('upsertCandidateExposure', () => {
     // v2, never v1: an old candidateExposureTool may already have emitted v1.
     expect(row.idempotency_key).toBe('ce-9:2');
     expect(row.payload.payload).toMatchObject({ exposure_strength: 'direct', exposure_priority: 'critical' });
+  });
+
+  it('hands off a CANDIDATE written at handoff_version 0 by another path (e.g. the migration script)', async () => {
+    fake.candidateExposure.findUnique.mockResolvedValue(
+      existingRow({
+        id: 'ce-21',
+        validation_status: 'CANDIDATE',
+        exposure_strength: 'direct',
+        exposure_priority: 'high',
+        organization_id: ORG,
+        global_event_id: INPUT.global_event_id,
+        global_event_hash: INPUT.global_event_hash,
+        handoff_version: 0,
+      })
+    );
+
+    const result = await upsertCandidateExposure(INPUT);
+
+    expect(result.change_record_emitted).toBe(true);
+    expect(enqueuedRows()[0].idempotency_key).toBe('ce-21:2');
   });
 
   it('reports change_record_emitted false when the record was already queued', async () => {

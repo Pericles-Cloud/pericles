@@ -107,7 +107,7 @@ export const clientMonitoringConsumer: ConsumerHandler = async ({ record, signal
     );
 
     // Process each organization
-    let totalCandidatesCreated = 0;
+    let totalExposuresWritten = 0;
     let totalHandoffs = 0;
     let totalCleared = 0;
     const pendingOrgIds: string[] = [];
@@ -121,7 +121,7 @@ export const clientMonitoringConsumer: ConsumerHandler = async ({ record, signal
 
       try {
         const result = await evaluateExposureForOrg(org.id, globalEvent, signal);
-        totalCandidatesCreated += result.candidatesCreated;
+        totalExposuresWritten += result.exposuresWritten;
         totalHandoffs += result.handoffsEmitted;
         totalCleared += result.cleared;
       } catch (error) {
@@ -138,7 +138,7 @@ export const clientMonitoringConsumer: ConsumerHandler = async ({ record, signal
         global_event_id: globalEventId,
         orgs_processed: organizations.length - pendingOrgIds.length,
         orgs_pending_retry: pendingOrgIds.length,
-        exposures_written: totalCandidatesCreated,
+        exposures_written: totalExposuresWritten,
         handoffs_emitted: totalHandoffs,
         exposures_cleared: totalCleared,
       },
@@ -166,14 +166,40 @@ export const clientMonitoringConsumer: ConsumerHandler = async ({ record, signal
 };
 
 /**
+ * Extract the agent's JSON object. Throws if there is none or it does not parse.
+ */
+function parseAgentJson(text: string): Record<string, unknown> {
+  const start = text.indexOf('{');
+  const end = text.lastIndexOf('}');
+  if (start === -1 || end <= start) {
+    throw new Error('[ClientMonitoring] Agent response contained no JSON object');
+  }
+  try {
+    const value: unknown = JSON.parse(text.slice(start, end + 1));
+    if (value && typeof value === 'object' && !Array.isArray(value)) return value as Record<string, unknown>;
+  } catch (error) {
+    throw new Error('[ClientMonitoring] Agent response JSON did not parse', { cause: error });
+  }
+  throw new Error('[ClientMonitoring] Agent response JSON was not an object');
+}
+
+/** Delay before an org retry runs: spread out so a shared outage is not hit all at once. */
+const ORG_RETRY_BASE_DELAY_MS = 30_000;
+const ORG_RETRY_JITTER_MS = 60_000;
+
+/**
  * Enqueue one org-scoped re-evaluation per org whose evaluation did not
  * complete. Keyed by (source record, org) and the source version, so a
  * redelivery of the source record does not enqueue duplicates.
  */
 async function enqueueOrgRetries(source: ChangeRecord, globalEventId: string, orgIds: string[]): Promise<void> {
-  const producedAt = new Date().toISOString();
-  const items = orgIds.map((orgId) =>
-    changeRecordQueueItem(
+  const now = Date.now();
+  const producedAt = new Date(now).toISOString();
+  const items = orgIds.map((orgId) => {
+    // Jittered delay: if every org failed on a shared cause (LLM outage, rate
+    // limit), the retries must not all hit it again at once.
+    const runAt = new Date(now + ORG_RETRY_BASE_DELAY_MS + Math.floor(Math.random() * ORG_RETRY_JITTER_MS));
+    return changeRecordQueueItem(
       orgReevaluationRecord({
         recordId: `${source.record_id}:org:${orgId}`,
         recordVersion: source.record_version,
@@ -181,9 +207,10 @@ async function enqueueOrgRetries(source: ChangeRecord, globalEventId: string, or
         organizationId: orgId,
         reason: 'org_retry',
         producedAt,
-      })
-    )
-  );
+      }),
+      runAt
+    );
+  });
   await enqueueManyIdempotent(getPrismaClient(), CHANGE_RECORD_QUEUE, items);
   logger.warn(
     { source_record_id: source.record_id, global_event_id: globalEventId, orgs: orgIds.length },
@@ -193,7 +220,7 @@ async function enqueueOrgRetries(source: ChangeRecord, globalEventId: string, or
 
 interface ExposureResult {
   /** Exposure rows created or changed (including promotions and reopens). */
-  candidatesCreated: number;
+  exposuresWritten: number;
   /** candidate_exposure records handed to Validation. */
   handoffsEmitted: number;
   cleared: number;
@@ -208,7 +235,7 @@ async function evaluateExposureForOrg(
   signal: AbortSignal
 ): Promise<ExposureResult> {
   const prisma = getPrismaClient();
-  let candidatesCreated = 0;
+  let exposuresWritten = 0;
   let handoffsEmitted = 0;
   let cleared = 0;
 
@@ -220,7 +247,7 @@ async function evaluateExposureForOrg(
       globalEvent.id,
       globalEvent.status
     );
-    return { candidatesCreated, handoffsEmitted, cleared };
+    return { exposuresWritten, handoffsEmitted, cleared };
   }
 
   // Load Client Exposure Profile
@@ -233,7 +260,7 @@ async function evaluateExposureForOrg(
       { organization_id: organizationId },
       '[ClientMonitoring] No Client Exposure Profile found - skipping'
     );
-    return { candidatesCreated, handoffsEmitted, cleared };
+    return { exposuresWritten, handoffsEmitted, cleared };
   }
 
   // Check admin filters
@@ -243,7 +270,7 @@ async function evaluateExposureForOrg(
       { organization_id: organizationId, category: globalEvent.category },
       '[ClientMonitoring] Event category excluded by admin config'
     );
-    return { candidatesCreated, handoffsEmitted, cleared };
+    return { exposuresWritten, handoffsEmitted, cleared };
   }
 
   // Check excluded regions
@@ -253,7 +280,7 @@ async function evaluateExposureForOrg(
       { organization_id: organizationId, region: globalEvent.country_iso },
       '[ClientMonitoring] Event region excluded by admin config'
     );
-    return { candidatesCreated, handoffsEmitted, cleared };
+    return { exposuresWritten, handoffsEmitted, cleared };
   }
 
   // Check minimum severity
@@ -268,7 +295,7 @@ async function evaluateExposureForOrg(
         { organization_id: organizationId, severity: globalEvent.intrinsic_severity, minSeverity },
         '[ClientMonitoring] Event severity below minimum threshold'
       );
-      return { candidatesCreated, handoffsEmitted, cleared };
+      return { exposuresWritten, handoffsEmitted, cleared };
     }
   }
 
@@ -287,22 +314,10 @@ async function evaluateExposureForOrg(
     abortSignal: signal,
   });
 
-  // Parse the response
-  const result = response.text || '';
-  let parsedResult: any = {};
-
-  try {
-    const jsonMatch = /\{[\s\S]*\}/.exec(result);
-    if (jsonMatch) {
-      parsedResult = JSON.parse(jsonMatch[0]);
-    }
-  } catch (parseError) {
-    logger.warn(
-      { error: parseError, organization_id: organizationId },
-      '[ClientMonitoring] Failed to parse agent response as JSON'
-    );
-    return { candidatesCreated, handoffsEmitted, cleared };
-  }
+  // Parse the response. An unreadable response is a failed evaluation, not
+  // "no exposure": throw so this org gets a retry record instead of being
+  // counted as evaluated with a real exposure silently dropped.
+  const parsedResult = parseAgentJson(response.text || '');
 
   // Process exposures. One exposure row exists per (org, event), so items are
   // merged into one. Watch-list (possible) items are stored too, so they can be
@@ -335,11 +350,11 @@ async function evaluateExposureForOrg(
     // Anything thrown here is infrastructure (DB, queue) and propagates so the
     // org is retried; the upsert and the hand-off are idempotent.
     const result = await createCandidateExposure(organizationId, globalEvent, merged, profile.profile_version);
-    if (result.outcome !== 'unchanged') candidatesCreated++;
+    if (result.outcome !== 'unchanged') exposuresWritten++;
     if (result.change_record_emitted) handoffsEmitted++;
   }
 
-  return { candidatesCreated, handoffsEmitted, cleared };
+  return { exposuresWritten, handoffsEmitted, cleared };
 }
 
 /**
@@ -410,8 +425,8 @@ Evaluate all 7 exposure pathways against this event. Return JSON with:
 }
 
 /**
- * Create or refresh a CandidateExposure and hand it to Validation.
- * Returns true if a new record was created.
+ * Create or refresh the (org, event) CandidateExposure; the store hands it to
+ * Validation when it becomes a CANDIDATE. Returns the store's result.
  */
 async function createCandidateExposure(
   organizationId: string,

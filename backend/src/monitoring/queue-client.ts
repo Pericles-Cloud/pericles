@@ -284,6 +284,13 @@ export async function sweepExhaustedLocks(queueName: string, prisma = getPrismaC
 export const LOCK_RENEW_INTERVAL_MS = Math.floor((STALE_LOCK_SECONDS * 1000) / 3);
 
 /**
+ * Longest a worker keeps renewing a batch. Past this the handler is treated as
+ * hung (e.g. an SDK call that ignores its abort signal): renewal stops, the
+ * lease expires, and stale-lock recovery can reclaim or dead-letter the row.
+ */
+export const MAX_LOCK_HOLD_MS = 15 * 60 * 1000;
+
+/**
  * Renew this worker's locks on rows it still holds. A claimed batch runs
  * sequentially and one record can run an LLM stage for minutes; without
  * renewal, rows still waiting (or a long-running one) pass STALE_LOCK_SECONDS
@@ -367,25 +374,40 @@ export async function failMessage(
 export function consumeFromQueue(
   queueName: string,
   handler: (message: QueueMessage, ctx: { id: string; attempts: number }) => Promise<void>,
-  options: { batchSize?: number; pollIntervalMs?: number } = {}
+  options: { batchSize?: number; pollIntervalMs?: number; maxLockHoldMs?: number } = {}
 ): { stop: () => void } {
-  const { batchSize = DEFAULT_CLAIM_BATCH_SIZE, pollIntervalMs = 1000 } = options;
+  const { batchSize = DEFAULT_CLAIM_BATCH_SIZE, pollIntervalMs = 1000, maxLockHoldMs = MAX_LOCK_HOLD_MS } = options;
   const prisma = getPrismaClient();
   const workerId = workerIdentity();
   let running = true;
+  let lastSweepAt = 0;
 
   const poll = async () => {
     while (running) {
       let claimedAny = false;
       try {
-        await sweepExhaustedLocks(queueName, prisma);
+        // The sweep scans for expired final-attempt locks; once per renewal
+        // interval is enough, not once per record.
+        if (Date.now() - lastSweepAt >= LOCK_RENEW_INTERVAL_MS) {
+          lastSweepAt = Date.now();
+          await sweepExhaustedLocks(queueName, prisma);
+        }
 
         const rows = await claimNextBatch(queueName, batchSize, workerId, prisma);
         claimedAny = rows.length > 0;
 
         // Hold every claimed row's lease until it is finished.
         const held = new Set(rows.map((row) => row.id));
+        const claimedAt = Date.now();
         const renewal = setInterval(() => {
+          if (Date.now() - claimedAt >= maxLockHoldMs) {
+            clearInterval(renewal);
+            logger.error(
+              { queueName, messageIds: [...held], maxLockHoldMs },
+              '[Queue] Batch held past max lock hold; renewal stopped so the lease can expire'
+            );
+            return;
+          }
           renewLocks([...held], workerId, prisma).catch((error: unknown) => {
             logger.error({ queueName, error }, '[Queue] Lock renewal failed');
           });

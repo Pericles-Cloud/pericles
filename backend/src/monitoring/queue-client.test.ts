@@ -30,6 +30,7 @@ import {
   PermanentMessageError,
   STALE_LOCK_SECONDS,
   LOCK_RENEW_INTERVAL_MS,
+  MAX_LOCK_HOLD_MS,
   renewLocks,
   consumeFromQueue,
 } from './queue-client.js';
@@ -256,6 +257,49 @@ describe('consumeFromQueue', () => {
     } finally {
       vi.useRealTimers();
     }
+  });
+
+  it('stops renewing a batch held past the max hold, so a hung handler cannot keep its row forever', async () => {
+    vi.useFakeTimers();
+    try {
+      fake.$queryRaw.mockResolvedValueOnce([row('row-1')]).mockResolvedValue([]);
+      const hung = vi.fn(() => new Promise<void>(() => undefined));
+      const consumer = consumeFromQueue(QUEUE, hung, { maxLockHoldMs: LOCK_RENEW_INTERVAL_MS * 2 });
+
+      await vi.advanceTimersByTimeAsync(LOCK_RENEW_INTERVAL_MS * 2 + 1);
+      const renewsAtLimit = renewCalls().length;
+      expect(renewsAtLimit).toBeGreaterThanOrEqual(1);
+
+      await vi.advanceTimersByTimeAsync(LOCK_RENEW_INTERVAL_MS * 5);
+      expect(renewCalls().length).toBe(renewsAtLimit);
+      consumer.stop();
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it('runs the exhausted-lock sweep at most once per renewal interval, not once per record', async () => {
+    vi.useFakeTimers();
+    try {
+      fake.$queryRaw
+        .mockResolvedValueOnce([row('a')])
+        .mockResolvedValueOnce([row('b')])
+        .mockResolvedValueOnce([row('c')])
+        .mockResolvedValue([]);
+      const consumer = consumeFromQueue(QUEUE, vi.fn().mockResolvedValue(undefined), { pollIntervalMs: 1000 });
+      await vi.advanceTimersByTimeAsync(0);
+      consumer.stop();
+
+      const sweeps = fake.$executeRaw.mock.calls.filter((c) => sqlOf(c).includes('lock expired after final attempt'));
+      expect(fake.$queryRaw.mock.calls.length).toBeGreaterThanOrEqual(3);
+      expect(sweeps).toHaveLength(1);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it('defaults the max hold well above a single stage budget', () => {
+    expect(MAX_LOCK_HOLD_MS).toBeGreaterThan(120_000);
   });
 });
 

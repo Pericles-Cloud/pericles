@@ -199,6 +199,19 @@ describe('clientMonitoringConsumer agent output', () => {
     expect(upsert.mock.calls[0][0].exposed_assets.map((a: { asset_id: string }) => a.asset_id)).toEqual(['f-1']);
   });
 
+  it('treats an unreadable agent response as a failed evaluation and schedules a delayed retry', async () => {
+    agent.generate.mockResolvedValue({ text: 'Here is my analysis {not json} and more }' });
+    const before = Date.now();
+
+    await run(record(null, { event_id: 'ge-1' }));
+
+    expect(upsert).not.toHaveBeenCalled();
+    const rows = retryRows() as unknown as Array<{ organization_id: string; scheduled_at: Date }>;
+    expect(rows.map((r) => r.organization_id)).toEqual([ORG_A]);
+    // Retries are spread out, not due immediately.
+    expect(rows[0].scheduled_at.getTime()).toBeGreaterThanOrEqual(before + 30_000);
+  });
+
   it('writes nothing when the agent finds no exposure', async () => {
     agent.generate.mockResolvedValue({ text: JSON.stringify({ candidate_exposures: [], watch_list: [] }) });
     await run(record(null, { event_id: 'ge-1' }));
