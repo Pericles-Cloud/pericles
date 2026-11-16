@@ -119,3 +119,40 @@ export function shouldTriggerVerification(payload: GlobalEventStoreChangePayload
 
   return payload.intrinsic_severity === 'high' || payload.intrinsic_severity === 'critical';
 }
+
+// ============================================================================
+// Org-scoped re-evaluation records (back-matching, per-org retries)
+// ============================================================================
+
+export type OrgReevaluationReason = 'back_match' | 'org_retry';
+
+/**
+ * A global_event_change that asks the client_monitoring consumer to evaluate
+ * one Global Event for one organization only.
+ *
+ * The payload is deliberately minimal: no `change_kind` and no `severity`, so
+ * it routes only to client_monitoring and can never re-trigger Event
+ * Verification. `organization_id` and `target_organization_id` are always the
+ * same org; the consumer rejects a record where they differ.
+ */
+export function orgReevaluationRecord(args: {
+  recordId: string;
+  recordVersion: number;
+  globalEventId: string;
+  organizationId: string;
+  reason: OrgReevaluationReason;
+  producedAt: string;
+}): ChangeRecord {
+  return {
+    record_id: args.recordId,
+    record_version: args.recordVersion,
+    record_type: 'global_event_change',
+    organization_id: args.organizationId,
+    produced_at: args.producedAt,
+    payload: {
+      event_id: args.globalEventId,
+      change_type: args.reason,
+      target_organization_id: args.organizationId,
+    },
+  };
+}

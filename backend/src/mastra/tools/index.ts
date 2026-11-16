@@ -84,5 +84,3 @@ export { clientExposureProfileTool } from './client-exposure-profile-tool.js';
 // Exposure pathway evaluation
 export { exposurePathwayEvaluatorTool } from './exposure-pathway-evaluator-tool.js';
 
-// Candidate exposure creation
-export { candidateExposureTool } from './candidate-exposure-tool.js';

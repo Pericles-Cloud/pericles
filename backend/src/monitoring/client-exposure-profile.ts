@@ -14,7 +14,8 @@ import { getPrismaClient } from './db-client.js';
 import { logger } from './logger.js';
 import { createHash } from 'node:crypto';
 import { enqueueManyIdempotent, CHANGE_RECORD_QUEUE } from './queue-client.js';
-import { changeRecordKey, type ChangeRecord } from '../workflow/records/change-record.js';
+import { changeRecordQueueItem } from '../workflow/records/change-record.js';
+import { orgReevaluationRecord } from '../workflow/records/global-event-change.js';
 
 export interface SyncResult {
   organizationId: string;
@@ -68,11 +69,22 @@ function stableShipments(value: unknown): unknown {
   );
 }
 
+/**
+ * Writers disagree on how to store "nothing" ([] vs {} vs null). Treat them as
+ * the same content, so alternating writers cannot flip the fingerprint.
+ */
+function emptyToNull(value: unknown): unknown {
+  if (value === null || value === undefined) return null;
+  if (Array.isArray(value) && value.length === 0) return null;
+  if (typeof value === 'object' && !Array.isArray(value) && Object.keys(value).length === 0) return null;
+  return value;
+}
+
 /** Stable fingerprint of the exposure-relevant profile content. */
 export function profileFingerprint(profile: ProfileContent | null): string {
   const content = PROFILE_CONTENT_FIELDS.map((field) => {
     if (!profile) return null;
-    const value = profile[field] ?? null;
+    const value = emptyToNull(profile[field]);
     return field === 'shipments_in_transit' ? stableShipments(value) : value;
   });
   return createHash('sha256').update(JSON.stringify(content)).digest('hex');
@@ -102,18 +114,30 @@ export async function backMatchIfProfileChanged(organizationId: string): Promise
 
   // Retrying the same content reuses the run's seq, so already-enqueued events
   // dedupe. New content (even a revert to earlier content) starts a new run.
+  // The bump is a compare-and-set on the state we read: if another writer
+  // started a run in between, we lose and take the state again.
   let seq = profile.back_match_seq;
   if (fingerprint !== profile.back_match_attempt_fingerprint) {
-    seq += 1;
-    await prisma.clientExposureProfile.update({
-      where: { organization_id: organizationId },
-      data: { back_match_seq: seq, back_match_attempt_fingerprint: fingerprint },
+    const claimed = await prisma.clientExposureProfile.updateMany({
+      where: {
+        organization_id: organizationId,
+        back_match_seq: profile.back_match_seq,
+        back_match_attempt_fingerprint: profile.back_match_attempt_fingerprint,
+      },
+      data: { back_match_seq: profile.back_match_seq + 1, back_match_attempt_fingerprint: fingerprint },
     });
+    if (claimed.count === 0) {
+      throw new Error('back-match run claimed concurrently by another profile writer; retry');
+    }
+    seq = profile.back_match_seq + 1;
   }
 
   const enqueued = await triggerBackMatching(organizationId, seq);
-  await prisma.clientExposureProfile.update({
-    where: { organization_id: organizationId },
+
+  // Record success only if this run is still the latest; a newer run that
+  // started meanwhile owns the fingerprint.
+  await prisma.clientExposureProfile.updateMany({
+    where: { organization_id: organizationId, back_match_seq: seq, back_match_attempt_fingerprint: fingerprint },
     data: { back_match_fingerprint: fingerprint },
   });
   return enqueued;
@@ -467,34 +491,25 @@ export async function triggerBackMatching(organizationId: string, seq: number): 
   for (;;) {
     const page = await prisma.globalEvent.findMany({
       where: { status: { in: [...BACK_MATCH_STATUSES] } },
-      select: { id: true, event_hash: true, intrinsic_severity: true, status: true },
+      select: { id: true },
       orderBy: { id: 'asc' },
       take: BACK_MATCH_PAGE_SIZE,
       ...(cursor ? { cursor: { id: cursor }, skip: 1 } : {}),
     });
     if (page.length === 0) break;
 
-    const items = page.map((event) => {
-      const record: ChangeRecord = {
-        record_id: `${event.id}:backmatch:${organizationId}`,
-        record_version: seq,
-        record_type: 'global_event_change',
-        organization_id: organizationId,
-        produced_at: producedAt,
-        payload: {
-          event_id: event.id,
-          event_hash: event.event_hash,
-          change_type: 'back_match',
-          status: event.status,
-          intrinsic_severity: event.intrinsic_severity,
-          target_organization_id: organizationId,
-        },
-      };
-      return {
-        message: { type: 'change_record' as const, payload: record, timestamp: producedAt, organizationId },
-        idempotencyKey: changeRecordKey(record),
-      };
-    });
+    const items = page.map((event) =>
+      changeRecordQueueItem(
+        orgReevaluationRecord({
+          recordId: `${event.id}:backmatch:${organizationId}`,
+          recordVersion: seq,
+          globalEventId: event.id,
+          organizationId,
+          reason: 'back_match',
+          producedAt,
+        })
+      )
+    );
 
     // Count rows actually inserted; a retry's already-queued rows are skipped.
     enqueued += await enqueueManyIdempotent(prisma, CHANGE_RECORD_QUEUE, items);

@@ -6,7 +6,7 @@ import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { Prisma } from '@prisma/client';
 
 const fake = vi.hoisted(() => ({
-  candidateExposure: { findUnique: vi.fn(), create: vi.fn(), update: vi.fn() },
+  candidateExposure: { findUnique: vi.fn(), create: vi.fn(), updateMany: vi.fn() },
   messageQueue: { createMany: vi.fn() },
   $transaction: vi.fn(),
 }));
@@ -53,7 +53,7 @@ beforeEach(() => {
   fake.$transaction.mockReset().mockImplementation((fn: (tx: unknown) => unknown) => fn(fake));
   fake.candidateExposure.findUnique.mockReset();
   fake.candidateExposure.create.mockReset();
-  fake.candidateExposure.update.mockReset();
+  fake.candidateExposure.updateMany.mockReset().mockResolvedValue({ count: 1 });
   fake.messageQueue.createMany.mockReset().mockResolvedValue({ count: 1 });
 });
 
@@ -127,7 +127,6 @@ describe('upsertCandidateExposure', () => {
 
   it('promotes WATCHING with the next small hand-off version (fits DispatchLog Int)', async () => {
     fake.candidateExposure.findUnique.mockResolvedValue(existingRow({ id: 'ce-3', handoff_version: 2 }));
-    fake.candidateExposure.update.mockResolvedValue({ id: 'ce-3', validation_status: 'CANDIDATE' });
 
     const result = await upsertCandidateExposure(INPUT);
 
@@ -136,16 +135,15 @@ describe('upsertCandidateExposure', () => {
     const [row] = enqueuedRows();
     expect(row.payload.record_version).toBe(3);
     expect(row.payload.record_version as number).toBeLessThanOrEqual(INT32_MAX);
-    expect(fake.candidateExposure.update.mock.calls[0][0].data.handoff_version).toBe(3);
+    expect(fake.candidateExposure.updateMany.mock.calls[0][0].data.handoff_version).toBe(3);
   });
 
   it('clears temporal_relevance and strategic_context on refresh when the new evaluation has none', async () => {
     fake.candidateExposure.findUnique.mockResolvedValue(existingRow({ id: 'ce-5' }));
-    fake.candidateExposure.update.mockResolvedValue({ id: 'ce-5', validation_status: 'CANDIDATE' });
 
     await upsertCandidateExposure(INPUT);
 
-    const data = fake.candidateExposure.update.mock.calls[0][0].data;
+    const data = fake.candidateExposure.updateMany.mock.calls[0][0].data;
     expect(data.temporal_relevance).toBe(Prisma.DbNull);
     expect(data.strategic_context).toBe(Prisma.DbNull);
   });
@@ -158,7 +156,7 @@ describe('upsertCandidateExposure', () => {
     const result = await upsertCandidateExposure(INPUT);
 
     expect(result.outcome).toBe('unchanged');
-    expect(fake.candidateExposure.update).not.toHaveBeenCalled();
+    expect(fake.candidateExposure.updateMany).not.toHaveBeenCalled();
     expect(fake.messageQueue.createMany).not.toHaveBeenCalled();
   });
 
@@ -166,7 +164,6 @@ describe('upsertCandidateExposure', () => {
     fake.candidateExposure.findUnique.mockResolvedValue(
       existingRow({ id: 'ce-7', validation_status: 'REJECTED', exposure_strength: 'direct', handoff_version: 1 })
     );
-    fake.candidateExposure.update.mockResolvedValue({ id: 'ce-7', validation_status: 'CANDIDATE' });
 
     const result = await upsertCandidateExposure({
       ...INPUT,
@@ -197,7 +194,7 @@ describe('upsertCandidateExposure', () => {
     const result = await upsertCandidateExposure({ ...INPUT, exposure_strength: 'possible', exposure_priority: 'low' });
 
     expect(result.change_record_emitted).toBe(true);
-    expect(fake.candidateExposure.update.mock.calls[0][0].data).toEqual({ handoff_version: 1 });
+    expect(fake.candidateExposure.updateMany.mock.calls[0][0].data).toEqual({ handoff_version: 1 });
     const [row] = enqueuedRows();
     expect(row.idempotency_key).toBe('ce-9:1');
     expect(row.payload.payload).toMatchObject({ exposure_strength: 'direct', exposure_priority: 'critical' });
@@ -247,7 +244,7 @@ describe('upsertCandidateExposure', () => {
     const result = await upsertCandidateExposure(INPUT);
 
     expect(result.outcome).toBe('unchanged');
-    expect(fake.candidateExposure.update).not.toHaveBeenCalled();
+    expect(fake.candidateExposure.updateMany).not.toHaveBeenCalled();
     expect(fake.messageQueue.createMany).not.toHaveBeenCalled();
   });
 
@@ -265,6 +262,40 @@ describe('upsertCandidateExposure', () => {
 
     expect(result).toMatchObject({ candidate_exposure_id: 'ce-8', outcome: 'unchanged' });
     expect(fake.$transaction).toHaveBeenCalledTimes(2);
+  });
+
+  it('writes only if handoff_version and status are unchanged since the read', async () => {
+    fake.candidateExposure.findUnique.mockResolvedValue(existingRow({ id: 'ce-13', handoff_version: 4 }));
+
+    await upsertCandidateExposure(INPUT);
+
+    expect(fake.candidateExposure.updateMany.mock.calls[0][0].where).toEqual({
+      id: 'ce-13',
+      handoff_version: 4,
+      validation_status: 'WATCHING',
+    });
+  });
+
+  it('retries when a concurrent promotion changed the row first', async () => {
+    fake.candidateExposure.findUnique
+      .mockResolvedValueOnce(existingRow({ id: 'ce-14', handoff_version: 0 }))
+      .mockResolvedValueOnce(existingRow({ id: 'ce-14', validation_status: 'CANDIDATE', handoff_version: 1 }));
+    fake.candidateExposure.updateMany.mockResolvedValueOnce({ count: 0 });
+
+    const result = await upsertCandidateExposure(INPUT);
+
+    // Second attempt sees the winner's CANDIDATE v1 row and leaves it alone.
+    expect(result.outcome).toBe('unchanged');
+    expect(fake.$transaction).toHaveBeenCalledTimes(2);
+    expect(fake.messageQueue.createMany).not.toHaveBeenCalled();
+  });
+
+  it('gives up after repeated conflicts', async () => {
+    fake.candidateExposure.findUnique.mockResolvedValue(existingRow({ id: 'ce-15' }));
+    fake.candidateExposure.updateMany.mockResolvedValue({ count: 0 });
+
+    await expect(upsertCandidateExposure(INPUT)).rejects.toThrow('changed concurrently');
+    expect(fake.$transaction).toHaveBeenCalledTimes(3);
   });
 
   it('does not retry other errors', async () => {

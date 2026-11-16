@@ -1,9 +1,10 @@
 /**
  * Candidate Exposure store (Doctrine §13, issue #76).
  *
- * The single write path for CandidateExposure rows. Both the Client Monitoring
- * consumer and candidateExposureTool go through here, so the hand-off to the
- * Validation Agent cannot be skipped by one of them.
+ * The single write path for CandidateExposure rows. Only the client_monitoring
+ * consumer calls it, with the organization it is evaluating. There is
+ * deliberately no agent tool for this write: model-written arguments must not
+ * choose the tenant.
  *
  * The row write and the `candidate_exposure` change record are committed in one
  * transaction: a record is never emitted for a row that was rolled back, and a
@@ -15,11 +16,13 @@ import { z } from 'zod';
 import { getPrismaClient } from './db-client.js';
 import { enqueueInTransaction, CHANGE_RECORD_QUEUE } from './queue-client.js';
 import { changeRecordKey, type ChangeRecord } from '../workflow/records/change-record.js';
+import { STRENGTH_RANK, statusForStrength, type ExposureStrength } from './exposure-strength.js';
+
+export { STRENGTH_RANK, statusForStrength, type ExposureStrength };
 
 /**
  * The exposure evaluation an agent produces (Client Monitoring spec §8).
- * Shared by candidateExposureTool's inputSchema and the dispatch consumer, which
- * parses untrusted LLM output with it.
+ * The dispatch consumer parses untrusted LLM output with it.
  */
 export const CandidateEvaluationSchema = z.object({
   exposure_pathways: z.array(
@@ -73,7 +76,6 @@ export const CandidateEvaluationSchema = z.object({
 });
 
 export type CandidateEvaluation = z.infer<typeof CandidateEvaluationSchema>;
-export type ExposureStrength = CandidateEvaluation['exposure_strength'];
 
 export interface CandidateExposureInput extends CandidateEvaluation {
   organization_id: string;
@@ -91,13 +93,6 @@ export interface UpsertCandidateExposureResult {
   change_record_emitted: boolean;
 }
 
-/** Possible exposures go on the watch list; everything else goes to Validation. */
-export function statusForStrength(strength: ExposureStrength): 'WATCHING' | 'CANDIDATE' {
-  return strength === 'possible' ? 'WATCHING' : 'CANDIDATE';
-}
-
-/** Single ordering of exposure strength, weakest first. Shared with the pathway evaluator. */
-export const STRENGTH_RANK: Record<ExposureStrength, number> = { possible: 1, strategic: 2, probable: 3, direct: 4 };
 
 /** Normalized asset keys. Asset ids are LLM-written, so compare loosely. */
 function assetKeys(assets: unknown): Set<string> {
@@ -179,6 +174,31 @@ async function emitRecord(tx: Prisma.TransactionClient, record: ChangeRecord): P
 const isUniqueViolation = (error: unknown): boolean =>
   error instanceof Prisma.PrismaClientKnownRequestError && error.code === 'P2002';
 
+/** Another evaluation changed the row between our read and our write. */
+class ConcurrentUpdateError extends Error {
+  constructor() {
+    super('candidate exposure changed concurrently');
+    this.name = 'ConcurrentUpdateError';
+  }
+}
+
+/** Write only if the row is still in the state we read (compare-and-set). */
+async function updateIfUnchanged(
+  tx: Prisma.TransactionClient,
+  existing: { id: string; handoff_version: number; validation_status: string },
+  data: Prisma.CandidateExposureUpdateManyMutationInput
+): Promise<void> {
+  const { count } = await tx.candidateExposure.updateMany({
+    where: {
+      id: existing.id,
+      handoff_version: existing.handoff_version,
+      validation_status: existing.validation_status as Prisma.EnumExposureValidationStatusFilter['equals'],
+    },
+    data,
+  });
+  if (count === 0) throw new ConcurrentUpdateError();
+}
+
 async function upsertOnce(input: CandidateExposureInput): Promise<UpsertCandidateExposureResult> {
   const prisma = getPrismaClient();
   const status = statusForStrength(input.exposure_strength);
@@ -236,7 +256,7 @@ async function upsertOnce(input: CandidateExposureInput): Promise<UpsertCandidat
     // CANDIDATE row is left without one. If one was already queued under v1
     // the insert is a no-op.
     if (existing.validation_status === 'CANDIDATE' && existing.handoff_version === 0) {
-      await tx.candidateExposure.update({ where: { id: existing.id }, data: { handoff_version: 1 } });
+      await updateIfUnchanged(tx, existing, { handoff_version: 1 });
       // Hand off what is stored, not this evaluation, so the record and the row agree.
       const stored = {
         organization_id: existing.organization_id,
@@ -267,17 +287,21 @@ async function upsertOnce(input: CandidateExposureInput): Promise<UpsertCandidat
     const emit = status === 'CANDIDATE';
     const handoffVersion = emit ? existing.handoff_version + 1 : existing.handoff_version;
 
-    const updated = await tx.candidateExposure.update({
-      where: { id: existing.id },
-      data: { ...fields, global_event_id: input.global_event_id, handoff_version: handoffVersion, updated_at: now },
+    // Two concurrent promotions would otherwise both write version n+1 and the
+    // second record would dedupe while its content overwrote the row.
+    await updateIfUnchanged(tx, existing, {
+      ...fields,
+      global_event_id: input.global_event_id,
+      handoff_version: handoffVersion,
+      updated_at: now,
     });
 
     const emitted = emit
-      ? await emitRecord(tx, buildCandidateExposureRecord(updated.id, handoffVersion, input, now))
+      ? await emitRecord(tx, buildCandidateExposureRecord(existing.id, handoffVersion, input, now))
       : false;
     return {
-      candidate_exposure_id: updated.id,
-      validation_status: updated.validation_status,
+      candidate_exposure_id: existing.id,
+      validation_status: status,
       outcome: 'updated',
       change_record_emitted: emitted,
     };
@@ -294,8 +318,9 @@ async function upsertOnce(input: CandidateExposureInput): Promise<UpsertCandidat
  *   exposure or a different asset set). Otherwise the rejection stands.
  * - Any other status: the exposure is already in the pipeline; leave it.
  *
- * Two concurrent evaluations can race on the unique (org, event_hash) key; the
- * loser's transaction rolls back and is retried once against the winner's row.
+ * Two concurrent evaluations can race: on create (unique (org, event_hash)
+ * key) or on update (compare-and-set on handoff_version and status). The
+ * loser's transaction rolls back and is retried against the winner's row.
  */
 export async function upsertCandidateExposure(
   input: CandidateExposureInput
@@ -304,10 +329,13 @@ export async function upsertCandidateExposure(
     throw new Error('organization_id required for tenant isolation');
   }
 
-  try {
-    return await upsertOnce(input);
-  } catch (error) {
-    if (!isUniqueViolation(error)) throw error;
-    return upsertOnce(input);
+  const MAX_ATTEMPTS = 3;
+  for (let attempt = 1; ; attempt++) {
+    try {
+      return await upsertOnce(input);
+    } catch (error) {
+      const raced = isUniqueViolation(error) || error instanceof ConcurrentUpdateError;
+      if (!raced || attempt >= MAX_ATTEMPTS) throw error;
+    }
   }
 }

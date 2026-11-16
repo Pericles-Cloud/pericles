@@ -19,6 +19,20 @@ import type { ConsumerRegistry } from './consumer-registry.js';
 
 export const DEFAULT_STAGE_TIMEOUT_MS = 10_000;
 
+/**
+ * Stages that run an LLM agent cannot fit the default budget. client_monitoring
+ * runs one agent evaluation per org; a fan-out that runs out of time hands the
+ * remaining orgs their own records, so this budget is per org-scoped record in
+ * practice. Overrides win over DispatchOptions.stageTimeoutMs.
+ */
+export const STAGE_TIMEOUT_OVERRIDES_MS: Partial<Record<ConsumerName, number>> = {
+  client_monitoring: 120_000,
+};
+
+export function stageTimeoutFor(consumer: ConsumerName, fallbackMs?: number): number {
+  return STAGE_TIMEOUT_OVERRIDES_MS[consumer] ?? fallbackMs ?? DEFAULT_STAGE_TIMEOUT_MS;
+}
+
 export type StageStatus = 'completed' | 'skipped_noop' | 'duplicate' | 'failed';
 
 export interface StageResult {
@@ -105,7 +119,7 @@ async function runStage(
   try {
     await handler({
       record,
-      signal: AbortSignal.timeout(options.stageTimeoutMs ?? DEFAULT_STAGE_TIMEOUT_MS),
+      signal: AbortSignal.timeout(stageTimeoutFor(consumer, options.stageTimeoutMs)),
     });
     await options.prisma.dispatchLog.update({ where: { id: row.id }, data: { status: 'completed' } });
     return { consumer, status: 'completed' };

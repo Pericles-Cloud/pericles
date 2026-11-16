@@ -12,7 +12,8 @@
  * to all customer organizations.
  */
 
-import { changeRecordKey, type ChangeRecord } from '../records/change-record.js';
+import { changeRecordQueueItem, type ChangeRecord } from '../records/change-record.js';
+import { orgReevaluationRecord } from '../records/global-event-change.js';
 import { enqueueManyIdempotent, CHANGE_RECORD_QUEUE } from '../../monitoring/queue-client.js';
 import type { ConsumerHandler } from '../dispatch/consumer-registry.js';
 import { getPrismaClient } from '../../monitoring/db-client.js';
@@ -51,10 +52,12 @@ export const clientMonitoringConsumer: ConsumerHandler = async ({ record, signal
   }
 
   // A back-match record targets a single org; a real global event change fans out to all.
-  const targetOrgId =
-    typeof payload.target_organization_id === 'string' ? payload.target_organization_id : undefined;
-  // Tenant isolation: a targeted record may only target its own scope.
-  if (targetOrgId !== undefined && targetOrgId !== record.organization_id) {
+  // Tenant isolation: if the key is present at all, it must be a string equal
+  // to the record's own scope. A null or malformed target must not fall back
+  // to fanning out across every tenant.
+  const hasTarget = Object.prototype.hasOwnProperty.call(payload, 'target_organization_id');
+  const targetOrgId = hasTarget ? payload.target_organization_id : undefined;
+  if (hasTarget && (typeof targetOrgId !== 'string' || targetOrgId !== record.organization_id)) {
     logger.warn(
       { record_id: record.record_id, record_org: record.organization_id, target_org: targetOrgId },
       '[ClientMonitoring] target_organization_id does not match record scope; ignoring record'
@@ -153,28 +156,24 @@ export const clientMonitoringConsumer: ConsumerHandler = async ({ record, signal
 };
 
 /**
- * Enqueue one org-scoped global_event_change per org whose evaluation did not
+ * Enqueue one org-scoped re-evaluation per org whose evaluation did not
  * complete. Keyed by (source record, org) and the source version, so a
- * redelivery of the source record does not enqueue duplicates. The payload is
- * minimal on purpose: it routes only to client_monitoring (no change_kind or
- * severity, so it cannot re-trigger Event Verification).
+ * redelivery of the source record does not enqueue duplicates.
  */
 async function enqueueOrgRetries(source: ChangeRecord, globalEventId: string, orgIds: string[]): Promise<void> {
   const producedAt = new Date().toISOString();
-  const items = orgIds.map((orgId) => {
-    const retry: ChangeRecord = {
-      record_id: `${source.record_id}:org:${orgId}`,
-      record_version: source.record_version,
-      record_type: 'global_event_change',
-      organization_id: orgId,
-      produced_at: producedAt,
-      payload: { event_id: globalEventId, change_type: 'org_retry', target_organization_id: orgId },
-    };
-    return {
-      message: { type: 'change_record' as const, payload: retry, timestamp: producedAt, organizationId: orgId },
-      idempotencyKey: changeRecordKey(retry),
-    };
-  });
+  const items = orgIds.map((orgId) =>
+    changeRecordQueueItem(
+      orgReevaluationRecord({
+        recordId: `${source.record_id}:org:${orgId}`,
+        recordVersion: source.record_version,
+        globalEventId,
+        organizationId: orgId,
+        reason: 'org_retry',
+        producedAt,
+      })
+    )
+  );
   await enqueueManyIdempotent(getPrismaClient(), CHANGE_RECORD_QUEUE, items);
   logger.warn(
     { source_record_id: source.record_id, global_event_id: globalEventId, orgs: orgIds.length },

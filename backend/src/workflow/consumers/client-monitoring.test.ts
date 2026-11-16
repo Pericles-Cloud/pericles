@@ -56,6 +56,12 @@ describe('clientMonitoringConsumer target_organization_id', () => {
     expect(fake.organization.findMany).not.toHaveBeenCalled();
   });
 
+  it('rejects a present-but-null target instead of fanning out to every tenant', async () => {
+    await run(record(ORG_A, { event_id: 'ge-1', target_organization_id: null }));
+    expect(fake.globalEvent.findUnique).not.toHaveBeenCalled();
+    expect(fake.organization.findMany).not.toHaveBeenCalled();
+  });
+
   it('restricts fan-out to the target org when it matches the record scope', async () => {
     await run(record(ORG_A, { event_id: 'ge-1', target_organization_id: ORG_A }));
     expect(fake.organization.findMany.mock.calls[0][0].where.id).toBe(ORG_A);

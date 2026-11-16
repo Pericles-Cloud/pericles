@@ -6,7 +6,7 @@ import { describe, it, expect, vi, beforeEach } from 'vitest';
 const fake = vi.hoisted(() => ({
   globalEvent: { findMany: vi.fn() },
   messageQueue: { createMany: vi.fn() },
-  clientExposureProfile: { findUnique: vi.fn(), update: vi.fn() },
+  clientExposureProfile: { findUnique: vi.fn(), updateMany: vi.fn() },
   $transaction: vi.fn(),
 }));
 
@@ -36,7 +36,7 @@ beforeEach(() => {
   fake.$transaction.mockReset();
   fake.globalEvent.findMany.mockReset();
   fake.clientExposureProfile.findUnique.mockReset();
-  fake.clientExposureProfile.update.mockReset().mockResolvedValue({});
+  fake.clientExposureProfile.updateMany.mockReset().mockResolvedValue({ count: 1 });
   fake.messageQueue.createMany.mockReset().mockImplementation(({ data }: { data: Row[] }) =>
     Promise.resolve({ count: data.length })
   );
@@ -115,6 +115,13 @@ describe('profileFingerprint', () => {
     );
   });
 
+  it('treats [], {} and null as the same empty content', () => {
+    expect(profileFingerprint({ strategic_priorities: [] } as never)).toBe(
+      profileFingerprint({ strategic_priorities: null } as never)
+    );
+    expect(profileFingerprint({ min_severity: {} } as never)).toBe(profileFingerprint({} as never));
+  });
+
   it('ignores ETA drift but not a new or re-routed shipment', () => {
     const shipment = { id: 'sh-1', origin: 'CNSHA', destination: 'USBAL', eta: '2026-11-20T00:00:00Z' };
     const base = profileFingerprint({ shipments_in_transit: [shipment] } as never);
@@ -130,7 +137,7 @@ describe('backMatchIfProfileChanged', () => {
   const A = { suppliers: [{ id: 's-a' }] };
   const B = { suppliers: [{ id: 's-b' }] };
   const fp = (p: object) => profileFingerprint(p as never);
-  const updates = () => fake.clientExposureProfile.update.mock.calls.map((c) => c[0].data);
+  const updates = () => fake.clientExposureProfile.updateMany.mock.calls.map((c) => c[0].data);
   const backMatchKeys = () => insertCalls().flat().map((r) => r.idempotency_key);
 
   it('does nothing when content matches the last back-matched fingerprint', async () => {
@@ -138,7 +145,7 @@ describe('backMatchIfProfileChanged', () => {
 
     expect(await backMatchIfProfileChanged(ORG)).toBe(0);
     expect(fake.globalEvent.findMany).not.toHaveBeenCalled();
-    expect(fake.clientExposureProfile.update).not.toHaveBeenCalled();
+    expect(fake.clientExposureProfile.updateMany).not.toHaveBeenCalled();
   });
 
   it('starts a new run (seq+1) for new content and stores the fingerprint after success', async () => {
@@ -192,6 +199,41 @@ describe('backMatchIfProfileChanged', () => {
 
     await expect(backMatchIfProfileChanged(ORG)).rejects.toThrow('db down');
     expect(updates()).toEqual([{ back_match_seq: 1, back_match_attempt_fingerprint: fp(B) }]);
+  });
+
+  it('refuses a run another writer claimed first, without enqueueing', async () => {
+    fake.clientExposureProfile.findUnique.mockResolvedValue({
+      ...B,
+      back_match_fingerprint: fp(A),
+      back_match_seq: 1,
+      back_match_attempt_fingerprint: fp(A),
+    });
+    fake.clientExposureProfile.updateMany.mockResolvedValueOnce({ count: 0 });
+
+    await expect(backMatchIfProfileChanged(ORG)).rejects.toThrow('claimed concurrently');
+    expect(fake.clientExposureProfile.updateMany.mock.calls[0][0].where).toEqual({
+      organization_id: ORG,
+      back_match_seq: 1,
+      back_match_attempt_fingerprint: fp(A),
+    });
+    expect(fake.messageQueue.createMany).not.toHaveBeenCalled();
+  });
+
+  it('records success only while its run is still the latest', async () => {
+    fake.clientExposureProfile.findUnique.mockResolvedValue({
+      ...B,
+      back_match_fingerprint: fp(A),
+      back_match_seq: 1,
+      back_match_attempt_fingerprint: fp(A),
+    });
+    fake.globalEvent.findMany.mockResolvedValueOnce([event(1)]);
+
+    await backMatchIfProfileChanged(ORG);
+    expect(fake.clientExposureProfile.updateMany.mock.calls[1][0].where).toEqual({
+      organization_id: ORG,
+      back_match_seq: 2,
+      back_match_attempt_fingerprint: fp(B),
+    });
   });
 
   it('returns 0 when the org has no profile', async () => {

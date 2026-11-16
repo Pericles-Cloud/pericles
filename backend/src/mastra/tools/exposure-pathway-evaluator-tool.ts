@@ -1,6 +1,6 @@
 import { createTool } from '@mastra/core/tools';
 import { z } from 'zod';
-import { STRENGTH_RANK } from '../../monitoring/candidate-exposure-store.js';
+import { STRENGTH_RANK } from '../../monitoring/exposure-strength.js';
 
 /**
  * Exposure Pathway Evaluator Tool
