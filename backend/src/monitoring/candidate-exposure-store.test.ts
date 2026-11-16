@@ -6,7 +6,7 @@ import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { Prisma } from '@prisma/client';
 
 const fake = vi.hoisted(() => ({
-  candidateExposure: { findUnique: vi.fn(), create: vi.fn(), updateMany: vi.fn() },
+  candidateExposure: { findUnique: vi.fn(), findMany: vi.fn(), create: vi.fn(), updateMany: vi.fn() },
   messageQueue: { createMany: vi.fn() },
   $transaction: vi.fn(),
 }));
@@ -18,6 +18,7 @@ import {
   statusForStrength,
   CandidateEvaluationSchema,
   LEGACY_PENDING,
+  reemitCandidateHandoffs,
   mergeEvaluations,
   type CandidateEvaluation,
   type CandidateExposureInput,
@@ -55,6 +56,7 @@ const existingRow = (overrides: Record<string, unknown>) => ({
 beforeEach(() => {
   fake.$transaction.mockReset().mockImplementation((fn: (tx: unknown) => unknown) => fn(fake));
   fake.candidateExposure.findUnique.mockReset();
+  fake.candidateExposure.findMany.mockReset();
   fake.candidateExposure.create.mockReset();
   fake.candidateExposure.updateMany.mockReset().mockResolvedValue({ count: 1 });
   fake.messageQueue.createMany.mockReset().mockResolvedValue({ count: 1 });
@@ -454,6 +456,52 @@ describe('mergeEvaluations', () => {
     expect(merged?.exposed_assets.map((a) => a.asset_id)).toEqual(['s-1', 'f-1']);
     expect(merged?.exposure_pathways.map((p) => p.pathway)).toEqual(['entity', 'geographic_site']);
     expect(merged?.rationale).toBe('Supplier is named in the event. Plant is inside the zone.');
+  });
+});
+
+describe('reemitCandidateHandoffs', () => {
+  const candidate = (id: string, handoff_version: number) =>
+    existingRow({
+      id,
+      validation_status: 'CANDIDATE',
+      exposure_strength: 'direct',
+      exposure_priority: 'high',
+      organization_id: ORG,
+      global_event_id: INPUT.global_event_id,
+      global_event_hash: INPUT.global_event_hash,
+      handoff_version,
+    });
+
+  it('re-sends every CANDIDATE of the org with a fresh version, legacy rows as v2', async () => {
+    fake.candidateExposure.findMany.mockResolvedValueOnce([candidate('ce-a', 1), candidate('ce-b', LEGACY_PENDING)]);
+
+    expect(await reemitCandidateHandoffs(ORG)).toBe(2);
+    expect(fake.candidateExposure.findMany.mock.calls[0][0].where).toEqual({
+      organization_id: ORG,
+      validation_status: 'CANDIDATE',
+    });
+    expect(enqueuedRows().map((r) => r.idempotency_key)).toEqual(['ce-a:2', 'ce-b:2']);
+  });
+
+  it('skips a row changed concurrently and keeps going', async () => {
+    fake.candidateExposure.findMany.mockResolvedValueOnce([candidate('ce-c', 1), candidate('ce-d', 3)]);
+    fake.candidateExposure.updateMany.mockResolvedValueOnce({ count: 0 }).mockResolvedValue({ count: 1 });
+
+    expect(await reemitCandidateHandoffs(ORG)).toBe(1);
+    expect(enqueuedRows().map((r) => r.idempotency_key)).toEqual(['ce-d:4']);
+  });
+
+  it('pages through all rows', async () => {
+    fake.candidateExposure.findMany
+      .mockResolvedValueOnce([candidate('ce-1', 1), candidate('ce-2', 1)])
+      .mockResolvedValueOnce([candidate('ce-3', 1)]);
+
+    expect(await reemitCandidateHandoffs(ORG, { pageSize: 2 })).toBe(3);
+    expect(fake.candidateExposure.findMany.mock.calls[1][0]).toMatchObject({ cursor: { id: 'ce-2' }, skip: 1 });
+  });
+
+  it('rejects a missing organization_id', async () => {
+    await expect(reemitCandidateHandoffs('')).rejects.toThrow('organization_id required');
   });
 });
 

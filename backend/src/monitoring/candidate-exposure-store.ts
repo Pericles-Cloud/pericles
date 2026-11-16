@@ -397,3 +397,75 @@ export async function upsertCandidateExposure(
     }
   }
 }
+
+/**
+ * Re-send every undecided CANDIDATE of one organization to Validation, each
+ * with a fresh hand-off version.
+ *
+ * Until the Validation consumers (event_verification, exposure_validation;
+ * GitHub #78) are registered, the dispatcher records candidate_exposure stages
+ * as skipped_noop, which is final for that record version. #78 calls this per
+ * organization once its consumers are registered, so those exposures, and
+ * LEGACY_PENDING rows whose event never changes again, are not stranded.
+ *
+ * Each row is bumped with the same compare-and-set as a promotion, so a row an
+ * evaluation changes concurrently is skipped here rather than double-sent.
+ * Returns the number of records enqueued.
+ */
+export async function reemitCandidateHandoffs(
+  organizationId: string,
+  options: { pageSize?: number } = {}
+): Promise<number> {
+  if (!organizationId) {
+    throw new Error('organization_id required for tenant isolation');
+  }
+  const prisma = getPrismaClient();
+  const pageSize = options.pageSize ?? 200;
+  let cursor: string | undefined;
+  let emitted = 0;
+
+  for (;;) {
+    const rows = await prisma.candidateExposure.findMany({
+      where: { organization_id: organizationId, validation_status: 'CANDIDATE' },
+      orderBy: { id: 'asc' },
+      take: pageSize,
+      ...(cursor ? { cursor: { id: cursor }, skip: 1 } : {}),
+    });
+    if (rows.length === 0) break;
+
+    for (const row of rows) {
+      const next = row.handoff_version <= 0 ? LEGACY_HANDOFF_VERSION : row.handoff_version + 1;
+      try {
+        const sent = await prisma.$transaction(async (tx) => {
+          await updateIfUnchanged(tx, row, { handoff_version: next });
+          return emitRecord(
+            tx,
+            buildCandidateExposureRecord(
+              row.id,
+              next,
+              {
+                organization_id: row.organization_id,
+                global_event_id: row.global_event_id,
+                global_event_hash: row.global_event_hash,
+                exposure_strength: row.exposure_strength as ExposureStrength,
+                exposure_priority: row.exposure_priority as CandidateEvaluation['exposure_priority'],
+              },
+              new Date()
+            )
+          );
+        });
+        if (sent) emitted++;
+      } catch (error) {
+        if (!(error instanceof ConcurrentUpdateError)) throw error;
+        // Changed by a concurrent evaluation, which handles its own hand-off.
+      }
+    }
+
+    if (rows.length < pageSize) break;
+    cursor = rows[rows.length - 1].id;
+  }
+
+  logger.info({ organization_id: organizationId, emitted }, '[CandidateExposure] Re-emitted candidate hand-offs');
+  return emitted;
+}
+

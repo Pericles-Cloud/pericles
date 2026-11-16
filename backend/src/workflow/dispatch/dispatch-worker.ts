@@ -33,7 +33,11 @@ export interface DispatchWorkerOptions {
 function createDefaultRegistry(): ConsumerRegistry {
   return createConsumerRegistry({
     client_monitoring: clientMonitoringConsumer,
-    // Add more consumers as they are implemented:
+    // Add more consumers as they are implemented.
+    // #78: until these two are registered, candidate_exposure stages are logged
+    // skipped_noop (final for that version). When registering them, run
+    // reemitCandidateHandoffs(orgId) (monitoring/candidate-exposure-store.ts)
+    // for each organization so pending CANDIDATE exposures reach Validation.
     // event_verification: eventVerificationConsumer,
     // exposure_validation: exposureValidationConsumer,
     // impact_assessment: impactAssessmentConsumer,
