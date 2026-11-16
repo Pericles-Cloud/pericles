@@ -13,13 +13,7 @@
 
 import { RuntimeContext } from '@mastra/core/runtime-context';
 import { getPrismaClient } from './db-client.js';
-import {
-  loadMonitoringConfig,
-  resolveAiApiKey,
-  resolveModel,
-  MissingApiKeyError,
-  type ResolvedModel,
-} from './config.js';
+import { loadMonitoringConfig, resolveModel, type ResolvedModel } from './config.js';
 
 /** runtimeContext key both agents read their model from. */
 export const MODEL_CONTEXT_KEY = 'model';
@@ -56,17 +50,17 @@ export async function resolveClientMonitoringModel(organizationId: string): Prom
  * Throws MissingApiKeyError if the root org has no key for its provider.
  */
 export async function resolveGlobalMonitoringModel(): Promise<ResolvedModel> {
-  const root = await getPrismaClient().organization.findFirst({ where: { is_root: true }, select: { id: true } });
-  if (!root) {
-    throw new Error('Global Monitoring: no root organization found to bill the global loop to');
+  const roots = await getPrismaClient().organization.findMany({
+    where: { is_root: true },
+    select: { id: true },
+    take: 2,
+  });
+  if (roots.length !== 1) {
+    throw new Error(
+      `Global Monitoring: expected exactly one root organization to bill the global loop to, found ${roots.length}`
+    );
   }
-  const config = await loadMonitoringConfig(root.id);
-  const { provider, modelName } = config.ai;
-  // The root org's OWN secret: no credentials-owner climb (it has no parent).
-  const apiKey = await resolveAiApiKey(root.id, provider);
-  if (!apiKey) {
-    throw new MissingApiKeyError(root.id, provider);
-  }
-  const id: `${string}/${string}` = provider === 'openrouter' ? `openrouter/${modelName}` : `${provider}/${modelName}`;
-  return { id, apiKey };
+  // Same resolution as every org (resolveModel): the credentials owner of the
+  // root org is the root org itself, so this reads its own secret.
+  return resolveModel(await loadMonitoringConfig(roots[0].id));
 }

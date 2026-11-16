@@ -125,10 +125,7 @@ export async function storeDocument(
     '[OrgMemory] Document stored'
   );
 
-  // Strategic context changed: rebuild the profile Client Monitoring reads.
-  // Imported lazily: client-exposure-profile imports this module.
-  const { refreshClientExposureProfile } = await import('./client-exposure-profile.js');
-  await refreshClientExposureProfile(organizationId, 'org_memory');
+  await refreshStrategicContext(organizationId);
 
   return docId;
 }
@@ -201,7 +198,35 @@ export async function deleteDocument(
     },
   });
 
+  // A deleted priority or commitment must stop shaping exposures now, not at
+  // the next periodic refresh.
+  if (result.count > 0) await refreshStrategicContext(organizationId);
+
   return result.count > 0;
+}
+
+/**
+ * Strategic context changed (a document stored or deleted): refresh the
+ * profile's strategic fields only, which is cheap, when the profile exists;
+ * otherwise build the full profile. Never throws: a profile problem must not
+ * fail the document write.
+ */
+async function refreshStrategicContext(organizationId: string): Promise<void> {
+  try {
+    const exists = await getPrismaClient().clientExposureProfile.findUnique({
+      where: { organization_id: organizationId },
+      select: { id: true },
+    });
+    if (exists) {
+      await syncToClientExposureProfile(organizationId);
+    } else {
+      // Imported lazily: client-exposure-profile imports this module.
+      const { refreshClientExposureProfile } = await import('./client-exposure-profile.js');
+      await refreshClientExposureProfile(organizationId, 'org_memory');
+    }
+  } catch (error) {
+    logger.error({ error, organizationId }, '[OrgMemory] Profile strategic refresh failed');
+  }
 }
 
 // ============================================================================

@@ -24,6 +24,27 @@ export interface SyncResult {
   errors: string[];
 }
 
+/** Profile fields whose change makes a new profile version. */
+const PROFILE_CONTENT_FIELDS = [
+  'own_facilities',
+  'suppliers',
+  'products',
+  'logistics',
+  'shipments_in_transit',
+  'strategic_priorities',
+  'key_account_commitments',
+  'stated_concerns',
+] as const;
+
+/** JSON with object keys sorted, so jsonb key reordering is not a "change". */
+export function canonicalJson(value: unknown): string {
+  return JSON.stringify(value ?? null, (_key, v: unknown) =>
+    v && typeof v === 'object' && !Array.isArray(v)
+      ? Object.fromEntries(Object.entries(v as Record<string, unknown>).sort(([a], [b]) => a.localeCompare(b)))
+      : v
+  );
+}
+
 /**
  * Sync Client Exposure Profile from all sources
  */
@@ -116,14 +137,20 @@ export async function syncClientExposureProfile(organizationId: string): Promise
       logger.error({ error, organizationId }, '[ProfileSync] Org Memory sync failed');
     }
 
-    // Increment profile version
-    const updatedProfile = await prisma.clientExposureProfile.update({
-      where: { organization_id: organizationId },
-      data: {
-        profile_version: { increment: 1 },
-        updated_at: new Date(),
-      },
-    });
+    // Bump the version only when exposure-relevant content changed, so
+    // profile_snapshot_ref identifies real profile states (an hourly refresh
+    // of unchanged data does not mint a new version).
+    const before = profile;
+    const after = await prisma.clientExposureProfile.findUniqueOrThrow({ where: { organization_id: organizationId } });
+    const changed = PROFILE_CONTENT_FIELDS.some(
+      (field) => canonicalJson(before[field]) !== canonicalJson(after[field])
+    );
+    const updatedProfile = changed
+      ? await prisma.clientExposureProfile.update({
+          where: { organization_id: organizationId },
+          data: { profile_version: { increment: 1 }, updated_at: new Date() },
+        })
+      : after;
 
     const result: SyncResult = {
       organizationId,
@@ -160,12 +187,14 @@ async function syncFromERP(organizationId: string): Promise<{
 }> {
   const prisma = getPrismaClient();
 
-  // Get suppliers from Supplier table
+  // Get suppliers from Supplier table (ordered, so an unchanged dataset
+  // produces identical profile content and the version is not bumped).
   const suppliers = await prisma.supplier.findMany({
     where: { organization_id: organizationId },
+    orderBy: { id: 'asc' },
   });
 
-  const suppliersData = suppliers.map((s) => ({
+  const suppliersData: Array<Record<string, unknown>> = suppliers.map((s) => ({
     id: s.id,
     name: s.name,
     latitude: s.latitude,
@@ -180,13 +209,13 @@ async function syncFromERP(organizationId: string): Promise<{
   const shipments = await prisma.shipment.findMany({
     where: { organization_id: organizationId },
     take: 1000, // Limit for performance
-    orderBy: { created_at: 'desc' },
+    orderBy: [{ created_at: 'desc' }, { id: 'asc' }],
   });
 
   // Derive carriers from shipments
   const carrierIds = [...new Set(shipments.map((s) => s.carrier_id).filter(Boolean))] as string[];
   const carriers = carrierIds.length > 0
-    ? await prisma.carrier.findMany({ where: { id: { in: carrierIds } } })
+    ? await prisma.carrier.findMany({ where: { id: { in: carrierIds } }, orderBy: { id: 'asc' } })
     : [];
 
   const carriersData = carriers.map((c) => ({
@@ -226,11 +255,51 @@ async function syncFromERP(organizationId: string): Promise<{
       }
     }
   }
-  const productsData = Array.from(productMap.values());
+  const productsData = Array.from(productMap.values()).sort((a, b) => String(a.sku).localeCompare(String(b.sku)));
 
-  // Own facilities - would come from ERP plant/warehouse data
-  // For now, return empty array (to be populated by SAP adapter)
-  const ownFacilities: any[] = [];
+  // Own facilities and ERP-only suppliers come from the OrganizationContext
+  // rollup, which the SAP and BOL syncs write (plants, warehouses, suppliers).
+  const context = await prisma.organizationContext.findUnique({
+    where: { organization_id: organizationId },
+    select: { plants: true, warehouses: true, suppliers: true },
+  });
+  const located = (value: unknown): Array<Record<string, any>> => (Array.isArray(value) ? value : []);
+  const ownFacilities = [
+    ...located(context?.plants).map((p) => ({
+      id: p.plant_id,
+      name: p.name,
+      facility_type: p.plant_type ?? 'plant',
+      latitude: p.location?.latitude ?? null,
+      longitude: p.location?.longitude ?? null,
+      country_iso: p.country ?? null,
+    })),
+    ...located(context?.warehouses).map((w) => ({
+      id: w.warehouse_id,
+      name: w.name,
+      facility_type: 'warehouse',
+      latitude: w.location?.latitude ?? null,
+      longitude: w.location?.longitude ?? null,
+      country_iso: w.country ?? null,
+    })),
+  ].sort((a, b) => String(a.id).localeCompare(String(b.id)));
+
+  // ERP suppliers not already in the Supplier table (e.g. from SAP).
+  const knownSupplierNames = new Set(suppliersData.map((s) => String(s.name).trim().toLowerCase()));
+  for (const cs of located(context?.suppliers)) {
+    if (knownSupplierNames.has(String(cs.name).trim().toLowerCase())) continue;
+    suppliersData.push({
+      id: cs.supplier_id,
+      name: cs.name,
+      latitude: cs.location?.latitude ?? null,
+      longitude: cs.location?.longitude ?? null,
+      country_iso: cs.country ?? null,
+      supplies: [],
+      spend_pct: null,
+      single_source: false,
+      tier: cs.tier ?? 1,
+      critical: cs.critical === true,
+    });
+  }
 
   return {
     facilities: ownFacilities.length,
@@ -266,6 +335,7 @@ async function syncShipmentsInTransit(organizationId: string): Promise<any[]> {
       carrier: true,
     },
     take: 500, // Limit for performance
+    orderBy: { id: 'asc' },
   });
 
   return shipments.map((s) => ({

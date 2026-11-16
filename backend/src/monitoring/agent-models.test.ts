@@ -4,7 +4,7 @@
  */
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 
-const fake = vi.hoisted(() => ({ organization: { findFirst: vi.fn() } }));
+const fake = vi.hoisted(() => ({ organization: { findMany: vi.fn() } }));
 const cfg = vi.hoisted(() => ({
   loadMonitoringConfig: vi.fn(),
   resolveAiApiKey: vi.fn(),
@@ -31,23 +31,32 @@ import {
 const ROOT = '00000000-0000-0000-0000-0000000000aa';
 
 beforeEach(() => {
-  fake.organization.findFirst.mockReset().mockResolvedValue({ id: ROOT });
+  fake.organization.findMany.mockReset().mockResolvedValue([{ id: ROOT }]);
   cfg.loadMonitoringConfig.mockReset().mockResolvedValue({ ai: { provider: 'openai', modelName: 'gpt-4o-mini' } });
   cfg.resolveAiApiKey.mockReset();
   cfg.resolveModel.mockReset();
 });
 
 describe('resolveGlobalMonitoringModel', () => {
-  it("uses the root organization's own secret", async () => {
-    cfg.resolveAiApiKey.mockResolvedValue('root-key');
+  it("resolves the root organization's own model + key through resolveModel", async () => {
+    cfg.loadMonitoringConfig.mockResolvedValue({ organizationId: ROOT, ai: { provider: 'openai', modelName: 'gpt-4o-mini' } });
+    cfg.resolveModel.mockResolvedValue({ id: 'openai/gpt-4o-mini', apiKey: 'root-key' });
+
     expect(await resolveGlobalMonitoringModel()).toEqual({ id: 'openai/gpt-4o-mini', apiKey: 'root-key' });
-    expect(fake.organization.findFirst.mock.calls[0][0].where).toEqual({ is_root: true });
-    expect(cfg.resolveAiApiKey).toHaveBeenCalledWith(ROOT, 'openai');
+    expect(fake.organization.findMany.mock.calls[0][0].where).toEqual({ is_root: true });
+    expect(cfg.loadMonitoringConfig).toHaveBeenCalledWith(ROOT);
   });
 
-  it('throws MissingApiKeyError when the root org has no key (no platform fallback)', async () => {
-    cfg.resolveAiApiKey.mockResolvedValue(null);
+  it('propagates MissingApiKeyError when the root org has no key (no platform fallback)', async () => {
+    cfg.resolveModel.mockRejectedValue(new MissingApiKeyError(ROOT, 'openai'));
     await expect(resolveGlobalMonitoringModel()).rejects.toBeInstanceOf(MissingApiKeyError);
+  });
+
+  it('refuses to guess when there is not exactly one root organization', async () => {
+    fake.organization.findMany.mockResolvedValue([{ id: ROOT }, { id: 'other-root' }]);
+    await expect(resolveGlobalMonitoringModel()).rejects.toThrow('exactly one root organization');
+    fake.organization.findMany.mockResolvedValue([]);
+    await expect(resolveGlobalMonitoringModel()).rejects.toThrow('found 0');
   });
 });
 

@@ -56,6 +56,18 @@ function validateEnvironment(): void {
   }
 }
 
+/** A positive integer interval from the environment, or the default (an invalid value is rejected, not NaN). */
+function positiveIntervalMs(name: string, fallback: number): number {
+  const raw = process.env[name];
+  if (raw === undefined || raw === '') return fallback;
+  const value = Number(raw);
+  if (!Number.isInteger(value) || value < 1000) {
+    logger.fatal({ name, raw }, `${name} must be an integer number of milliseconds >= 1000`);
+    process.exit(1);
+  }
+  return value;
+}
+
 // ============================================================================
 // Periodic profile refresh
 // ============================================================================
@@ -96,7 +108,7 @@ async function main() {
   const args = parseArgs();
 
   // Load configuration
-  const intervalMs = args.intervalMs ?? parseInt(process.env.GLOBAL_MONITORING_INTERVAL_MS || '300000', 10);
+  const intervalMs = args.intervalMs ?? positiveIntervalMs('GLOBAL_MONITORING_INTERVAL_MS', 300000);
 
   logger.info(
     {
@@ -112,7 +124,7 @@ async function main() {
 
   // Periodic Client Exposure Profile refresh for every monitoring-enabled org
   // (D29): catches anything the sync triggers (ERP/BOL, Org Memory) missed.
-  const profileIntervalMs = parseInt(process.env.PROFILE_REFRESH_INTERVAL_MS || String(60 * 60 * 1000), 10);
+  const profileIntervalMs = positiveIntervalMs('PROFILE_REFRESH_INTERVAL_MS', 60 * 60 * 1000);
   const profileTimer = setInterval(() => {
     void refreshAllProfiles();
   }, profileIntervalMs);
@@ -131,8 +143,15 @@ async function main() {
     shutdown('SIGTERM');
   });
 
-  // Start global monitoring loop
+  // Start global monitoring loop. It returns only when it gives up (e.g. after
+  // repeated failures). Exit non-zero then, so the platform restarts the
+  // service: the dispatch worker and timer would otherwise keep a process alive
+  // that no longer detects anything.
   await startGlobalMonitoring({ pollingIntervalMs: intervalMs });
+  logger.fatal('[GlobalStart] Global monitoring loop stopped; exiting so the service is restarted');
+  clearInterval(profileTimer);
+  dispatchWorker.stop();
+  process.exit(1);
 }
 
 // ============================================================================
