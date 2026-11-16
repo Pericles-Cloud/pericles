@@ -41,7 +41,6 @@ describe('triggerBackMatching', () => {
       'FORECAST',
       'DEVELOPING',
       'ACTIVE',
-      'DE_ESCALATING',
     ]);
     const rows = fake.messageQueue.createMany.mock.calls.map(([arg]) => arg.data[0]);
     expect(rows).toHaveLength(2);

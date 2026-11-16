@@ -354,8 +354,12 @@ async function syncFromOrgMemory(organizationId: string): Promise<{
   };
 }
 
-/** Active (non-terminal) Global Event statuses that a profile change can newly expose. */
-const BACK_MATCH_STATUSES = ['FORECAST', 'DEVELOPING', 'ACTIVE', 'DE_ESCALATING'] as const;
+/**
+ * Statuses re-scanned on a profile change. Per the Client Monitoring Agent
+ * spec §6 (Notion): "Forecast, Developing, or Active" — De-escalating is
+ * deliberately excluded.
+ */
+const BACK_MATCH_STATUSES = ['FORECAST', 'DEVELOPING', 'ACTIVE'] as const;
 const BACK_MATCH_LIMIT = 1000;
 
 /**
