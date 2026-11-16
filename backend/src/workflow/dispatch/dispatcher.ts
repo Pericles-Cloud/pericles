@@ -14,7 +14,8 @@
 import type { PrismaClient } from '@prisma/client';
 import { logger } from '../../monitoring/logger.js';
 import type { ChangeRecord } from '../records/change-record.js';
-import { DISPATCH_TABLE, routesFor, type ConsumerName } from './dispatch-table.js';
+import { routesFor, type ConsumerName } from './dispatch-table.js';
+import { isUniqueViolation } from '../../monitoring/prisma-errors.js';
 import type { ConsumerRegistry } from './consumer-registry.js';
 
 export const DEFAULT_STAGE_TIMEOUT_MS = 10_000;
@@ -23,7 +24,8 @@ export const DEFAULT_STAGE_TIMEOUT_MS = 10_000;
  * Stages that run an LLM agent cannot fit the default budget. client_monitoring
  * runs one agent evaluation per org; a fan-out that runs out of time hands the
  * remaining orgs their own records, so this budget is per org-scoped record in
- * practice. An override is a floor: a larger DispatchOptions.stageTimeoutMs
+ * practice. The queue renews a held row's lock while it runs, so a stage longer
+ * than the lease is not reclaimed mid-run. An override is a floor: a larger DispatchOptions.stageTimeoutMs
  * configured by the operator still wins.
  */
 export const STAGE_TIMEOUT_OVERRIDES_MS: Partial<Record<ConsumerName, number>> = {
@@ -34,19 +36,6 @@ export function stageTimeoutFor(consumer: ConsumerName, fallbackMs?: number): nu
   const base = fallbackMs ?? DEFAULT_STAGE_TIMEOUT_MS;
   const override = STAGE_TIMEOUT_OVERRIDES_MS[consumer];
   return override === undefined ? base : Math.max(override, base);
-}
-
-/**
- * Worst-case time to dispatch one record: the record type whose routes have the
- * largest summed stage budgets (stages run sequentially). The worker sizes its
- * claim batch from this so a batch always finishes inside the queue lease.
- */
-export function maxRecordBudgetMs(fallbackMs?: number): number {
-  return Math.max(
-    ...Object.values(DISPATCH_TABLE).map((routes) =>
-      routes.reduce((sum, route) => sum + stageTimeoutFor(route.consumer, fallbackMs), 0)
-    )
-  );
 }
 
 export type StageStatus = 'completed' | 'skipped_noop' | 'duplicate' | 'failed';
@@ -71,9 +60,6 @@ export interface DispatchOptions {
 
 const FINISHED: ReadonlySet<string> = new Set(['completed', 'skipped_noop']);
 
-function isUniqueViolation(error: unknown): boolean {
-  return typeof error === 'object' && error !== null && (error as { code?: unknown }).code === 'P2002';
-}
 
 async function findOrCreateRow(
   record: ChangeRecord,

@@ -19,6 +19,7 @@ import type { ConsumerHandler } from '../dispatch/consumer-registry.js';
 import { getPrismaClient } from '../../monitoring/db-client.js';
 import { mastra } from '../../mastra/index.js';
 import { logger } from '../../monitoring/logger.js';
+import { severityRank } from '../../monitoring/exposure-strength.js';
 import {
   CandidateEvaluationSchema,
   mergeEvaluations,
@@ -45,7 +46,7 @@ export const clientMonitoringConsumer: ConsumerHandler = async ({ record, signal
     event_id?: string;
     global_event_id?: string;
     change_type?: string;
-    /** Set by profile back-matching: evaluate only this org, not every tenant. */
+    /** Set on org-scoped retry records: evaluate only this org, not every tenant. */
     target_organization_id?: string;
   };
 
@@ -56,7 +57,7 @@ export const clientMonitoringConsumer: ConsumerHandler = async ({ record, signal
     return;
   }
 
-  // A back-match record targets a single org; a real global event change fans out to all.
+  // An org-scoped retry record targets a single org; a real global event change fans out to all.
   // Tenant isolation: if the key is present at all, it must be a string equal
   // to the record's own scope. A null or malformed target must not fall back
   // to fanning out across every tenant.
@@ -86,7 +87,7 @@ export const clientMonitoringConsumer: ConsumerHandler = async ({ record, signal
       return;
     }
 
-    // Fetch customer organizations (exclude root org). A back-match record
+    // Fetch customer organizations (exclude root org). An org-scoped record
     // targets a single org; a real global event change fans out to all.
     const organizations = await prisma.organization.findMany({
       where: {
@@ -250,10 +251,9 @@ async function evaluateExposureForOrg(
   // Check minimum severity
   const minSeverityConfig = profile.min_severity as Record<string, string> | null;
   if (minSeverityConfig) {
-    const severityOrder = { low: 1, medium: 2, high: 3, critical: 4 };
     const minSeverity = minSeverityConfig[globalEvent.category] ?? 'low';
-    const eventSeverityValue = severityOrder[globalEvent.intrinsic_severity as keyof typeof severityOrder] ?? 0;
-    const minSeverityValue = severityOrder[minSeverity as keyof typeof severityOrder] ?? 0;
+    const eventSeverityValue = severityRank(globalEvent.intrinsic_severity);
+    const minSeverityValue = severityRank(minSeverity);
 
     if (eventSeverityValue < minSeverityValue) {
       logger.debug(
@@ -302,7 +302,8 @@ async function evaluateExposureForOrg(
   const items: unknown[] = [
     ...(Array.isArray(parsedResult.candidate_exposures) ? parsedResult.candidate_exposures : []),
     ...(Array.isArray(parsedResult.watch_list) ? parsedResult.watch_list : []).map((item: unknown) =>
-      item && typeof item === 'object' ? { exposure_strength: 'possible', ...item } : item
+      // Watch-list items are watch-only by definition; the model cannot upgrade them here.
+      item && typeof item === 'object' ? { ...item, exposure_strength: 'possible' } : item
     ),
   ];
 

@@ -1,6 +1,6 @@
 import { createTool } from '@mastra/core/tools';
 import { z } from 'zod';
-import { STRENGTH_RANK } from '../../monitoring/exposure-strength.js';
+import { STRENGTH_RANK, severityRank } from '../../monitoring/exposure-strength.js';
 
 /**
  * Exposure Pathway Evaluator Tool
@@ -323,10 +323,9 @@ function checkAdminFilters(
   }
 
   // Check minimum severity
-  const severityOrder = { low: 1, medium: 2, high: 3, critical: 4 };
   const minSeverity = profile.min_severity?.[category] ?? 'low';
-  const eventSeverityValue = severityOrder[severity as keyof typeof severityOrder] ?? 0;
-  const minSeverityValue = severityOrder[minSeverity as keyof typeof severityOrder] ?? 0;
+  const eventSeverityValue = severityRank(severity);
+  const minSeverityValue = severityRank(minSeverity);
 
   if (eventSeverityValue < minSeverityValue) {
     return { filtered: true, reason: `Severity '${severity}' below minimum '${minSeverity}' for category` };
@@ -749,8 +748,7 @@ function classifyExposure(
   }
 
   // Calculate priority based on severity and exposure strength
-  const severityOrder = { low: 1, medium: 2, high: 3, critical: 4 };
-  const severityValue = severityOrder[intrinsicSeverity as keyof typeof severityOrder] ?? 1;
+  const severityValue = severityRank(intrinsicSeverity) || 1;
   const strengthValue = STRENGTH_RANK[exposureStrength] ?? 1;
 
   let exposurePriority: ExposurePriority;

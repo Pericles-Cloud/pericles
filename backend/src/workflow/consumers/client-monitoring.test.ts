@@ -29,7 +29,7 @@ const ORG_A = '11111111-1111-1111-1111-111111111111';
 const ORG_B = '22222222-2222-2222-2222-222222222222';
 
 const record = (organization_id: string | null, payload: Record<string, unknown>): ChangeRecord => ({
-  record_id: 'ge-1:backmatch',
+  record_id: 'ge-1:change',
   record_version: 1,
   record_type: 'global_event_change',
   organization_id,
@@ -101,7 +101,7 @@ describe('clientMonitoringConsumer failure handling', () => {
     const rows = retryRows();
     expect(rows).toHaveLength(1);
     expect(rows[0].organization_id).toBe(ORG_A);
-    expect(rows[0].idempotency_key).toBe(`ge-1:backmatch:org:${ORG_A}:1`);
+    expect(rows[0].idempotency_key).toBe(`ge-1:change:org:${ORG_A}:1`);
     expect(rows[0].payload.payload).toEqual({
       event_id: 'ge-1',
       change_type: 'org_retry',
@@ -175,6 +175,16 @@ describe('clientMonitoringConsumer agent output', () => {
     await run(record(null, { event_id: 'ge-1' }));
 
     expect(upsert).toHaveBeenCalledTimes(1);
+    expect(upsert.mock.calls[0][0].exposure_strength).toBe('possible');
+  });
+
+  it('keeps a watch-list item watch-only even if the model labels it stronger', async () => {
+    agent.generate.mockResolvedValue({
+      text: JSON.stringify({ candidate_exposures: [], watch_list: [exposure('probable', 'f-8')] }),
+    });
+
+    await run(record(null, { event_id: 'ge-1' }));
+
     expect(upsert.mock.calls[0][0].exposure_strength).toBe('possible');
   });
 

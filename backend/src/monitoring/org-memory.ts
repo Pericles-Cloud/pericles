@@ -18,7 +18,6 @@
 
 import { getPrismaClient } from './db-client.js';
 import { logger } from './logger.js';
-import { backMatchIfProfileChanged } from './client-exposure-profile.js';
 
 // ============================================================================
 // Types
@@ -370,16 +369,6 @@ export async function syncToClientExposureProfile(
     },
     '[OrgMemory] Synced to ClientExposureProfile'
   );
-
-  // A new strategic initiative can expose the customer to events that have not
-  // changed (Client spec §6), so this writer back-matches too. The profile is
-  // already written; a back-match failure is logged and retried on the next
-  // profile write (same contract as syncClientExposureProfile).
-  try {
-    await backMatchIfProfileChanged(organizationId);
-  } catch (error) {
-    logger.error({ error, organizationId }, '[OrgMemory] Back-matching failed; will retry on next profile write');
-  }
 
   return { strategicPriorities, keyAccountCommitments, statedConcerns };
 }

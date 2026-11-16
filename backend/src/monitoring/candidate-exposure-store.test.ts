@@ -99,6 +99,19 @@ describe('CandidateEvaluationSchema', () => {
     expect(parsed.data.exposure_priority).toBe('medium');
   });
 
+  it('accepts mixed-case strength and priority, and missing arrays and rationale', () => {
+    const parsed = CandidateEvaluationSchema.safeParse({ exposure_strength: 'Direct', exposure_priority: 'HIGH' });
+    expect(parsed.success).toBe(true);
+    if (!parsed.success) return;
+    expect(parsed.data).toMatchObject({
+      exposure_strength: 'direct',
+      exposure_priority: 'high',
+      exposure_pathways: [],
+      exposed_assets: [],
+      rationale: '',
+    });
+  });
+
   it('still rejects an item with no usable exposure_strength', () => {
     const { organization_id: _o, global_event_id: _g, global_event_hash: _h, ...evaluation } = INPUT;
     expect(CandidateEvaluationSchema.safeParse({ ...evaluation, exposure_strength: 'maybe' }).success).toBe(false);
@@ -260,6 +273,26 @@ describe('upsertCandidateExposure', () => {
     });
 
     expect(result.outcome).toBe('unchanged');
+  });
+
+  it('clears validation_ref when a rejection reopens as watch-only', async () => {
+    fake.candidateExposure.findUnique.mockResolvedValue(
+      existingRow({ id: 'ce-16', validation_status: 'REJECTED', exposure_strength: 'possible', handoff_version: 1 })
+    );
+
+    const result = await upsertCandidateExposure({
+      ...INPUT,
+      exposure_strength: 'possible',
+      exposed_assets: [
+        ...INPUT.exposed_assets,
+        { asset_type: 'shipment', asset_id: 's-1', distance_or_match_basis: 'via port' },
+      ],
+    });
+
+    expect(result).toMatchObject({ outcome: 'updated', change_record_emitted: false });
+    const data = fake.candidateExposure.updateMany.mock.calls[0][0].data;
+    expect(data.validation_status).toBe('WATCHING');
+    expect(data.validation_ref).toBeNull();
   });
 
   it('leaves an exposure already in the pipeline untouched', async () => {

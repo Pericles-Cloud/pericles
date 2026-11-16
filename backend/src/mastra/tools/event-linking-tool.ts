@@ -1,6 +1,7 @@
 import { createTool } from '@mastra/core/tools';
 import { z } from 'zod';
 import { getPrismaClient } from '../../monitoring/db-client.js';
+import { severityRank } from '../../monitoring/exposure-strength.js';
 
 /**
  * Event Linking Tool
@@ -208,9 +209,8 @@ A wrong link can merge two impacts downstream.
 
         // Check for parent/child potential
         // Larger events (higher severity) are more likely parents
-        const severityOrder = { critical: 4, high: 3, medium: 2, low: 1 };
-        const eventSeverity = severityOrder[event.intrinsic_severity as keyof typeof severityOrder] ?? 0;
-        const candidateSeverity = severityOrder[candidate.intrinsic_severity as keyof typeof severityOrder] ?? 0;
+        const eventSeverity = severityRank(event.intrinsic_severity);
+        const candidateSeverity = severityRank(candidate.intrinsic_severity);
 
         if (eventSeverity > candidateSeverity && timeDifferenceHours < 48) {
           suggestedLinkType = 'child';

@@ -12,3 +12,15 @@ export const STRENGTH_RANK: Record<ExposureStrength, number> = { possible: 1, st
 export function statusForStrength(strength: ExposureStrength): 'WATCHING' | 'CANDIDATE' {
   return strength === 'possible' ? 'WATCHING' : 'CANDIDATE';
 }
+
+export type Severity = 'low' | 'medium' | 'high' | 'critical';
+
+/**
+ * Single ordering for intrinsic severity and exposure priority (same scale).
+ * Unknown values rank 0.
+ */
+export const SEVERITY_RANK: Record<Severity, number> = { low: 1, medium: 2, high: 3, critical: 4 };
+
+export function severityRank(value: unknown): number {
+  return typeof value === 'string' && value in SEVERITY_RANK ? SEVERITY_RANK[value as Severity] : 0;
+}

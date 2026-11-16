@@ -280,6 +280,31 @@ export async function sweepExhaustedLocks(queueName: string, prisma = getPrismaC
   `;
 }
 
+/** How often a worker renews the locks on rows it holds: well inside the lease. */
+export const LOCK_RENEW_INTERVAL_MS = Math.floor((STALE_LOCK_SECONDS * 1000) / 3);
+
+/**
+ * Renew this worker's locks on rows it still holds. A claimed batch runs
+ * sequentially and one record can run an LLM stage for minutes; without
+ * renewal, rows still waiting (or a long-running one) pass STALE_LOCK_SECONDS
+ * and are reclaimed by another worker and run twice, or dead-lettered by the
+ * sweep. Only rows still PROCESSING under this worker's id are touched.
+ */
+export async function renewLocks(
+  ids: string[],
+  workerId: string,
+  prisma = getPrismaClient()
+): Promise<number> {
+  if (ids.length === 0) return 0;
+  return prisma.$executeRaw`
+    UPDATE "MessageQueue"
+    SET locked_at = now()
+    WHERE id = ANY(${ids}::text[])
+      AND locked_by = ${workerId}
+      AND status = 'PROCESSING'::"MessageStatus"
+  `;
+}
+
 export async function completeMessage(id: string, prisma = getPrismaClient()): Promise<void> {
   await prisma.messageQueue.update({
     where: { id },
@@ -351,37 +376,55 @@ export function consumeFromQueue(
 
   const poll = async () => {
     while (running) {
+      let claimedAny = false;
       try {
         await sweepExhaustedLocks(queueName, prisma);
 
         const rows = await claimNextBatch(queueName, batchSize, workerId, prisma);
+        claimedAny = rows.length > 0;
 
-        for (const row of rows) {
-          try {
-            await handler(
-              {
-                type: row.message_type as QueueMessage['type'],
-                payload: row.payload,
-                timestamp: row.scheduled_at.toISOString(),
-                organizationId: row.organization_id || '',
-              },
-              { id: row.id, attempts: row.attempts }
-            );
-            await completeMessage(row.id, prisma);
-          } catch (error) {
-            const outcome = await failMessage(row, error, prisma);
-            logger.error(
-              { queueName, messageId: row.id, attempts: row.attempts, outcome, error },
-              '[Queue] Message processing failed'
-            );
+        // Hold every claimed row's lease until it is finished.
+        const held = new Set(rows.map((row) => row.id));
+        const renewal = setInterval(() => {
+          renewLocks([...held], workerId, prisma).catch((error: unknown) => {
+            logger.error({ queueName, error }, '[Queue] Lock renewal failed');
+          });
+        }, LOCK_RENEW_INTERVAL_MS);
+
+        try {
+          for (const row of rows) {
+            try {
+              await handler(
+                {
+                  type: row.message_type as QueueMessage['type'],
+                  payload: row.payload,
+                  timestamp: row.scheduled_at.toISOString(),
+                  organizationId: row.organization_id || '',
+                },
+                { id: row.id, attempts: row.attempts }
+              );
+              await completeMessage(row.id, prisma);
+            } catch (error) {
+              const outcome = await failMessage(row, error, prisma);
+              logger.error(
+                { queueName, messageId: row.id, attempts: row.attempts, outcome, error },
+                '[Queue] Message processing failed'
+              );
+            } finally {
+              held.delete(row.id);
+            }
           }
+        } finally {
+          clearInterval(renewal);
         }
       } catch (error) {
         logger.error({ queueName, error }, '[Queue] Poll error');
       }
 
-      // Wait before next poll
-      await new Promise((resolve) => setTimeout(resolve, pollIntervalMs));
+      // Wait only when idle; a non-empty batch means more work may be due now.
+      if (!claimedAny) {
+        await new Promise((resolve) => setTimeout(resolve, pollIntervalMs));
+      }
     }
   };
 

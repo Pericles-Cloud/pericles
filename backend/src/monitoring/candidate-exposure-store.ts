@@ -14,9 +14,11 @@
 import { Prisma } from '@prisma/client';
 import { z } from 'zod';
 import { getPrismaClient } from './db-client.js';
+import { logger } from './logger.js';
 import { enqueueInTransaction, CHANGE_RECORD_QUEUE } from './queue-client.js';
 import { changeRecordQueueItem, type ChangeRecord } from '../workflow/records/change-record.js';
-import { STRENGTH_RANK, statusForStrength, type ExposureStrength } from './exposure-strength.js';
+import { SEVERITY_RANK, STRENGTH_RANK, statusForStrength, type ExposureStrength } from './exposure-strength.js';
+import { isUniqueViolation } from './prisma-errors.js';
 
 export { STRENGTH_RANK, statusForStrength, type ExposureStrength };
 
@@ -43,16 +45,18 @@ const AssetSchema = z.object({
  * this layer, Client spec §5).
  */
 function validItems<T extends z.ZodTypeAny>(item: T) {
-  return z.preprocess(
-    (value) =>
-      Array.isArray(value) ? value.filter((entry) => item.safeParse(entry).success) : value,
-    z.array(item)
-  );
+  return z.preprocess((value) => {
+    if (value === undefined || value === null) return [];
+    return Array.isArray(value) ? value.filter((entry) => item.safeParse(entry).success) : value;
+  }, z.array(item));
 }
 
 export const CandidateEvaluationSchema = z.object({
   exposure_pathways: validItems(PathwaySchema),
-  exposure_strength: z.enum(['direct', 'probable', 'possible', 'strategic']),
+  exposure_strength: z.preprocess(
+    (value) => (typeof value === 'string' ? value.trim().toLowerCase() : value),
+    z.enum(['direct', 'probable', 'possible', 'strategic'])
+  ),
   exposed_assets: validItems(AssetSchema),
   // LLM output: confidence may be omitted, and dates arrive in mixed formats
   // (date-only, with offsets). These are lenient for the same reason.
@@ -77,18 +81,18 @@ export const CandidateEvaluationSchema = z.object({
     .nullable()
     .optional()
     .catch(null),
-  rationale: z.string().min(1).describe('2-4 plain sentences explaining why'),
-  exposure_priority: z.enum(['critical', 'high', 'medium', 'low']).catch('medium'),
+  // Required by the spec, but a missing rationale must not drop a real exposure.
+  rationale: z.string().default('').describe('2-4 plain sentences explaining why'),
+  exposure_priority: z
+    .preprocess(
+      (value) => (typeof value === 'string' ? value.trim().toLowerCase() : value),
+      z.enum(['critical', 'high', 'medium', 'low'])
+    )
+    .catch('medium'),
 });
 
 export type CandidateEvaluation = z.infer<typeof CandidateEvaluationSchema>;
 
-const PRIORITY_RANK: Record<CandidateEvaluation['exposure_priority'], number> = {
-  low: 1,
-  medium: 2,
-  high: 3,
-  critical: 4,
-};
 
 /**
  * Merge every evaluation of one event for one org into the single exposure row
@@ -117,7 +121,7 @@ export function mergeEvaluations(evaluations: CandidateEvaluation[]): CandidateE
       (a) => `${a.asset_type}:${a.asset_id.trim().toLowerCase()}`
     ),
     exposure_priority: evaluations.reduce((a, b) =>
-      PRIORITY_RANK[b.exposure_priority] > PRIORITY_RANK[a.exposure_priority] ? b : a
+      SEVERITY_RANK[b.exposure_priority] > SEVERITY_RANK[a.exposure_priority] ? b : a
     ).exposure_priority,
     strategic_context: strategic.length > 0 ? uniqueBy(strategic, (c) => `${c.doc_ref}|${c.initiative}`) : null,
     temporal_relevance: strongest.temporal_relevance ?? evaluations.find((e) => e.temporal_relevance)?.temporal_relevance,
@@ -210,8 +214,6 @@ async function emitRecord(tx: Prisma.TransactionClient, record: ChangeRecord): P
   return !deduplicated;
 }
 
-const isUniqueViolation = (error: unknown): boolean =>
-  error instanceof Prisma.PrismaClientKnownRequestError && error.code === 'P2002';
 
 /** handoff_version the migration sets on pre-existing CANDIDATE rows. */
 export const LEGACY_PENDING = -1;
@@ -341,13 +343,21 @@ async function upsertOnce(input: CandidateExposureInput): Promise<UpsertCandidat
       global_event_id: input.global_event_id,
       handoff_version: handoffVersion,
       // A reopened rejection is undecided again; drop the pointer to the old verdict.
-      ...(existing.validation_status === 'REJECTED' && emit ? { validation_ref: null } : {}),
+      ...(existing.validation_status === 'REJECTED' ? { validation_ref: null } : {}),
       updated_at: now,
     });
 
     const emitted = emit
       ? await emitRecord(tx, buildCandidateExposureRecord(existing.id, handoffVersion, input, now))
       : false;
+    if (emit && !emitted) {
+      // A promotion always uses a new version, so a duplicate means the version
+      // history is wrong (e.g. a row from before hand-off versioning). Make it loud.
+      logger.error(
+        { candidate_exposure_id: existing.id, handoff_version: handoffVersion },
+        '[CandidateExposure] Hand-off record already existed for a new version; Validation was not notified'
+      );
+    }
     return {
       candidate_exposure_id: existing.id,
       validation_status: status,

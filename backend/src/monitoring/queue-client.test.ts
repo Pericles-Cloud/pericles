@@ -29,6 +29,9 @@ import {
   completeMessage,
   PermanentMessageError,
   STALE_LOCK_SECONDS,
+  LOCK_RENEW_INTERVAL_MS,
+  renewLocks,
+  consumeFromQueue,
 } from './queue-client.js';
 
 const QUEUE = 'change-records';
@@ -167,3 +170,92 @@ describe('completeMessage', () => {
     expect(data.locked_by).toBeNull();
   });
 });
+
+const sqlOf = (call: unknown[]) => (call[0] as TemplateStringsArray).join('?');
+const renewCalls = () => fake.$executeRaw.mock.calls.filter((c) => sqlOf(c).includes('SET locked_at = now()'));
+
+describe('renewLocks', () => {
+  it('renews only rows this worker still holds as PROCESSING', async () => {
+    fake.$executeRaw.mockResolvedValue(2);
+
+    expect(await renewLocks(['row-1', 'row-2'], 'worker-a')).toBe(2);
+    const [call] = renewCalls();
+    expect(sqlOf(call)).toMatch(/locked_by = \?/);
+    expect(sqlOf(call)).toMatch(/status = 'PROCESSING'/);
+    expect(call.slice(1)).toEqual([['row-1', 'row-2'], 'worker-a']);
+  });
+
+  it('does nothing for an empty set', async () => {
+    expect(await renewLocks([], 'worker-a')).toBe(0);
+    expect(fake.$executeRaw).not.toHaveBeenCalled();
+  });
+
+  it('renews well inside the lease', () => {
+    expect(LOCK_RENEW_INTERVAL_MS).toBeLessThan(STALE_LOCK_SECONDS * 1000);
+  });
+});
+
+describe('consumeFromQueue', () => {
+  const row = (id: string) => ({
+    id,
+    queue_name: QUEUE,
+    message_type: 'change_record',
+    organization_id: null,
+    payload: {},
+    attempts: 1,
+    max_attempts: 5,
+    scheduled_at: new Date('2026-11-16T00:00:00Z'),
+  });
+
+  it('keeps renewing a long-running row and a waiting row until each finishes', async () => {
+    vi.useFakeTimers();
+    try {
+      fake.$queryRaw.mockResolvedValueOnce([row('row-1'), row('row-2')]).mockResolvedValue([]);
+      let finishFirst: () => void = () => undefined;
+      const handler = vi
+        .fn()
+        .mockImplementationOnce(() => new Promise<void>((resolve) => (finishFirst = resolve)))
+        .mockResolvedValue(undefined);
+
+      const consumer = consumeFromQueue(QUEUE, handler, { pollIntervalMs: 1000 });
+      await vi.advanceTimersByTimeAsync(LOCK_RENEW_INTERVAL_MS + 1);
+
+      // row-1 is still running and row-2 is waiting behind it: both are renewed.
+      expect(renewCalls().at(-1)?.[1]).toEqual(['row-1', 'row-2']);
+
+      finishFirst();
+      await vi.advanceTimersByTimeAsync(0);
+      expect(handler).toHaveBeenCalledTimes(2);
+
+      // The batch is done and the loop is idle: the only live timer is the
+      // poll wait. A leaked renewal interval would add one per batch.
+      await vi.advanceTimersByTimeAsync(0);
+      expect(vi.getTimerCount()).toBe(1);
+      consumer.stop();
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it('polls again immediately after a non-empty batch, and waits only when idle', async () => {
+    vi.useFakeTimers();
+    try {
+      fake.$queryRaw.mockResolvedValueOnce([row('row-1')]).mockResolvedValue([]);
+      const consumer = consumeFromQueue(QUEUE, vi.fn().mockResolvedValue(undefined), { pollIntervalMs: 60_000 });
+
+      await vi.advanceTimersByTimeAsync(0);
+      // Second claim happened without the 60s idle wait.
+      expect(fake.$queryRaw).toHaveBeenCalledTimes(2);
+
+      await vi.advanceTimersByTimeAsync(1_000);
+      expect(fake.$queryRaw).toHaveBeenCalledTimes(2);
+
+      await vi.advanceTimersByTimeAsync(60_000);
+      consumer.stop();
+      expect(fake.$queryRaw).toHaveBeenCalledTimes(3);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+});
+
