@@ -53,10 +53,14 @@ function validItems<T extends z.ZodTypeAny>(item: T) {
 
 export const CandidateEvaluationSchema = z.object({
   exposure_pathways: validItems(PathwaySchema),
-  exposure_strength: z.preprocess(
-    (value) => (typeof value === 'string' ? value.trim().toLowerCase() : value),
-    z.enum(['direct', 'probable', 'possible', 'strategic'])
-  ),
+  // Normalize wording ("Direct exposure" -> direct). A missing or unreadable
+  // strength falls back to possible: the item is kept on the watch list and
+  // re-evaluated, never sent to Validation on a guess.
+  exposure_strength: z.preprocess((value) => {
+    if (typeof value !== 'string') return 'possible';
+    const word = value.trim().toLowerCase();
+    return (['direct', 'probable', 'possible', 'strategic'] as const).find((s) => word.includes(s)) ?? 'possible';
+  }, z.enum(['direct', 'probable', 'possible', 'strategic'])),
   exposed_assets: validItems(AssetSchema),
   // LLM output: confidence may be omitted, and dates arrive in mixed formats
   // (date-only, with offsets). These are lenient for the same reason.
@@ -146,34 +150,14 @@ export interface UpsertCandidateExposureResult {
 }
 
 
-/** Normalized asset keys. Asset ids are LLM-written, so compare loosely. */
-function assetKeys(assets: unknown): Set<string> {
-  if (!Array.isArray(assets)) return new Set();
-  return new Set(
-    assets.map((a) => {
-      const asset = a as { asset_type?: unknown; asset_id?: unknown };
-      return `${String(asset.asset_type).trim().toLowerCase()}:${String(asset.asset_id).trim().toLowerCase()}`;
-    })
-  );
-}
-
 /**
- * A Validation rejection stands unless the new evaluation brings new evidence:
- * a stronger exposure, or every previously named asset plus at least one more.
- * A different spelling of the same assets is not a strict superset, so model
- * run-to-run variation cannot reopen a rejection on its own.
+ * A Validation rejection stands unless the exposure is now *stronger* (Client
+ * spec §5: promote "if the link becomes stronger"). Asset lists are
+ * model-written and vary run to run, so they are not evidence on their own.
  */
-function hasNewEvidence(
-  existing: { exposure_strength: string; exposed_assets: unknown },
-  input: CandidateExposureInput
-): boolean {
+function isStronger(existing: { exposure_strength: string }, input: CandidateExposureInput): boolean {
   const before = STRENGTH_RANK[existing.exposure_strength as ExposureStrength] ?? 0;
-  if (STRENGTH_RANK[input.exposure_strength] > before) return true;
-  const previous = assetKeys(existing.exposed_assets);
-  const next = assetKeys(input.exposed_assets);
-  if (next.size <= previous.size) return false;
-  for (const key of previous) if (!next.has(key)) return false;
-  return true;
+  return STRENGTH_RANK[input.exposure_strength] > before;
 }
 
 const toJson = (value: unknown): Prisma.InputJsonValue => value as Prisma.InputJsonValue;
@@ -231,12 +215,13 @@ class ConcurrentUpdateError extends Error {
 /** Write only if the row is still in the state we read (compare-and-set). */
 async function updateIfUnchanged(
   tx: Prisma.TransactionClient,
-  existing: { id: string; handoff_version: number; validation_status: string },
+  existing: { id: string; organization_id: string; handoff_version: number; validation_status: string },
   data: Prisma.CandidateExposureUpdateManyMutationInput
 ): Promise<void> {
   const { count } = await tx.candidateExposure.updateMany({
     where: {
       id: existing.id,
+      organization_id: existing.organization_id,
       handoff_version: existing.handoff_version,
       validation_status: existing.validation_status as Prisma.EnumExposureValidationStatusFilter['equals'],
     },
@@ -293,9 +278,14 @@ async function upsertOnce(input: CandidateExposureInput): Promise<UpsertCandidat
       };
     }
 
+    // WATCHING is always re-evaluated. CLEARED means a previous exposure ended
+    // (shipment delivered, supplier removed); a new evaluation that still finds
+    // one is a new exposure on the same (org, event) row. REJECTED reopens only
+    // if stronger. VALIDATED (and an in-flight CANDIDATE) stay as they are.
     const refreshable =
       existing.validation_status === 'WATCHING' ||
-      (existing.validation_status === 'REJECTED' && hasNewEvidence(existing, input));
+      existing.validation_status === 'CLEARED' ||
+      (existing.validation_status === 'REJECTED' && isStronger(existing, input));
 
     // A CANDIDATE row from before hand-offs were versioned is marked
     // LEGACY_PENDING by the migration: we cannot tell whether it was ever handed
@@ -342,8 +332,11 @@ async function upsertOnce(input: CandidateExposureInput): Promise<UpsertCandidat
       ...fields,
       global_event_id: input.global_event_id,
       handoff_version: handoffVersion,
-      // A reopened rejection is undecided again; drop the pointer to the old verdict.
-      ...(existing.validation_status === 'REJECTED' ? { validation_ref: null } : {}),
+      // A reopened rejection or a renewed cleared exposure is undecided again:
+      // drop the pointer to the old verdict and the old end state.
+      ...(existing.validation_status === 'REJECTED' || existing.validation_status === 'CLEARED'
+        ? { validation_ref: null, cleared_at: null, cleared_reason: null }
+        : {}),
       updated_at: now,
     });
 
@@ -373,8 +366,10 @@ async function upsertOnce(input: CandidateExposureInput): Promise<UpsertCandidat
  * - No row: create it. If it is a CANDIDATE, emit hand-off version 1.
  * - WATCHING row: refresh it with the new evaluation; a promotion to
  *   CANDIDATE emits the next hand-off version.
- * - REJECTED row: refresh and re-send only with new evidence (stronger
- *   exposure or a different asset set). Otherwise the rejection stands.
+ * - CLEARED row: a new exposure on the same (org, event); refresh it and hand
+ *   it off with the next version if it is a CANDIDATE.
+ * - REJECTED row: refresh and re-send only if the exposure is stronger than
+ *   when it was rejected. Otherwise the rejection stands.
  * - Any other status: the exposure is already in the pipeline; leave it.
  *
  * Two concurrent evaluations can race: on create (unique (org, event_hash)

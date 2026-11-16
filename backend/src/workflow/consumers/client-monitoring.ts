@@ -25,6 +25,7 @@ import {
   mergeEvaluations,
   upsertCandidateExposure,
   type CandidateEvaluation,
+  type UpsertCandidateExposureResult,
 } from '../../monitoring/candidate-exposure-store.js';
 
 /**
@@ -107,6 +108,7 @@ export const clientMonitoringConsumer: ConsumerHandler = async ({ record, signal
 
     // Process each organization
     let totalCandidatesCreated = 0;
+    let totalHandoffs = 0;
     let totalCleared = 0;
     const pendingOrgIds: string[] = [];
 
@@ -120,6 +122,7 @@ export const clientMonitoringConsumer: ConsumerHandler = async ({ record, signal
       try {
         const result = await evaluateExposureForOrg(org.id, globalEvent, signal);
         totalCandidatesCreated += result.candidatesCreated;
+        totalHandoffs += result.handoffsEmitted;
         totalCleared += result.cleared;
       } catch (error) {
         logger.error(
@@ -135,7 +138,8 @@ export const clientMonitoringConsumer: ConsumerHandler = async ({ record, signal
         global_event_id: globalEventId,
         orgs_processed: organizations.length - pendingOrgIds.length,
         orgs_pending_retry: pendingOrgIds.length,
-        candidates_created: totalCandidatesCreated,
+        exposures_written: totalCandidatesCreated,
+        handoffs_emitted: totalHandoffs,
         exposures_cleared: totalCleared,
       },
       '[ClientMonitoring] Completed global event fan-out'
@@ -188,7 +192,10 @@ async function enqueueOrgRetries(source: ChangeRecord, globalEventId: string, or
 }
 
 interface ExposureResult {
+  /** Exposure rows created or changed (including promotions and reopens). */
   candidatesCreated: number;
+  /** candidate_exposure records handed to Validation. */
+  handoffsEmitted: number;
   cleared: number;
 }
 
@@ -202,6 +209,7 @@ async function evaluateExposureForOrg(
 ): Promise<ExposureResult> {
   const prisma = getPrismaClient();
   let candidatesCreated = 0;
+  let handoffsEmitted = 0;
   let cleared = 0;
 
   // Check if event is in a terminal state
@@ -212,7 +220,7 @@ async function evaluateExposureForOrg(
       globalEvent.id,
       globalEvent.status
     );
-    return { candidatesCreated, cleared };
+    return { candidatesCreated, handoffsEmitted, cleared };
   }
 
   // Load Client Exposure Profile
@@ -225,7 +233,7 @@ async function evaluateExposureForOrg(
       { organization_id: organizationId },
       '[ClientMonitoring] No Client Exposure Profile found - skipping'
     );
-    return { candidatesCreated, cleared };
+    return { candidatesCreated, handoffsEmitted, cleared };
   }
 
   // Check admin filters
@@ -235,7 +243,7 @@ async function evaluateExposureForOrg(
       { organization_id: organizationId, category: globalEvent.category },
       '[ClientMonitoring] Event category excluded by admin config'
     );
-    return { candidatesCreated, cleared };
+    return { candidatesCreated, handoffsEmitted, cleared };
   }
 
   // Check excluded regions
@@ -245,7 +253,7 @@ async function evaluateExposureForOrg(
       { organization_id: organizationId, region: globalEvent.country_iso },
       '[ClientMonitoring] Event region excluded by admin config'
     );
-    return { candidatesCreated, cleared };
+    return { candidatesCreated, handoffsEmitted, cleared };
   }
 
   // Check minimum severity
@@ -260,7 +268,7 @@ async function evaluateExposureForOrg(
         { organization_id: organizationId, severity: globalEvent.intrinsic_severity, minSeverity },
         '[ClientMonitoring] Event severity below minimum threshold'
       );
-      return { candidatesCreated, cleared };
+      return { candidatesCreated, handoffsEmitted, cleared };
     }
   }
 
@@ -293,42 +301,45 @@ async function evaluateExposureForOrg(
       { error: parseError, organization_id: organizationId },
       '[ClientMonitoring] Failed to parse agent response as JSON'
     );
-    return { candidatesCreated, cleared };
+    return { candidatesCreated, handoffsEmitted, cleared };
   }
 
-  // Process candidate exposures. Watch-list (possible) items are stored too,
-  // so they can be promoted later (Client spec §5). One exposure row exists
-  // per (org, event), so every item for this event is merged into one.
-  const items: unknown[] = [
-    ...(Array.isArray(parsedResult.candidate_exposures) ? parsedResult.candidate_exposures : []),
-    ...(Array.isArray(parsedResult.watch_list) ? parsedResult.watch_list : []).map((item: unknown) =>
+  // Process exposures. One exposure row exists per (org, event), so items are
+  // merged into one. Watch-list (possible) items are stored too, so they can be
+  // promoted later (Client spec §5), but they are only used when the agent
+  // found no candidate: their assets must not pad a real candidate.
+  const parseItems = (raw: unknown, forcePossible: boolean): CandidateEvaluation[] => {
+    if (!Array.isArray(raw)) return [];
+    const out: CandidateEvaluation[] = [];
+    for (const item of raw as unknown[]) {
       // Watch-list items are watch-only by definition; the model cannot upgrade them here.
-      item && typeof item === 'object' ? { ...item, exposure_strength: 'possible' } : item
-    ),
-  ];
-
-  const evaluations: CandidateEvaluation[] = [];
-  for (const item of items) {
-    const parsed = CandidateEvaluationSchema.safeParse(item);
-    if (parsed.success) {
-      evaluations.push(parsed.data);
-    } else {
-      logger.warn(
-        { organization_id: organizationId, global_event_id: globalEvent.id, issues: parsed.error.issues },
-        '[ClientMonitoring] Skipping exposure item that failed schema validation'
-      );
+      const input = forcePossible && item && typeof item === 'object' ? { ...item, exposure_strength: 'possible' } : item;
+      const parsed = CandidateEvaluationSchema.safeParse(input);
+      if (parsed.success) {
+        out.push(parsed.data);
+      } else {
+        logger.warn(
+          { organization_id: organizationId, global_event_id: globalEvent.id, issues: parsed.error.issues },
+          '[ClientMonitoring] Skipping exposure item that failed schema validation'
+        );
+      }
     }
-  }
+    return out;
+  };
+
+  const candidates = parseItems(parsedResult.candidate_exposures, false);
+  const evaluations = candidates.length > 0 ? candidates : parseItems(parsedResult.watch_list, true);
 
   const merged = mergeEvaluations(evaluations);
   if (merged) {
     // Anything thrown here is infrastructure (DB, queue) and propagates so the
     // org is retried; the upsert and the hand-off are idempotent.
-    const created = await createCandidateExposure(organizationId, globalEvent, merged, profile.profile_version);
-    if (created) candidatesCreated++;
+    const result = await createCandidateExposure(organizationId, globalEvent, merged, profile.profile_version);
+    if (result.outcome !== 'unchanged') candidatesCreated++;
+    if (result.change_record_emitted) handoffsEmitted++;
   }
 
-  return { candidatesCreated, cleared };
+  return { candidatesCreated, handoffsEmitted, cleared };
 }
 
 /**
@@ -407,7 +418,7 @@ async function createCandidateExposure(
   globalEvent: { id: string; event_hash: string },
   evaluation: CandidateEvaluation,
   profileVersion: number
-): Promise<boolean> {
+): Promise<UpsertCandidateExposureResult> {
   const strength = evaluation.exposure_strength;
 
   const result = await upsertCandidateExposure({
@@ -430,7 +441,7 @@ async function createCandidateExposure(
     '[ClientMonitoring] Upserted candidate exposure'
   );
 
-  return result.outcome === 'created';
+  return result;
 }
 
 /**

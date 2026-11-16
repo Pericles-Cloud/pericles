@@ -188,6 +188,17 @@ describe('clientMonitoringConsumer agent output', () => {
     expect(upsert.mock.calls[0][0].exposure_strength).toBe('possible');
   });
 
+  it('ignores watch-list items when there is a real candidate, so they cannot pad its assets', async () => {
+    agent.generate.mockResolvedValue({
+      text: JSON.stringify({ candidate_exposures: [exposure('direct', 'f-1')], watch_list: [exposure('possible', 'l-9')] }),
+    });
+
+    await run(record(null, { event_id: 'ge-1' }));
+
+    expect(upsert).toHaveBeenCalledTimes(1);
+    expect(upsert.mock.calls[0][0].exposed_assets.map((a: { asset_id: string }) => a.asset_id)).toEqual(['f-1']);
+  });
+
   it('writes nothing when the agent finds no exposure', async () => {
     agent.generate.mockResolvedValue({ text: JSON.stringify({ candidate_exposures: [], watch_list: [] }) });
     await run(record(null, { event_id: 'ge-1' }));

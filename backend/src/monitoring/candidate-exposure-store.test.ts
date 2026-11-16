@@ -99,6 +99,17 @@ describe('CandidateEvaluationSchema', () => {
     expect(parsed.data.exposure_priority).toBe('medium');
   });
 
+  it('normalizes worded strength and falls back to possible when unreadable', () => {
+    const { organization_id: _o, global_event_id: _g, global_event_hash: _h, ...evaluation } = INPUT;
+    const strengthOf = (value: unknown) => {
+      const parsed = CandidateEvaluationSchema.safeParse({ ...evaluation, exposure_strength: value });
+      return parsed.success ? parsed.data.exposure_strength : 'FAILED';
+    };
+    expect(strengthOf('Direct exposure')).toBe('direct');
+    expect(strengthOf('maybe')).toBe('possible');
+    expect(strengthOf(undefined)).toBe('possible');
+  });
+
   it('accepts mixed-case strength and priority, and missing arrays and rationale', () => {
     const parsed = CandidateEvaluationSchema.safeParse({ exposure_strength: 'Direct', exposure_priority: 'HIGH' });
     expect(parsed.success).toBe(true);
@@ -112,10 +123,6 @@ describe('CandidateEvaluationSchema', () => {
     });
   });
 
-  it('still rejects an item with no usable exposure_strength', () => {
-    const { organization_id: _o, global_event_id: _g, global_event_hash: _h, ...evaluation } = INPUT;
-    expect(CandidateEvaluationSchema.safeParse({ ...evaluation, exposure_strength: 'maybe' }).success).toBe(false);
-  });
 });
 
 describe('upsertCandidateExposure', () => {
@@ -194,24 +201,6 @@ describe('upsertCandidateExposure', () => {
     expect(fake.messageQueue.createMany).not.toHaveBeenCalled();
   });
 
-  it('re-sends a REJECTED exposure when a new asset is exposed', async () => {
-    fake.candidateExposure.findUnique.mockResolvedValue(
-      existingRow({ id: 'ce-7', validation_status: 'REJECTED', exposure_strength: 'direct', handoff_version: 1 })
-    );
-
-    const result = await upsertCandidateExposure({
-      ...INPUT,
-      exposed_assets: [
-        ...INPUT.exposed_assets,
-        { asset_type: 'shipment', asset_id: 's-9', distance_or_match_basis: 'via port' },
-      ],
-    });
-
-    expect(result.change_record_emitted).toBe(true);
-    expect(enqueuedRows()[0].payload.record_version).toBe(2);
-    // Undecided again: the pointer to the old rejection is cleared.
-    expect(fake.candidateExposure.updateMany.mock.calls[0][0].data.validation_ref).toBeNull();
-  });
 
   it('emits v1 for a legacy CANDIDATE row from the stored fields, not the new evaluation', async () => {
     fake.candidateExposure.findUnique.mockResolvedValue(
@@ -275,24 +264,66 @@ describe('upsertCandidateExposure', () => {
     expect(result.outcome).toBe('unchanged');
   });
 
-  it('clears validation_ref when a rejection reopens as watch-only', async () => {
+
+  it('keeps a rejection when the model only names an extra asset at the same strength', async () => {
     fake.candidateExposure.findUnique.mockResolvedValue(
-      existingRow({ id: 'ce-16', validation_status: 'REJECTED', exposure_strength: 'possible', handoff_version: 1 })
+      existingRow({ id: 'ce-7', validation_status: 'REJECTED', exposure_strength: 'direct', handoff_version: 1 })
     );
 
     const result = await upsertCandidateExposure({
       ...INPUT,
-      exposure_strength: 'possible',
       exposed_assets: [
         ...INPUT.exposed_assets,
-        { asset_type: 'shipment', asset_id: 's-1', distance_or_match_basis: 'via port' },
+        { asset_type: 'shipment', asset_id: 's-9', distance_or_match_basis: 'via port' },
       ],
     });
 
-    expect(result).toMatchObject({ outcome: 'updated', change_record_emitted: false });
+    expect(result.outcome).toBe('unchanged');
+    expect(fake.messageQueue.createMany).not.toHaveBeenCalled();
+  });
+
+  it('never reopens a rejection with a weaker evaluation', async () => {
+    fake.candidateExposure.findUnique.mockResolvedValue(
+      existingRow({ id: 'ce-17', validation_status: 'REJECTED', exposure_strength: 'probable', handoff_version: 1 })
+    );
+
+    const result = await upsertCandidateExposure({ ...INPUT, exposure_strength: 'possible' });
+
+    expect(result.outcome).toBe('unchanged');
+    expect(fake.candidateExposure.updateMany).not.toHaveBeenCalled();
+  });
+
+  it('reopens a rejection when the exposure is stronger, clearing the old verdict', async () => {
+    fake.candidateExposure.findUnique.mockResolvedValue(
+      existingRow({ id: 'ce-18', validation_status: 'REJECTED', exposure_strength: 'probable', handoff_version: 1 })
+    );
+
+    const result = await upsertCandidateExposure(INPUT);
+
+    expect(result).toMatchObject({ outcome: 'updated', change_record_emitted: true });
+    expect(enqueuedRows()[0].payload.record_version).toBe(2);
+    expect(fake.candidateExposure.updateMany.mock.calls[0][0].data.validation_ref).toBeNull();
+  });
+
+  it('renews a CLEARED exposure as a new hand-off, clearing its end state', async () => {
+    fake.candidateExposure.findUnique.mockResolvedValue(
+      existingRow({ id: 'ce-19', validation_status: 'CLEARED', exposure_strength: 'direct', handoff_version: 2 })
+    );
+
+    const result = await upsertCandidateExposure(INPUT);
+
+    expect(result).toMatchObject({ outcome: 'updated', change_record_emitted: true });
+    expect(enqueuedRows()[0].payload.record_version).toBe(3);
     const data = fake.candidateExposure.updateMany.mock.calls[0][0].data;
-    expect(data.validation_status).toBe('WATCHING');
-    expect(data.validation_ref).toBeNull();
+    expect(data).toMatchObject({ validation_status: 'CANDIDATE', validation_ref: null, cleared_at: null, cleared_reason: null });
+  });
+
+  it('scopes the compare-and-set write to the row organization', async () => {
+    fake.candidateExposure.findUnique.mockResolvedValue(existingRow({ id: 'ce-20', organization_id: ORG }));
+
+    await upsertCandidateExposure(INPUT);
+
+    expect(fake.candidateExposure.updateMany.mock.calls[0][0].where.organization_id).toBe(ORG);
   });
 
   it('leaves an exposure already in the pipeline untouched', async () => {
@@ -322,12 +353,13 @@ describe('upsertCandidateExposure', () => {
   });
 
   it('writes only if handoff_version and status are unchanged since the read', async () => {
-    fake.candidateExposure.findUnique.mockResolvedValue(existingRow({ id: 'ce-13', handoff_version: 4 }));
+    fake.candidateExposure.findUnique.mockResolvedValue(existingRow({ id: 'ce-13', organization_id: ORG, handoff_version: 4 }));
 
     await upsertCandidateExposure(INPUT);
 
     expect(fake.candidateExposure.updateMany.mock.calls[0][0].where).toEqual({
       id: 'ce-13',
+      organization_id: ORG,
       handoff_version: 4,
       validation_status: 'WATCHING',
     });

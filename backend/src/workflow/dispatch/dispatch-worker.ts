@@ -41,6 +41,9 @@ function createDefaultRegistry(): ConsumerRegistry {
   });
 }
 
+/** Records claimed per poll by the dispatch worker. */
+export const DISPATCH_CLAIM_BATCH_SIZE = 1;
+
 export function startDispatchWorker(options: DispatchWorkerOptions = {}): { stop: () => void } {
   const prisma = options.prisma ?? getPrismaClient();
   const registry = options.registry ?? createDefaultRegistry();
@@ -70,6 +73,9 @@ export function startDispatchWorker(options: DispatchWorkerOptions = {}): { stop
         throw new Error(`${summary.failed} consumer(s) failed for ${changeRecordKey(record)}`);
       }
     },
-    { batchSize: options.batchSize, pollIntervalMs: options.pollIntervalMs }
+    // One record at a time: stages can run an LLM for minutes, and a large
+    // claim would hold rows other workers could take. The queue no longer
+    // sleeps between non-empty polls, so this costs no throughput.
+    { batchSize: options.batchSize ?? DISPATCH_CLAIM_BATCH_SIZE, pollIntervalMs: options.pollIntervalMs }
   );
 }
