@@ -13,6 +13,7 @@
 
 import { RuntimeContext } from '@mastra/core/runtime-context';
 import { getPrismaClient } from './db-client.js';
+import { logger } from './logger.js';
 import { loadMonitoringConfig, resolveModel, type ResolvedModel } from './config.js';
 
 /**
@@ -38,15 +39,27 @@ export function modelContext(model: ResolvedModel): RuntimeContext {
 }
 
 /**
- * The `model` an agent definition uses: read the per-call resolved model.
- * Throws when none was passed, so a call can never fall back to a default
- * model billed to the platform env key.
+ * Returned when a caller passes no resolved model (e.g. the Mastra dev server,
+ * which lists every agent's model inside one Promise.all, so throwing here
+ * would break the whole agent list). It carries an explicit, invalid key: any
+ * generation without a resolved model fails at the provider (401), and because
+ * a key IS supplied, nothing falls back to the platform env key.
+ */
+export const UNRESOLVED_MODEL: ResolvedModel = {
+  id: 'openai/gpt-4o-mini',
+  apiKey: 'unresolved-model-pass-a-model-via-runtimeContext',
+};
+
+/**
+ * The `model` an agent definition uses: the per-call resolved model, or
+ * UNRESOLVED_MODEL (which cannot bill anyone) when a caller passed none.
  */
 export function modelFromContext(agentName: string) {
   return ({ runtimeContext }: { runtimeContext: RuntimeContext }): ResolvedModel => {
     const model: ResolvedModel | undefined = runtimeContext.get(MODEL_CONTEXT_KEY);
     if (!model) {
-      throw new Error(`${agentName}: no model in runtimeContext; resolve one with agent-models.ts (no platform key fallback)`);
+      logger.warn(`${agentName}: no model in runtimeContext; using a non-billable placeholder (calls will fail)`);
+      return UNRESOLVED_MODEL;
     }
     return model;
   };

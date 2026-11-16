@@ -31,6 +31,7 @@ import {
   type UpsertCandidateExposureResult,
 } from '../../monitoring/candidate-exposure-store.js';
 import { resolveOrganizationIds } from '../../monitoring/run-once.js';
+import { isOrganizationMonitored } from '../../monitoring/eligibility.js';
 
 /**
  * Handle a global_event_change record.
@@ -109,14 +110,11 @@ export const clientMonitoringConsumer: ConsumerHandler = async ({ record, signal
 
   // A terminal event only clears exposures, which must happen even for an org
   // that has since turned monitoring off. Anything else needs an eligible org.
-  const organizations = isTerminal(globalEvent.status)
-    ? [{ id: targetOrgId }]
-    : await prisma.organization.findMany({
-        where: { id: targetOrgId, is_root: false, settings: { monitoring_agent_enabled: true } },
-        select: { id: true },
-      });
+  // Same eligibility rule as the fan-out (and the per-org cron), so an org the
+  // fan-out queued is never refused here.
+  const eligible = isTerminal(globalEvent.status) || (await isOrganizationMonitored(targetOrgId));
 
-  if (organizations.length === 0) {
+  if (!eligible) {
     logger.info(
       { organization_id: targetOrgId, global_event_id: globalEventId },
       '[ClientMonitoring] Target org not eligible for monitoring; skipping'

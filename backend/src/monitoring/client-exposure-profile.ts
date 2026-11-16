@@ -38,6 +38,11 @@ const PROFILE_CONTENT_FIELDS = [
   'stated_concerns',
 ] as const;
 
+/** Whether a patch carries any exposure-relevant content (not just empty shapes). */
+function patchHasContent(patch: ProfileContentPatch): boolean {
+  return Object.values(patch).some((value) => canonicalJson(value) !== canonicalJson(emptyLike(value)));
+}
+
 /** The empty value of the same shape (for "does this sync carry any content?"). */
 function emptyLike(value: unknown): unknown {
   if (Array.isArray(value)) return [];
@@ -116,12 +121,11 @@ export async function syncClientExposureProfile(organizationId: string): Promise
   // shipments or strategic context) gets no profile: a profile makes it
   // eligible for Client Monitoring, which would then spend its LLM calls on an
   // empty footprint.
-  const hasContent = Object.values(patch).some((value) => canonicalJson(value) !== canonicalJson(emptyLike(value)));
   const existing = await getPrismaClient().clientExposureProfile.findUnique({
     where: { organization_id: organizationId },
     select: { profile_version: true },
   });
-  if (!existing && !hasContent) {
+  if (!existing && !patchHasContent(patch)) {
     logger.info({ organizationId }, '[ProfileSync] No exposure-relevant data; no profile created');
     return {
       organizationId,
@@ -174,6 +178,15 @@ export async function writeProfileContent(
   if (!organizationId) {
     throw new Error('organization_id required for tenant isolation');
   }
+  // Never create a profile from an all-empty patch: a profile makes the org
+  // eligible for paid Client Monitoring evaluations (applies to every writer).
+  if (!patchHasContent(patch)) {
+    const existing = await getPrismaClient().clientExposureProfile.findUnique({
+      where: { organization_id: organizationId },
+      select: { id: true },
+    });
+    if (!existing) return { profileVersion: 0, changed: false };
+  }
   try {
     return await writeProfileContentOnce(organizationId, patch, extra);
   } catch (error) {
@@ -189,6 +202,8 @@ async function writeProfileContentOnce(
   patch: ProfileContentPatch,
   extra: Prisma.ClientExposureProfileUpdateInput
 ): Promise<{ profileVersion: number; changed: boolean }> {
+  // Large jsonb rewrites under the row lock, and a concurrent writer waits on
+  // that lock: Prisma's 5s default would silently drop one of the writes.
   return getPrismaClient().$transaction(async (tx) => {
     await tx.clientExposureProfile.upsert({
       where: { organization_id: organizationId },
@@ -217,7 +232,7 @@ async function writeProfileContentOnce(
       : extra;
     const written = await tx.clientExposureProfile.update({ where: { organization_id: organizationId }, data });
     return { profileVersion: written.profile_version, changed };
-  });
+  }, { timeout: 30_000, maxWait: 10_000 });
 }
 
 /**
@@ -317,7 +332,10 @@ async function syncFromERP(organizationId: string): Promise<{
   const coords = (location: { latitude?: unknown; longitude?: unknown } | undefined) => {
     const lat = typeof location?.latitude === 'number' ? location.latitude : null;
     const lon = typeof location?.longitude === 'number' ? location.longitude : null;
-    return lat === null || lon === null || (lat === 0 && lon === 0)
+    // SAP writes EACH missing coordinate as 0 on its own, so either being 0
+    // means unknown (a real site on exactly the equator or prime meridian is
+    // rarer than a half-missing location).
+    return lat === null || lon === null || lat === 0 || lon === 0
       ? { latitude: null, longitude: null }
       : { latitude: lat, longitude: lon };
   };
@@ -346,14 +364,22 @@ async function syncFromERP(organizationId: string): Promise<{
   // Context suppliers: a supplier also in the Supplier table keeps that record
   // but gains the context's tier/critical flags (the BOL transformer marks
   // high-volume shippers critical); one only in the context (e.g. SAP) is added.
+  // Every supplier record carries tier/critical (defaults: tier 1, not critical).
+  for (const s of suppliersData) {
+    s.tier = 1;
+    s.critical = false;
+  }
   const byName = new Map(suppliersData.map((s) => [String(s.name).trim().toLowerCase(), s]));
   for (const cs of located(context?.suppliers)) {
-    const known = byName.get(String(cs.name).trim().toLowerCase());
+    const nameKey = String(cs.name).trim().toLowerCase();
+    const known = byName.get(nameKey);
     if (known) {
-      known.tier = cs.tier ?? known.tier ?? 1;
-      known.critical = cs.critical === true;
+      known.tier = cs.tier ?? known.tier;
+      known.critical = cs.critical === true || known.critical === true;
       continue;
     }
+    // A context supplier needs an id to be cited as an exposed asset.
+    if (cs.supplier_id === undefined || cs.supplier_id === null) continue;
     suppliersData.push({
       id: cs.supplier_id,
       name: cs.name,
@@ -365,6 +391,7 @@ async function syncFromERP(organizationId: string): Promise<{
       tier: cs.tier ?? 1,
       critical: cs.critical === true,
     });
+    byName.set(nameKey, suppliersData[suppliersData.length - 1]);
   }
 
   return {

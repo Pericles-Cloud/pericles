@@ -24,6 +24,7 @@ import { MissingApiKeyError } from './config.js';
 import {
   modelContext,
   modelFromContext,
+  UNRESOLVED_MODEL,
   resolveClientMonitoringModel,
   resolveGlobalMonitoringModel,
 } from './agent-models.js';
@@ -74,7 +75,10 @@ describe('modelFromContext', () => {
     expect(modelFromContext('X')({ runtimeContext: modelContext(model) })).toEqual(model);
   });
 
-  it('throws when no model was passed, so nothing falls back to a platform key', () => {
-    expect(() => modelFromContext('X')({ runtimeContext: modelContext(undefined as never) })).toThrow('no model');
+  it('returns a non-billable placeholder (explicit invalid key) when no model was passed', () => {
+    const model = modelFromContext('X')({ runtimeContext: modelContext(undefined as never) });
+    expect(model).toEqual(UNRESOLVED_MODEL);
+    // A key is always supplied, so nothing can fall back to the platform env key.
+    expect(typeof model === 'object' && model.apiKey.length > 0).toBe(true);
   });
 });

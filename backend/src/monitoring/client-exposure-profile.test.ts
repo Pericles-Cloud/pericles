@@ -23,7 +23,7 @@ vi.mock('./org-memory.js', () => orgMemory);
 
 vi.mock('./db-client.js', () => ({ getPrismaClient: () => fake }));
 
-import { refreshClientExposureProfile, syncClientExposureProfile, canonicalJson } from './client-exposure-profile.js';
+import { refreshClientExposureProfile, syncClientExposureProfile, canonicalJson, writeProfileContent } from './client-exposure-profile.js';
 
 const PROFILE = { id: 'p-1', organization_id: 'org-1', profile_version: 4 };
 
@@ -201,6 +201,44 @@ describe('syncClientExposureProfile — round 4', () => {
       'plant:1000',
       'warehouse:1000',
     ]);
+  });
+});
+
+describe('round 5', () => {
+  it('treats a single zero coordinate from SAP as missing', async () => {
+    fake.organizationContext.findUnique.mockResolvedValue({
+      plants: [{ plant_id: 'P', name: 'Half', location: { latitude: 0, longitude: 103.8 } }],
+      warehouses: [],
+      suppliers: [],
+    });
+    await syncClientExposureProfile('org-1');
+    expect(writtenField('own_facilities')).toEqual([expect.objectContaining({ latitude: null, longitude: null })]);
+  });
+
+  it('skips context suppliers without an id, adds duplicate names once, and defaults tier/critical', async () => {
+    fake.supplier.findMany.mockResolvedValue([
+      { id: 's-db', name: 'Table Only', latitude: 1, longitude: 2, country_code: 'US', hs_codes: [] },
+    ]);
+    fake.organizationContext.findUnique.mockResolvedValue({
+      plants: [],
+      warehouses: [],
+      suppliers: [
+        { name: 'No Id', location: { latitude: 5, longitude: 5 } },
+        { supplier_id: 'A1', name: 'Acme', location: { latitude: 5, longitude: 5 } },
+        { supplier_id: 'A2', name: 'ACME', location: { latitude: 6, longitude: 6 } },
+      ],
+    });
+    await syncClientExposureProfile('org-1');
+    const suppliers = writtenField('suppliers') as Array<{ id: string; tier: number; critical: boolean }>;
+    expect(suppliers.map((x) => x.id)).toEqual(['s-db', 'A1']);
+    expect(suppliers[0]).toMatchObject({ tier: 1, critical: false });
+  });
+
+  it('no writer creates a profile from an all-empty patch', async () => {
+    fake.clientExposureProfile.findUnique.mockResolvedValue(null);
+    const result = await writeProfileContent('org-x', { strategic_priorities: null, stated_concerns: [] });
+    expect(result).toEqual({ profileVersion: 0, changed: false });
+    expect(fake.$transaction).not.toHaveBeenCalled();
   });
 });
 

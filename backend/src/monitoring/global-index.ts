@@ -161,7 +161,9 @@ export async function runGlobalMonitoringCycle(): Promise<GlobalCycleMetrics> {
       model = await resolveGlobalMonitoringModel();
     } catch (error) {
       if (error instanceof MissingApiKeyError || error instanceof GlobalBillingConfigError) {
-        cycleLogger.error({ error: error.message }, '[GlobalCycle] Skipped: no billable root organization key');
+        cycleLogger.error({ error: error.message }, '[GlobalCycle] Skipped agent: no billable root organization key');
+        // Stale marking is a DB step that needs no model: keep it running.
+        await checkForStaleEvents();
         return metrics;
       }
       throw error;

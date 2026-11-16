@@ -19,6 +19,8 @@ const upsert = vi.hoisted(() => vi.fn());
 vi.mock('../../mastra/index.js', () => ({ mastra: { getAgent: () => agent } }));
 const resolveModel = vi.hoisted(() => vi.fn());
 const monitoredOrgs = vi.hoisted(() => vi.fn());
+const isMonitored = vi.hoisted(() => vi.fn());
+vi.mock('../../monitoring/eligibility.js', () => ({ isOrganizationMonitored: isMonitored }));
 vi.mock('../../monitoring/run-once.js', () => ({ resolveOrganizationIds: monitoredOrgs }));
 vi.mock('../../monitoring/agent-models.js', () => ({
   resolveClientMonitoringModel: resolveModel,
@@ -60,6 +62,7 @@ beforeEach(() => {
   agent.generate.mockReset();
   resolveModel.mockReset().mockResolvedValue({ id: 'openai/gpt-4o-mini', apiKey: 'org-key' });
   monitoredOrgs.mockReset().mockResolvedValue([]);
+  isMonitored.mockReset().mockResolvedValue(true);
   fake.clientExposureProfile.findMany.mockReset().mockResolvedValue([]);
   fake.messageQueue.createMany.mockReset().mockImplementation(({ data }: { data: unknown[] }) =>
     Promise.resolve({ count: data.length })
@@ -176,10 +179,10 @@ describe('clientMonitoringConsumer target_organization_id', () => {
     });
   });
 
-  it('evaluates only the target org, and only if it is eligible', async () => {
+  it('evaluates only the target org, and only if it is eligible (same rule as the fan-out)', async () => {
+    isMonitored.mockResolvedValue(false);
     await run(orgRecord(ORG_A));
-    expect(fake.organization.findMany.mock.calls[0][0].where.id).toBe(ORG_A);
-    // Not eligible (empty result): no evaluation, nothing enqueued.
+    expect(isMonitored).toHaveBeenCalledWith(ORG_A);
     expect(fake.clientExposureProfile.findUnique).not.toHaveBeenCalled();
     expect(fake.messageQueue.createMany).not.toHaveBeenCalled();
   });
