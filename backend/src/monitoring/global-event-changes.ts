@@ -30,3 +30,13 @@ export async function emitGlobalEventChange(
   );
   await enqueueInTransaction(client, CHANGE_RECORD_QUEUE, message, { idempotencyKey });
 }
+
+/**
+ * Take the event's row lock for the rest of the transaction. Every writer that
+ * reads an event to decide a change (update, resolve, retract, merge) locks it
+ * first, so concurrent writers serialize instead of overwriting each other.
+ */
+export async function lockGlobalEvent(client: Prisma.TransactionClient, eventId: string): Promise<void> {
+  await client.$queryRaw`SELECT id FROM "GlobalEvent" WHERE id = ${eventId} FOR UPDATE`;
+}
+

@@ -318,8 +318,10 @@ export async function renewLocks(
 }
 
 /**
- * Hand: PENDING again, lock
- * cleared, and the claim's attempt returned. Only rows this worker still holds.
+ * Hand claimed-but-unstarted rows back to the queue: status PENDING again, lock
+ * cleared, and the claim's attempt refunded (attempts - 1), since they never
+ * ran. Only for rows that have not started: refunding a row that actually ran
+ * would let a poison message exceed max_attempts. Only rows this worker holds.
  */
 export async function releaseLocks(ids: string[], workerId: string, prisma = getPrismaClient()): Promise<number> {
   if (ids.length === 0) return 0;

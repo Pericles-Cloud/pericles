@@ -8,6 +8,7 @@
  */
 
 import type { ChangeRecord, RecordType } from '../records/change-record.js';
+import { SEVERITY_RANK, severityRank } from '../../monitoring/exposure-strength.js';
 
 /**
  * High-severity cutoff, 0.7. The monitoring tools use the same value for their
@@ -56,8 +57,6 @@ const isMaterialImpact = (record: ChangeRecord): boolean => {
   return significance === 'initial' || significance === 'material';
 };
 
-const HIGH_OR_CRITICAL = new Set(['high', 'critical']);
-const SEVERITY_ORDER: Record<string, number> = { low: 1, medium: 2, high: 3, critical: 4 };
 
 /**
  * Event Verification fires when an event is created at, or upgraded to, High
@@ -69,7 +68,7 @@ const SEVERITY_ORDER: Record<string, number> = { low: 1, medium: 2, high: 3, cri
 const needsEventVerification = (record: ChangeRecord): boolean => {
   const severity = payloadString(record, 'intrinsic_severity');
   if (severity !== undefined) {
-    if (!HIGH_OR_CRITICAL.has(severity)) return false;
+    if (severityRank(severity) < SEVERITY_RANK.high) return false;
     const changeType = payloadString(record, 'change_type');
     if (changeType === 'created') return true;
     if (changeType !== 'updated') return false;
@@ -78,7 +77,7 @@ const needsEventVerification = (record: ChangeRecord): boolean => {
     return (
       Array.isArray(changed) &&
       changed.includes('intrinsic_severity') &&
-      (SEVERITY_ORDER[severity] ?? 0) > (SEVERITY_ORDER[previous ?? ''] ?? 0)
+      severityRank(severity) > severityRank(previous)
     );
   }
   const kind = payloadString(record, 'change_kind');

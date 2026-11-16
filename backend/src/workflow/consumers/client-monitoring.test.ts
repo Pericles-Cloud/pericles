@@ -267,6 +267,15 @@ describe('clientMonitoringConsumer org evaluation', () => {
     expect(upsert).not.toHaveBeenCalled();
   });
 
+  it('fails the stage when candidates are unreadable, rather than falling back to the watch list', async () => {
+    agent.generate.mockResolvedValue({
+      text: JSON.stringify({ candidate_exposures: ['Direct: plant'], watch_list: [exposure('possible', 'f-3')] }),
+    });
+
+    await expect(run(orgRecord(ORG_A))).rejects.toThrow('unreadable');
+    expect(upsert).not.toHaveBeenCalled();
+  });
+
   it('drops items that name a different event', async () => {
     agent.generate.mockResolvedValue({
       text: JSON.stringify({

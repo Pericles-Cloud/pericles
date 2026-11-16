@@ -134,25 +134,6 @@ export const clientMonitoringConsumer: ConsumerHandler = async ({ record, signal
   );
 };
 
-/** The balanced {...} span starting at `start`, skipping braces inside strings. */
-function balancedObjectAt(text: string, start: number): string | null {
-  let depth = 0;
-  let inString = false;
-  let escaped = false;
-  for (let i = start; i < text.length; i++) {
-    const ch = text[i];
-    if (inString) {
-      if (escaped) escaped = false;
-      else if (ch === '\\') escaped = true;
-      else if (ch === '"') inString = false;
-      continue;
-    }
-    if (ch === '"') inString = true;
-    else if (ch === '{') depth++;
-    else if (ch === '}' && --depth === 0) return text.slice(start, i + 1);
-  }
-  return null;
-}
 
 /** Top-level keys of the agent's response format; at least one must be present. */
 const RESULT_KEYS = ['candidate_exposures', 'watch_list', 'not_exposed'] as const;
@@ -185,10 +166,30 @@ export function parseAgentJson(text: string): Record<string, unknown> {
     const value = asObject(fenced[1].trim());
     if (value) return value;
   }
-  for (let start = text.indexOf('{'); start !== -1; start = text.indexOf('{', start + 1)) {
-    const span = balancedObjectAt(text, start);
-    const value = span ? asObject(span) : null;
-    if (value) return value;
+  // One linear pass: a stack of open-brace positions, braces inside strings
+  // ignored. Each closed span is tried only if it names a result key, so a
+  // long or truncated response is scanned once, not once per '{'.
+  const opens: number[] = [];
+  let inString = false;
+  let escaped = false;
+  for (let i = 0; i < text.length; i++) {
+    const ch = text[i];
+    if (inString) {
+      if (escaped) escaped = false;
+      else if (ch === '\\') escaped = true;
+      else if (ch === '"') inString = false;
+      continue;
+    }
+    if (ch === '"') inString = true;
+    else if (ch === '{') opens.push(i);
+    else if (ch === '}' && opens.length > 0) {
+      const start = opens.pop()!;
+      const span = text.slice(start, i + 1);
+      if (RESULT_KEYS.some((key) => span.includes(`"${key}"`))) {
+        const value = asObject(span);
+        if (value) return value;
+      }
+    }
   }
   throw new Error('[ClientMonitoring] Agent response contained no parseable JSON object');
 }
@@ -393,6 +394,11 @@ async function evaluateExposureForOrg(
   };
 
   const candidates = parseItems(parsedResult.candidate_exposures, false);
+  // Candidates were listed but none could be read: a failed evaluation. Do
+  // not fall back to the watch list, which would downgrade a real candidate.
+  if (candidates.length === 0 && unreadable > 0) {
+    throw new Error(`[ClientMonitoring] All ${unreadable} candidate exposure(s) in the agent response were unreadable`);
+  }
   const evaluations = candidates.length > 0 ? candidates : parseItems(parsedResult.watch_list, true);
 
   // Items were listed but none could be read: that is a failed evaluation,

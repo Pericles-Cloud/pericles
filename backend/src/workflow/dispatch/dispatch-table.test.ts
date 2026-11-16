@@ -126,6 +126,10 @@ describe('routesFor — Event Verification for Global Event Store records', () =
     expect(consumers({ ...upgraded, changed_fields: ['latitude'] })).not.toContain('event_verification');
   });
 
+  it('matches severity case-insensitively', () => {
+    expect(consumers({ change_type: 'created', intrinsic_severity: 'Critical' })).toContain('event_verification');
+  });
+
   it('never verifies from a resolution or an org-scoped fan-out record', () => {
     expect(consumers({ change_type: 'resolved', intrinsic_severity: 'critical' })).not.toContain('event_verification');
     expect(consumers({ change_type: 'org_fanout', event_id: 'ge-1' })).toEqual(['client_monitoring']);

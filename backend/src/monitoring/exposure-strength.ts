@@ -22,7 +22,9 @@ export type Severity = 'low' | 'medium' | 'high' | 'critical';
 export const SEVERITY_RANK: Record<Severity, number> = { low: 1, medium: 2, high: 3, critical: 4 };
 
 export function severityRank(value: unknown): number {
-  return typeof value === 'string' && value in SEVERITY_RANK ? SEVERITY_RANK[value as Severity] : 0;
+  if (typeof value !== 'string') return 0;
+  const key = value.trim().toLowerCase();
+  return key in SEVERITY_RANK ? SEVERITY_RANK[key as Severity] : 0;
 }
 
 /** Global Event statuses that end an event; no exposure may be created or reopened after them. */

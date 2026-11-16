@@ -19,9 +19,10 @@
 import { mastra } from '../mastra/index.js';
 import { logger, createLogger } from './logger.js';
 import { getPrismaClient } from './db-client.js';
-import { emitGlobalEventChange } from './global-event-changes.js';
+import { emitGlobalEventChange, lockGlobalEvent } from './global-event-changes.js';
 import { isMaterialChange } from '../workflow/records/global-event-change.js';
 import { TERMINAL_EVENT_STATUSES } from './exposure-strength.js';
+import type { Prisma } from '@prisma/client';
 
 // ============================================================================
 // Global State
@@ -355,59 +356,56 @@ const AGENT_UPDATABLE_FIELDS = new Set([
 /**
  * Update an existing global event
  */
-async function updateGlobalEvent(updateData: any): Promise<void> {
+export async function updateGlobalEvent(updateData: any): Promise<void> {
   const prisma = getPrismaClient();
 
-  const event = await prisma.globalEvent.findUnique({
-    where: { id: updateData.event_id },
-  });
-
-  if (!event) {
-    throw new Error(`Event not found: ${updateData.event_id}`);
-  }
-
-  // Build timeline entry
-  const timelineEntry = {
-    timestamp: new Date().toISOString(),
-    changes: updateData.changes,
-    is_material: updateData.is_material,
-  };
-
-  const timeline = (event.timeline as any[]) || [];
-  timeline.push(timelineEntry);
-
-  // Apply changes
-  const updateFields: any = {
-    timeline,
-    updated_at: new Date(),
-  };
-
-  // Model-written changes may touch only event content fields. Identity, the
-  // change_seq counter, the append-only timeline and verification_ref (the
-  // Validation Agent's) are never writable here. Terminal statuses go through
-  // resolve/retract/merge, which always emit; they are refused here.
-  const changedFields: string[] = [];
-  for (const change of updateData.changes || []) {
-    if (!AGENT_UPDATABLE_FIELDS.has(change.field)) continue;
-    if (change.field === 'status' && TERMINAL_EVENT_STATUSES.has(String(change.new_value))) {
-      logger.warn(
-        { event_id: event.id, status: change.new_value },
-        '[GlobalMonitoring] Terminal status in an update ignored; use resolve/retract/merge'
-      );
-      continue;
-    }
-    const before = (event as Record<string, unknown>)[change.field];
-    if (JSON.stringify(before) === JSON.stringify(change.new_value)) continue;
-    updateFields[change.field] = change.new_value;
-    changedFields.push(change.field);
-  }
-
-  // The event write and its change record commit together: an event is never
-  // stored without the record that tells customers about it.
+  // Read, decide, write and emit under the event's row lock, so a resolve or
+  // retract that commits concurrently is never overwritten by this update's
+  // stale view (timeline or status).
   await prisma.$transaction(async (tx) => {
+    await lockGlobalEvent(tx, updateData.event_id);
+    const event = await tx.globalEvent.findUnique({ where: { id: updateData.event_id } });
+    if (!event) {
+      throw new Error(`Event not found: ${updateData.event_id}`);
+    }
+    const ended = TERMINAL_EVENT_STATUSES.has(event.status);
+
+    // Model-written changes may touch only event content fields. Identity, the
+    // change_seq counter, the append-only timeline and verification_ref (the
+    // Validation Agent's) are never writable here. Status may not be set to a
+    // terminal value (resolve/retract/merge do that and always emit), and an
+    // ended event's status cannot be changed at all (no silent reopening).
+    const updateFields: Record<string, unknown> = {};
+    const changedFields: string[] = [];
+    for (const change of updateData.changes || []) {
+      if (!AGENT_UPDATABLE_FIELDS.has(change.field)) continue;
+      let value: unknown = change.new_value;
+      if (change.field === 'status') {
+        if (ended || TERMINAL_EVENT_STATUSES.has(String(value))) {
+          logger.warn(
+            { event_id: event.id, from: event.status, to: value },
+            '[GlobalMonitoring] Status change refused in an update (ended event, or terminal value)'
+          );
+          continue;
+        }
+      }
+      if (change.field === 'intrinsic_severity' && typeof value === 'string') {
+        value = value.trim().toLowerCase();
+      }
+      const before = (event as Record<string, unknown>)[change.field];
+      if (JSON.stringify(before) === JSON.stringify(value)) continue;
+      updateFields[change.field] = value;
+      changedFields.push(change.field);
+    }
+    if (changedFields.length === 0) return;
+
+    const timeline = [
+      ...((event.timeline as unknown[]) || []),
+      { timestamp: new Date().toISOString(), changes: updateData.changes, is_material: updateData.is_material },
+    ];
     await tx.globalEvent.update({
-      where: { id: updateData.event_id },
-      data: updateFields,
+      where: { id: event.id },
+      data: { ...updateFields, timeline, updated_at: new Date() } as Prisma.GlobalEventUpdateInput,
     });
 
     // Materiality is decided from what actually changed (isMaterialChange),
@@ -416,13 +414,13 @@ async function updateGlobalEvent(updateData: any): Promise<void> {
       event_id: event.id,
       event_hash: event.event_hash,
       change_type: 'updated' as const,
-      intrinsic_severity: updateFields.intrinsic_severity || event.intrinsic_severity,
+      intrinsic_severity: (updateFields.intrinsic_severity as string | undefined) ?? event.intrinsic_severity,
       previous_intrinsic_severity: event.intrinsic_severity,
-      status: updateFields.status || event.status,
+      status: (updateFields.status as string | undefined) ?? event.status,
       changed_fields: changedFields,
       is_material: updateData.is_material === true,
     };
-    if (changedFields.length > 0 && (isMaterialChange(payload) || payload.is_material)) {
+    if (isMaterialChange(payload) || payload.is_material) {
       await emitGlobalEventChange(tx, payload);
     }
   });
@@ -431,46 +429,46 @@ async function updateGlobalEvent(updateData: any): Promise<void> {
 /**
  * Resolve a global event
  */
-async function resolveGlobalEvent(resolveData: any): Promise<void> {
+export async function resolveGlobalEvent(resolveData: any): Promise<void> {
   const prisma = getPrismaClient();
-
-  const event = await prisma.globalEvent.findUnique({
-    where: { id: resolveData.event_id },
-  });
-
-  if (!event) {
-    throw new Error(`Event not found: ${resolveData.event_id}`);
-  }
-
   const now = new Date();
 
-  // Build timeline entry
-  const timelineEntry = {
-    timestamp: now.toISOString(),
-    field: 'status',
-    old_value: event.status,
-    new_value: 'RESOLVED',
-    resolution_basis: resolveData.resolution_basis,
-  };
-
-  const timeline = (event.timeline as any[]) || [];
-  timeline.push(timelineEntry);
-
-  // The event write and its change record commit together: an event is never
-  // stored without the record that tells customers about it.
+  // Under the event's row lock: re-read, refuse an already-ended event (a
+  // repeated resolve must not rewrite its status or fan out again), then write
+  // and emit together.
   await prisma.$transaction(async (tx) => {
+    await lockGlobalEvent(tx, resolveData.event_id);
+    const event = await tx.globalEvent.findUnique({ where: { id: resolveData.event_id } });
+    if (!event) {
+      throw new Error(`Event not found: ${resolveData.event_id}`);
+    }
+    if (TERMINAL_EVENT_STATUSES.has(event.status)) {
+      logger.warn({ event_id: event.id, status: event.status }, '[GlobalMonitoring] Resolve refused: event already ended');
+      return;
+    }
+
+    const timeline = [
+      ...((event.timeline as unknown[]) || []),
+      {
+        timestamp: now.toISOString(),
+        field: 'status',
+        old_value: event.status,
+        new_value: 'RESOLVED',
+        resolution_basis: resolveData.resolution_basis,
+      },
+    ];
+
     await tx.globalEvent.update({
-      where: { id: resolveData.event_id },
+      where: { id: event.id },
       data: {
         status: 'RESOLVED',
         resolved_at: now,
         resolution_basis: resolveData.resolution_basis,
-        timeline,
+        timeline: timeline as Prisma.InputJsonValue,
         updated_at: now,
       },
     });
 
-    // Emit change record
     await emitGlobalEventChange(
       tx,
       {

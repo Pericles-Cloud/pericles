@@ -1,7 +1,8 @@
 import { createTool } from '@mastra/core/tools';
 import { z } from 'zod';
 import { getPrismaClient } from '../../monitoring/db-client.js';
-import { emitGlobalEventChange } from '../../monitoring/global-event-changes.js';
+import { emitGlobalEventChange, lockGlobalEvent } from '../../monitoring/global-event-changes.js';
+import { TERMINAL_EVENT_STATUSES } from '../../monitoring/exposure-strength.js';
 
 /**
  * Global Event Resolution Tool
@@ -254,7 +255,17 @@ Never delete events - always use status transitions.
     // The status change and its change record commit together, so customers
     // are always told (client_monitoring clears exposures on these). The
     // record used to be built and returned but never enqueued.
+    let alreadyEnded = false;
     await prisma.$transaction(async (tx) => {
+      // Re-check under the row lock: an event that ended meanwhile (or a
+      // repeated call) must not be rewritten or fanned out again.
+      await lockGlobalEvent(tx, event_id);
+      const locked = await tx.globalEvent.findUnique({ where: { id: event_id }, select: { status: true } });
+      if (!locked || TERMINAL_EVENT_STATUSES.has(locked.status)) {
+        alreadyEnded = true;
+        return;
+      }
+
       await tx.globalEvent.update({
         where: { id: event_id },
         data: {
@@ -276,7 +287,43 @@ Never delete events - always use status transitions.
         },
         now
       );
+
+      // Merge: the surviving event now stands for the absorbed one. Notify it
+      // too, so customers whose exposure was on the absorbed event (cleared as
+      // event_merged) are re-evaluated against the survivor.
+      if (action === 'merge' && merge_into_event_id) {
+        await lockGlobalEvent(tx, merge_into_event_id);
+        const survivor = await tx.globalEvent.findUnique({ where: { id: merge_into_event_id } });
+        if (survivor && !TERMINAL_EVENT_STATUSES.has(survivor.status)) {
+          await emitGlobalEventChange(
+            tx,
+            {
+              event_id: survivor.id,
+              event_hash: survivor.event_hash,
+              change_type: 'updated',
+              intrinsic_severity: survivor.intrinsic_severity,
+              status: survivor.status,
+              changed_fields: ['merged_from'],
+              is_material: true,
+            },
+            now
+          );
+        }
+      }
     });
+
+    if (alreadyEnded) {
+      return {
+        success: false,
+        event_id,
+        new_status: event.status,
+        resolved_at: event.resolved_at?.toISOString() ?? null,
+        resolution_basis: event.resolution_basis ?? null,
+        timeline_entry: timelineEntry,
+        change_record: { event_id, change_type: 'none', is_material: false, changed_fields: [], timestamp: now.toISOString() },
+        error: `Event already ended (${event.status}); no change made`,
+      };
+    }
 
 
     // Change record summary for the agent's own output

@@ -113,17 +113,6 @@ export function isMaterialChange(payload: GlobalEventStoreChangePayload): boolea
   return payload.is_material ?? false;
 }
 
-/**
- * Check if a global event change should trigger Event Verification
- * High and Critical severity events trigger proactive verification
- */
-export function shouldTriggerVerification(payload: GlobalEventStoreChangePayload): boolean {
-  if (payload.change_type !== 'created' && payload.change_type !== 'updated') {
-    return false;
-  }
-
-  return payload.intrinsic_severity === 'high' || payload.intrinsic_severity === 'critical';
-}
 
 // ============================================================================
 // Org-scoped evaluation records (client_monitoring fan-out)
