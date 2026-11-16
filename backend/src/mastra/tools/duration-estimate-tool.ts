@@ -1,6 +1,7 @@
 import { createTool } from '@mastra/core/tools';
 import { z } from 'zod';
 import { getPrismaClient } from '../../monitoring/db-client.js';
+import { emitGlobalEventChange } from '../../monitoring/global-event-changes.js';
 
 /**
  * Duration Estimate Tool
@@ -318,12 +319,24 @@ Do NOT use for:
     // Save to database
     let saved = false;
     try {
-      await prisma.globalEvent.update({
-        where: { id: event_id },
-        data: {
-          duration_estimate: durationEstimate,
-          updated_at: new Date(),
-        },
+      // A new duration estimate is a material change (Global spec §6): commit it
+      // with its change record so customers' exposures are re-evaluated.
+      await prisma.$transaction(async (tx) => {
+        const updated = await tx.globalEvent.update({
+          where: { id: event_id },
+          data: {
+            duration_estimate: durationEstimate,
+            updated_at: new Date(),
+          },
+        });
+        await emitGlobalEventChange(tx, {
+          event_id,
+          event_hash: updated.event_hash,
+          change_type: 'updated',
+          intrinsic_severity: updated.intrinsic_severity,
+          status: updated.status,
+          changed_fields: ['duration_estimate'],
+        });
       });
       saved = true;
     } catch (error) {

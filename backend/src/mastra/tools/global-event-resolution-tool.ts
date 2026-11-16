@@ -249,32 +249,35 @@ Never delete events - always use status transitions.
     const timeline = (event.timeline as Array<Record<string, unknown>>) ?? [];
     timeline.push(timelineEntry as Record<string, unknown>);
 
-    await prisma.globalEvent.update({
-      where: { id: event_id },
-      data: {
-        status: newStatus as any,
-        resolved_at: resolvedAt,
-        resolution_basis: resolutionBasis,
-        timeline: timeline as any,
-        updated_at: now,
-      },
+    const changeKind = action === 'resolve' ? 'resolved' : action === 'retract' ? 'retracted' : 'merged';
+
+    // The status change and its change record commit together, so customers
+    // are always told (client_monitoring clears exposures on these). The
+    // record used to be built and returned but never enqueued.
+    await prisma.$transaction(async (tx) => {
+      await tx.globalEvent.update({
+        where: { id: event_id },
+        data: {
+          status: newStatus as any,
+          resolved_at: resolvedAt,
+          resolution_basis: resolutionBasis,
+          timeline: timeline as any,
+          updated_at: now,
+        },
+      });
+      await emitGlobalEventChange(
+        tx,
+        {
+          event_id,
+          event_hash: event.event_hash,
+          change_type: changeKind,
+          intrinsic_severity: event.intrinsic_severity,
+          status: newStatus,
+        },
+        now
+      );
     });
 
-    // Notify downstream (client_monitoring clears exposures on these). This
-    // used to be built and returned but never enqueued, so a resolution made
-    // through this tool never reached any customer.
-    const changeKind = action === 'resolve' ? 'resolved' : action === 'retract' ? 'retracted' : 'merged';
-    await emitGlobalEventChange(
-      prisma,
-      {
-        event_id,
-        event_hash: event.event_hash,
-        change_type: changeKind,
-        intrinsic_severity: event.intrinsic_severity,
-        status: newStatus,
-      },
-      now
-    );
 
     // Change record summary for the agent's own output
     const changeRecord = {

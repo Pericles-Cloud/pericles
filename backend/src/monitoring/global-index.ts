@@ -281,57 +281,74 @@ async function storeGlobalEvent(eventData: any): Promise<void> {
   }
 
   // Create new event
-  const event = await prisma.globalEvent.create({
-    data: {
-      event_hash: eventData.event_hash,
-      headline: eventData.headline,
-      actor: eventData.actor,
-      action: eventData.action,
-      target: eventData.target,
-      occurred_at: eventData.occurred_at ? new Date(eventData.occurred_at) : null,
-      scheduled_at: eventData.scheduled_at ? new Date(eventData.scheduled_at) : null,
-      forecast_at: eventData.forecast_at ? new Date(eventData.forecast_at) : null,
-      first_reported_at: eventData.first_reported_at ? new Date(eventData.first_reported_at) : null,
-      category: eventData.category,
-      subcategory: eventData.subcategory,
-      secondary_categories: eventData.secondary_categories || [],
-      status: eventData.status || 'FORECAST',
-      intrinsic_severity: eventData.intrinsic_severity,
-      severity_rationale: eventData.severity_rationale,
-      confidence: eventData.confidence,
-      corroborating_source_count: eventData.corroborating_source_count || 0,
-      latitude: eventData.location?.latitude,
-      longitude: eventData.location?.longitude,
-      affected_area: eventData.location?.affected_area,
-      country_iso: eventData.location?.country_iso,
-      admin1_region: eventData.location?.admin1_region,
-      named_infrastructure: eventData.location?.named_infrastructure,
-      affected_dimensions: eventData.affected_dimensions,
-      expected_duration: eventData.expected_duration,
-      duration_estimate: eventData.duration_estimate,
-      event_statement: eventData.event_statement,
-      parent_event_id: eventData.parent_event_id,
-      related_event_ids: eventData.related_event_ids || [],
-      sources: eventData.sources || [],
-      context_items: eventData.context_items || [],
-      timeline: [],
-      raw_data: eventData.raw_data,
-    },
-  });
+  // The event write and its change record commit together: an event is never
+  // stored without the record that tells customers about it.
+  await prisma.$transaction(async (tx) => {
+    const event = await tx.globalEvent.create({
+      data: {
+        event_hash: eventData.event_hash,
+        headline: eventData.headline,
+        actor: eventData.actor,
+        action: eventData.action,
+        target: eventData.target,
+        occurred_at: eventData.occurred_at ? new Date(eventData.occurred_at) : null,
+        scheduled_at: eventData.scheduled_at ? new Date(eventData.scheduled_at) : null,
+        forecast_at: eventData.forecast_at ? new Date(eventData.forecast_at) : null,
+        first_reported_at: eventData.first_reported_at ? new Date(eventData.first_reported_at) : null,
+        category: eventData.category,
+        subcategory: eventData.subcategory,
+        secondary_categories: eventData.secondary_categories || [],
+        status: eventData.status || 'FORECAST',
+        intrinsic_severity: eventData.intrinsic_severity,
+        severity_rationale: eventData.severity_rationale,
+        confidence: eventData.confidence,
+        corroborating_source_count: eventData.corroborating_source_count || 0,
+        latitude: eventData.location?.latitude,
+        longitude: eventData.location?.longitude,
+        affected_area: eventData.location?.affected_area,
+        country_iso: eventData.location?.country_iso,
+        admin1_region: eventData.location?.admin1_region,
+        named_infrastructure: eventData.location?.named_infrastructure,
+        affected_dimensions: eventData.affected_dimensions,
+        expected_duration: eventData.expected_duration,
+        duration_estimate: eventData.duration_estimate,
+        event_statement: eventData.event_statement,
+        parent_event_id: eventData.parent_event_id,
+        related_event_ids: eventData.related_event_ids || [],
+        sources: eventData.sources || [],
+        context_items: eventData.context_items || [],
+        timeline: [],
+        raw_data: eventData.raw_data,
+      },
+    });
 
-  // Emit change record
-  await emitGlobalEventChange(
-    prisma,
-    {
-      event_id: event.id,
-      event_hash: event.event_hash,
-      change_type: 'created',
-      intrinsic_severity: event.intrinsic_severity,
-      status: event.status,
-    },
-    event.created_at
-  );
+    // Emit change record
+    await emitGlobalEventChange(
+      tx,
+      {
+        event_id: event.id,
+        event_hash: event.event_hash,
+        change_type: 'created',
+        intrinsic_severity: event.intrinsic_severity,
+        status: event.status,
+      },
+      event.created_at
+    );
+  });
 }
+
+/** GlobalEvent fields an agent update may set (Global Monitoring spec §9 content). */
+const AGENT_UPDATABLE_FIELDS = new Set([
+  'headline', 'actor', 'action', 'target',
+  'occurred_at', 'scheduled_at', 'forecast_at', 'first_reported_at',
+  'category', 'subcategory', 'secondary_categories',
+  'status', 'intrinsic_severity', 'severity_rationale',
+  'confidence', 'corroborating_source_count',
+  'latitude', 'longitude', 'affected_area', 'country_iso', 'admin1_region', 'named_infrastructure',
+  'affected_dimensions', 'expected_duration', 'duration_estimate', 'event_statement',
+  'parent_event_id', 'related_event_ids', 'sources', 'context_items',
+  'last_checked_at', 'next_check_due', 'stale',
+]);
 
 /**
  * Update an existing global event
@@ -363,30 +380,37 @@ async function updateGlobalEvent(updateData: any): Promise<void> {
     updated_at: new Date(),
   };
 
+  // Model-written changes may touch only event content fields. Identity, the
+  // change_seq counter, the append-only timeline and verification_ref (the
+  // Validation Agent's) are never writable here; resolution has its own path.
   for (const change of updateData.changes || []) {
-    if (change.field in event) {
+    if (AGENT_UPDATABLE_FIELDS.has(change.field)) {
       updateFields[change.field] = change.new_value;
     }
   }
 
-  await prisma.globalEvent.update({
-    where: { id: updateData.event_id },
-    data: updateFields,
-  });
+  // The event write and its change record commit together: an event is never
+  // stored without the record that tells customers about it.
+  await prisma.$transaction(async (tx) => {
+    await tx.globalEvent.update({
+      where: { id: updateData.event_id },
+      data: updateFields,
+    });
 
-  // Emit change record if material
-  if (updateData.is_material) {
-    await emitGlobalEventChange(
-      prisma,
-      {
-        event_id: event.id,
-        event_hash: event.event_hash,
-        change_type: 'updated',
-        intrinsic_severity: updateFields.intrinsic_severity || event.intrinsic_severity,
-        status: updateFields.status || event.status,
-      },
-    );
-  }
+    // Emit change record if material
+    if (updateData.is_material) {
+      await emitGlobalEventChange(
+        tx,
+        {
+          event_id: event.id,
+          event_hash: event.event_hash,
+          change_type: 'updated',
+          intrinsic_severity: updateFields.intrinsic_severity || event.intrinsic_severity,
+          status: updateFields.status || event.status,
+        },
+      );
+    }
+  });
 }
 
 /**
@@ -417,29 +441,33 @@ async function resolveGlobalEvent(resolveData: any): Promise<void> {
   const timeline = (event.timeline as any[]) || [];
   timeline.push(timelineEntry);
 
-  await prisma.globalEvent.update({
-    where: { id: resolveData.event_id },
-    data: {
-      status: 'RESOLVED',
-      resolved_at: now,
-      resolution_basis: resolveData.resolution_basis,
-      timeline,
-      updated_at: now,
-    },
-  });
+  // The event write and its change record commit together: an event is never
+  // stored without the record that tells customers about it.
+  await prisma.$transaction(async (tx) => {
+    await tx.globalEvent.update({
+      where: { id: resolveData.event_id },
+      data: {
+        status: 'RESOLVED',
+        resolved_at: now,
+        resolution_basis: resolveData.resolution_basis,
+        timeline,
+        updated_at: now,
+      },
+    });
 
-  // Emit change record
-  await emitGlobalEventChange(
-    prisma,
-    {
-      event_id: event.id,
-      event_hash: event.event_hash,
-      change_type: 'resolved',
-      intrinsic_severity: event.intrinsic_severity,
-      status: 'RESOLVED',
-    },
-    now
-  );
+    // Emit change record
+    await emitGlobalEventChange(
+      tx,
+      {
+        event_id: event.id,
+        event_hash: event.event_hash,
+        change_type: 'resolved',
+        intrinsic_severity: event.intrinsic_severity,
+        status: 'RESOLVED',
+      },
+      now
+    );
+  });
 }
 
 /**

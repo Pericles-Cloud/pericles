@@ -84,6 +84,20 @@ describe('clientMonitoringConsumer fan-out', () => {
     expect(fake.organization.findMany.mock.calls[0][0].where.id).toBeUndefined();
   });
 
+  it('ignores an org-scoped record without a target instead of fanning out to every tenant', async () => {
+    fake.organization.findMany.mockResolvedValue([{ id: ORG_A }, { id: ORG_B }]);
+    await run(record(ORG_A, { event_id: 'ge-1' }));
+    expect(fake.messageQueue.createMany).not.toHaveBeenCalled();
+    expect(fake.globalEvent.findUnique).not.toHaveBeenCalled();
+  });
+
+  it('only fans out to orgs that have a Client Exposure Profile', async () => {
+    await run(record(null, { event_id: 'ge-1' }));
+    expect(fake.organization.findMany.mock.calls[0][0].where).toMatchObject({
+      clientExposureProfile: { isNot: null },
+    });
+  });
+
   it('enqueues nothing when no org is eligible', async () => {
     await run(record(null, { event_id: 'ge-1' }));
     expect(fake.messageQueue.createMany).not.toHaveBeenCalled();
@@ -92,11 +106,13 @@ describe('clientMonitoringConsumer fan-out', () => {
   it('for a terminal event, also reaches orgs with open exposures that turned monitoring off', async () => {
     fake.globalEvent.findUnique.mockResolvedValue({ id: 'ge-1', status: 'RESOLVED' });
     fake.organization.findMany.mockResolvedValue([{ id: ORG_A }]);
-    fake.candidateExposure.findMany.mockResolvedValue([{ organization_id: ORG_B }, { organization_id: ORG_A }]);
+    fake.candidateExposure.findMany.mockResolvedValue([{ organization_id: ORG_B }]);
 
     await run(record(null, { event_id: 'ge-1', change_type: 'resolved' }));
 
-    expect(queuedRows().map((r) => r.organization_id).sort()).toEqual([ORG_A, ORG_B].sort());
+    // Only orgs with something to clear; enabled orgs without exposures are skipped.
+    expect(queuedRows().map((r) => r.organization_id)).toEqual([ORG_B]);
+    expect(fake.organization.findMany).not.toHaveBeenCalled();
     expect(fake.candidateExposure.findMany.mock.calls[0][0].where).toEqual({
       global_event_id: 'ge-1',
       validation_status: { not: 'CLEARED' },
@@ -240,14 +256,22 @@ describe('clientMonitoringConsumer org evaluation', () => {
 
 describe('parseAgentJson', () => {
   it('prefers a fenced json block over braces in surrounding prose', () => {
-    expect(parseAgentJson('Evaluating {org} exposure...\n```json\n{"a": 1}\n```\nDone {x}')).toEqual({ a: 1 });
+    expect(
+      parseAgentJson('Evaluating {org} exposure...\n```json\n{"candidate_exposures": []}\n```\nDone {x}')
+    ).toEqual({ candidate_exposures: [] });
   });
 
-  it('finds the first balanced object that parses, skipping braces in prose and strings', () => {
-    expect(parseAgentJson('Note {not json} then {"rationale": "a } inside", "b": [1]} end }')).toEqual({
-      rationale: 'a } inside',
-      b: [1],
+  it('finds the first balanced result object, skipping braces in prose and strings', () => {
+    expect(parseAgentJson('Note {not json} then {"watch_list": [], "note": "a } inside"} end }')).toEqual({
+      watch_list: [],
+      note: 'a } inside',
     });
+  });
+
+  it('rejects a fragment of a truncated response instead of reading it as no exposure', () => {
+    const truncated =
+      '{"candidate_exposures":[{"exposure_pathways":[{"pathway":"entity","match_basis":"x","confidence":0.9}';
+    expect(() => parseAgentJson(truncated)).toThrow('no parseable JSON');
   });
 
   it('throws when there is no object', () => {

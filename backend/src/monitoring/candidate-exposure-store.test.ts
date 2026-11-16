@@ -10,6 +10,7 @@ const fake = vi.hoisted(() => ({
   messageQueue: { createMany: vi.fn() },
   dispatchLog: { findMany: vi.fn() },
   $transaction: vi.fn(),
+  $queryRaw: vi.fn(),
 }));
 
 vi.mock('./db-client.js', () => ({ getPrismaClient: () => fake }));
@@ -62,6 +63,7 @@ beforeEach(() => {
   fake.candidateExposure.updateMany.mockReset().mockResolvedValue({ count: 1 });
   fake.messageQueue.createMany.mockReset().mockResolvedValue({ count: 1 });
   fake.dispatchLog.findMany.mockReset().mockResolvedValue([]);
+  fake.$queryRaw.mockReset().mockResolvedValue([{ status: 'ACTIVE' }]);
 });
 
 describe('statusForStrength', () => {
@@ -451,6 +453,17 @@ describe('upsertCandidateExposure', () => {
 
     await expect(upsertCandidateExposure(INPUT)).rejects.toThrow('changed concurrently');
     expect(fake.$transaction).toHaveBeenCalledTimes(3);
+  });
+
+  it('writes nothing once the event has ended, locking the event row while it checks', async () => {
+    fake.$queryRaw.mockResolvedValue([{ status: 'RESOLVED' }]);
+
+    const result = await upsertCandidateExposure(INPUT);
+
+    expect(result.outcome).toBe('event_ended');
+    expect(fake.candidateExposure.findUnique).not.toHaveBeenCalled();
+    expect(fake.candidateExposure.create).not.toHaveBeenCalled();
+    expect((fake.$queryRaw.mock.calls[0][0] as TemplateStringsArray).join('?')).toMatch(/FOR SHARE/);
   });
 
   it('does not retry other errors', async () => {

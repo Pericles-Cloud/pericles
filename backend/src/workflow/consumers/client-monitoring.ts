@@ -71,6 +71,15 @@ export const clientMonitoringConsumer: ConsumerHandler = async ({ record, signal
   }
 
   if (targetOrgId === undefined) {
+    // Only a global record may fan out across tenants. An org-scoped record
+    // without a target is malformed, not a request to evaluate every tenant.
+    if (record.organization_id !== null) {
+      logger.warn(
+        { record_id: record.record_id, record_org: record.organization_id },
+        '[ClientMonitoring] Org-scoped record without target_organization_id; ignoring record'
+      );
+      return;
+    }
     // Fan-out: needs only the event's id and status.
     const event = await prisma.globalEvent.findUnique({
       where: { id: globalEventId },
@@ -145,19 +154,30 @@ function balancedObjectAt(text: string, start: number): string | null {
   return null;
 }
 
+/** Top-level keys of the agent's response format; at least one must be present. */
+const RESULT_KEYS = ['candidate_exposures', 'watch_list', 'not_exposed'] as const;
+
+/**
+ * Parse `candidate` as the agent's result object. A fragment such as one
+ * nested pathway (from a truncated response) parses as JSON but has none of
+ * the result keys, so it is rejected rather than read as "no exposure".
+ */
 function asObject(candidate: string): Record<string, unknown> | null {
   try {
     const value: unknown = JSON.parse(candidate);
-    return value && typeof value === 'object' && !Array.isArray(value) ? (value as Record<string, unknown>) : null;
+    if (!value || typeof value !== 'object' || Array.isArray(value)) return null;
+    const object = value as Record<string, unknown>;
+    return RESULT_KEYS.some((key) => key in object) ? object : null;
   } catch {
     return null;
   }
 }
 
 /**
- * Extract the agent's JSON object: a fenced ```json block if present,
- * otherwise the first balanced {...} span that parses to an object (so braces
- * in surrounding prose do not break it). Throws if none is found.
+ * Extract the agent's result object: a fenced ```json block if present,
+ * otherwise the first balanced {...} span that parses to an object with the
+ * result keys (so braces in prose, or a fragment of a truncated response, do
+ * not pass). Throws if none is found, so the org is retried.
  */
 export function parseAgentJson(text: string): Record<string, unknown> {
   const fenced = /```(?:json)?\s*([\s\S]*?)```/i.exec(text);
@@ -177,28 +197,35 @@ const TERMINAL_STATUSES = new Set(['RESOLVED', 'RETRACTED', 'MERGED']);
 const isTerminal = (status: string): boolean => TERMINAL_STATUSES.has(status);
 
 /**
- * Orgs to evaluate for an event: every monitoring-enabled customer org, and,
- * for a terminal event, also every org with an open exposure on it (an org
- * that turned monitoring off still needs its exposures cleared).
+ * Orgs to evaluate for an event.
+ * - Terminal event: only orgs with an open exposure on it (the only work is
+ *   clearing), including orgs that have since turned monitoring off.
+ * - Otherwise: monitoring-enabled customer orgs that have a Client Exposure
+ *   Profile (an org without one would exit without evaluating).
+ *
+ * These are the platform fan-out's tenant-listing queries: they decide which
+ * tenants get an org-scoped record; each record is then processed within its
+ * own organization. See the open tenant-isolation question in the wiki (D41).
  */
 async function fanOutOrgIds(globalEventId: string, terminal: boolean): Promise<string[]> {
   const prisma = getPrismaClient();
-  const enabled = await prisma.organization.findMany({
-    where: { is_root: false, settings: { monitoring_agent_enabled: true } },
-    select: { id: true },
-  });
-  const ids = new Set(enabled.map((o) => o.id));
   if (terminal) {
-    // Cross-tenant by design: the platform's fan-out decides which tenants get
-    // an org-scoped record; each record is then processed within its own org.
     const open = await prisma.candidateExposure.findMany({
       where: { global_event_id: globalEventId, validation_status: { not: 'CLEARED' } },
       select: { organization_id: true },
       distinct: ['organization_id'],
     });
-    for (const row of open) ids.add(row.organization_id);
+    return open.map((row) => row.organization_id);
   }
-  return [...ids];
+  const eligible = await prisma.organization.findMany({
+    where: {
+      is_root: false,
+      settings: { monitoring_agent_enabled: true },
+      clientExposureProfile: { isNot: null },
+    },
+    select: { id: true },
+  });
+  return eligible.map((o) => o.id);
 }
 
 /** Rows per INSERT: stays far below Postgres's 65,535 bind-parameter limit. */
@@ -251,7 +278,7 @@ async function evaluateExposureForOrg(
   let cleared = 0;
 
   // Check if event is in a terminal state
-  if (['RESOLVED', 'RETRACTED', 'MERGED'].includes(globalEvent.status)) {
+  if (isTerminal(globalEvent.status)) {
     // Clear any existing exposures for this event
     cleared = await clearExposuresForResolvedEvent(
       organizationId,
@@ -366,7 +393,7 @@ async function evaluateExposureForOrg(
   // Anything thrown here is infrastructure (DB, queue) and propagates so the
   // org is retried; the upsert and the hand-off are idempotent.
   const result = await createCandidateExposure(organizationId, globalEvent, merged, profile.profile_version);
-  if (result.outcome !== 'unchanged') exposuresWritten++;
+  if (result.outcome === 'created' || result.outcome === 'updated') exposuresWritten++;
   if (result.change_record_emitted) handoffsEmitted++;
 
   return { exposuresWritten, handoffsEmitted, cleared };

@@ -154,7 +154,7 @@ export interface CandidateExposureInput extends CandidateEvaluation {
   profile_snapshot_ref?: string | null;
 }
 
-export type UpsertOutcome = 'created' | 'updated' | 'unchanged';
+export type UpsertOutcome = 'created' | 'updated' | 'unchanged' | 'event_ended';
 
 export interface UpsertCandidateExposureResult {
   candidate_exposure_id: string;
@@ -223,6 +223,9 @@ function nextHandoffVersion(current: number): number {
   return current <= 0 ? LEGACY_HANDOFF_VERSION : current + 1;
 }
 
+/** Global Event statuses after which no exposure may be created or reopened. */
+const EVENT_TERMINAL_STATUSES = new Set(['RESOLVED', 'RETRACTED', 'MERGED']);
+
 /** Clear reasons meaning the event itself ended; a stale evaluation must not reopen these. */
 const EVENT_ENDED_REASONS = new Set(['event_resolved', 'event_retracted', 'event_merged']);
 
@@ -271,6 +274,17 @@ async function upsertOnce(input: CandidateExposureInput): Promise<UpsertCandidat
   };
 
   return prisma.$transaction(async (tx) => {
+    // Lock the event row (FOR SHARE) and check it has not ended. A resolution's
+    // status UPDATE waits for this transaction, so its fan-out then sees and
+    // clears anything written here; and an evaluation that started before the
+    // event ended writes nothing once it has.
+    const [event] = await tx.$queryRaw<Array<{ status: string }>>`
+      SELECT status::text AS status FROM "GlobalEvent" WHERE id = ${input.global_event_id} FOR SHARE
+    `;
+    if (!event || EVENT_TERMINAL_STATUSES.has(event.status)) {
+      return { candidate_exposure_id: '', validation_status: 'NONE', outcome: 'event_ended', change_record_emitted: false };
+    }
+
     const existing = await tx.candidateExposure.findUnique({
       where: {
         organization_id_global_event_hash: {

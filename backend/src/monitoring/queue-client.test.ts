@@ -324,18 +324,23 @@ describe('consumeFromQueue', () => {
     }
   });
 
-  it('after a row passes the max hold, keeps renewing the rows waiting behind it', async () => {
+  it('after a row passes the max hold, hands the rows waiting behind it back to the queue', async () => {
     vi.useFakeTimers();
     try {
-      fake.$queryRaw.mockResolvedValueOnce([row('hung'), row('next')]).mockResolvedValue([]);
+      fake.$queryRaw.mockResolvedValueOnce([row('hung'), row('next'), row('last')]).mockResolvedValue([]);
       const handler = vi.fn(() => new Promise<void>(() => undefined));
       const consumer = consumeFromQueue(QUEUE, handler, { maxLockHoldMs: LOCK_RENEW_INTERVAL_MS * 2 });
 
-      await vi.advanceTimersByTimeAsync(LOCK_RENEW_INTERVAL_MS * 4 + 1);
-      consumer.stop();
+      await vi.advanceTimersByTimeAsync(LOCK_RENEW_INTERVAL_MS * 3 + 1);
+      const releases = fake.$executeRaw.mock.calls.filter((c) => sqlOf(c).includes("SET status = 'PENDING'"));
+      expect(releases).toHaveLength(1);
+      expect(releases[0][1]).toEqual(['next', 'last']);
 
-      const lastRenewed = renewCalls().at(-1)?.[1];
-      expect(lastRenewed).toEqual(['next']);
+      // Neither the hung row nor the released rows are renewed afterwards.
+      const renewsAfterRelease = renewCalls().length;
+      await vi.advanceTimersByTimeAsync(LOCK_RENEW_INTERVAL_MS * 3);
+      consumer.stop();
+      expect(renewCalls().length).toBe(renewsAfterRelease);
     } finally {
       vi.useRealTimers();
     }

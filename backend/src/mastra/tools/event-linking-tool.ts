@@ -2,6 +2,7 @@ import { createTool } from '@mastra/core/tools';
 import { z } from 'zod';
 import { getPrismaClient } from '../../monitoring/db-client.js';
 import { severityRank } from '../../monitoring/exposure-strength.js';
+import { emitGlobalEventChange } from '../../monitoring/global-event-changes.js';
 
 /**
  * Event Linking Tool
@@ -286,12 +287,24 @@ A wrong link can merge two impacts downstream.
     // Update parent if requested
     let parentUpdated = false;
     if (set_parent) {
-      await prisma.globalEvent.update({
-        where: { id: event_id },
-        data: {
-          parent_event_id: set_parent,
-          updated_at: new Date(),
-        },
+      // Re-parenting is a hierarchy change (material, Global spec §6): commit it
+      // with its change record so customers' exposures are re-evaluated.
+      await prisma.$transaction(async (tx) => {
+        const updated = await tx.globalEvent.update({
+          where: { id: event_id },
+          data: {
+            parent_event_id: set_parent,
+            updated_at: new Date(),
+          },
+        });
+        await emitGlobalEventChange(tx, {
+          event_id,
+          event_hash: updated.event_hash,
+          change_type: 'updated',
+          intrinsic_severity: updated.intrinsic_severity,
+          status: updated.status,
+          changed_fields: ['parent_event_id'],
+        });
       });
       parentUpdated = true;
     }

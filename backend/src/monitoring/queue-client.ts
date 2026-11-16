@@ -317,6 +317,24 @@ export async function renewLocks(
  * whose lease expired and was reclaimed belongs to the new owner, and the old
  * worker must not overwrite its state. Returns false if ownership was lost.
  */
+/**
+ * Hand claimed-but-unstarted rows back to the queue: PENDING again, lock
+ * cleared, and the claim's attempt returned. Only rows this worker still holds.
+ */
+export async function releaseLocks(ids: string[], workerId: string, prisma = getPrismaClient()): Promise<number> {
+  if (ids.length === 0) return 0;
+  return prisma.$executeRaw`
+    UPDATE "MessageQueue"
+    SET status = 'PENDING'::"MessageStatus",
+        locked_at = NULL,
+        locked_by = NULL,
+        attempts = GREATEST(attempts - 1, 0)
+    WHERE id = ANY(${ids}::text[])
+      AND locked_by = ${workerId}
+      AND status = 'PROCESSING'::"MessageStatus"
+  `;
+}
+
 export async function completeMessage(id: string, prisma = getPrismaClient(), workerId?: string): Promise<boolean> {
   const data = { status: 'COMPLETED' as const, processed_at: new Date(), locked_at: null, locked_by: null };
   if (workerId === undefined) {
@@ -413,28 +431,36 @@ export function consumeFromQueue(
           // applies to the row currently running: rows waiting their turn in a
           // healthy batch keep their lease however long the batch takes.
           const held = new Set(rows.map((row) => row.id));
-          let running: { id: string; since: number } | undefined;
-          const abandoned = new Set<string>();
+          let current: { index: number; id: string; since: number } | undefined;
+          let hung = false;
+          const released = new Set<string>();
           const renewal = setInterval(() => {
-            // A row running past the limit is treated as hung: stop renewing
-            // that row only, so its lease expires and it can be recovered.
-            // Rows waiting behind it keep their lease.
-            if (running && !abandoned.has(running.id) && Date.now() - running.since >= maxLockHoldMs) {
-              abandoned.add(running.id);
+            // A row running past the limit is treated as hung. Stop renewing
+            // it, so its lease expires and it can be recovered, and hand the
+            // rows waiting behind it back to the queue now: this worker is
+            // stuck, so they must not wait on it (nor be renewed forever).
+            if (current && !hung && Date.now() - current.since >= maxLockHoldMs) {
+              hung = true;
+              const waiting = rows.slice(current.index + 1).map((r) => r.id).filter((id) => held.has(id));
+              for (const id of [current.id, ...waiting]) held.delete(id);
+              for (const id of waiting) released.add(id);
               logger.error(
-                { queueName, messageId: running.id, maxLockHoldMs },
-                '[Queue] Row ran past max lock hold; its renewal stopped so the lease can expire'
+                { queueName, messageId: current.id, released: waiting.length, maxLockHoldMs },
+                '[Queue] Row ran past max lock hold; renewal stopped and waiting rows released'
               );
+              releaseLocks(waiting, workerId, prisma).catch((error: unknown) => {
+                logger.error({ queueName, error }, '[Queue] Releasing waiting rows failed');
+              });
             }
-            const ids = [...held].filter((id) => !abandoned.has(id));
-            renewLocks(ids, workerId, prisma).catch((error: unknown) => {
+            renewLocks([...held], workerId, prisma).catch((error: unknown) => {
               logger.error({ queueName, error }, '[Queue] Lock renewal failed');
             });
           }, LOCK_RENEW_INTERVAL_MS);
 
           try {
-            for (const row of rows) {
-              running = { id: row.id, since: Date.now() };
+            for (const [index, row] of rows.entries()) {
+              if (released.has(row.id)) continue; // handed back while a row hung
+              current = { index, id: row.id, since: Date.now() };
               try {
                 await handler(
                   {
