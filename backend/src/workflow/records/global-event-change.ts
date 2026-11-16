@@ -63,11 +63,14 @@ export interface GlobalEventStoreChangePayload {
  */
 export function globalEventStoreChangeRecord(
   payload: GlobalEventStoreChangePayload,
+  changeSeq: number,
   producedAt: Date
 ): ChangeRecord {
   return {
     record_id: `global-event-${payload.event_id}`,
-    record_version: 1,
+    // Each change is a new version; a constant version would dedupe every
+    // update and resolution against the creation record.
+    record_version: changeSeq,
     record_type: 'global_event_change',
     organization_id: null, // Global events have no org scope
     produced_at: producedAt.toISOString(),

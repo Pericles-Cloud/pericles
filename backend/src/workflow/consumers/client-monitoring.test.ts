@@ -8,6 +8,7 @@ const fake = vi.hoisted(() => ({
   globalEvent: { findUnique: vi.fn() },
   organization: { findMany: vi.fn() },
   clientExposureProfile: { findUnique: vi.fn() },
+  candidateExposure: { findMany: vi.fn(), updateMany: vi.fn() },
   messageQueue: { createMany: vi.fn() },
 }));
 
@@ -44,7 +45,9 @@ const run = (r: ChangeRecord) =>
 const orgRecord = (orgId: string) => record(orgId, { event_id: 'ge-1', target_organization_id: orgId });
 
 beforeEach(() => {
-  fake.globalEvent.findUnique.mockReset().mockResolvedValue({ id: 'ge-1', status: 'RESOLVED', event_hash: 'h' });
+  fake.globalEvent.findUnique.mockReset().mockResolvedValue({ id: 'ge-1', status: 'ACTIVE', event_hash: 'h' });
+  fake.candidateExposure.findMany.mockReset().mockResolvedValue([]);
+  fake.candidateExposure.updateMany.mockReset().mockResolvedValue({ count: 0 });
   fake.organization.findMany.mockReset().mockResolvedValue([]);
   fake.clientExposureProfile.findUnique.mockReset();
   agent.generate.mockReset();
@@ -85,6 +88,31 @@ describe('clientMonitoringConsumer fan-out', () => {
     await run(record(null, { event_id: 'ge-1' }));
     expect(fake.messageQueue.createMany).not.toHaveBeenCalled();
   });
+
+  it('for a terminal event, also reaches orgs with open exposures that turned monitoring off', async () => {
+    fake.globalEvent.findUnique.mockResolvedValue({ id: 'ge-1', status: 'RESOLVED' });
+    fake.organization.findMany.mockResolvedValue([{ id: ORG_A }]);
+    fake.candidateExposure.findMany.mockResolvedValue([{ organization_id: ORG_B }, { organization_id: ORG_A }]);
+
+    await run(record(null, { event_id: 'ge-1', change_type: 'resolved' }));
+
+    expect(queuedRows().map((r) => r.organization_id).sort()).toEqual([ORG_A, ORG_B].sort());
+    expect(fake.candidateExposure.findMany.mock.calls[0][0].where).toEqual({
+      global_event_id: 'ge-1',
+      validation_status: { not: 'CLEARED' },
+    });
+  });
+
+  it('chunks a large fan-out into several inserts', async () => {
+    fake.organization.findMany.mockResolvedValue(
+      Array.from({ length: 2500 }, (_, i) => ({ id: `org-${String(i).padStart(4, '0')}` }))
+    );
+
+    await run(record(null, { event_id: 'ge-1' }));
+
+    const sizes = fake.messageQueue.createMany.mock.calls.map((c) => (c[0] as { data: unknown[] }).data.length);
+    expect(sizes).toEqual([1000, 1000, 500]);
+  });
 });
 
 describe('clientMonitoringConsumer target_organization_id', () => {
@@ -98,6 +126,19 @@ describe('clientMonitoringConsumer target_organization_id', () => {
     await run(record(ORG_A, { event_id: 'ge-1', target_organization_id: null }));
     expect(fake.globalEvent.findUnique).not.toHaveBeenCalled();
     expect(fake.organization.findMany).not.toHaveBeenCalled();
+  });
+
+  it('clears a terminal event for the target org even if it turned monitoring off', async () => {
+    fake.globalEvent.findUnique.mockResolvedValue({ id: 'ge-1', status: 'RESOLVED', event_hash: 'h' });
+    fake.candidateExposure.updateMany.mockResolvedValue({ count: 1 });
+
+    await run(orgRecord(ORG_A));
+
+    expect(fake.organization.findMany).not.toHaveBeenCalled();
+    expect(fake.candidateExposure.updateMany.mock.calls[0][0].where).toMatchObject({
+      organization_id: ORG_A,
+      global_event_id: 'ge-1',
+    });
   });
 
   it('evaluates only the target org, and only if it is eligible', async () => {
@@ -153,7 +194,8 @@ describe('clientMonitoringConsumer org evaluation', () => {
     const input = upsert.mock.calls[0][0];
     expect(input.organization_id).toBe(ORG_A);
     expect(input.exposure_strength).toBe('direct');
-    expect(input.exposed_assets.map((a: { asset_id: string }) => a.asset_id)).toEqual(['f-1', 'f-2']);
+    // The weaker (probable) item does not pad the direct exposure.
+    expect(input.exposed_assets.map((a: { asset_id: string }) => a.asset_id)).toEqual(['f-2']);
   });
 
   it('stores a watch-list item as a possible exposure', async () => {
@@ -185,10 +227,14 @@ describe('clientMonitoringConsumer org evaluation', () => {
     expect(upsert.mock.calls[0][0].exposed_assets.map((a: { asset_id: string }) => a.asset_id)).toEqual(['f-1']);
   });
 
-  it('writes nothing when the agent finds no exposure', async () => {
+  it('clears a watched item when the agent now finds no exposure', async () => {
     agent.generate.mockResolvedValue({ text: JSON.stringify({ candidate_exposures: [], watch_list: [] }) });
     await run(orgRecord(ORG_A));
     expect(upsert).not.toHaveBeenCalled();
+    expect(fake.candidateExposure.updateMany.mock.calls[0][0]).toMatchObject({
+      where: { organization_id: ORG_A, global_event_hash: 'h', validation_status: 'WATCHING' },
+      data: { validation_status: 'CLEARED', cleared_reason: 'not_exposed' },
+    });
   });
 });
 

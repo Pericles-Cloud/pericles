@@ -1049,6 +1049,11 @@ model GlobalEvent {
   // Verification (Validation Agent writes this; Global Agent never edits)
   verification_ref  String?  // Pointer to current Event Verification record
 
+  // Per-event change counter: the record_version of its global_event_change
+  // records. Incremented atomically by emitGlobalEventChange, so every change
+  // is a new version and is not deduplicated against the first.
+  change_seq        Int      @default(0)
+
   // Raw data preservation
   raw_data          Json?
 

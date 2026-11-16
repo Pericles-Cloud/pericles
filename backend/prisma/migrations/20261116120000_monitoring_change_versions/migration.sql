@@ -15,3 +15,8 @@ UPDATE "CandidateExposure" SET "handoff_version" = 1
 -- the store hands them off as v2 on next evaluation, which cannot collide.
 UPDATE "CandidateExposure" SET "handoff_version" = -1
   WHERE "validation_status" = 'CANDIDATE';
+
+-- Per-event change counter for global_event_change record versions. Existing
+-- events start at 1: their creation record was emitted as version 1.
+ALTER TABLE "GlobalEvent" ADD COLUMN "change_seq" INTEGER NOT NULL DEFAULT 0;
+UPDATE "GlobalEvent" SET "change_seq" = 1;

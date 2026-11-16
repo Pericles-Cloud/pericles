@@ -22,6 +22,7 @@ import { logger } from '../../monitoring/logger.js';
 import { severityRank } from '../../monitoring/exposure-strength.js';
 import {
   CandidateEvaluationSchema,
+  clearWatchingExposure,
   mergeEvaluations,
   upsertCandidateExposure,
   type CandidateEvaluation,
@@ -69,34 +70,39 @@ export const clientMonitoringConsumer: ConsumerHandler = async ({ record, signal
     return;
   }
 
+  if (targetOrgId === undefined) {
+    // Fan-out: needs only the event's id and status.
+    const event = await prisma.globalEvent.findUnique({
+      where: { id: globalEventId },
+      select: { id: true, status: true },
+    });
+    if (!event) {
+      logger.warn({ global_event_id: globalEventId }, '[ClientMonitoring] Global event not found');
+      return;
+    }
+    const orgIds = await fanOutOrgIds(event.id, isTerminal(event.status));
+    await enqueueOrgEvaluations(record, globalEventId, orgIds);
+    logger.info(
+      { global_event_id: globalEventId, change_type: payload.change_type, orgs: orgIds.length },
+      '[ClientMonitoring] Fanned out org-scoped evaluations'
+    );
+    return;
+  }
+
   const globalEvent = await prisma.globalEvent.findUnique({ where: { id: globalEventId } });
   if (!globalEvent) {
     logger.warn({ global_event_id: globalEventId }, '[ClientMonitoring] Global event not found');
     return;
   }
 
-  // Customer organizations with monitoring on (root org excluded).
-  const organizations = await prisma.organization.findMany({
-    where: {
-      ...(targetOrgId ? { id: targetOrgId } : {}),
-      is_root: false,
-      settings: { monitoring_agent_enabled: true },
-    },
-    select: { id: true },
-  });
-
-  if (targetOrgId === undefined) {
-    await enqueueOrgEvaluations(
-      record,
-      globalEventId,
-      organizations.map((o) => o.id)
-    );
-    logger.info(
-      { global_event_id: globalEventId, change_type: payload.change_type, orgs: organizations.length },
-      '[ClientMonitoring] Fanned out org-scoped evaluations'
-    );
-    return;
-  }
+  // A terminal event only clears exposures, which must happen even for an org
+  // that has since turned monitoring off. Anything else needs an eligible org.
+  const organizations = isTerminal(globalEvent.status)
+    ? [{ id: targetOrgId }]
+    : await prisma.organization.findMany({
+        where: { id: targetOrgId, is_root: false, settings: { monitoring_agent_enabled: true } },
+        select: { id: true },
+      });
 
   if (organizations.length === 0) {
     logger.info(
@@ -167,6 +173,37 @@ export function parseAgentJson(text: string): Record<string, unknown> {
   throw new Error('[ClientMonitoring] Agent response contained no parseable JSON object');
 }
 
+const TERMINAL_STATUSES = new Set(['RESOLVED', 'RETRACTED', 'MERGED']);
+const isTerminal = (status: string): boolean => TERMINAL_STATUSES.has(status);
+
+/**
+ * Orgs to evaluate for an event: every monitoring-enabled customer org, and,
+ * for a terminal event, also every org with an open exposure on it (an org
+ * that turned monitoring off still needs its exposures cleared).
+ */
+async function fanOutOrgIds(globalEventId: string, terminal: boolean): Promise<string[]> {
+  const prisma = getPrismaClient();
+  const enabled = await prisma.organization.findMany({
+    where: { is_root: false, settings: { monitoring_agent_enabled: true } },
+    select: { id: true },
+  });
+  const ids = new Set(enabled.map((o) => o.id));
+  if (terminal) {
+    // Cross-tenant by design: the platform's fan-out decides which tenants get
+    // an org-scoped record; each record is then processed within its own org.
+    const open = await prisma.candidateExposure.findMany({
+      where: { global_event_id: globalEventId, validation_status: { not: 'CLEARED' } },
+      select: { organization_id: true },
+      distinct: ['organization_id'],
+    });
+    for (const row of open) ids.add(row.organization_id);
+  }
+  return [...ids];
+}
+
+/** Rows per INSERT: stays far below Postgres's 65,535 bind-parameter limit. */
+const FANOUT_INSERT_CHUNK = 1000;
+
 /**
  * Enqueue one org-scoped evaluation per organization. Keyed by (source record,
  * org) and the source version, so a redelivery of the source record does not
@@ -187,7 +224,9 @@ async function enqueueOrgEvaluations(source: ChangeRecord, globalEventId: string
       })
     )
   );
-  await enqueueManyIdempotent(getPrismaClient(), CHANGE_RECORD_QUEUE, items);
+  for (let i = 0; i < items.length; i += FANOUT_INSERT_CHUNK) {
+    await enqueueManyIdempotent(getPrismaClient(), CHANGE_RECORD_QUEUE, items.slice(i, i + FANOUT_INSERT_CHUNK));
+  }
 }
 
 interface ExposureResult {
@@ -318,13 +357,17 @@ async function evaluateExposureForOrg(
   const evaluations = candidates.length > 0 ? candidates : parseItems(parsedResult.watch_list, true);
 
   const merged = mergeEvaluations(evaluations);
-  if (merged) {
-    // Anything thrown here is infrastructure (DB, queue) and propagates so the
-    // org is retried; the upsert and the hand-off are idempotent.
-    const result = await createCandidateExposure(organizationId, globalEvent, merged, profile.profile_version);
-    if (result.outcome !== 'unchanged') exposuresWritten++;
-    if (result.change_record_emitted) handoffsEmitted++;
+  if (!merged) {
+    // No exposure found: a watched item is no longer watched (spec §5).
+    if (await clearWatchingExposure(organizationId, globalEvent.event_hash)) cleared++;
+    return { exposuresWritten, handoffsEmitted, cleared };
   }
+
+  // Anything thrown here is infrastructure (DB, queue) and propagates so the
+  // org is retried; the upsert and the hand-off are idempotent.
+  const result = await createCandidateExposure(organizationId, globalEvent, merged, profile.profile_version);
+  if (result.outcome !== 'unchanged') exposuresWritten++;
+  if (result.change_record_emitted) handoffsEmitted++;
 
   return { exposuresWritten, handoffsEmitted, cleared };
 }

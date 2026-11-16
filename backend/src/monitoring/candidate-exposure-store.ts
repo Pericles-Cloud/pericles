@@ -60,8 +60,13 @@ export const CandidateEvaluationSchema = z.object({
   // and re-evaluated, never sent to Validation on a guess.
   exposure_strength: z.preprocess((value) => {
     if (typeof value !== 'string') return 'possible';
-    const first = /^[a-z]+/.exec(value.trim().toLowerCase())?.[0];
-    return (['direct', 'probable', 'possible', 'strategic'] as const).find((s) => s === first) ?? 'possible';
+    const words = value.trim().toLowerCase().split(/[^a-z]+/).filter(Boolean);
+    const named = words.filter((w): w is ExposureStrength =>
+      (['direct', 'probable', 'possible', 'strategic'] as const).includes(w as ExposureStrength)
+    );
+    // Exactly one strength, and it leads. "direct|probable|possible|strategic"
+    // (the prompt template echoed back) names several, so it is ambiguous.
+    return named.length === 1 && words[0] === named[0] ? named[0] : 'possible';
   }, z.enum(['direct', 'probable', 'possible', 'strategic'])),
   exposed_assets: validItems(AssetSchema),
   // LLM output: confidence may be omitted, and dates arrive in mixed formats
@@ -105,15 +110,18 @@ export type CandidateEvaluation = z.infer<typeof CandidateEvaluationSchema>;
 
 
 /**
- * Merge every evaluation of one event for one org into the single exposure row
- * that (org, event) allows: strongest strength and highest priority win;
- * pathways, assets and strategic context are unioned. Returns null if empty.
+ * Merge the evaluations of one event for one org into the single exposure row
+ * that (org, event) allows. Items at the strongest tier are merged (highest
+ * priority wins; pathways, assets and strategic context are unioned); weaker
+ * items are dropped. Returns null if empty.
  */
-export function mergeEvaluations(evaluations: CandidateEvaluation[]): CandidateEvaluation | null {
-  if (evaluations.length === 0) return null;
-  const strongest = evaluations.reduce((a, b) =>
-    STRENGTH_RANK[b.exposure_strength] > STRENGTH_RANK[a.exposure_strength] ? b : a
-  );
+export function mergeEvaluations(all: CandidateEvaluation[]): CandidateEvaluation | null {
+  if (all.length === 0) return null;
+  // Only items at the strongest tier are merged: a weaker item's assets and
+  // rationale must not pad a stronger exposure.
+  const topRank = Math.max(...all.map((e) => STRENGTH_RANK[e.exposure_strength]));
+  const evaluations = all.filter((e) => STRENGTH_RANK[e.exposure_strength] === topRank);
+  const strongest = evaluations[0];
   const uniqueBy = <T>(items: T[], key: (item: T) => string): T[] => {
     const seen = new Map<string, T>();
     for (const item of items) if (!seen.has(key(item))) seen.set(key(item), item);
@@ -298,39 +306,16 @@ async function upsertOnce(input: CandidateExposureInput): Promise<UpsertCandidat
     // event ended stays cleared, so an evaluation that started before the event
     // resolved cannot reopen it. REJECTED reopens only
     // if stronger. VALIDATED (and an in-flight CANDIDATE) stay as they are.
+    // A CANDIDATE never handed off (handoff_version <= 0: written before
+    // hand-off versioning, or by migrate-events-to-global) takes the fresh
+    // evaluation like a WATCHING row, so it is handed off (or demoted) on what
+    // the agent says now, not on stale stored fields.
+    const neverHandedOff = existing.validation_status === 'CANDIDATE' && existing.handoff_version <= 0;
     const refreshable =
+      neverHandedOff ||
       existing.validation_status === 'WATCHING' ||
       (existing.validation_status === 'CLEARED' && !EVENT_ENDED_REASONS.has(existing.cleared_reason ?? '')) ||
       (existing.validation_status === 'REJECTED' && isStronger(existing, input));
-
-    // A CANDIDATE row from before hand-offs were versioned is marked
-    // LEGACY_PENDING by the migration: we cannot tell whether it was ever handed
-    // off (the old tool emitted v1, the old consumer emitted nothing). Hand it
-    // off now as v2, which can never collide with an old v1 record.
-    // handoff_version 0 also counts: the store never creates a CANDIDATE at 0,
-    // so such a row was written by another path (e.g. migrate-events-to-global)
-    // and has never been handed off.
-    if (existing.validation_status === 'CANDIDATE' && existing.handoff_version <= 0) {
-      await updateIfUnchanged(tx, existing, { handoff_version: LEGACY_HANDOFF_VERSION });
-      // Hand off what is stored, not this evaluation, so the record and the row agree.
-      const stored = {
-        organization_id: existing.organization_id,
-        global_event_id: existing.global_event_id,
-        global_event_hash: existing.global_event_hash,
-        exposure_strength: existing.exposure_strength as ExposureStrength,
-        exposure_priority: existing.exposure_priority as CandidateEvaluation['exposure_priority'],
-      };
-      const emitted = await emitRecord(
-        tx,
-        buildCandidateExposureRecord(existing.id, LEGACY_HANDOFF_VERSION, stored, now)
-      );
-      return {
-        candidate_exposure_id: existing.id,
-        validation_status: existing.validation_status,
-        outcome: 'unchanged',
-        change_record_emitted: emitted,
-      };
-    }
 
     if (!refreshable) {
       return {
@@ -498,5 +483,23 @@ export async function reemitCandidateHandoffs(
 
   logger.info({ organization_id: organizationId, emitted }, '[CandidateExposure] Re-emitted candidate hand-offs');
   return emitted;
+}
+
+/**
+ * The agent found no exposure for (org, event): clear a WATCHING row, which
+ * would otherwise keep stale assets and could be promoted by a later partial
+ * evaluation (Client spec §5: "No pathway: record not_exposed"). Only WATCHING
+ * is touched; a CANDIDATE is with Validation, which decides it.
+ * Returns true if a row was cleared.
+ */
+export async function clearWatchingExposure(organizationId: string, globalEventHash: string): Promise<boolean> {
+  if (!organizationId) {
+    throw new Error('organization_id required for tenant isolation');
+  }
+  const { count } = await getPrismaClient().candidateExposure.updateMany({
+    where: { organization_id: organizationId, global_event_hash: globalEventHash, validation_status: 'WATCHING' },
+    data: { validation_status: 'CLEARED', cleared_at: new Date(), cleared_reason: 'not_exposed' },
+  });
+  return count > 0;
 }
 

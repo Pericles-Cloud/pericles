@@ -413,24 +413,28 @@ export function consumeFromQueue(
           // applies to the row currently running: rows waiting their turn in a
           // healthy batch keep their lease however long the batch takes.
           const held = new Set(rows.map((row) => row.id));
-          let runningSince = Date.now();
+          let running: { id: string; since: number } | undefined;
+          const abandoned = new Set<string>();
           const renewal = setInterval(() => {
-            if (Date.now() - runningSince >= maxLockHoldMs) {
-              clearInterval(renewal);
+            // A row running past the limit is treated as hung: stop renewing
+            // that row only, so its lease expires and it can be recovered.
+            // Rows waiting behind it keep their lease.
+            if (running && !abandoned.has(running.id) && Date.now() - running.since >= maxLockHoldMs) {
+              abandoned.add(running.id);
               logger.error(
-                { queueName, messageIds: [...held], maxLockHoldMs },
-                '[Queue] Row ran past max lock hold; renewal stopped so the lease can expire'
+                { queueName, messageId: running.id, maxLockHoldMs },
+                '[Queue] Row ran past max lock hold; its renewal stopped so the lease can expire'
               );
-              return;
             }
-            renewLocks([...held], workerId, prisma).catch((error: unknown) => {
+            const ids = [...held].filter((id) => !abandoned.has(id));
+            renewLocks(ids, workerId, prisma).catch((error: unknown) => {
               logger.error({ queueName, error }, '[Queue] Lock renewal failed');
             });
           }, LOCK_RENEW_INTERVAL_MS);
 
           try {
             for (const row of rows) {
-              runningSince = Date.now();
+              running = { id: row.id, since: Date.now() };
               try {
                 await handler(
                   {
@@ -460,6 +464,9 @@ export function consumeFromQueue(
         }
       } catch (error) {
         logger.error({ queueName, error }, '[Queue] Poll error');
+        // Back off on errors (e.g. the database is degraded), even if rows
+        // were claimed this round; otherwise the loop spins with no delay.
+        claimedAny = false;
       }
 
       // Wait only when idle; a non-empty batch means more work may be due now.

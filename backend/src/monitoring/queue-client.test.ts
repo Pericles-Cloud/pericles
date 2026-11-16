@@ -323,5 +323,38 @@ describe('consumeFromQueue', () => {
       vi.useRealTimers();
     }
   });
+
+  it('after a row passes the max hold, keeps renewing the rows waiting behind it', async () => {
+    vi.useFakeTimers();
+    try {
+      fake.$queryRaw.mockResolvedValueOnce([row('hung'), row('next')]).mockResolvedValue([]);
+      const handler = vi.fn(() => new Promise<void>(() => undefined));
+      const consumer = consumeFromQueue(QUEUE, handler, { maxLockHoldMs: LOCK_RENEW_INTERVAL_MS * 2 });
+
+      await vi.advanceTimersByTimeAsync(LOCK_RENEW_INTERVAL_MS * 4 + 1);
+      consumer.stop();
+
+      const lastRenewed = renewCalls().at(-1)?.[1];
+      expect(lastRenewed).toEqual(['next']);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it('backs off after a poll error even if rows were claimed', async () => {
+    vi.useFakeTimers();
+    try {
+      fake.$queryRaw.mockResolvedValueOnce([row('r1')]).mockResolvedValue([row('r2')]);
+      fake.messageQueue.updateMany.mockRejectedValue(new Error('db down'));
+      const consumer = consumeFromQueue(QUEUE, vi.fn().mockResolvedValue(undefined), { pollIntervalMs: 60_000 });
+
+      await vi.advanceTimersByTimeAsync(1_000);
+      const claimsDuringBackoff = fake.$queryRaw.mock.calls.length;
+      consumer.stop();
+      expect(claimsDuringBackoff).toBe(1);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
 });
 

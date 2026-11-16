@@ -1,6 +1,7 @@
 import { createTool } from '@mastra/core/tools';
 import { z } from 'zod';
 import { getPrismaClient } from '../../monitoring/db-client.js';
+import { emitGlobalEventChange } from '../../monitoring/global-event-changes.js';
 
 /**
  * Global Event Resolution Tool
@@ -259,10 +260,26 @@ Never delete events - always use status transitions.
       },
     });
 
-    // Create change record for downstream agents
+    // Notify downstream (client_monitoring clears exposures on these). This
+    // used to be built and returned but never enqueued, so a resolution made
+    // through this tool never reached any customer.
+    const changeKind = action === 'resolve' ? 'resolved' : action === 'retract' ? 'retracted' : 'merged';
+    await emitGlobalEventChange(
+      prisma,
+      {
+        event_id,
+        event_hash: event.event_hash,
+        change_type: changeKind,
+        intrinsic_severity: event.intrinsic_severity,
+        status: newStatus,
+      },
+      now
+    );
+
+    // Change record summary for the agent's own output
     const changeRecord = {
       event_id,
-      change_type: action === 'resolve' ? 'resolved' : action === 'retract' ? 'retracted' : 'merged',
+      change_type: changeKind,
       is_material: true, // Status changes are always material
       changed_fields: ['status', 'resolved_at', 'resolution_basis'],
       timestamp: now.toISOString(),

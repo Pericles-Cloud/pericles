@@ -115,6 +115,8 @@ describe('CandidateEvaluationSchema', () => {
     expect(strengthOf('not direct, possible')).toBe('possible');
     expect(strengthOf('indirect')).toBe('possible');
     expect(strengthOf('improbable')).toBe('possible');
+    // The prompt template echoed back names every strength: ambiguous.
+    expect(strengthOf('direct|probable|possible|strategic')).toBe('possible');
     expect(strengthOf(undefined)).toBe('possible');
   });
 
@@ -210,28 +212,29 @@ describe('upsertCandidateExposure', () => {
   });
 
 
-  it('emits v1 for a legacy CANDIDATE row from the stored fields, not the new evaluation', async () => {
+  it('hands off a never-handed-off CANDIDATE as v2 using the fresh evaluation', async () => {
     fake.candidateExposure.findUnique.mockResolvedValue(
-      existingRow({
-        id: 'ce-9',
-        validation_status: 'CANDIDATE',
-        exposure_strength: 'direct',
-        exposure_priority: 'critical',
-        organization_id: ORG,
-        global_event_id: INPUT.global_event_id,
-        global_event_hash: INPUT.global_event_hash,
-        handoff_version: LEGACY_PENDING,
-      })
+      existingRow({ id: 'ce-9', validation_status: 'CANDIDATE', exposure_strength: 'probable', handoff_version: LEGACY_PENDING })
+    );
+
+    const result = await upsertCandidateExposure(INPUT);
+
+    expect(result).toMatchObject({ outcome: 'updated', change_record_emitted: true });
+    const [row] = enqueuedRows();
+    // v2, never v1: an old candidateExposureTool may already have emitted v1.
+    expect(row.idempotency_key).toBe('ce-9:2');
+    expect(row.payload.payload).toMatchObject({ exposure_strength: 'direct', exposure_priority: 'high' });
+  });
+
+  it('demotes a never-handed-off CANDIDATE to WATCHING when the fresh evaluation is only possible', async () => {
+    fake.candidateExposure.findUnique.mockResolvedValue(
+      existingRow({ id: 'ce-9b', validation_status: 'CANDIDATE', exposure_strength: 'direct', handoff_version: LEGACY_PENDING })
     );
 
     const result = await upsertCandidateExposure({ ...INPUT, exposure_strength: 'possible', exposure_priority: 'low' });
 
-    expect(result.change_record_emitted).toBe(true);
-    expect(fake.candidateExposure.updateMany.mock.calls[0][0].data).toEqual({ handoff_version: 2 });
-    const [row] = enqueuedRows();
-    // v2, never v1: an old candidateExposureTool may already have emitted v1.
-    expect(row.idempotency_key).toBe('ce-9:2');
-    expect(row.payload.payload).toMatchObject({ exposure_strength: 'direct', exposure_priority: 'critical' });
+    expect(result).toMatchObject({ validation_status: 'WATCHING', change_record_emitted: false });
+    expect(fake.messageQueue.createMany).not.toHaveBeenCalled();
   });
 
   it('hands off a CANDIDATE written at handoff_version 0 by another path (e.g. the migration script)', async () => {
@@ -406,7 +409,7 @@ describe('upsertCandidateExposure', () => {
     });
     fake.candidateExposure.findUnique
       .mockResolvedValueOnce(null)
-      .mockResolvedValueOnce(existingRow({ id: 'ce-8', validation_status: 'CANDIDATE' }));
+      .mockResolvedValueOnce(existingRow({ id: 'ce-8', validation_status: 'CANDIDATE', handoff_version: 1 }));
     fake.candidateExposure.create.mockRejectedValueOnce(p2002);
 
     const result = await upsertCandidateExposure(INPUT);
@@ -473,26 +476,21 @@ describe('mergeEvaluations', () => {
     expect(mergeEvaluations([])).toBeNull();
   });
 
-  it('keeps the strongest exposure and unions assets and pathways from all items', () => {
-    const merged = mergeEvaluations([
-      base,
-      {
-        ...base,
-        exposure_strength: 'direct',
-        exposure_priority: 'high',
-        exposure_pathways: [{ pathway: 'geographic_site', match_basis: 'plant in zone', confidence: 0.9 }],
-        exposed_assets: [
-          { asset_type: 'facility', asset_id: 'f-1', distance_or_match_basis: '3km' },
-          { asset_type: 'supplier', asset_id: ' S-1 ', distance_or_match_basis: 'dup' },
-        ],
-        rationale: 'Plant is inside the zone.',
-      },
-    ]);
+  it('merges only the strongest tier, unioning its assets and pathways', () => {
+    const direct = (assetId: string, rationale: string, pathway: 'geographic_site' | 'entity' = 'geographic_site') => ({
+      ...base,
+      exposure_strength: 'direct' as const,
+      exposure_priority: 'high' as const,
+      exposure_pathways: [{ pathway, match_basis: 'm', confidence: 0.9 }],
+      exposed_assets: [{ asset_type: 'facility' as const, asset_id: assetId, distance_or_match_basis: '3km' }],
+      rationale,
+    });
+    const merged = mergeEvaluations([base, direct('f-1', 'Plant one.'), direct(' F-1 ', 'Plant one.', 'entity'), direct('f-2', 'Plant two.')]);
     expect(merged?.exposure_strength).toBe('direct');
-    expect(merged?.exposure_priority).toBe('high');
-    expect(merged?.exposed_assets.map((a) => a.asset_id)).toEqual(['s-1', 'f-1']);
-    expect(merged?.exposure_pathways.map((p) => p.pathway)).toEqual(['entity', 'geographic_site']);
-    expect(merged?.rationale).toBe('Supplier is named in the event. Plant is inside the zone.');
+    // The probable item (s-1) is dropped; duplicate F-1 is deduped.
+    expect(merged?.exposed_assets.map((a) => a.asset_id)).toEqual(['f-1', 'f-2']);
+    expect(merged?.exposure_pathways.map((p) => p.pathway)).toEqual(['geographic_site', 'entity']);
+    expect(merged?.rationale).toBe('Plant one. Plant two.');
   });
 });
 

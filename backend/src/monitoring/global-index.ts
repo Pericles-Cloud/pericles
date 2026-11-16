@@ -19,9 +19,7 @@
 import { mastra } from '../mastra/index.js';
 import { logger, createLogger } from './logger.js';
 import { getPrismaClient } from './db-client.js';
-import { enqueueInTransaction, CHANGE_RECORD_QUEUE } from './queue-client.js';
-import { globalEventStoreChangeRecord } from '../workflow/records/global-event-change.js';
-import { changeRecordKey } from '../workflow/records/change-record.js';
+import { emitGlobalEventChange } from './global-event-changes.js';
 
 // ============================================================================
 // Global State
@@ -322,7 +320,8 @@ async function storeGlobalEvent(eventData: any): Promise<void> {
   });
 
   // Emit change record
-  const record = globalEventStoreChangeRecord(
+  await emitGlobalEventChange(
+    prisma,
     {
       event_id: event.id,
       event_hash: event.event_hash,
@@ -331,18 +330,6 @@ async function storeGlobalEvent(eventData: any): Promise<void> {
       status: event.status,
     },
     event.created_at
-  );
-
-  await enqueueInTransaction(
-    prisma,
-    CHANGE_RECORD_QUEUE,
-    {
-      type: 'change_record',
-      payload: record,
-      timestamp: record.produced_at,
-      organizationId: null, // Global events have no org scope
-    },
-    { idempotencyKey: changeRecordKey(record) }
   );
 }
 
@@ -389,7 +376,8 @@ async function updateGlobalEvent(updateData: any): Promise<void> {
 
   // Emit change record if material
   if (updateData.is_material) {
-    const record = globalEventStoreChangeRecord(
+    await emitGlobalEventChange(
+      prisma,
       {
         event_id: event.id,
         event_hash: event.event_hash,
@@ -397,19 +385,6 @@ async function updateGlobalEvent(updateData: any): Promise<void> {
         intrinsic_severity: updateFields.intrinsic_severity || event.intrinsic_severity,
         status: updateFields.status || event.status,
       },
-      new Date()
-    );
-
-    await enqueueInTransaction(
-      prisma,
-      CHANGE_RECORD_QUEUE,
-      {
-        type: 'change_record',
-        payload: record,
-        timestamp: record.produced_at,
-        organizationId: null, // Global events have no org scope
-      },
-      { idempotencyKey: changeRecordKey(record) }
     );
   }
 }
@@ -454,7 +429,8 @@ async function resolveGlobalEvent(resolveData: any): Promise<void> {
   });
 
   // Emit change record
-  const record = globalEventStoreChangeRecord(
+  await emitGlobalEventChange(
+    prisma,
     {
       event_id: event.id,
       event_hash: event.event_hash,
@@ -463,18 +439,6 @@ async function resolveGlobalEvent(resolveData: any): Promise<void> {
       status: 'RESOLVED',
     },
     now
-  );
-
-  await enqueueInTransaction(
-    prisma,
-    CHANGE_RECORD_QUEUE,
-    {
-      type: 'change_record',
-      payload: record,
-      timestamp: record.produced_at,
-      organizationId: null, // Global events have no org scope
-    },
-    { idempotencyKey: changeRecordKey(record) }
   );
 }
 
