@@ -22,6 +22,13 @@ jobs:
           cache: 'npm'
           cache-dependency-path: backend/package-lock.json
 
+      # Run npm 11.19.0 (pinned exactly) rather than Node 20's bundled npm 10.
+      # The lockfile is written with npm 11; npm 10 rejects it in `npm ci`
+      # ("Missing: esbuild@... from lock file"), which broke CI in #52 and
+      # again from 2026-10-13 until #86. Remove this step once the toolchain
+      # is unified on a Node whose bundled npm writes the lockfile.
+      - run: npm install -g npm@11.19.0
+
       - run: npm ci
       - run: npm run lint
       - run: npm run type-check
