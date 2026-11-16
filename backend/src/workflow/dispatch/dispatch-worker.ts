@@ -48,7 +48,7 @@ function createDefaultRegistry(): ConsumerRegistry {
 /** Records claimed per poll by the dispatch worker. */
 export const DISPATCH_CLAIM_BATCH_SIZE = 1;
 
-export function startDispatchWorker(options: DispatchWorkerOptions = {}): { stop: () => void } {
+export function startDispatchWorker(options: DispatchWorkerOptions = {}): { stop: () => Promise<void> } {
   const prisma = options.prisma ?? getPrismaClient();
   const registry = options.registry ?? createDefaultRegistry();
   // Undefined unless the operator sets it: per-stage defaults then apply.

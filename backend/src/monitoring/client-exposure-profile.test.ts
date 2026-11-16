@@ -215,7 +215,7 @@ describe('round 5', () => {
     expect(writtenField('own_facilities')).toEqual([expect.objectContaining({ latitude: null, longitude: null })]);
   });
 
-  it('skips context suppliers without an id, adds duplicate names once, and defaults tier/critical', async () => {
+  it('dedupes context suppliers by id (not name), skips those without an id, and defaults tier/critical', async () => {
     fake.supplier.findMany.mockResolvedValue([
       { id: 's-db', name: 'Table Only', latitude: 1, longitude: 2, country_code: 'US', hs_codes: [] },
     ]);
@@ -225,12 +225,16 @@ describe('round 5', () => {
       suppliers: [
         { name: 'No Id', location: { latitude: 5, longitude: 5 } },
         { supplier_id: 'A1', name: 'Acme', location: { latitude: 5, longitude: 5 } },
+        { supplier_id: 'A1', name: 'Acme (dup row)', location: { latitude: 5, longitude: 5 } },
         { supplier_id: 'A2', name: 'ACME', location: { latitude: 6, longitude: 6 } },
+        { supplier_id: 'N1', location: { latitude: 7, longitude: 7 } },
+        { supplier_id: 'N2', location: { latitude: 8, longitude: 8 } },
       ],
     });
     await syncClientExposureProfile('org-1');
     const suppliers = writtenField('suppliers') as Array<{ id: string; tier: number; critical: boolean }>;
-    expect(suppliers.map((x) => x.id)).toEqual(['s-db', 'A1']);
+    // Same display name, different ids: two suppliers. Repeated id: once. Nameless: kept, not collapsed.
+    expect(suppliers.map((x) => x.id)).toEqual(['s-db', 'A1', 'A2', 'N1', 'N2']);
     expect(suppliers[0]).toMatchObject({ tier: 1, critical: false });
   });
 

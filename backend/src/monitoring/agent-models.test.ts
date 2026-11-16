@@ -4,7 +4,15 @@
  */
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 
-const fake = vi.hoisted(() => ({ organization: { findMany: vi.fn() } }));
+const fake = vi.hoisted(() => ({
+  organization: { findMany: vi.fn() },
+  organizationSettings: { findUnique: vi.fn() },
+  organizationSecret: { findFirst: vi.fn() },
+}));
+const orgs = vi.hoisted(() => ({ resolveSettingsOwnership: vi.fn(), resolveCredentialsOwner: vi.fn() }));
+const secrets = vi.hoisted(() => ({ getOrgSecret: vi.fn() }));
+vi.mock('../organizations/settings-resolution.js', () => orgs);
+vi.mock('../secrets/index.js', () => secrets);
 const cfg = vi.hoisted(() => ({
   loadMonitoringConfig: vi.fn(),
   resolveAiApiKey: vi.fn(),
@@ -61,11 +69,42 @@ describe('resolveGlobalMonitoringModel', () => {
   });
 });
 
-describe('resolveClientMonitoringModel', () => {
-  it("resolves the tenant's model through the per-org config", async () => {
-    cfg.resolveModel.mockResolvedValue({ id: 'openai/gpt-4o-mini', apiKey: 'org-key' });
-    expect(await resolveClientMonitoringModel('org-1')).toEqual({ id: 'openai/gpt-4o-mini', apiKey: 'org-key' });
-    expect(cfg.loadMonitoringConfig).toHaveBeenCalledWith('org-1');
+describe('resolveClientMonitoringModel (strict)', () => {
+  beforeEach(() => {
+    orgs.resolveSettingsOwnership.mockReset().mockResolvedValue({ owner: { id: 'settings-owner' } });
+    orgs.resolveCredentialsOwner.mockReset().mockResolvedValue({ id: 'keys-owner' });
+    fake.organizationSettings.findUnique.mockReset().mockResolvedValue({ ai_model_provider: 'openrouter', ai_model_name: 'anthropic/claude-3.5-sonnet' });
+    fake.organizationSecret.findFirst.mockReset().mockResolvedValue({ id: 'sec-1' });
+    secrets.getOrgSecret.mockReset().mockResolvedValue('tenant-key');
+  });
+
+  it("resolves the tenant's provider/model from its settings owner and the key from its credentials owner", async () => {
+    expect(await resolveClientMonitoringModel('org-1')).toEqual({
+      id: 'openrouter/anthropic/claude-3.5-sonnet',
+      apiKey: 'tenant-key',
+    });
+    expect(fake.organizationSecret.findFirst.mock.calls[0][0].where).toEqual({
+      organization_id: 'keys-owner',
+      name: 'openrouter_api_key',
+      scope: 'ORGANIZATION',
+    });
+  });
+
+  it('only a genuinely unconfigured key is a skip (MissingApiKeyError)', async () => {
+    fake.organizationSecret.findFirst.mockResolvedValue(null);
+    await expect(resolveClientMonitoringModel('org-1')).rejects.toBeInstanceOf(MissingApiKeyError);
+  });
+
+  it('a configured key that cannot be read throws a retryable error, not MissingApiKeyError', async () => {
+    secrets.getOrgSecret.mockResolvedValue('');
+    const error = await resolveClientMonitoringModel('org-1').catch((e: unknown) => e);
+    expect(error).toBeInstanceOf(Error);
+    expect(error).not.toBeInstanceOf(MissingApiKeyError);
+  });
+
+  it('a lookup failure (DB down) propagates, so the queue retries', async () => {
+    fake.organizationSettings.findUnique.mockRejectedValue(new Error('db down'));
+    await expect(resolveClientMonitoringModel('org-1')).rejects.toThrow('db down');
   });
 });
 

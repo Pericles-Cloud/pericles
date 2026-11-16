@@ -136,15 +136,23 @@ async function main() {
   }, profileIntervalMs);
   void refreshAllProfiles();
 
-  // A requested stop (every redeploy sends SIGTERM) exits 0 at once: the loop
-  // may be sleeping for a whole polling interval, and an intentional stop must
-  // not look like a crash. A record mid-dispatch is recovered by its lease.
+  // A requested stop (every redeploy sends SIGTERM) exits 0, not as a crash.
+  // It first lets the record in flight finish, bounded by SHUTDOWN_GRACE_MS
+  // (keep it below the platform's stop grace period): killing a Client
+  // Monitoring evaluation mid-call wastes a paid LLM call that the retry then
+  // pays for again. The global loop's sleep is not waited for.
+  const graceMs = positiveIntervalMs('SHUTDOWN_GRACE_MS', 25_000);
+  let shuttingDown = false;
   const shutdown = (signal: string) => {
-    logger.info(`[GlobalStart] Received ${signal}, shutting down...`);
+    if (shuttingDown) return;
+    shuttingDown = true;
+    logger.info(`[GlobalStart] Received ${signal}, draining (up to ${graceMs}ms)...`);
     clearInterval(profileTimer);
-    dispatchWorker.stop();
     stopGlobalMonitoring();
-    process.exit(0);
+    const grace = new Promise<void>((resolve) => setTimeout(resolve, graceMs).unref());
+    void Promise.race([dispatchWorker.stop(), grace]).finally(() => {
+      process.exit(0);
+    });
   };
   process.on('SIGINT', () => {
     shutdown('SIGINT');
@@ -160,7 +168,7 @@ async function main() {
   await startGlobalMonitoring({ pollingIntervalMs: intervalMs });
   logger.fatal('[GlobalStart] Global monitoring loop stopped; exiting so the service is restarted');
   clearInterval(profileTimer);
-  dispatchWorker.stop();
+  void dispatchWorker.stop();
   process.exit(1);
 }
 

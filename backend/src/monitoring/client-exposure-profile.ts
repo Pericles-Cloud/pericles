@@ -369,20 +369,34 @@ async function syncFromERP(organizationId: string): Promise<{
     s.tier = 1;
     s.critical = false;
   }
-  const byName = new Map(suppliersData.map((s) => [String(s.name).trim().toLowerCase(), s]));
+  // Context entries are identified by supplier_id (deduped on it). One is
+  // linked to a Supplier-table row only by an exact, non-empty name, and each
+  // table row at most once, so two different suppliers sharing a display name
+  // stay separate and nameless entries never collapse into one.
+  const nameKey = (name: unknown): string => (typeof name === 'string' ? name.trim().toLowerCase() : '');
+  const tableByName = new Map<string, Record<string, unknown>>();
+  for (const s of suppliersData) {
+    const key = nameKey(s.name);
+    if (key && !tableByName.has(key)) tableByName.set(key, s);
+  }
+  const linked = new Set<Record<string, unknown>>();
+  const seenContextIds = new Set<string>();
   for (const cs of located(context?.suppliers)) {
-    const nameKey = String(cs.name).trim().toLowerCase();
-    const known = byName.get(nameKey);
-    if (known) {
-      known.tier = cs.tier ?? known.tier;
-      known.critical = cs.critical === true || known.critical === true;
+    if (cs.supplier_id === undefined || cs.supplier_id === null) continue; // must be citable
+    const id = String(cs.supplier_id);
+    if (seenContextIds.has(id)) continue;
+    seenContextIds.add(id);
+
+    const tableRow = tableByName.get(nameKey(cs.name));
+    if (tableRow && !linked.has(tableRow)) {
+      linked.add(tableRow);
+      tableRow.tier = cs.tier ?? tableRow.tier;
+      tableRow.critical = cs.critical === true || tableRow.critical === true;
       continue;
     }
-    // A context supplier needs an id to be cited as an exposed asset.
-    if (cs.supplier_id === undefined || cs.supplier_id === null) continue;
     suppliersData.push({
-      id: cs.supplier_id,
-      name: cs.name,
+      id,
+      name: cs.name ?? null,
       ...coords(cs.location),
       country_iso: cs.country ?? null,
       supplies: [],
@@ -391,7 +405,6 @@ async function syncFromERP(organizationId: string): Promise<{
       tier: cs.tier ?? 1,
       critical: cs.critical === true,
     });
-    byName.set(nameKey, suppliersData[suppliersData.length - 1]);
   }
 
   return {

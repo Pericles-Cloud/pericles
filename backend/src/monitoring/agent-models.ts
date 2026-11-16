@@ -14,7 +14,8 @@
 import { RuntimeContext } from '@mastra/core/runtime-context';
 import { getPrismaClient } from './db-client.js';
 import { logger } from './logger.js';
-import { loadMonitoringConfig, resolveModel, type ResolvedModel } from './config.js';
+import { loadMonitoringConfig, resolveModel, MissingApiKeyError, type ResolvedModel } from './config.js';
+import { resolveCredentialsOwner, resolveSettingsOwnership } from '../organizations/settings-resolution.js';
 
 /**
  * The global loop has nobody to bill: there is not exactly one root org. Like
@@ -65,9 +66,46 @@ export function modelFromContext(agentName: string) {
   };
 }
 
-/** The tenant's model + key for a Client Monitoring evaluation. Throws MissingApiKeyError if it has none. */
+/**
+ * The tenant's model + key for a Client Monitoring evaluation, resolved
+ * STRICTLY. The org-scoped record is the only delivery of an event to this
+ * org, so only a key that is genuinely not configured may become a skip
+ * (MissingApiKeyError). Any lookup failure (DB, Secrets Manager, KEK) throws
+ * so the queue retries; the lenient per-org cycle path (loadMonitoringConfig +
+ * resolveModel) would turn those into "no key" and drop the evaluation.
+ */
 export async function resolveClientMonitoringModel(organizationId: string): Promise<ResolvedModel> {
-  return resolveModel(await loadMonitoringConfig(organizationId));
+  const prisma = getPrismaClient();
+
+  // Provider/model from the settings owner (same source as loadMonitoringConfig).
+  const ownerId = (await resolveSettingsOwnership(organizationId, prisma)).owner.id;
+  const settings = await prisma.organizationSettings.findUnique({
+    where: { organization_id: ownerId },
+    select: { ai_model_provider: true, ai_model_name: true },
+  });
+  const provider = settings?.ai_model_provider && settings.ai_model_name ? settings.ai_model_provider : 'openai';
+  const modelName = settings?.ai_model_provider && settings.ai_model_name ? settings.ai_model_name : 'gpt-4o-mini';
+
+  // Keys are owned by the credentials owner (topmost non-root ancestor).
+  const keysOrgId = (await resolveCredentialsOwner(organizationId, prisma)).id;
+  const secretName = `${provider}_api_key`;
+  const configured = await prisma.organizationSecret.findFirst({
+    where: { organization_id: keysOrgId, name: secretName, scope: 'ORGANIZATION' },
+    select: { id: true },
+  });
+  if (!configured) {
+    throw new MissingApiKeyError(organizationId, provider);
+  }
+  // Lazy, as in config.ts: loading the secrets module has side effects.
+  const { getOrgSecret } = await import('../secrets/index.js');
+  const apiKey = await getOrgSecret(keysOrgId, secretName, false);
+  if (!apiKey) {
+    // The secret exists but could not be read (KEK, decryption, backend):
+    // a failure to retry, not "no key".
+    throw new Error(`Client Monitoring: ${secretName} for ${keysOrgId} is configured but could not be read`);
+  }
+  const id: `${string}/${string}` = provider === 'openrouter' ? `openrouter/${modelName}` : `${provider}/${modelName}`;
+  return { id, apiKey };
 }
 
 /**

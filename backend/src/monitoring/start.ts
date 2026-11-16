@@ -101,13 +101,13 @@ async function main() {
     // Setup graceful shutdown
     process.on('SIGINT', () => {
       logger.info('[Start] Received SIGINT, shutting down...');
-      dispatchWorker?.stop();
+      void dispatchWorker?.stop();
       stopMonitoring();
     });
 
     process.on('SIGTERM', () => {
       logger.info('[Start] Received SIGTERM, shutting down...');
-      dispatchWorker?.stop();
+      void dispatchWorker?.stop();
       stopMonitoring();
     });
 
