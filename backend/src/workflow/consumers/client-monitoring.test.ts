@@ -276,6 +276,18 @@ describe('clientMonitoringConsumer org evaluation', () => {
     expect(upsert).not.toHaveBeenCalled();
   });
 
+  it('fails the stage, instead of clearing, when every item names another or a placeholder event id', async () => {
+    agent.generate.mockResolvedValue({
+      text: JSON.stringify({
+        candidate_exposures: [],
+        watch_list: [{ ...exposure('possible', 'f-1'), global_event_id: 'uuid' }],
+      }),
+    });
+
+    await expect(run(orgRecord(ORG_A))).rejects.toThrow('unreadable');
+    expect(fake.candidateExposure.updateMany).not.toHaveBeenCalled();
+  });
+
   it('drops items that name a different event', async () => {
     agent.generate.mockResolvedValue({
       text: JSON.stringify({

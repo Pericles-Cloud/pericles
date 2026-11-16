@@ -81,5 +81,23 @@ describe('globalEventResolutionTool', () => {
     const survivorRow = fake.messageQueue.createMany.mock.calls[1][0].data[0];
     expect(survivorRow.payload.payload).toMatchObject({ change_type: 'updated', changed_fields: ['merged_from'] });
   });
+
+  it('locks both events of a merge in id order, so opposite merges cannot deadlock', async () => {
+    const LOW = '00000000-0000-0000-0000-000000000001';
+    const HIGH = 'ffffffff-ffff-ffff-ffff-ffffffffffff';
+    const lockOrder = () =>
+      fake.$queryRaw.mock.calls.map((c) => (c as unknown[])[1]);
+
+    fake.globalEvent.findUnique.mockImplementation(({ where }: { where: { id: string } }) =>
+      Promise.resolve({ id: where.id, event_hash: where.id, status: 'ACTIVE', intrinsic_severity: 'high', timeline: [] })
+    );
+
+    await globalEventResolutionTool.execute({ context: { event_id: HIGH, action: 'merge', merge_into_event_id: LOW } } as never);
+    expect(lockOrder()).toEqual([LOW, HIGH]);
+
+    fake.$queryRaw.mockClear();
+    await globalEventResolutionTool.execute({ context: { event_id: LOW, action: 'merge', merge_into_event_id: HIGH } } as never);
+    expect(lockOrder()).toEqual([LOW, HIGH]);
+  });
 });
 

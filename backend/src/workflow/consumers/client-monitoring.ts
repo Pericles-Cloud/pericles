@@ -371,6 +371,10 @@ async function evaluateExposureForOrg(
       const itemEventId =
         item && typeof item === 'object' ? (item as { global_event_id?: unknown }).global_event_id : undefined;
       if (typeof itemEventId === 'string' && itemEventId !== globalEvent.id) {
+        // Counted as unusable: a wrong or placeholder id (e.g. the template's
+        // "uuid") on every item must fail the evaluation, not read as "no
+        // exposure" and clear the watched row.
+        unreadable++;
         logger.warn(
           { organization_id: organizationId, global_event_id: globalEvent.id, item_event_id: itemEventId },
           '[ClientMonitoring] Skipping exposure item for a different event'
