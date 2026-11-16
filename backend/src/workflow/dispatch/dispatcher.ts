@@ -15,9 +15,26 @@ import type { PrismaClient } from '@prisma/client';
 import { logger } from '../../monitoring/logger.js';
 import type { ChangeRecord } from '../records/change-record.js';
 import { routesFor, type ConsumerName } from './dispatch-table.js';
+import { isUniqueViolation } from '../../monitoring/prisma-errors.js';
 import type { ConsumerRegistry } from './consumer-registry.js';
 
 export const DEFAULT_STAGE_TIMEOUT_MS = 10_000;
+
+/**
+ * Default budgets for stages that run an LLM agent and cannot fit the general
+ * default. client_monitoring evaluates one org per record (the fan-out enqueues
+ * an org-scoped record per org), so this is one agent evaluation. The queue
+ * renews a held row's lock while it runs. These are defaults only: an explicit
+ * DispatchOptions.stageTimeoutMs set by the operator always applies, higher or
+ * lower.
+ */
+export const STAGE_TIMEOUT_OVERRIDES_MS: Partial<Record<ConsumerName, number>> = {
+  client_monitoring: 120_000,
+};
+
+export function stageTimeoutFor(consumer: ConsumerName, configuredMs?: number): number {
+  return configuredMs ?? STAGE_TIMEOUT_OVERRIDES_MS[consumer] ?? DEFAULT_STAGE_TIMEOUT_MS;
+}
 
 export type StageStatus = 'completed' | 'skipped_noop' | 'duplicate' | 'failed';
 
@@ -41,9 +58,6 @@ export interface DispatchOptions {
 
 const FINISHED: ReadonlySet<string> = new Set(['completed', 'skipped_noop']);
 
-function isUniqueViolation(error: unknown): boolean {
-  return typeof error === 'object' && error !== null && (error as { code?: unknown }).code === 'P2002';
-}
 
 async function findOrCreateRow(
   record: ChangeRecord,
@@ -105,7 +119,7 @@ async function runStage(
   try {
     await handler({
       record,
-      signal: AbortSignal.timeout(options.stageTimeoutMs ?? DEFAULT_STAGE_TIMEOUT_MS),
+      signal: AbortSignal.timeout(stageTimeoutFor(consumer, options.stageTimeoutMs)),
     });
     await options.prisma.dispatchLog.update({ where: { id: row.id }, data: { status: 'completed' } });
     return { consumer, status: 'completed' };

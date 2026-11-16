@@ -17,6 +17,7 @@
 import { getPrismaClient } from '../monitoring/db-client.js';
 import { logger } from '../monitoring/logger.js';
 import crypto from 'crypto';
+import { LEGACY_PENDING } from '../monitoring/candidate-exposure-store.js';
 
 interface MigrationStats {
   eventsProcessed: number;
@@ -289,6 +290,9 @@ async function migrateToCandidateExposure(
       cleared_at: null,
       cleared_reason: null,
       profile_snapshot_ref: 'migration-v1',
+      // Not handed off by this script. A CANDIDATE is LEGACY_PENDING (the store
+      // hands it off as v2); other statuses start at 1 like the SQL migration.
+      handoff_version: mapValidationStatusToExposureStatus(event.validation_status) === 'CANDIDATE' ? LEGACY_PENDING : 1,
     };
 
     await prisma.candidateExposure.create({ data: candidateData as any });
@@ -438,7 +442,7 @@ async function main() {
     batchSize,
   });
 
-  console.log('\n' + '='.repeat(60));
+  console.log(`\n${  '='.repeat(60)}`);
   console.log('Migration Summary');
   console.log('='.repeat(60));
   console.log(`Events processed:           ${stats.eventsProcessed}`);
@@ -450,7 +454,7 @@ async function main() {
 
   if (stats.errors.length > 0) {
     console.log('\nErrors:');
-    stats.errors.slice(0, 10).forEach((e) => console.log(`  - ${e}`));
+    stats.errors.slice(0, 10).forEach((e) => { console.log(`  - ${e}`); });
     if (stats.errors.length > 10) {
       console.log(`  ... and ${stats.errors.length - 10} more`);
     }

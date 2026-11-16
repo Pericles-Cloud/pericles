@@ -4,7 +4,6 @@ import { Agent } from '@mastra/core/agent';
 import { erpContextTool } from '../tools/index.js';
 import { clientExposureProfileTool } from '../tools/client-exposure-profile-tool.js';
 import { exposurePathwayEvaluatorTool } from '../tools/exposure-pathway-evaluator-tool.js';
-import { candidateExposureTool } from '../tools/candidate-exposure-tool.js';
 
 /**
  * Client Monitoring Agent (Doctrine §13)
@@ -17,7 +16,7 @@ import { candidateExposureTool } from '../tools/candidate-exposure-tool.js';
  * 1. Build and maintain Client Exposure Profile from ERP + Organizational Memory
  * 2. Evaluate 7 exposure pathways against Global Events
  * 3. Classify exposure strength (Direct, Probable, Possible, Strategic)
- * 4. Create CandidateExposure records for Validation Agent
+ * 4. Return candidate exposures (persisted by the client_monitoring consumer)
  * 5. Back-match when profile changes
  * 6. Re-evaluate when global events change materially
  *
@@ -233,8 +232,11 @@ Always respond with structured JSON matching this schema:
   "watch_list": [
     {
       "global_event_id": "uuid",
+      "exposure_pathways": [{ "pathway": "indirect", "match_basis": "tier-2 dependency inferred", "confidence": 0.4 }],
       "exposure_strength": "possible",
-      "reason": "why this is on the watch list"
+      "exposed_assets": [{ "asset_type": "supplier", "asset_id": "erp-reference-id", "distance_or_match_basis": "country-level only" }],
+      "rationale": "Why this is only a possible exposure",
+      "exposure_priority": "low"
     }
   ],
   "not_exposed": [
@@ -267,7 +269,8 @@ Begin monitoring when given an organization_id and a Global Event Store change r
     // Exposure pathway evaluation
     exposurePathwayEvaluatorTool,
 
-    // Candidate exposure creation
-    candidateExposureTool,
+    // No candidate-writing tool: the agent returns candidate_exposures as JSON
+    // and the client_monitoring consumer persists them under the org it is
+    // evaluating. A tool would let model-written arguments choose the tenant.
   },
 });

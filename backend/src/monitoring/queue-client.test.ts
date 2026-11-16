@@ -11,6 +11,7 @@ const fake = vi.hoisted(() => ({
   messageQueue: {
     createMany: vi.fn(),
     update: vi.fn(),
+    updateMany: vi.fn(),
   },
   $queryRaw: vi.fn(),
   $executeRaw: vi.fn(),
@@ -29,6 +30,10 @@ import {
   completeMessage,
   PermanentMessageError,
   STALE_LOCK_SECONDS,
+  LOCK_RENEW_INTERVAL_MS,
+  MAX_LOCK_HOLD_MS,
+  renewLocks,
+  consumeFromQueue,
 } from './queue-client.js';
 
 const QUEUE = 'change-records';
@@ -42,6 +47,7 @@ const MESSAGE = {
 beforeEach(() => {
   fake.messageQueue.createMany.mockReset().mockResolvedValue({ count: 1 });
   fake.messageQueue.update.mockReset().mockResolvedValue({});
+  fake.messageQueue.updateMany.mockReset().mockResolvedValue({ count: 1 });
   fake.$queryRaw.mockReset().mockResolvedValue([]);
   fake.$executeRaw.mockReset().mockResolvedValue(0);
 });
@@ -167,3 +173,193 @@ describe('completeMessage', () => {
     expect(data.locked_by).toBeNull();
   });
 });
+
+const sqlOf = (call: unknown[]) => (call[0] as TemplateStringsArray).join('?');
+const renewCalls = () => fake.$executeRaw.mock.calls.filter((c) => sqlOf(c).includes('SET locked_at = now()'));
+
+describe('renewLocks', () => {
+  it('renews only rows this worker still holds as PROCESSING', async () => {
+    fake.$executeRaw.mockResolvedValue(2);
+
+    expect(await renewLocks(['row-1', 'row-2'], 'worker-a')).toBe(2);
+    const [call] = renewCalls();
+    expect(sqlOf(call)).toMatch(/locked_by = \?/);
+    expect(sqlOf(call)).toMatch(/status = 'PROCESSING'/);
+    expect(call.slice(1)).toEqual([['row-1', 'row-2'], 'worker-a']);
+  });
+
+  it('does nothing for an empty set', async () => {
+    expect(await renewLocks([], 'worker-a')).toBe(0);
+    expect(fake.$executeRaw).not.toHaveBeenCalled();
+  });
+
+  it('renews well inside the lease', () => {
+    expect(LOCK_RENEW_INTERVAL_MS).toBeLessThan(STALE_LOCK_SECONDS * 1000);
+  });
+});
+
+describe('consumeFromQueue', () => {
+  const row = (id: string) => ({
+    id,
+    queue_name: QUEUE,
+    message_type: 'change_record',
+    organization_id: null,
+    payload: {},
+    attempts: 1,
+    max_attempts: 5,
+    scheduled_at: new Date('2026-11-16T00:00:00Z'),
+  });
+
+  it('keeps renewing a long-running row and a waiting row until each finishes', async () => {
+    vi.useFakeTimers();
+    try {
+      fake.$queryRaw.mockResolvedValueOnce([row('row-1'), row('row-2')]).mockResolvedValue([]);
+      let finishFirst: () => void = () => undefined;
+      const handler = vi
+        .fn()
+        .mockImplementationOnce(() => new Promise<void>((resolve) => (finishFirst = resolve)))
+        .mockResolvedValue(undefined);
+
+      const consumer = consumeFromQueue(QUEUE, handler, { pollIntervalMs: 1000 });
+      await vi.advanceTimersByTimeAsync(LOCK_RENEW_INTERVAL_MS + 1);
+
+      // row-1 is still running and row-2 is waiting behind it: both are renewed.
+      expect(renewCalls().at(-1)?.[1]).toEqual(['row-1', 'row-2']);
+
+      finishFirst();
+      await vi.advanceTimersByTimeAsync(0);
+      expect(handler).toHaveBeenCalledTimes(2);
+
+      // The batch is done and the loop is idle: the only live timer is the
+      // poll wait. A leaked renewal interval would add one per batch.
+      await vi.advanceTimersByTimeAsync(0);
+      expect(vi.getTimerCount()).toBe(1);
+      consumer.stop();
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it('polls again immediately after a non-empty batch, and waits only when idle', async () => {
+    vi.useFakeTimers();
+    try {
+      fake.$queryRaw.mockResolvedValueOnce([row('row-1')]).mockResolvedValue([]);
+      const consumer = consumeFromQueue(QUEUE, vi.fn().mockResolvedValue(undefined), { pollIntervalMs: 60_000 });
+
+      await vi.advanceTimersByTimeAsync(0);
+      // Second claim happened without the 60s idle wait.
+      expect(fake.$queryRaw).toHaveBeenCalledTimes(2);
+
+      await vi.advanceTimersByTimeAsync(1_000);
+      expect(fake.$queryRaw).toHaveBeenCalledTimes(2);
+
+      await vi.advanceTimersByTimeAsync(60_000);
+      consumer.stop();
+      expect(fake.$queryRaw).toHaveBeenCalledTimes(3);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it('stops renewing a batch held past the max hold, so a hung handler cannot keep its row forever', async () => {
+    vi.useFakeTimers();
+    try {
+      fake.$queryRaw.mockResolvedValueOnce([row('row-1')]).mockResolvedValue([]);
+      const hung = vi.fn(() => new Promise<void>(() => undefined));
+      const consumer = consumeFromQueue(QUEUE, hung, { maxLockHoldMs: LOCK_RENEW_INTERVAL_MS * 2 });
+
+      await vi.advanceTimersByTimeAsync(LOCK_RENEW_INTERVAL_MS * 2 + 1);
+      const renewsAtLimit = renewCalls().length;
+      expect(renewsAtLimit).toBeGreaterThanOrEqual(1);
+
+      await vi.advanceTimersByTimeAsync(LOCK_RENEW_INTERVAL_MS * 5);
+      expect(renewCalls().length).toBe(renewsAtLimit);
+      consumer.stop();
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it('runs the exhausted-lock sweep at most once per renewal interval, not once per record', async () => {
+    vi.useFakeTimers();
+    try {
+      fake.$queryRaw
+        .mockResolvedValueOnce([row('a')])
+        .mockResolvedValueOnce([row('b')])
+        .mockResolvedValueOnce([row('c')])
+        .mockResolvedValue([]);
+      const consumer = consumeFromQueue(QUEUE, vi.fn().mockResolvedValue(undefined), { pollIntervalMs: 1000 });
+      await vi.advanceTimersByTimeAsync(0);
+      consumer.stop();
+
+      const sweeps = fake.$executeRaw.mock.calls.filter((c) => sqlOf(c).includes('lock expired after final attempt'));
+      expect(fake.$queryRaw.mock.calls.length).toBeGreaterThanOrEqual(3);
+      expect(sweeps).toHaveLength(1);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it('defaults the max hold well above a single stage budget', () => {
+    expect(MAX_LOCK_HOLD_MS).toBeGreaterThan(120_000);
+  });
+
+  it('completes and fails only rows this worker still holds', async () => {
+    vi.useFakeTimers();
+    try {
+      fake.$queryRaw.mockResolvedValueOnce([row('ok'), row('bad')]).mockResolvedValue([]);
+      const handler = vi.fn().mockResolvedValueOnce(undefined).mockRejectedValueOnce(new Error('boom'));
+      const consumer = consumeFromQueue(QUEUE, handler);
+      await vi.advanceTimersByTimeAsync(0);
+      consumer.stop();
+
+      const wheres = fake.messageQueue.updateMany.mock.calls.map((c) => c[0].where);
+      expect(wheres).toEqual([
+        { id: 'ok', locked_by: expect.any(String) },
+        { id: 'bad', locked_by: expect.any(String) },
+      ]);
+      expect(wheres[0].locked_by).toBe(wheres[1].locked_by);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it('after a row passes the max hold, hands the rows waiting behind it back to the queue', async () => {
+    vi.useFakeTimers();
+    try {
+      fake.$queryRaw.mockResolvedValueOnce([row('hung'), row('next'), row('last')]).mockResolvedValue([]);
+      const handler = vi.fn(() => new Promise<void>(() => undefined));
+      const consumer = consumeFromQueue(QUEUE, handler, { maxLockHoldMs: LOCK_RENEW_INTERVAL_MS * 2 });
+
+      await vi.advanceTimersByTimeAsync(LOCK_RENEW_INTERVAL_MS * 3 + 1);
+      const releases = fake.$executeRaw.mock.calls.filter((c) => sqlOf(c).includes("SET status = 'PENDING'"));
+      expect(releases).toHaveLength(1);
+      expect(releases[0][1]).toEqual(['next', 'last']);
+
+      // Neither the hung row nor the released rows are renewed afterwards.
+      const renewsAfterRelease = renewCalls().length;
+      await vi.advanceTimersByTimeAsync(LOCK_RENEW_INTERVAL_MS * 3);
+      consumer.stop();
+      expect(renewCalls().length).toBe(renewsAfterRelease);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it('backs off after a poll error even if rows were claimed', async () => {
+    vi.useFakeTimers();
+    try {
+      fake.$queryRaw.mockResolvedValueOnce([row('r1')]).mockResolvedValue([row('r2')]);
+      fake.messageQueue.updateMany.mockRejectedValue(new Error('db down'));
+      const consumer = consumeFromQueue(QUEUE, vi.fn().mockResolvedValue(undefined), { pollIntervalMs: 60_000 });
+
+      await vi.advanceTimersByTimeAsync(1_000);
+      const claimsDuringBackoff = fake.$queryRaw.mock.calls.length;
+      consumer.stop();
+      expect(claimsDuringBackoff).toBe(1);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+});
+

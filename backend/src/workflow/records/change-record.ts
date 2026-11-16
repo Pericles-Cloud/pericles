@@ -56,3 +56,19 @@ export function parseChangeRecord(input: unknown): ChangeRecord {
 export function changeRecordKey(record: Pick<ChangeRecord, 'record_id' | 'record_version'>): string {
   return `${record.record_id}:${record.record_version}`;
 }
+
+/** Queue message + idempotency key for a change record (due when produced). */
+export function changeRecordQueueItem(record: ChangeRecord): {
+  message: { type: 'change_record'; payload: ChangeRecord; timestamp: string; organizationId: string | null };
+  idempotencyKey: string;
+} {
+  return {
+    message: {
+      type: 'change_record',
+      payload: record,
+      timestamp: record.produced_at,
+      organizationId: record.organization_id,
+    },
+    idempotencyKey: changeRecordKey(record),
+  };
+}

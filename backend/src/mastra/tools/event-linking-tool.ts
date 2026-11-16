@@ -1,6 +1,8 @@
 import { createTool } from '@mastra/core/tools';
 import { z } from 'zod';
 import { getPrismaClient } from '../../monitoring/db-client.js';
+import { severityRank } from '../../monitoring/exposure-strength.js';
+import { emitGlobalEventChange } from '../../monitoring/global-event-changes.js';
 
 /**
  * Event Linking Tool
@@ -208,9 +210,8 @@ A wrong link can merge two impacts downstream.
 
         // Check for parent/child potential
         // Larger events (higher severity) are more likely parents
-        const severityOrder = { critical: 4, high: 3, medium: 2, low: 1 };
-        const eventSeverity = severityOrder[event.intrinsic_severity as keyof typeof severityOrder] ?? 0;
-        const candidateSeverity = severityOrder[candidate.intrinsic_severity as keyof typeof severityOrder] ?? 0;
+        const eventSeverity = severityRank(event.intrinsic_severity);
+        const candidateSeverity = severityRank(candidate.intrinsic_severity);
 
         if (eventSeverity > candidateSeverity && timeDifferenceHours < 48) {
           suggestedLinkType = 'child';
@@ -244,7 +245,7 @@ A wrong link can merge two impacts downstream.
     suggestedLinks.sort((a, b) => b.confidence - a.confidence);
 
     // Create links if requested
-    let createdLinks: Array<{ target_event_id: string; link_type: string; confidence: number; success: boolean }> = [];
+    const createdLinks: Array<{ target_event_id: string; link_type: string; confidence: number; success: boolean }> = [];
     
     if (create_links && links && links.length > 0) {
       const newRelatedEventIds = [...currentLinksRaw];
@@ -286,12 +287,31 @@ A wrong link can merge two impacts downstream.
     // Update parent if requested
     let parentUpdated = false;
     if (set_parent) {
-      await prisma.globalEvent.update({
-        where: { id: event_id },
-        data: {
-          parent_event_id: set_parent,
-          updated_at: new Date(),
-        },
+      // Re-parenting is a hierarchy change (material, Global spec §6): commit it
+      // with its change record so customers' exposures are re-evaluated.
+      await prisma.$transaction(async (tx) => {
+        // Re-setting the same parent is not a change: no write, no record.
+        const current = await tx.globalEvent.findUnique({
+          where: { id: event_id },
+          select: { parent_event_id: true },
+        });
+        if (current?.parent_event_id === set_parent) return;
+
+        const updated = await tx.globalEvent.update({
+          where: { id: event_id },
+          data: {
+            parent_event_id: set_parent,
+            updated_at: new Date(),
+          },
+        });
+        await emitGlobalEventChange(tx, {
+          event_id,
+          event_hash: updated.event_hash,
+          change_type: 'updated',
+          intrinsic_severity: updated.intrinsic_severity,
+          status: updated.status,
+          changed_fields: ['parent_event_id'],
+        });
       });
       parentUpdated = true;
     }

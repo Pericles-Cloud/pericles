@@ -12,23 +12,32 @@
  * to all customer organizations.
  */
 
-import type { ChangeRecord } from '../records/change-record.js';
+import { changeRecordQueueItem, type ChangeRecord } from '../records/change-record.js';
+import { orgReevaluationRecord } from '../records/global-event-change.js';
+import { enqueueManyIdempotent, CHANGE_RECORD_QUEUE } from '../../monitoring/queue-client.js';
 import type { ConsumerHandler } from '../dispatch/consumer-registry.js';
 import { getPrismaClient } from '../../monitoring/db-client.js';
 import { mastra } from '../../mastra/index.js';
 import { logger } from '../../monitoring/logger.js';
+import { severityRank, TERMINAL_EVENT_STATUSES } from '../../monitoring/exposure-strength.js';
+import {
+  CandidateEvaluationSchema,
+  clearWatchingExposure,
+  mergeEvaluations,
+  upsertCandidateExposure,
+  type CandidateEvaluation,
+  type UpsertCandidateExposureResult,
+} from '../../monitoring/candidate-exposure-store.js';
 
 /**
  * Handle a global_event_change record.
  *
- * Flow:
- * 1. Load the Global Event
- * 2. Fetch all customer organizations
- * 3. For each org:
- *    a. Load Client Exposure Profile
- *    b. Apply admin filters
- *    c. Evaluate all 7 exposure pathways
- *    d. Create CandidateExposure if relevant
+ * Two shapes:
+ * - A global record (no target): the fan-out. It enqueues one org-scoped
+ *   record per monitoring-enabled organization and evaluates none inline, so
+ *   each org's LLM evaluation gets its own stage budget, lease and retries.
+ * - An org-scoped record (target_organization_id = organization_id): evaluate
+ *   that one org. A failure throws, so the queue retries it with backoff.
  */
 export const clientMonitoringConsumer: ConsumerHandler = async ({ record, signal }) => {
   const prisma = getPrismaClient();
@@ -37,6 +46,8 @@ export const clientMonitoringConsumer: ConsumerHandler = async ({ record, signal
     event_id?: string;
     global_event_id?: string;
     change_type?: string;
+    /** Set on org-scoped records: evaluate only this org. */
+    target_organization_id?: string;
   };
 
   const globalEventId = payload.event_id ?? payload.global_event_id;
@@ -46,86 +57,211 @@ export const clientMonitoringConsumer: ConsumerHandler = async ({ record, signal
     return;
   }
 
-  logger.info(
-    { global_event_id: globalEventId, change_type: payload.change_type },
-    '[ClientMonitoring] Processing global event change'
-  );
+  // Tenant isolation: if the key is present at all, it must be a string equal
+  // to the record's own scope. A null or malformed target must not fall back
+  // to fanning out across every tenant.
+  const hasTarget = Object.prototype.hasOwnProperty.call(payload, 'target_organization_id');
+  const targetOrgId = hasTarget ? payload.target_organization_id : undefined;
+  if (hasTarget && (typeof targetOrgId !== 'string' || targetOrgId !== record.organization_id)) {
+    logger.warn(
+      { record_id: record.record_id, record_org: record.organization_id, target_org: targetOrgId },
+      '[ClientMonitoring] target_organization_id does not match record scope; ignoring record'
+    );
+    return;
+  }
 
-  try {
-    // Load the Global Event
-    const globalEvent = await prisma.globalEvent.findUnique({
+  if (targetOrgId === undefined) {
+    // Only a global record may fan out across tenants. An org-scoped record
+    // without a target is malformed, not a request to evaluate every tenant.
+    if (record.organization_id !== null) {
+      logger.warn(
+        { record_id: record.record_id, record_org: record.organization_id },
+        '[ClientMonitoring] Org-scoped record without target_organization_id; ignoring record'
+      );
+      return;
+    }
+    // Fan-out: needs only the event's id and status.
+    const event = await prisma.globalEvent.findUnique({
       where: { id: globalEventId },
+      select: { id: true, status: true },
     });
-
-    if (!globalEvent) {
+    if (!event) {
       logger.warn({ global_event_id: globalEventId }, '[ClientMonitoring] Global event not found');
       return;
     }
-
-    // Fetch all customer organizations (exclude root org)
-    const organizations = await prisma.organization.findMany({
-      where: {
-        is_root: false,
-        settings: {
-          monitoring_agent_enabled: true,
-        },
-      },
-      select: { id: true, name: true },
-    });
-
+    const orgIds = await fanOutOrgIds(event.id, isTerminal(event.status));
+    await enqueueOrgEvaluations(record, globalEventId, orgIds);
     logger.info(
-      { global_event_id: globalEventId, org_count: organizations.length },
-      '[ClientMonitoring] Fanning out to organizations'
+      { global_event_id: globalEventId, change_type: payload.change_type, orgs: orgIds.length },
+      '[ClientMonitoring] Fanned out org-scoped evaluations'
     );
-
-    // Process each organization
-    let totalCandidatesCreated = 0;
-    let totalCleared = 0;
-
-    for (const org of organizations) {
-      if (signal.aborted) {
-        logger.warn({ global_event_id: globalEventId }, '[ClientMonitoring] Aborted during fan-out');
-        break;
-      }
-
-      try {
-        const result = await evaluateExposureForOrg(
-          org.id,
-          globalEvent,
-          signal
-        );
-
-        totalCandidatesCreated += result.candidatesCreated;
-        totalCleared += result.cleared;
-      } catch (error) {
-        logger.error(
-          { error, organization_id: org.id, global_event_id: globalEventId },
-          '[ClientMonitoring] Failed to evaluate exposure for org'
-        );
-        // Continue with other orgs - don't fail the whole batch
-      }
-    }
-
-    logger.info(
-      {
-        global_event_id: globalEventId,
-        orgs_processed: organizations.length,
-        candidates_created: totalCandidatesCreated,
-        exposures_cleared: totalCleared,
-      },
-      '[ClientMonitoring] Completed global event fan-out'
-    );
-  } catch (error) {
-    logger.error(
-      { error, global_event_id: globalEventId },
-      '[ClientMonitoring] Failed to process global event change'
-    );
-    throw error;
+    return;
   }
+
+  const globalEvent = await prisma.globalEvent.findUnique({ where: { id: globalEventId } });
+  if (!globalEvent) {
+    logger.warn({ global_event_id: globalEventId }, '[ClientMonitoring] Global event not found');
+    return;
+  }
+
+  // A terminal event only clears exposures, which must happen even for an org
+  // that has since turned monitoring off. Anything else needs an eligible org.
+  const organizations = isTerminal(globalEvent.status)
+    ? [{ id: targetOrgId }]
+    : await prisma.organization.findMany({
+        where: { id: targetOrgId, is_root: false, settings: { monitoring_agent_enabled: true } },
+        select: { id: true },
+      });
+
+  if (organizations.length === 0) {
+    logger.info(
+      { organization_id: targetOrgId, global_event_id: globalEventId },
+      '[ClientMonitoring] Target org not eligible for monitoring; skipping'
+    );
+    return;
+  }
+
+  const result = await evaluateExposureForOrg(targetOrgId, globalEvent, signal);
+  logger.info(
+    {
+      organization_id: targetOrgId,
+      global_event_id: globalEventId,
+      exposures_written: result.exposuresWritten,
+      handoffs_emitted: result.handoffsEmitted,
+      exposures_cleared: result.cleared,
+    },
+    '[ClientMonitoring] Evaluated org exposure'
+  );
 };
 
+
+/** Top-level keys of the agent's response format; at least one must be present. */
+const RESULT_KEYS = ['candidate_exposures', 'watch_list', 'not_exposed'] as const;
+
+/**
+ * Parse `candidate` as the agent's result object. A fragment such as one
+ * nested pathway (from a truncated response) parses as JSON but has none of
+ * the result keys, so it is rejected rather than read as "no exposure".
+ */
+function asObject(candidate: string): Record<string, unknown> | null {
+  try {
+    const value: unknown = JSON.parse(candidate);
+    if (!value || typeof value !== 'object' || Array.isArray(value)) return null;
+    const object = value as Record<string, unknown>;
+    return RESULT_KEYS.some((key) => key in object) ? object : null;
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * Extract the agent's result object: a fenced ```json block if present,
+ * otherwise the first balanced {...} span that parses to an object with the
+ * result keys (so braces in prose, or a fragment of a truncated response, do
+ * not pass). Throws if none is found, so the org is retried.
+ */
+export function parseAgentJson(text: string): Record<string, unknown> {
+  const fenced = /```(?:json)?\s*([\s\S]*?)```/i.exec(text);
+  if (fenced) {
+    const value = asObject(fenced[1].trim());
+    if (value) return value;
+  }
+  // One linear pass: a stack of open-brace positions, braces inside strings
+  // ignored. Each closed span is tried only if it names a result key, so a
+  // long or truncated response is scanned once, not once per '{'.
+  const opens: number[] = [];
+  let inString = false;
+  let escaped = false;
+  for (let i = 0; i < text.length; i++) {
+    const ch = text[i];
+    if (inString) {
+      if (escaped) escaped = false;
+      else if (ch === '\\') escaped = true;
+      else if (ch === '"') inString = false;
+      continue;
+    }
+    if (ch === '"') inString = true;
+    else if (ch === '{') opens.push(i);
+    else if (ch === '}' && opens.length > 0) {
+      const start = opens.pop()!;
+      const span = text.slice(start, i + 1);
+      if (RESULT_KEYS.some((key) => span.includes(`"${key}"`))) {
+        const value = asObject(span);
+        if (value) return value;
+      }
+    }
+  }
+  throw new Error('[ClientMonitoring] Agent response contained no parseable JSON object');
+}
+
+const isTerminal = (status: string): boolean => TERMINAL_EVENT_STATUSES.has(status);
+
+/**
+ * Orgs to evaluate for an event.
+ * - Terminal event: only orgs with an open exposure on it (the only work is
+ *   clearing), including orgs that have since turned monitoring off.
+ * - Otherwise: monitoring-enabled customer orgs that have a Client Exposure
+ *   Profile (an org without one would exit without evaluating).
+ *
+ * These are the platform fan-out's tenant-listing queries, a documented
+ * exception to the organization_id rule (.claude/adr/0002): they return org ids
+ * only, run only for a global record, and every listed org is then processed
+ * in its own org-scoped record, filtered by its organization_id.
+ */
+async function fanOutOrgIds(globalEventId: string, terminal: boolean): Promise<string[]> {
+  const prisma = getPrismaClient();
+  if (terminal) {
+    const open = await prisma.candidateExposure.findMany({
+      where: { global_event_id: globalEventId, validation_status: { not: 'CLEARED' } },
+      select: { organization_id: true },
+      distinct: ['organization_id'],
+    });
+    return open.map((row) => row.organization_id);
+  }
+  const eligible = await prisma.organization.findMany({
+    where: {
+      is_root: false,
+      settings: { monitoring_agent_enabled: true },
+      clientExposureProfile: { isNot: null },
+    },
+    select: { id: true },
+  });
+  return eligible.map((o) => o.id);
+}
+
+/** Rows per INSERT: stays far below Postgres's 65,535 bind-parameter limit. */
+const FANOUT_INSERT_CHUNK = 1000;
+
+/**
+ * Enqueue one org-scoped evaluation per organization. Keyed by (source record,
+ * org) and the source version, so a redelivery of the source record does not
+ * enqueue duplicates.
+ */
+async function enqueueOrgEvaluations(source: ChangeRecord, globalEventId: string, orgIds: string[]): Promise<void> {
+  if (orgIds.length === 0) return;
+  const producedAt = new Date().toISOString();
+  const items = orgIds.map((orgId) =>
+    changeRecordQueueItem(
+      orgReevaluationRecord({
+        recordId: `${source.record_id}:org:${orgId}`,
+        recordVersion: source.record_version,
+        globalEventId,
+        organizationId: orgId,
+        reason: 'org_fanout',
+        producedAt,
+      })
+    )
+  );
+  for (let i = 0; i < items.length; i += FANOUT_INSERT_CHUNK) {
+    await enqueueManyIdempotent(getPrismaClient(), CHANGE_RECORD_QUEUE, items.slice(i, i + FANOUT_INSERT_CHUNK));
+  }
+}
+
 interface ExposureResult {
-  candidatesCreated: number;
+  /** Exposure rows created or changed (including promotions and reopens). */
+  exposuresWritten: number;
+  /** candidate_exposure records handed to Validation. */
+  handoffsEmitted: number;
   cleared: number;
 }
 
@@ -138,18 +274,19 @@ async function evaluateExposureForOrg(
   signal: AbortSignal
 ): Promise<ExposureResult> {
   const prisma = getPrismaClient();
-  let candidatesCreated = 0;
+  let exposuresWritten = 0;
+  let handoffsEmitted = 0;
   let cleared = 0;
 
   // Check if event is in a terminal state
-  if (['RESOLVED', 'RETRACTED', 'MERGED'].includes(globalEvent.status)) {
+  if (isTerminal(globalEvent.status)) {
     // Clear any existing exposures for this event
     cleared = await clearExposuresForResolvedEvent(
       organizationId,
       globalEvent.id,
       globalEvent.status
     );
-    return { candidatesCreated, cleared };
+    return { exposuresWritten, handoffsEmitted, cleared };
   }
 
   // Load Client Exposure Profile
@@ -162,7 +299,7 @@ async function evaluateExposureForOrg(
       { organization_id: organizationId },
       '[ClientMonitoring] No Client Exposure Profile found - skipping'
     );
-    return { candidatesCreated, cleared };
+    return { exposuresWritten, handoffsEmitted, cleared };
   }
 
   // Check admin filters
@@ -172,7 +309,7 @@ async function evaluateExposureForOrg(
       { organization_id: organizationId, category: globalEvent.category },
       '[ClientMonitoring] Event category excluded by admin config'
     );
-    return { candidatesCreated, cleared };
+    return { exposuresWritten, handoffsEmitted, cleared };
   }
 
   // Check excluded regions
@@ -182,23 +319,22 @@ async function evaluateExposureForOrg(
       { organization_id: organizationId, region: globalEvent.country_iso },
       '[ClientMonitoring] Event region excluded by admin config'
     );
-    return { candidatesCreated, cleared };
+    return { exposuresWritten, handoffsEmitted, cleared };
   }
 
   // Check minimum severity
   const minSeverityConfig = profile.min_severity as Record<string, string> | null;
   if (minSeverityConfig) {
-    const severityOrder = { low: 1, medium: 2, high: 3, critical: 4 };
     const minSeverity = minSeverityConfig[globalEvent.category] ?? 'low';
-    const eventSeverityValue = severityOrder[globalEvent.intrinsic_severity as keyof typeof severityOrder] ?? 0;
-    const minSeverityValue = severityOrder[minSeverity as keyof typeof severityOrder] ?? 0;
+    const eventSeverityValue = severityRank(globalEvent.intrinsic_severity);
+    const minSeverityValue = severityRank(minSeverity);
 
     if (eventSeverityValue < minSeverityValue) {
       logger.debug(
         { organization_id: organizationId, severity: globalEvent.intrinsic_severity, minSeverity },
         '[ClientMonitoring] Event severity below minimum threshold'
       );
-      return { candidatesCreated, cleared };
+      return { exposuresWritten, handoffsEmitted, cleared };
     }
   }
 
@@ -217,37 +353,78 @@ async function evaluateExposureForOrg(
     abortSignal: signal,
   });
 
-  // Parse the response
-  const result = response.text || '';
-  let parsedResult: any = {};
+  // Parse the response. An unreadable response is a failed evaluation, not
+  // "no exposure": throw so this org gets a retry record instead of being
+  // counted as evaluated with a real exposure silently dropped.
+  const parsedResult = parseAgentJson(response.text || '');
 
-  try {
-    const jsonMatch = /\{[\s\S]*\}/.exec(result);
-    if (jsonMatch) {
-      parsedResult = JSON.parse(jsonMatch[0]);
+  // Process exposures. One exposure row exists per (org, event), so items are
+  // merged into one. Watch-list (possible) items are stored too, so they can be
+  // promoted later (Client spec §5), but they are only used when the agent
+  // found no candidate: their assets must not pad a real candidate.
+  let unreadable = 0;
+  const parseItems = (raw: unknown, forcePossible: boolean): CandidateEvaluation[] => {
+    if (!Array.isArray(raw)) return [];
+    const out: CandidateEvaluation[] = [];
+    for (const item of raw as unknown[]) {
+      // An item naming a different event belongs to that event's row, never this one.
+      const itemEventId =
+        item && typeof item === 'object' ? (item as { global_event_id?: unknown }).global_event_id : undefined;
+      if (typeof itemEventId === 'string' && itemEventId !== globalEvent.id) {
+        // Counted as unusable: a wrong or placeholder id (e.g. the template's
+        // "uuid") on every item must fail the evaluation, not read as "no
+        // exposure" and clear the watched row.
+        unreadable++;
+        logger.warn(
+          { organization_id: organizationId, global_event_id: globalEvent.id, item_event_id: itemEventId },
+          '[ClientMonitoring] Skipping exposure item for a different event'
+        );
+        continue;
+      }
+      // Watch-list items are watch-only by definition; the model cannot upgrade them here.
+      const input = forcePossible && item && typeof item === 'object' ? { ...item, exposure_strength: 'possible' } : item;
+      const parsed = CandidateEvaluationSchema.safeParse(input);
+      if (parsed.success) {
+        out.push(parsed.data);
+      } else {
+        unreadable++;
+        logger.warn(
+          { organization_id: organizationId, global_event_id: globalEvent.id, issues: parsed.error.issues },
+          '[ClientMonitoring] Skipping exposure item that failed schema validation'
+        );
+      }
     }
-  } catch (parseError) {
-    logger.warn(
-      { error: parseError, organization_id: organizationId },
-      '[ClientMonitoring] Failed to parse agent response as JSON'
-    );
-    return { candidatesCreated, cleared };
+    return out;
+  };
+
+  const candidates = parseItems(parsedResult.candidate_exposures, false);
+  // Candidates were listed but none could be read: a failed evaluation. Do
+  // not fall back to the watch list, which would downgrade a real candidate.
+  if (candidates.length === 0 && unreadable > 0) {
+    throw new Error(`[ClientMonitoring] All ${unreadable} candidate exposure(s) in the agent response were unreadable`);
+  }
+  const evaluations = candidates.length > 0 ? candidates : parseItems(parsedResult.watch_list, true);
+
+  // Items were listed but none could be read: that is a failed evaluation,
+  // not "no exposure" (which would clear a watched item). Throw to retry.
+  if (evaluations.length === 0 && unreadable > 0) {
+    throw new Error(`[ClientMonitoring] All ${unreadable} exposure item(s) in the agent response were unreadable`);
   }
 
-  // Process candidate exposures
-  const candidateExposures = parsedResult.candidate_exposures || [];
-
-  for (const candidate of candidateExposures) {
-    const created = await createCandidateExposure(
-      organizationId,
-      globalEvent,
-      candidate,
-      profile.profile_version
-    );
-    if (created) candidatesCreated++;
+  const merged = mergeEvaluations(evaluations);
+  if (!merged) {
+    // No exposure found: a watched (or never handed-off) item is cleared (spec §5).
+    if (await clearWatchingExposure(organizationId, globalEvent.event_hash)) cleared++;
+    return { exposuresWritten, handoffsEmitted, cleared };
   }
 
-  return { candidatesCreated, cleared };
+  // Anything thrown here is infrastructure (DB, queue) and propagates so the
+  // org is retried; the upsert and the hand-off are idempotent.
+  const result = await createCandidateExposure(organizationId, globalEvent, merged, profile.profile_version);
+  if (result.outcome === 'created' || result.outcome === 'updated') exposuresWritten++;
+  if (result.change_record_emitted) handoffsEmitted++;
+
+  return { exposuresWritten, handoffsEmitted, cleared };
 }
 
 /**
@@ -318,83 +495,38 @@ Evaluate all 7 exposure pathways against this event. Return JSON with:
 }
 
 /**
- * Create a CandidateExposure record
- * Returns true if a new record was created, false if it already existed
+ * Create or refresh the (org, event) CandidateExposure; the store hands it to
+ * Validation when it becomes a CANDIDATE. Returns the store's result.
  */
 async function createCandidateExposure(
   organizationId: string,
-  globalEvent: any,
-  candidate: any,
+  globalEvent: { id: string; event_hash: string },
+  evaluation: CandidateEvaluation,
   profileVersion: number
-): Promise<boolean> {
-  const prisma = getPrismaClient();
+): Promise<UpsertCandidateExposureResult> {
+  const strength = evaluation.exposure_strength;
 
-  // Check for existing candidate exposure
-  const existing = await prisma.candidateExposure.findUnique({
-    where: {
-      organization_id_global_event_hash: {
-        organization_id: organizationId,
-        global_event_hash: globalEvent.event_hash,
-      },
-    },
-  });
-
-  if (existing) {
-    // Update if status allows
-    if (existing.validation_status === 'WATCHING' || existing.validation_status === 'REJECTED') {
-      await prisma.candidateExposure.update({
-        where: { id: existing.id },
-        data: {
-          exposure_pathways: candidate.exposure_pathways,
-          exposure_strength: candidate.exposure_strength,
-          exposed_assets: candidate.exposed_assets,
-          match_confidence: candidate.match_confidence,
-          temporal_relevance: candidate.temporal_relevance,
-          strategic_context: candidate.strategic_context,
-          rationale: candidate.rationale,
-          exposure_priority: candidate.exposure_priority,
-          validation_status: candidate.exposure_strength === 'possible' ? 'WATCHING' : 'CANDIDATE',
-          profile_snapshot_ref: `v${profileVersion}`,
-          updated_at: new Date(),
-        },
-      });
-      return false; // Updated, not new
-    }
-    return false; // Already in pipeline
-  }
-
-  // Create new candidate exposure
-  const validationStatus = candidate.exposure_strength === 'possible' ? 'WATCHING' : 'CANDIDATE';
-
-  await prisma.candidateExposure.create({
-    data: {
-      organization_id: organizationId,
-      global_event_id: globalEvent.id,
-      global_event_hash: globalEvent.event_hash,
-      exposure_pathways: candidate.exposure_pathways,
-      exposure_strength: candidate.exposure_strength,
-      exposed_assets: candidate.exposed_assets,
-      match_confidence: candidate.match_confidence,
-      temporal_relevance: candidate.temporal_relevance,
-      strategic_context: candidate.strategic_context,
-      rationale: candidate.rationale,
-      exposure_priority: candidate.exposure_priority,
-      validation_status: validationStatus as any,
-      profile_snapshot_ref: `v${profileVersion}`,
-    },
+  const result = await upsertCandidateExposure({
+    ...evaluation,
+    organization_id: organizationId,
+    global_event_id: globalEvent.id,
+    global_event_hash: globalEvent.event_hash,
+    profile_snapshot_ref: `v${profileVersion}`,
   });
 
   logger.info(
     {
       organization_id: organizationId,
       global_event_id: globalEvent.id,
-      exposure_strength: candidate.exposure_strength,
-      validation_status: validationStatus,
+      exposure_strength: strength,
+      validation_status: result.validation_status,
+      outcome: result.outcome,
+      change_record_emitted: result.change_record_emitted,
     },
-    '[ClientMonitoring] Created candidate exposure'
+    '[ClientMonitoring] Upserted candidate exposure'
   );
 
-  return true;
+  return result;
 }
 
 /**

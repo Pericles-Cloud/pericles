@@ -5,7 +5,7 @@
  */
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import type { PrismaClient } from '@prisma/client';
-import { dispatchRecord } from './dispatcher.js';
+import { dispatchRecord, stageTimeoutFor, DEFAULT_STAGE_TIMEOUT_MS } from './dispatcher.js';
 import { createConsumerRegistry, type ConsumerHandler } from './consumer-registry.js';
 import type { ChangeRecord } from '../records/change-record.js';
 
@@ -177,5 +177,21 @@ describe('dispatchRecord', () => {
         queue_message_id: 'msg-9',
       }),
     });
+  });
+});
+
+describe('stageTimeoutFor', () => {
+  it('defaults the LLM-backed client_monitoring stage to 120s', () => {
+    expect(stageTimeoutFor('client_monitoring')).toBe(120_000);
+  });
+
+  it('applies an operator-configured timeout as set, higher or lower', () => {
+    expect(stageTimeoutFor('client_monitoring', 300_000)).toBe(300_000);
+    expect(stageTimeoutFor('client_monitoring', 30_000)).toBe(30_000);
+  });
+
+  it('uses the options value, then the default, for other stages', () => {
+    expect(stageTimeoutFor('notification_rules', 5_000)).toBe(5_000);
+    expect(stageTimeoutFor('notification_rules')).toBe(DEFAULT_STAGE_TIMEOUT_MS);
   });
 });

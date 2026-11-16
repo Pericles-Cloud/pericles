@@ -15,7 +15,7 @@ import { CHANGE_RECORD_QUEUE, consumeFromQueue, PermanentMessageError } from '..
 import { logger } from '../../monitoring/logger.js';
 import { changeRecordKey, parseChangeRecord } from '../records/change-record.js';
 import { createConsumerRegistry, type ConsumerRegistry } from './consumer-registry.js';
-import { dispatchRecord, DEFAULT_STAGE_TIMEOUT_MS } from './dispatcher.js';
+import { dispatchRecord } from './dispatcher.js';
 import { clientMonitoringConsumer } from '../consumers/client-monitoring.js';
 
 export interface DispatchWorkerOptions {
@@ -33,7 +33,11 @@ export interface DispatchWorkerOptions {
 function createDefaultRegistry(): ConsumerRegistry {
   return createConsumerRegistry({
     client_monitoring: clientMonitoringConsumer,
-    // Add more consumers as they are implemented:
+    // Add more consumers as they are implemented.
+    // #78: until these two are registered, candidate_exposure stages are logged
+    // skipped_noop (final for that version). When registering them, run
+    // reemitCandidateHandoffs(orgId) (monitoring/candidate-exposure-store.ts)
+    // for each organization so pending CANDIDATE exposures reach Validation.
     // event_verification: eventVerificationConsumer,
     // exposure_validation: exposureValidationConsumer,
     // impact_assessment: impactAssessmentConsumer,
@@ -41,10 +45,14 @@ function createDefaultRegistry(): ConsumerRegistry {
   });
 }
 
+/** Records claimed per poll by the dispatch worker. */
+export const DISPATCH_CLAIM_BATCH_SIZE = 1;
+
 export function startDispatchWorker(options: DispatchWorkerOptions = {}): { stop: () => void } {
   const prisma = options.prisma ?? getPrismaClient();
   const registry = options.registry ?? createDefaultRegistry();
-  const stageTimeoutMs = options.stageTimeoutMs ?? DEFAULT_STAGE_TIMEOUT_MS;
+  // Undefined unless the operator sets it: per-stage defaults then apply.
+  const stageTimeoutMs = options.stageTimeoutMs;
 
   logger.info('[DispatchWorker] Starting change-record dispatch worker');
 
@@ -70,6 +78,9 @@ export function startDispatchWorker(options: DispatchWorkerOptions = {}): { stop
         throw new Error(`${summary.failed} consumer(s) failed for ${changeRecordKey(record)}`);
       }
     },
-    { batchSize: options.batchSize, pollIntervalMs: options.pollIntervalMs }
+    // One record at a time: stages can run an LLM for minutes, and a large
+    // claim would hold rows other workers could take. The queue no longer
+    // sleeps between non-empty polls, so this costs no throughput.
+    { batchSize: options.batchSize ?? DISPATCH_CLAIM_BATCH_SIZE, pollIntervalMs: options.pollIntervalMs }
   );
 }

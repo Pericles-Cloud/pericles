@@ -1049,6 +1049,11 @@ model GlobalEvent {
   // Verification (Validation Agent writes this; Global Agent never edits)
   verification_ref  String?  // Pointer to current Event Verification record
 
+  // Per-event change counter: the record_version of its global_event_change
+  // records. Incremented atomically by emitGlobalEventChange, so every change
+  // is a new version and is not deduplicated against the first.
+  change_seq        Int      @default(0)
+
   // Raw data preservation
   raw_data          Json?
 
@@ -1104,6 +1109,9 @@ model CandidateExposure {
   // Lifecycle: Watching → Candidate → Validated/Rejected → Cleared
   validation_status ExposureValidationStatus @default(WATCHING)
   validation_ref    String?  // Pointer to Validation Agent record
+  // Count of candidate_exposure hand-offs to Validation; the change record's
+  // record_version. Small and monotonic (DispatchLog.record_version is Int).
+  handoff_version   Int      @default(0)
   cleared_at        DateTime?
   cleared_reason    String?  // 'shipment_delivered' | 'shipment_rerouted' | 'event_resolved' | 'event_retracted' | 'supplier_removed'
 

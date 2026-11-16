@@ -282,7 +282,7 @@ export async function getStrategicPriorities(
     const initiatives = plan.metadata.initiatives ?? [];
     for (const initiative of initiatives) {
       priorities.push({
-        initiative: initiative as string,
+        initiative: initiative,
         description: `From annual plan: ${plan.title}`,
         target_date: plan.metadata.effective_date,
         locations: plan.metadata.locations ?? [],

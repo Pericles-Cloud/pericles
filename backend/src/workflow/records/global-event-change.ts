@@ -53,6 +53,8 @@ export interface GlobalEventStoreChangePayload {
   status: string;
   /** Changed fields (for updates) */
   changed_fields?: string[];
+  /** Severity before an update; lets routing detect an upgrade. */
+  previous_intrinsic_severity?: string;
   /** Whether this is a material change */
   is_material?: boolean;
 }
@@ -63,11 +65,14 @@ export interface GlobalEventStoreChangePayload {
  */
 export function globalEventStoreChangeRecord(
   payload: GlobalEventStoreChangePayload,
+  changeSeq: number,
   producedAt: Date
 ): ChangeRecord {
   return {
     record_id: `global-event-${payload.event_id}`,
-    record_version: 1,
+    // Each change is a new version; a constant version would dedupe every
+    // update and resolution against the creation record.
+    record_version: changeSeq,
     record_type: 'global_event_change',
     organization_id: null, // Global events have no org scope
     produced_at: producedAt.toISOString(),
@@ -108,14 +113,40 @@ export function isMaterialChange(payload: GlobalEventStoreChangePayload): boolea
   return payload.is_material ?? false;
 }
 
-/**
- * Check if a global event change should trigger Event Verification
- * High and Critical severity events trigger proactive verification
- */
-export function shouldTriggerVerification(payload: GlobalEventStoreChangePayload): boolean {
-  if (payload.change_type !== 'created' && payload.change_type !== 'updated') {
-    return false;
-  }
 
-  return payload.intrinsic_severity === 'high' || payload.intrinsic_severity === 'critical';
+// ============================================================================
+// Org-scoped evaluation records (client_monitoring fan-out)
+// ============================================================================
+
+export type OrgReevaluationReason = 'org_fanout';
+
+/**
+ * A global_event_change that asks the client_monitoring consumer to evaluate
+ * one Global Event for one organization only.
+ *
+ * The payload is deliberately minimal: no `change_kind` and no `severity`, so
+ * it routes only to client_monitoring and can never re-trigger Event
+ * Verification. `organization_id` and `target_organization_id` are always the
+ * same org; the consumer rejects a record where they differ.
+ */
+export function orgReevaluationRecord(args: {
+  recordId: string;
+  recordVersion: number;
+  globalEventId: string;
+  organizationId: string;
+  reason: OrgReevaluationReason;
+  producedAt: string;
+}): ChangeRecord {
+  return {
+    record_id: args.recordId,
+    record_version: args.recordVersion,
+    record_type: 'global_event_change',
+    organization_id: args.organizationId,
+    produced_at: args.producedAt,
+    payload: {
+      event_id: args.globalEventId,
+      change_type: args.reason,
+      target_organization_id: args.organizationId,
+    },
+  };
 }

@@ -1,6 +1,8 @@
 import { createTool } from '@mastra/core/tools';
 import { z } from 'zod';
 import { getPrismaClient } from '../../monitoring/db-client.js';
+import { emitGlobalEventChange, lockGlobalEvent } from '../../monitoring/global-event-changes.js';
+import { TERMINAL_EVENT_STATUSES } from '../../monitoring/exposure-strength.js';
 
 /**
  * Global Event Resolution Tool
@@ -248,21 +250,90 @@ Never delete events - always use status transitions.
     const timeline = (event.timeline as Array<Record<string, unknown>>) ?? [];
     timeline.push(timelineEntry as Record<string, unknown>);
 
-    await prisma.globalEvent.update({
-      where: { id: event_id },
-      data: {
-        status: newStatus as any,
-        resolved_at: resolvedAt,
-        resolution_basis: resolutionBasis,
-        timeline: timeline as any,
-        updated_at: now,
-      },
+    const changeKind = action === 'resolve' ? 'resolved' : action === 'retract' ? 'retracted' : 'merged';
+
+    // The status change and its change record commit together, so customers
+    // are always told (client_monitoring clears exposures on these). The
+    // record used to be built and returned but never enqueued.
+    let alreadyEnded = false;
+    await prisma.$transaction(async (tx) => {
+      // Re-check under the row lock: an event that ended meanwhile (or a
+      // repeated call) must not be rewritten or fanned out again. A merge locks
+      // both events, always in id order, so two opposite merges (A into B and
+      // B into A) serialize instead of deadlocking.
+      const lockIds =
+        action === 'merge' && merge_into_event_id ? [event_id, merge_into_event_id].sort() : [event_id];
+      for (const id of lockIds) await lockGlobalEvent(tx, id);
+      const locked = await tx.globalEvent.findUnique({ where: { id: event_id }, select: { status: true } });
+      if (!locked || TERMINAL_EVENT_STATUSES.has(locked.status)) {
+        alreadyEnded = true;
+        return;
+      }
+
+      await tx.globalEvent.update({
+        where: { id: event_id },
+        data: {
+          status: newStatus as any,
+          resolved_at: resolvedAt,
+          resolution_basis: resolutionBasis,
+          timeline: timeline as any,
+          updated_at: now,
+        },
+      });
+      await emitGlobalEventChange(
+        tx,
+        {
+          event_id,
+          event_hash: event.event_hash,
+          change_type: changeKind,
+          intrinsic_severity: event.intrinsic_severity,
+          status: newStatus,
+        },
+        now
+      );
+
+      // Merge: the surviving event now stands for the absorbed one. Notify it
+      // too, so customers whose exposure was on the absorbed event (cleared as
+      // event_merged) are re-evaluated against the survivor.
+      if (action === 'merge' && merge_into_event_id) {
+        // Already locked above, in id order.
+        const survivor = await tx.globalEvent.findUnique({ where: { id: merge_into_event_id } });
+        if (survivor && !TERMINAL_EVENT_STATUSES.has(survivor.status)) {
+          await emitGlobalEventChange(
+            tx,
+            {
+              event_id: survivor.id,
+              event_hash: survivor.event_hash,
+              change_type: 'updated',
+              intrinsic_severity: survivor.intrinsic_severity,
+              status: survivor.status,
+              changed_fields: ['merged_from'],
+              is_material: true,
+            },
+            now
+          );
+        }
+      }
     });
 
-    // Create change record for downstream agents
+    if (alreadyEnded) {
+      return {
+        success: false,
+        event_id,
+        new_status: event.status,
+        resolved_at: event.resolved_at?.toISOString() ?? null,
+        resolution_basis: event.resolution_basis ?? null,
+        timeline_entry: timelineEntry,
+        change_record: { event_id, change_type: 'none', is_material: false, changed_fields: [], timestamp: now.toISOString() },
+        error: `Event already ended (${event.status}); no change made`,
+      };
+    }
+
+
+    // Change record summary for the agent's own output
     const changeRecord = {
       event_id,
-      change_type: action === 'resolve' ? 'resolved' : action === 'retract' ? 'retracted' : 'merged',
+      change_type: changeKind,
       is_material: true, // Status changes are always material
       changed_fields: ['status', 'resolved_at', 'resolution_basis'],
       timestamp: now.toISOString(),
