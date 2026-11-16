@@ -20,6 +20,8 @@ import { mastra } from '../mastra/index.js';
 import { logger, createLogger } from './logger.js';
 import { getPrismaClient } from './db-client.js';
 import { emitGlobalEventChange } from './global-event-changes.js';
+import { isMaterialChange } from '../workflow/records/global-event-change.js';
+import { TERMINAL_EVENT_STATUSES } from './exposure-strength.js';
 
 // ============================================================================
 // Global State
@@ -382,11 +384,22 @@ async function updateGlobalEvent(updateData: any): Promise<void> {
 
   // Model-written changes may touch only event content fields. Identity, the
   // change_seq counter, the append-only timeline and verification_ref (the
-  // Validation Agent's) are never writable here; resolution has its own path.
+  // Validation Agent's) are never writable here. Terminal statuses go through
+  // resolve/retract/merge, which always emit; they are refused here.
+  const changedFields: string[] = [];
   for (const change of updateData.changes || []) {
-    if (AGENT_UPDATABLE_FIELDS.has(change.field)) {
-      updateFields[change.field] = change.new_value;
+    if (!AGENT_UPDATABLE_FIELDS.has(change.field)) continue;
+    if (change.field === 'status' && TERMINAL_EVENT_STATUSES.has(String(change.new_value))) {
+      logger.warn(
+        { event_id: event.id, status: change.new_value },
+        '[GlobalMonitoring] Terminal status in an update ignored; use resolve/retract/merge'
+      );
+      continue;
     }
+    const before = (event as Record<string, unknown>)[change.field];
+    if (JSON.stringify(before) === JSON.stringify(change.new_value)) continue;
+    updateFields[change.field] = change.new_value;
+    changedFields.push(change.field);
   }
 
   // The event write and its change record commit together: an event is never
@@ -397,18 +410,20 @@ async function updateGlobalEvent(updateData: any): Promise<void> {
       data: updateFields,
     });
 
-    // Emit change record if material
-    if (updateData.is_material) {
-      await emitGlobalEventChange(
-        tx,
-        {
-          event_id: event.id,
-          event_hash: event.event_hash,
-          change_type: 'updated',
-          intrinsic_severity: updateFields.intrinsic_severity || event.intrinsic_severity,
-          status: updateFields.status || event.status,
-        },
-      );
+    // Materiality is decided from what actually changed (isMaterialChange),
+    // not only from the model's own flag, which can be wrong or missing.
+    const payload = {
+      event_id: event.id,
+      event_hash: event.event_hash,
+      change_type: 'updated' as const,
+      intrinsic_severity: updateFields.intrinsic_severity || event.intrinsic_severity,
+      previous_intrinsic_severity: event.intrinsic_severity,
+      status: updateFields.status || event.status,
+      changed_fields: changedFields,
+      is_material: updateData.is_material === true,
+    };
+    if (changedFields.length > 0 && (isMaterialChange(payload) || payload.is_material)) {
+      await emitGlobalEventChange(tx, payload);
     }
   });
 }

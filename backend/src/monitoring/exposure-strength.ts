@@ -24,3 +24,7 @@ export const SEVERITY_RANK: Record<Severity, number> = { low: 1, medium: 2, high
 export function severityRank(value: unknown): number {
   return typeof value === 'string' && value in SEVERITY_RANK ? SEVERITY_RANK[value as Severity] : 0;
 }
+
+/** Global Event statuses that end an event; no exposure may be created or reopened after them. */
+export const TERMINAL_EVENT_STATUSES: ReadonlySet<string> = new Set(['RESOLVED', 'RETRACTED', 'MERGED']);
+

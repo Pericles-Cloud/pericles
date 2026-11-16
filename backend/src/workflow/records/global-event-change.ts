@@ -53,6 +53,8 @@ export interface GlobalEventStoreChangePayload {
   status: string;
   /** Changed fields (for updates) */
   changed_fields?: string[];
+  /** Severity before an update; lets routing detect an upgrade. */
+  previous_intrinsic_severity?: string;
   /** Whether this is a material change */
   is_material?: boolean;
 }

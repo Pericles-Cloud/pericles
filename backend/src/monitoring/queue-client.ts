@@ -313,12 +313,7 @@ export async function renewLocks(
 }
 
 /**
- * Finish a row. With `workerId`, only if this worker still holds it: a row
- * whose lease expired and was reclaimed belongs to the new owner, and the old
- * worker must not overwrite its state. Returns false if ownership was lost.
- */
-/**
- * Hand claimed-but-unstarted rows back to the queue: PENDING again, lock
+ * Hand: PENDING again, lock
  * cleared, and the claim's attempt returned. Only rows this worker still holds.
  */
 export async function releaseLocks(ids: string[], workerId: string, prisma = getPrismaClient()): Promise<number> {
@@ -335,6 +330,11 @@ export async function releaseLocks(ids: string[], workerId: string, prisma = get
   `;
 }
 
+/**
+ * Finish a row. With `workerId`, only if this worker still holds it: a row
+ * whose lease expired and was reclaimed belongs to the new owner, and the old
+ * worker must not overwrite its state. Returns false if ownership was lost.
+ */
 export async function completeMessage(id: string, prisma = getPrismaClient(), workerId?: string): Promise<boolean> {
   const data = { status: 'COMPLETED' as const, processed_at: new Date(), locked_at: null, locked_by: null };
   if (workerId === undefined) {

@@ -56,15 +56,39 @@ const isMaterialImpact = (record: ChangeRecord): boolean => {
   return significance === 'initial' || significance === 'material';
 };
 
+const HIGH_OR_CRITICAL = new Set(['high', 'critical']);
+const SEVERITY_ORDER: Record<string, number> = { low: 1, medium: 2, high: 3, critical: 4 };
+
+/**
+ * Event Verification fires when an event is created at, or upgraded to, High
+ * or Critical (Global spec §10, Validation Mode A). Two record shapes exist:
+ * - Global Event Store records: string intrinsic_severity, change_type, and on
+ *   updates changed_fields + previous_intrinsic_severity.
+ * - Legacy per-org Event records: numeric severity and change_kind.
+ */
+const needsEventVerification = (record: ChangeRecord): boolean => {
+  const severity = payloadString(record, 'intrinsic_severity');
+  if (severity !== undefined) {
+    if (!HIGH_OR_CRITICAL.has(severity)) return false;
+    const changeType = payloadString(record, 'change_type');
+    if (changeType === 'created') return true;
+    if (changeType !== 'updated') return false;
+    const changed = record.payload.changed_fields;
+    const previous = payloadString(record, 'previous_intrinsic_severity');
+    return (
+      Array.isArray(changed) &&
+      changed.includes('intrinsic_severity') &&
+      (SEVERITY_ORDER[severity] ?? 0) > (SEVERITY_ORDER[previous ?? ''] ?? 0)
+    );
+  }
+  const kind = payloadString(record, 'change_kind');
+  return severityAtLeastHigh(record) && (kind === 'created' || kind === 'upgraded');
+};
+
 export const DISPATCH_TABLE: Record<RecordType, DispatchRoute[]> = {
   global_event_change: [
     { consumer: 'client_monitoring' },
-    {
-      consumer: 'event_verification',
-      when: (r) =>
-        severityAtLeastHigh(r) &&
-        (payloadString(r, 'change_kind') === 'created' || payloadString(r, 'change_kind') === 'upgraded'),
-    },
+    { consumer: 'event_verification', when: needsEventVerification },
   ],
 
   candidate_exposure: [

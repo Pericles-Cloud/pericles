@@ -96,3 +96,39 @@ describe('routesFor — fixed routes', () => {
     }
   });
 });
+
+describe('routesFor — Event Verification for Global Event Store records', () => {
+  const globalRecord = (payload: Record<string, unknown>) => ({
+    record_id: 'global-event-ge-1',
+    record_version: 1,
+    record_type: 'global_event_change' as const,
+    organization_id: null,
+    produced_at: '2026-11-16T00:00:00.000Z',
+    payload,
+  });
+  const consumers = (payload: Record<string, unknown>) => routesFor(globalRecord(payload)).map((r) => r.consumer);
+
+  it('verifies an event created at High or Critical', () => {
+    expect(consumers({ change_type: 'created', intrinsic_severity: 'critical' })).toContain('event_verification');
+    expect(consumers({ change_type: 'created', intrinsic_severity: 'high' })).toContain('event_verification');
+    expect(consumers({ change_type: 'created', intrinsic_severity: 'medium' })).not.toContain('event_verification');
+  });
+
+  it('verifies an update only when severity was upgraded into High or Critical', () => {
+    const upgraded = {
+      change_type: 'updated',
+      intrinsic_severity: 'high',
+      previous_intrinsic_severity: 'medium',
+      changed_fields: ['intrinsic_severity'],
+    };
+    expect(consumers(upgraded)).toContain('event_verification');
+    expect(consumers({ ...upgraded, previous_intrinsic_severity: 'critical' })).not.toContain('event_verification');
+    expect(consumers({ ...upgraded, changed_fields: ['latitude'] })).not.toContain('event_verification');
+  });
+
+  it('never verifies from a resolution or an org-scoped fan-out record', () => {
+    expect(consumers({ change_type: 'resolved', intrinsic_severity: 'critical' })).not.toContain('event_verification');
+    expect(consumers({ change_type: 'org_fanout', event_id: 'ge-1' })).toEqual(['client_monitoring']);
+  });
+});
+

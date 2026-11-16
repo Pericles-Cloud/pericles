@@ -322,6 +322,14 @@ Do NOT use for:
       // A new duration estimate is a material change (Global spec §6): commit it
       // with its change record so customers' exposures are re-evaluated.
       await prisma.$transaction(async (tx) => {
+        // An unchanged estimate is not a change: no write, no change record
+        // (each record fans out one agent evaluation per org).
+        const current = await tx.globalEvent.findUnique({
+          where: { id: event_id },
+          select: { duration_estimate: true },
+        });
+        if (JSON.stringify(current?.duration_estimate ?? null) === JSON.stringify(durationEstimate)) return;
+
         const updated = await tx.globalEvent.update({
           where: { id: event_id },
           data: {

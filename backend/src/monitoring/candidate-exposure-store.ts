@@ -17,7 +17,13 @@ import { getPrismaClient } from './db-client.js';
 import { logger } from './logger.js';
 import { enqueueInTransaction, CHANGE_RECORD_QUEUE } from './queue-client.js';
 import { changeRecordQueueItem, type ChangeRecord } from '../workflow/records/change-record.js';
-import { SEVERITY_RANK, STRENGTH_RANK, statusForStrength, type ExposureStrength } from './exposure-strength.js';
+import {
+  SEVERITY_RANK,
+  STRENGTH_RANK,
+  TERMINAL_EVENT_STATUSES,
+  statusForStrength,
+  type ExposureStrength,
+} from './exposure-strength.js';
 import { isUniqueViolation } from './prisma-errors.js';
 
 export { STRENGTH_RANK, statusForStrength, type ExposureStrength };
@@ -223,8 +229,6 @@ function nextHandoffVersion(current: number): number {
   return current <= 0 ? LEGACY_HANDOFF_VERSION : current + 1;
 }
 
-/** Global Event statuses after which no exposure may be created or reopened. */
-const EVENT_TERMINAL_STATUSES = new Set(['RESOLVED', 'RETRACTED', 'MERGED']);
 
 /** Clear reasons meaning the event itself ended; a stale evaluation must not reopen these. */
 const EVENT_ENDED_REASONS = new Set(['event_resolved', 'event_retracted', 'event_merged']);
@@ -281,7 +285,7 @@ async function upsertOnce(input: CandidateExposureInput): Promise<UpsertCandidat
     const [event] = await tx.$queryRaw<Array<{ status: string }>>`
       SELECT status::text AS status FROM "GlobalEvent" WHERE id = ${input.global_event_id} FOR SHARE
     `;
-    if (!event || EVENT_TERMINAL_STATUSES.has(event.status)) {
+    if (!event || TERMINAL_EVENT_STATUSES.has(event.status)) {
       return { candidate_exposure_id: '', validation_status: 'NONE', outcome: 'event_ended', change_record_emitted: false };
     }
 
@@ -502,8 +506,10 @@ export async function reemitCandidateHandoffs(
 /**
  * The agent found no exposure for (org, event): clear a WATCHING row, which
  * would otherwise keep stale assets and could be promoted by a later partial
- * evaluation (Client spec §5: "No pathway: record not_exposed"). Only WATCHING
- * is touched; a CANDIDATE is with Validation, which decides it.
+ * evaluation (Client spec §5: "No pathway: record not_exposed"). A CANDIDATE
+ * that was never handed off (handoff_version <= 0) is cleared the same way:
+ * Validation has not seen it, so the latest evaluation decides. A handed-off
+ * CANDIDATE is with Validation, which decides it.
  * Returns true if a row was cleared.
  */
 export async function clearWatchingExposure(organizationId: string, globalEventHash: string): Promise<boolean> {
@@ -511,7 +517,11 @@ export async function clearWatchingExposure(organizationId: string, globalEventH
     throw new Error('organization_id required for tenant isolation');
   }
   const { count } = await getPrismaClient().candidateExposure.updateMany({
-    where: { organization_id: organizationId, global_event_hash: globalEventHash, validation_status: 'WATCHING' },
+    where: {
+      organization_id: organizationId,
+      global_event_hash: globalEventHash,
+      OR: [{ validation_status: 'WATCHING' }, { validation_status: 'CANDIDATE', handoff_version: { lte: 0 } }],
+    },
     data: { validation_status: 'CLEARED', cleared_at: new Date(), cleared_reason: 'not_exposed' },
   });
   return count > 0;

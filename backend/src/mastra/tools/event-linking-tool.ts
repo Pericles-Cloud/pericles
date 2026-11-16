@@ -290,6 +290,13 @@ A wrong link can merge two impacts downstream.
       // Re-parenting is a hierarchy change (material, Global spec §6): commit it
       // with its change record so customers' exposures are re-evaluated.
       await prisma.$transaction(async (tx) => {
+        // Re-setting the same parent is not a change: no write, no record.
+        const current = await tx.globalEvent.findUnique({
+          where: { id: event_id },
+          select: { parent_event_id: true },
+        });
+        if (current?.parent_event_id === set_parent) return;
+
         const updated = await tx.globalEvent.update({
           where: { id: event_id },
           data: {

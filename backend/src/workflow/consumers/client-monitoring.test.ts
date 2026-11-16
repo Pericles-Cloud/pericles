@@ -248,9 +248,38 @@ describe('clientMonitoringConsumer org evaluation', () => {
     await run(orgRecord(ORG_A));
     expect(upsert).not.toHaveBeenCalled();
     expect(fake.candidateExposure.updateMany.mock.calls[0][0]).toMatchObject({
-      where: { organization_id: ORG_A, global_event_hash: 'h', validation_status: 'WATCHING' },
+      where: {
+        organization_id: ORG_A,
+        global_event_hash: 'h',
+        OR: [{ validation_status: 'WATCHING' }, { validation_status: 'CANDIDATE', handoff_version: { lte: 0 } }],
+      },
       data: { validation_status: 'CLEARED', cleared_reason: 'not_exposed' },
     });
+  });
+
+  it('fails the stage when items were listed but none could be read, instead of clearing', async () => {
+    agent.generate.mockResolvedValue({
+      text: JSON.stringify({ candidate_exposures: ['Direct: plant in Kaohsiung'], watch_list: [] }),
+    });
+
+    await expect(run(orgRecord(ORG_A))).rejects.toThrow('unreadable');
+    expect(fake.candidateExposure.updateMany).not.toHaveBeenCalled();
+    expect(upsert).not.toHaveBeenCalled();
+  });
+
+  it('drops items that name a different event', async () => {
+    agent.generate.mockResolvedValue({
+      text: JSON.stringify({
+        candidate_exposures: [
+          { ...exposure('direct', 'f-1'), global_event_id: 'ge-1' },
+          { ...exposure('direct', 'f-other'), global_event_id: 'ge-2' },
+        ],
+      }),
+    });
+
+    await run(orgRecord(ORG_A));
+
+    expect(upsert.mock.calls[0][0].exposed_assets.map((a: { asset_id: string }) => a.asset_id)).toEqual(['f-1']);
   });
 });
 

@@ -19,7 +19,7 @@ import type { ConsumerHandler } from '../dispatch/consumer-registry.js';
 import { getPrismaClient } from '../../monitoring/db-client.js';
 import { mastra } from '../../mastra/index.js';
 import { logger } from '../../monitoring/logger.js';
-import { severityRank } from '../../monitoring/exposure-strength.js';
+import { severityRank, TERMINAL_EVENT_STATUSES } from '../../monitoring/exposure-strength.js';
 import {
   CandidateEvaluationSchema,
   clearWatchingExposure,
@@ -193,8 +193,7 @@ export function parseAgentJson(text: string): Record<string, unknown> {
   throw new Error('[ClientMonitoring] Agent response contained no parseable JSON object');
 }
 
-const TERMINAL_STATUSES = new Set(['RESOLVED', 'RETRACTED', 'MERGED']);
-const isTerminal = (status: string): boolean => TERMINAL_STATUSES.has(status);
+const isTerminal = (status: string): boolean => TERMINAL_EVENT_STATUSES.has(status);
 
 /**
  * Orgs to evaluate for an event.
@@ -361,16 +360,28 @@ async function evaluateExposureForOrg(
   // merged into one. Watch-list (possible) items are stored too, so they can be
   // promoted later (Client spec §5), but they are only used when the agent
   // found no candidate: their assets must not pad a real candidate.
+  let unreadable = 0;
   const parseItems = (raw: unknown, forcePossible: boolean): CandidateEvaluation[] => {
     if (!Array.isArray(raw)) return [];
     const out: CandidateEvaluation[] = [];
     for (const item of raw as unknown[]) {
+      // An item naming a different event belongs to that event's row, never this one.
+      const itemEventId =
+        item && typeof item === 'object' ? (item as { global_event_id?: unknown }).global_event_id : undefined;
+      if (typeof itemEventId === 'string' && itemEventId !== globalEvent.id) {
+        logger.warn(
+          { organization_id: organizationId, global_event_id: globalEvent.id, item_event_id: itemEventId },
+          '[ClientMonitoring] Skipping exposure item for a different event'
+        );
+        continue;
+      }
       // Watch-list items are watch-only by definition; the model cannot upgrade them here.
       const input = forcePossible && item && typeof item === 'object' ? { ...item, exposure_strength: 'possible' } : item;
       const parsed = CandidateEvaluationSchema.safeParse(input);
       if (parsed.success) {
         out.push(parsed.data);
       } else {
+        unreadable++;
         logger.warn(
           { organization_id: organizationId, global_event_id: globalEvent.id, issues: parsed.error.issues },
           '[ClientMonitoring] Skipping exposure item that failed schema validation'
@@ -383,9 +394,15 @@ async function evaluateExposureForOrg(
   const candidates = parseItems(parsedResult.candidate_exposures, false);
   const evaluations = candidates.length > 0 ? candidates : parseItems(parsedResult.watch_list, true);
 
+  // Items were listed but none could be read: that is a failed evaluation,
+  // not "no exposure" (which would clear a watched item). Throw to retry.
+  if (evaluations.length === 0 && unreadable > 0) {
+    throw new Error(`[ClientMonitoring] All ${unreadable} exposure item(s) in the agent response were unreadable`);
+  }
+
   const merged = mergeEvaluations(evaluations);
   if (!merged) {
-    // No exposure found: a watched item is no longer watched (spec §5).
+    // No exposure found: a watched (or never handed-off) item is cleared (spec §5).
     if (await clearWatchingExposure(organizationId, globalEvent.event_hash)) cleared++;
     return { exposuresWritten, handoffsEmitted, cleared };
   }
