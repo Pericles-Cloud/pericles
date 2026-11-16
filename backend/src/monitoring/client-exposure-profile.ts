@@ -10,6 +10,7 @@
  * - Organizational Memory: strategic priorities, key account commitments, stated concerns
  */
 
+import { Prisma } from '@prisma/client';
 import { getPrismaClient } from './db-client.js';
 import { logger } from './logger.js';
 
@@ -49,9 +50,7 @@ export function canonicalJson(value: unknown): string {
  * Sync Client Exposure Profile from all sources
  */
 export async function syncClientExposureProfile(organizationId: string): Promise<SyncResult> {
-  const prisma = getPrismaClient();
   const errors: string[] = [];
-
   let facilitiesSynced = 0;
   let suppliersSynced = 0;
   let productsSynced = 0;
@@ -60,117 +59,107 @@ export async function syncClientExposureProfile(organizationId: string): Promise
 
   logger.info({ organizationId }, '[ProfileSync] Starting Client Exposure Profile sync');
 
+  // Gather every source first; a source that fails leaves its fields as they
+  // are. Then write all of it, and the version, in one transaction.
+  const patch: ProfileContentPatch = {};
+  const now = new Date();
+  const stamps: Prisma.ClientExposureProfileUpdateInput = {};
+
   try {
-    // Get or create profile
-    let profile = await prisma.clientExposureProfile.findUnique({
-      where: { organization_id: organizationId },
-    });
-
-    if (!profile) {
-      profile = await prisma.clientExposureProfile.create({
-        data: {
-          organization_id: organizationId,
-          profile_version: 1,
-        },
-      });
-      logger.info({ organizationId, profileId: profile.id }, '[ProfileSync] Created new profile');
-    }
-
-    // Sync from ERP (facilities, suppliers, products, logistics)
-    try {
-      const erpData = await syncFromERP(organizationId);
-      facilitiesSynced = erpData.facilities;
-      suppliersSynced = erpData.suppliers;
-      productsSynced = erpData.products;
-
-      await prisma.clientExposureProfile.update({
-        where: { id: profile.id },
-        data: {
-          own_facilities: erpData.ownFacilities,
-          suppliers: erpData.suppliersData,
-          products: erpData.productsData,
-          logistics: erpData.logisticsData,
-          last_erp_sync: new Date(),
-        },
-      });
-    } catch (error) {
-      const msg = error instanceof Error ? error.message : 'Unknown error';
-      errors.push(`ERP sync failed: ${msg}`);
-      logger.error({ error, organizationId }, '[ProfileSync] ERP sync failed');
-    }
-
-    // Sync shipments in transit
-    try {
-      const shipmentsData = await syncShipmentsInTransit(organizationId);
-      shipmentsSynced = shipmentsData.length;
-
-      await prisma.clientExposureProfile.update({
-        where: { organization_id: organizationId },
-        data: {
-          shipments_in_transit: shipmentsData,
-          last_shipment_sync: new Date(),
-        },
-      });
-    } catch (error) {
-      const msg = error instanceof Error ? error.message : 'Unknown error';
-      errors.push(`Shipment sync failed: ${msg}`);
-      logger.error({ error, organizationId }, '[ProfileSync] Shipment sync failed');
-    }
-
-    // Sync from Organizational Memory
-    try {
-      const orgMemoryData = await syncFromOrgMemory(organizationId);
-      strategicSynced = true;
-
-      await prisma.clientExposureProfile.update({
-        where: { organization_id: organizationId },
-        data: {
-          strategic_priorities: orgMemoryData.strategicPriorities as any,
-          key_account_commitments: orgMemoryData.keyAccountCommitments as any,
-          stated_concerns: orgMemoryData.statedConcerns as any,
-          last_org_memory_sync: new Date(),
-        },
-      });
-    } catch (error) {
-      const msg = error instanceof Error ? error.message : 'Unknown error';
-      errors.push(`Org Memory sync failed: ${msg}`);
-      logger.error({ error, organizationId }, '[ProfileSync] Org Memory sync failed');
-    }
-
-    // Bump the version only when exposure-relevant content changed, so
-    // profile_snapshot_ref identifies real profile states (an hourly refresh
-    // of unchanged data does not mint a new version).
-    const before = profile;
-    const after = await prisma.clientExposureProfile.findUniqueOrThrow({ where: { organization_id: organizationId } });
-    const changed = PROFILE_CONTENT_FIELDS.some(
-      (field) => canonicalJson(before[field]) !== canonicalJson(after[field])
-    );
-    const updatedProfile = changed
-      ? await prisma.clientExposureProfile.update({
-          where: { organization_id: organizationId },
-          data: { profile_version: { increment: 1 }, updated_at: new Date() },
-        })
-      : after;
-
-    const result: SyncResult = {
-      organizationId,
-      profileVersion: updatedProfile.profile_version,
-      facilitiesSynced,
-      suppliersSynced,
-      productsSynced,
-      shipmentsSynced,
-      strategicSynced,
-      errors,
-    };
-
-    logger.info(result, '[ProfileSync] Client Exposure Profile sync complete');
-
-    return result;
+    const erpData = await syncFromERP(organizationId);
+    facilitiesSynced = erpData.facilities;
+    suppliersSynced = erpData.suppliers;
+    productsSynced = erpData.products;
+    patch.own_facilities = erpData.ownFacilities;
+    patch.suppliers = erpData.suppliersData;
+    patch.products = erpData.productsData;
+    patch.logistics = erpData.logisticsData;
+    stamps.last_erp_sync = now;
   } catch (error) {
-    const msg = error instanceof Error ? error.message : 'Unknown error';
-    logger.error({ error, organizationId }, '[ProfileSync] Profile sync failed');
-    throw error;
+    errors.push(`ERP sync failed: ${error instanceof Error ? error.message : 'Unknown error'}`);
+    logger.error({ error, organizationId }, '[ProfileSync] ERP sync failed');
   }
+
+  try {
+    const shipmentsData = await syncShipmentsInTransit(organizationId);
+    shipmentsSynced = shipmentsData.length;
+    patch.shipments_in_transit = shipmentsData;
+    stamps.last_shipment_sync = now;
+  } catch (error) {
+    errors.push(`Shipment sync failed: ${error instanceof Error ? error.message : 'Unknown error'}`);
+    logger.error({ error, organizationId }, '[ProfileSync] Shipment sync failed');
+  }
+
+  try {
+    const orgMemoryData = await syncFromOrgMemory(organizationId);
+    strategicSynced = true;
+    patch.strategic_priorities = orgMemoryData.strategicPriorities;
+    patch.key_account_commitments = orgMemoryData.keyAccountCommitments;
+    patch.stated_concerns = orgMemoryData.statedConcerns;
+    stamps.last_org_memory_sync = now;
+  } catch (error) {
+    errors.push(`Org Memory sync failed: ${error instanceof Error ? error.message : 'Unknown error'}`);
+    logger.error({ error, organizationId }, '[ProfileSync] Org Memory sync failed');
+  }
+
+  const { profileVersion } = await writeProfileContent(organizationId, patch, stamps);
+
+  const result: SyncResult = {
+    organizationId,
+    profileVersion,
+    facilitiesSynced,
+    suppliersSynced,
+    productsSynced,
+    shipmentsSynced,
+    strategicSynced,
+    errors,
+  };
+  logger.info(result, '[ProfileSync] Client Exposure Profile sync complete');
+  return result;
+}
+
+/** Exposure-relevant profile content, as written by a sync. */
+export type ProfileContentPatch = Partial<Record<(typeof PROFILE_CONTENT_FIELDS)[number], unknown>>;
+
+/**
+ * Write profile content and decide the version in ONE transaction, holding the
+ * profile row lock: create the profile if missing, compare the patch with what
+ * is stored (canonical JSON), write the patch, and bump profile_version only if
+ * a field actually changed. Every writer of profile content goes through here
+ * (full sync and Org Memory's strategic refresh), so readers never see new
+ * content under an old version and concurrent writers cannot both skip or
+ * both apply the bump.
+ */
+export async function writeProfileContent(
+  organizationId: string,
+  patch: ProfileContentPatch,
+  extra: Prisma.ClientExposureProfileUpdateInput = {}
+): Promise<{ profileVersion: number; changed: boolean }> {
+  if (!organizationId) {
+    throw new Error('organization_id required for tenant isolation');
+  }
+  return getPrismaClient().$transaction(async (tx) => {
+    await tx.clientExposureProfile.upsert({
+      where: { organization_id: organizationId },
+      create: { organization_id: organizationId, profile_version: 1 },
+      update: {},
+    });
+    await tx.$queryRaw`SELECT id FROM "ClientExposureProfile" WHERE organization_id = ${organizationId} FOR UPDATE`;
+    const current = await tx.clientExposureProfile.findUniqueOrThrow({ where: { organization_id: organizationId } });
+
+    const changed = (Object.keys(patch) as Array<keyof ProfileContentPatch>).some(
+      (field) => canonicalJson(current[field]) !== canonicalJson(patch[field])
+    );
+    const data = {
+      ...extra,
+      ...(Object.fromEntries(
+        Object.entries(patch).map(([field, value]) => [field, value ?? Prisma.DbNull])
+      ) as Prisma.ClientExposureProfileUpdateInput),
+      ...(changed ? { profile_version: { increment: 1 }, updated_at: new Date() } : {}),
+    };
+    const written = await tx.clientExposureProfile.update({ where: { organization_id: organizationId }, data });
+    return { profileVersion: written.profile_version, changed };
+  });
 }
 
 /**
@@ -264,24 +253,35 @@ async function syncFromERP(organizationId: string): Promise<{
     select: { plants: true, warehouses: true, suppliers: true },
   });
   const located = (value: unknown): Array<Record<string, any>> => (Array.isArray(value) ? value : []);
+  // SAP's transformer writes a missing coordinate as 0, so (0, 0) means
+  // "unknown", not a site in the Gulf of Guinea that geographic matching
+  // would then expose.
+  const coords = (location: { latitude?: unknown; longitude?: unknown } | undefined) => {
+    const lat = typeof location?.latitude === 'number' ? location.latitude : null;
+    const lon = typeof location?.longitude === 'number' ? location.longitude : null;
+    return lat === null || lon === null || (lat === 0 && lon === 0)
+      ? { latitude: null, longitude: null }
+      : { latitude: lat, longitude: lon };
+  };
   const ownFacilities = [
+    // `type` uses the profile schema's enum (plant | warehouse | dc | office);
+    // SAP's plant_type (e.g. manufacturing) is kept as a subtype.
     ...located(context?.plants).map((p) => ({
-      id: p.plant_id,
+      id: String(p.plant_id),
       name: p.name,
-      facility_type: p.plant_type ?? 'plant',
-      latitude: p.location?.latitude ?? null,
-      longitude: p.location?.longitude ?? null,
+      type: 'plant' as const,
+      subtype: p.plant_type ?? null,
+      ...coords(p.location),
       country_iso: p.country ?? null,
     })),
     ...located(context?.warehouses).map((w) => ({
-      id: w.warehouse_id,
+      id: String(w.warehouse_id),
       name: w.name,
-      facility_type: 'warehouse',
-      latitude: w.location?.latitude ?? null,
-      longitude: w.location?.longitude ?? null,
+      type: 'warehouse' as const,
+      ...coords(w.location),
       country_iso: w.country ?? null,
     })),
-  ].sort((a, b) => String(a.id).localeCompare(String(b.id)));
+  ].sort((a, b) => a.id.localeCompare(b.id));
 
   // ERP suppliers not already in the Supplier table (e.g. from SAP).
   const knownSupplierNames = new Set(suppliersData.map((s) => String(s.name).trim().toLowerCase()));
@@ -290,8 +290,7 @@ async function syncFromERP(organizationId: string): Promise<{
     suppliersData.push({
       id: cs.supplier_id,
       name: cs.name,
-      latitude: cs.location?.latitude ?? null,
-      longitude: cs.location?.longitude ?? null,
+      ...coords(cs.location),
       country_iso: cs.country ?? null,
       supplies: [],
       spend_pct: null,

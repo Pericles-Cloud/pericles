@@ -15,6 +15,18 @@ import { RuntimeContext } from '@mastra/core/runtime-context';
 import { getPrismaClient } from './db-client.js';
 import { loadMonitoringConfig, resolveModel, type ResolvedModel } from './config.js';
 
+/**
+ * The global loop has nobody to bill: there is not exactly one root org. Like
+ * MissingApiKeyError, a configuration state the loop logs and skips (it must
+ * not count as a failure and crash-restart the service).
+ */
+export class GlobalBillingConfigError extends Error {
+  constructor(message: string) {
+    super(message);
+    this.name = 'GlobalBillingConfigError';
+  }
+}
+
 /** runtimeContext key both agents read their model from. */
 export const MODEL_CONTEXT_KEY = 'model';
 
@@ -56,7 +68,7 @@ export async function resolveGlobalMonitoringModel(): Promise<ResolvedModel> {
     take: 2,
   });
   if (roots.length !== 1) {
-    throw new Error(
+    throw new GlobalBillingConfigError(
       `Global Monitoring: expected exactly one root organization to bill the global loop to, found ${roots.length}`
     );
   }

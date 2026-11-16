@@ -5,7 +5,9 @@ import { describe, it, expect, vi, beforeEach } from 'vitest';
 
 const fake = vi.hoisted(() => ({
   organization: { findUnique: vi.fn() },
-  clientExposureProfile: { findUnique: vi.fn(), findUniqueOrThrow: vi.fn(), create: vi.fn(), update: vi.fn() },
+  clientExposureProfile: { findUnique: vi.fn(), findUniqueOrThrow: vi.fn(), upsert: vi.fn(), update: vi.fn() },
+  $transaction: vi.fn(),
+  $queryRaw: vi.fn(),
   supplier: { findMany: vi.fn() },
   shipment: { findMany: vi.fn() },
   carrier: { findMany: vi.fn() },
@@ -28,8 +30,12 @@ beforeEach(() => {
   fake.organization.findUnique.mockReset();
   fake.clientExposureProfile.findUnique.mockReset().mockResolvedValue(PROFILE);
   fake.clientExposureProfile.findUniqueOrThrow.mockReset().mockResolvedValue(PROFILE);
-  fake.clientExposureProfile.create.mockReset();
-  fake.clientExposureProfile.update.mockReset().mockResolvedValue({ ...PROFILE, profile_version: 5 });
+  fake.clientExposureProfile.upsert.mockReset().mockResolvedValue(PROFILE);
+  fake.clientExposureProfile.update.mockReset().mockImplementation(({ data }: { data: Record<string, unknown> }) =>
+    Promise.resolve({ ...PROFILE, profile_version: 'profile_version' in data ? 5 : 4 })
+  );
+  fake.$transaction.mockReset().mockImplementation((fn: (tx: unknown) => unknown) => fn(fake));
+  fake.$queryRaw.mockReset().mockResolvedValue([]);
   fake.supplier.findMany.mockReset().mockResolvedValue([]);
   fake.shipment.findMany.mockReset().mockResolvedValue([]);
   fake.carrier.findMany.mockReset().mockResolvedValue([]);
@@ -75,15 +81,44 @@ describe('syncClientExposureProfile', () => {
     expect((writtenField('suppliers') as Array<{ id: string }>).map((s) => s.id)).toEqual(['s-db', 'S-SAP']);
   });
 
+  const unchangedRow = {
+    ...PROFILE,
+    own_facilities: [],
+    suppliers: [],
+    products: [],
+    logistics: { routes: [], carriers: [] }, // jsonb key order differs: still "unchanged"
+    shipments_in_transit: [],
+    strategic_priorities: null,
+    key_account_commitments: null,
+    stated_concerns: null,
+  };
+
   it('does not bump the profile version when content did not change', async () => {
-    await syncClientExposureProfile('org-1');
+    fake.clientExposureProfile.findUniqueOrThrow.mockResolvedValue(unchangedRow);
+    const result = await syncClientExposureProfile('org-1');
     expect(versionBumped()).toBe(false);
+    expect(result.profileVersion).toBe(4);
   });
 
-  it('bumps the version when content changed', async () => {
-    fake.clientExposureProfile.findUniqueOrThrow.mockResolvedValue({ ...PROFILE, suppliers: [{ id: 'new' }] });
-    await syncClientExposureProfile('org-1');
+  it('bumps the version when content changed, in the same transaction as the write, under the row lock', async () => {
+    fake.clientExposureProfile.findUniqueOrThrow.mockResolvedValue({ ...unchangedRow, suppliers: [{ id: 'old' }] });
+    const result = await syncClientExposureProfile('org-1');
     expect(versionBumped()).toBe(true);
+    expect(result.profileVersion).toBe(5);
+    expect(fake.clientExposureProfile.update).toHaveBeenCalledTimes(1);
+    expect((fake.$queryRaw.mock.calls[0][0] as TemplateStringsArray).join('?')).toMatch(/FOR UPDATE/);
+  });
+
+  it('treats (0, 0) coordinates from SAP as missing, not a real site', async () => {
+    fake.organizationContext.findUnique.mockResolvedValue({
+      plants: [{ plant_id: 'P0', name: 'No coords', location: { latitude: 0, longitude: 0 }, country: 'XX' }],
+      warehouses: [],
+      suppliers: [],
+    });
+    await syncClientExposureProfile('org-1');
+    expect(writtenField('own_facilities')).toEqual([
+      expect.objectContaining({ id: 'P0', type: 'plant', latitude: null, longitude: null }),
+    ]);
   });
 });
 

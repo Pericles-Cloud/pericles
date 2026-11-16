@@ -23,7 +23,7 @@ import { emitGlobalEventChange, lockGlobalEvent } from './global-event-changes.j
 import { isMaterialChange } from '../workflow/records/global-event-change.js';
 import { TERMINAL_EVENT_STATUSES } from './exposure-strength.js';
 import type { Prisma } from '@prisma/client';
-import { modelContext, resolveGlobalMonitoringModel } from './agent-models.js';
+import { GlobalBillingConfigError, modelContext, resolveGlobalMonitoringModel } from './agent-models.js';
 import { MissingApiKeyError } from './config.js';
 
 // ============================================================================
@@ -160,8 +160,8 @@ export async function runGlobalMonitoringCycle(): Promise<GlobalCycleMetrics> {
     try {
       model = await resolveGlobalMonitoringModel();
     } catch (error) {
-      if (error instanceof MissingApiKeyError) {
-        cycleLogger.error({ error: error.message }, '[GlobalCycle] Skipped: root organization has no AI key');
+      if (error instanceof MissingApiKeyError || error instanceof GlobalBillingConfigError) {
+        cycleLogger.error({ error: error.message }, '[GlobalCycle] Skipped: no billable root organization key');
         return metrics;
       }
       throw error;

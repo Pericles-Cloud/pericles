@@ -56,16 +56,20 @@ function validateEnvironment(): void {
   }
 }
 
-/** A positive integer interval from the environment, or the default (an invalid value is rejected, not NaN). */
-function positiveIntervalMs(name: string, fallback: number): number {
-  const raw = process.env[name];
-  if (raw === undefined || raw === '') return fallback;
-  const value = Number(raw);
-  if (!Number.isInteger(value) || value < 1000) {
-    logger.fatal({ name, raw }, `${name} must be an integer number of milliseconds >= 1000`);
+/** An interval in ms: an integer >= 1000. An invalid value stops the process (never NaN, which setTimeout reads as ~1ms). */
+function validIntervalMs(name: string, value: unknown): number {
+  const ms = Number(value);
+  if (!Number.isInteger(ms) || ms < 1000) {
+    logger.fatal({ name, value }, `${name} must be an integer number of milliseconds >= 1000`);
     process.exit(1);
   }
-  return value;
+  return ms;
+}
+
+/** An interval from the environment, or the default. */
+function positiveIntervalMs(name: string, fallback: number): number {
+  const raw = process.env[name];
+  return raw === undefined || raw === '' ? fallback : validIntervalMs(name, raw);
 }
 
 // ============================================================================
@@ -108,7 +112,10 @@ async function main() {
   const args = parseArgs();
 
   // Load configuration
-  const intervalMs = args.intervalMs ?? positiveIntervalMs('GLOBAL_MONITORING_INTERVAL_MS', 300000);
+  const intervalMs =
+    args.intervalMs !== undefined
+      ? validIntervalMs('--interval', args.intervalMs)
+      : positiveIntervalMs('GLOBAL_MONITORING_INTERVAL_MS', 300000);
 
   logger.info(
     {
@@ -130,11 +137,15 @@ async function main() {
   }, profileIntervalMs);
   void refreshAllProfiles();
 
+  // A requested stop (every redeploy sends SIGTERM) exits 0 at once: the loop
+  // may be sleeping for a whole polling interval, and an intentional stop must
+  // not look like a crash. A record mid-dispatch is recovered by its lease.
   const shutdown = (signal: string) => {
     logger.info(`[GlobalStart] Received ${signal}, shutting down...`);
     clearInterval(profileTimer);
     dispatchWorker.stop();
     stopGlobalMonitoring();
+    process.exit(0);
   };
   process.on('SIGINT', () => {
     shutdown('SIGINT');
