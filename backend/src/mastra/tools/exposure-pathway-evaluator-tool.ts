@@ -1,5 +1,6 @@
 import { createTool } from '@mastra/core/tools';
 import { z } from 'zod';
+import { STRENGTH_RANK } from '../../monitoring/candidate-exposure-store.js';
 
 /**
  * Exposure Pathway Evaluator Tool
@@ -749,9 +750,8 @@ function classifyExposure(
 
   // Calculate priority based on severity and exposure strength
   const severityOrder = { low: 1, medium: 2, high: 3, critical: 4 };
-  const strengthOrder = { possible: 1, strategic: 2, probable: 3, direct: 4 };
   const severityValue = severityOrder[intrinsicSeverity as keyof typeof severityOrder] ?? 1;
-  const strengthValue = strengthOrder[exposureStrength] ?? 1;
+  const strengthValue = STRENGTH_RANK[exposureStrength] ?? 1;
 
   let exposurePriority: ExposurePriority;
   const combinedScore = severityValue + strengthValue;

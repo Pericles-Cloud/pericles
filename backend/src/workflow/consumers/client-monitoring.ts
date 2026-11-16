@@ -98,6 +98,7 @@ export const clientMonitoringConsumer: ConsumerHandler = async ({ record, signal
     // Process each organization
     let totalCandidatesCreated = 0;
     let totalCleared = 0;
+    const failedOrgIds: string[] = [];
 
     for (const org of organizations) {
       if (signal.aborted) {
@@ -119,7 +120,8 @@ export const clientMonitoringConsumer: ConsumerHandler = async ({ record, signal
           { error, organization_id: org.id, global_event_id: globalEventId },
           '[ClientMonitoring] Failed to evaluate exposure for org'
         );
-        // Continue with other orgs - don't fail the whole batch
+        // Keep evaluating the other orgs, then fail the stage below.
+        failedOrgIds.push(org.id);
       }
     }
 
@@ -132,6 +134,15 @@ export const clientMonitoringConsumer: ConsumerHandler = async ({ record, signal
       },
       '[ClientMonitoring] Completed global event fan-out'
     );
+
+    // Fail the stage so the dispatcher retries instead of marking the record
+    // completed with exposures lost. Orgs that succeeded are re-evaluated on
+    // retry; the upsert and the hand-off are idempotent.
+    if (failedOrgIds.length > 0) {
+      throw new Error(
+        `[ClientMonitoring] Exposure evaluation failed for ${failedOrgIds.length} of ${organizations.length} organization(s)`
+      );
+    }
   } catch (error) {
     logger.error(
       { error, global_event_id: globalEventId },
@@ -254,22 +265,12 @@ async function evaluateExposureForOrg(
   // Process candidate exposures
   const candidateExposures = parsedResult.candidate_exposures || [];
 
-  // One bad candidate must not drop the rest of this org's candidates.
+  // A schema-invalid candidate is skipped inside createCandidateExposure.
+  // Anything thrown here is infrastructure (DB, queue) and must propagate so
+  // the dispatch stage fails and is retried; the upsert is idempotent.
   for (const candidate of candidateExposures) {
-    try {
-      const created = await createCandidateExposure(
-        organizationId,
-        globalEvent,
-        candidate,
-        profile.profile_version
-      );
-      if (created) candidatesCreated++;
-    } catch (error) {
-      logger.error(
-        { error, organization_id: organizationId, global_event_id: globalEvent.id },
-        '[ClientMonitoring] Failed to upsert candidate exposure'
-      );
-    }
+    const created = await createCandidateExposure(organizationId, globalEvent, candidate, profile.profile_version);
+    if (created) candidatesCreated++;
   }
 
   return { candidatesCreated, cleared };

@@ -67,6 +67,16 @@ describe('statusForStrength', () => {
 });
 
 describe('CandidateEvaluationSchema', () => {
+  it('accepts date-only and offset timestamps and a missing match_confidence', () => {
+    const { organization_id: _o, global_event_id: _g, global_event_hash: _h, match_confidence: _m, ...rest } = INPUT;
+    const parsed = CandidateEvaluationSchema.safeParse({
+      ...rest,
+      temporal_relevance: { shipment_eta: '2026-11-20', regulation_effective_date: '2026-11-20T00:00:00+02:00' },
+    });
+    expect(parsed.success).toBe(true);
+    expect(parsed.success && parsed.data.match_confidence).toEqual({});
+  });
+
   it('rejects an invalid exposure_priority from the agent', () => {
     const { organization_id: _o, global_event_id: _g, global_event_hash: _h, ...evaluation } = INPUT;
     expect(CandidateEvaluationSchema.safeParse(evaluation).success).toBe(true);
@@ -168,6 +178,29 @@ describe('upsertCandidateExposure', () => {
 
     expect(result.change_record_emitted).toBe(true);
     expect(enqueuedRows()[0].payload.record_version).toBe(2);
+  });
+
+  it('emits v1 for a legacy CANDIDATE row that was never handed off', async () => {
+    fake.candidateExposure.findUnique.mockResolvedValue(
+      existingRow({ id: 'ce-9', validation_status: 'CANDIDATE', exposure_strength: 'direct', handoff_version: 0 })
+    );
+
+    const result = await upsertCandidateExposure(INPUT);
+
+    expect(result.change_record_emitted).toBe(true);
+    expect(fake.candidateExposure.update.mock.calls[0][0].data).toEqual({ handoff_version: 1 });
+    expect(enqueuedRows()[0].idempotency_key).toBe('ce-9:1');
+  });
+
+  it('reports change_record_emitted false when the record was already queued', async () => {
+    fake.candidateExposure.findUnique.mockResolvedValue(
+      existingRow({ id: 'ce-10', validation_status: 'CANDIDATE', exposure_strength: 'direct', handoff_version: 0 })
+    );
+    fake.messageQueue.createMany.mockResolvedValue({ count: 0 });
+
+    const result = await upsertCandidateExposure(INPUT);
+
+    expect(result.change_record_emitted).toBe(false);
   });
 
   it('leaves an exposure already in the pipeline untouched', async () => {

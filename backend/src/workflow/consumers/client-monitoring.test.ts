@@ -54,3 +54,16 @@ describe('clientMonitoringConsumer target_organization_id', () => {
     expect(fake.organization.findMany.mock.calls[0][0].where.id).toBeUndefined();
   });
 });
+
+describe('clientMonitoringConsumer failure handling', () => {
+  it('fails the stage when an org evaluation hits an infrastructure error, after trying the rest', async () => {
+    fake.globalEvent.findUnique.mockResolvedValue({ id: 'ge-1', status: 'ACTIVE', event_hash: 'h' });
+    fake.organization.findMany.mockResolvedValue([{ id: ORG_A, name: 'A' }, { id: ORG_B, name: 'B' }]);
+    fake.clientExposureProfile.findUnique
+      .mockRejectedValueOnce(new Error('connection reset'))
+      .mockResolvedValueOnce(null);
+
+    await expect(run(record(null, { event_id: 'ge-1' }))).rejects.toThrow('failed for 1 of 2');
+    expect(fake.clientExposureProfile.findUnique).toHaveBeenCalledTimes(2);
+  });
+});

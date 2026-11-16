@@ -38,18 +38,74 @@ const PROFILE_CONTENT_FIELDS = [
   'products',
   'logistics',
   'shipments_in_transit',
+  'customers',
   'strategic_priorities',
   'key_account_commitments',
   'stated_concerns',
   'excluded_categories',
   'excluded_regions',
+  'buffer_distances',
+  'sensitivity_config',
   'min_severity',
 ] as const;
 
+/**
+ * Shipment fields that change on almost every sync without changing which
+ * events can reach the customer. A new, removed or re-routed shipment still
+ * changes the fingerprint; an ETA drift alone does not, so it cannot trigger a
+ * full back-match (one LLM call per active event) on every sync.
+ */
+const VOLATILE_SHIPMENT_FIELDS = new Set(['eta']);
+
+function stableShipments(value: unknown): unknown {
+  if (!Array.isArray(value)) return value ?? null;
+  return value.map((shipment) =>
+    shipment && typeof shipment === 'object'
+      ? Object.fromEntries(
+          Object.entries(shipment as Record<string, unknown>).filter(([k]) => !VOLATILE_SHIPMENT_FIELDS.has(k))
+        )
+      : shipment
+  );
+}
+
 /** Stable fingerprint of the exposure-relevant profile content. */
 export function profileFingerprint(profile: ProfileContent | null): string {
-  const content = PROFILE_CONTENT_FIELDS.map((field) => (profile ? (profile[field] ?? null) : null));
+  const content = PROFILE_CONTENT_FIELDS.map((field) => {
+    if (!profile) return null;
+    const value = profile[field] ?? null;
+    return field === 'shipments_in_transit' ? stableShipments(value) : value;
+  });
   return createHash('sha256').update(JSON.stringify(content)).digest('hex');
+}
+
+/**
+ * Back-match if the profile's exposure-relevant content differs from what was
+ * last successfully back-matched. Every writer of profile content calls this
+ * after writing, so back-matching does not depend on which sync ran.
+ *
+ * The stored fingerprint is updated only after the back-match succeeds, so a
+ * failure is retried by the next call. Throws on failure; the caller decides
+ * whether that fails its own operation. Returns events enqueued (0 if unchanged).
+ */
+export async function backMatchIfProfileChanged(organizationId: string): Promise<number> {
+  if (!organizationId) {
+    throw new Error('organization_id required for tenant isolation');
+  }
+  const prisma = getPrismaClient();
+  const profile = await prisma.clientExposureProfile.findUnique({
+    where: { organization_id: organizationId },
+  });
+  if (!profile) return 0;
+
+  const fingerprint = profileFingerprint(profile);
+  if (fingerprint === profile.back_match_fingerprint) return 0;
+
+  const enqueued = await triggerBackMatching(organizationId, fingerprint);
+  await prisma.clientExposureProfile.update({
+    where: { organization_id: organizationId },
+    data: { back_match_fingerprint: fingerprint },
+  });
+  return enqueued;
 }
 
 /**
@@ -154,23 +210,15 @@ export async function syncClientExposureProfile(organizationId: string): Promise
       },
     });
 
-    // Back-match only when exposure-relevant content differs from what was last
-    // successfully back-matched. Comparing against the stored fingerprint (not
-    // the pre-sync one) means a failed back-match is retried on the next sync.
+    // Back-match only when exposure-relevant content changed since the last
+    // successful back-match (a failed one is retried on the next sync).
     let backMatchEventsEnqueued = 0;
-    const fingerprint = profileFingerprint(updatedProfile);
-    if (fingerprint !== updatedProfile.back_match_fingerprint) {
-      try {
-        backMatchEventsEnqueued = await triggerBackMatching(organizationId, updatedProfile.profile_version);
-        await prisma.clientExposureProfile.update({
-          where: { organization_id: organizationId },
-          data: { back_match_fingerprint: fingerprint },
-        });
-      } catch (error) {
-        const msg = error instanceof Error ? error.message : 'Unknown error';
-        errors.push(`Back-matching failed: ${msg}`);
-        logger.error({ error, organizationId }, '[ProfileSync] Back-matching failed');
-      }
+    try {
+      backMatchEventsEnqueued = await backMatchIfProfileChanged(organizationId);
+    } catch (error) {
+      const msg = error instanceof Error ? error.message : 'Unknown error';
+      errors.push(`Back-matching failed: ${msg}`);
+      logger.error({ error, organizationId }, '[ProfileSync] Back-matching failed');
     }
 
     const result: SyncResult = {
@@ -380,17 +428,22 @@ const BACK_MATCH_PAGE_SIZE = 500;
  * consumer sees `target_organization_id` and evaluates only this org, so a
  * single tenant's profile change never re-runs every other tenant.
  *
- * Records are keyed by (event, org, profile_version), so re-running a sync for
- * the same version does not enqueue duplicates.
+ * Records are keyed by (event, org, content fingerprint), so retrying a
+ * partially failed back-match for the same content does not enqueue any event
+ * twice, while a genuine content change produces new records.
  *
  * Returns the number of events enqueued for re-evaluation.
  */
-export async function triggerBackMatching(organizationId: string, profileVersion: number): Promise<number> {
+export async function triggerBackMatching(organizationId: string, fingerprint: string): Promise<number> {
   if (!organizationId) {
     throw new Error('organization_id required for tenant isolation');
   }
 
   const prisma = getPrismaClient();
+  if (!fingerprint) {
+    throw new Error('fingerprint required to key back-match records');
+  }
+  const contentKey = fingerprint.slice(0, 16);
   const producedAt = new Date().toISOString();
   let enqueued = 0;
   let cursor: string | undefined;
@@ -409,8 +462,8 @@ export async function triggerBackMatching(organizationId: string, profileVersion
 
     const items = page.map((event) => {
       const record: ChangeRecord = {
-        record_id: `${event.id}:backmatch:${organizationId}`,
-        record_version: profileVersion,
+        record_id: `${event.id}:backmatch:${organizationId}:${contentKey}`,
+        record_version: 1,
         record_type: 'global_event_change',
         organization_id: organizationId,
         produced_at: producedAt,
@@ -437,7 +490,7 @@ export async function triggerBackMatching(organizationId: string, profileVersion
   }
 
   logger.info(
-    { organizationId, profileVersion, eventsEnqueued: enqueued },
+    { organizationId, contentKey, eventsEnqueued: enqueued },
     enqueued === 0
       ? '[ProfileSync] Back-matching: no active global events'
       : '[ProfileSync] Back-matching enqueued active global events for re-evaluation'

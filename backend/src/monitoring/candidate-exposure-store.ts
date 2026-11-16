@@ -46,16 +46,21 @@ export const CandidateEvaluationSchema = z.object({
       distance_or_match_basis: z.string(),
     })
   ),
-  match_confidence: z.object({
-    entity: z.number().min(0).max(1).optional(),
-    location: z.number().min(0).max(1).optional(),
-    product: z.number().min(0).max(1).optional(),
-  }),
+  // LLM output: confidence may be omitted, and dates arrive in mixed formats
+  // (date-only, with offsets). Dropping a real exposure over formatting is the
+  // worse error at this layer (Client spec §5), so these are lenient.
+  match_confidence: z
+    .object({
+      entity: z.number().min(0).max(1).optional(),
+      location: z.number().min(0).max(1).optional(),
+      product: z.number().min(0).max(1).optional(),
+    })
+    .default({}),
   temporal_relevance: z
     .object({
-      shipment_eta: z.string().datetime().nullable().optional(),
+      shipment_eta: z.string().nullable().optional(),
       event_window: z.string().nullable().optional(),
-      regulation_effective_date: z.string().datetime().nullable().optional(),
+      regulation_effective_date: z.string().nullable().optional(),
     })
     .nullable()
     .optional(),
@@ -91,7 +96,8 @@ export function statusForStrength(strength: ExposureStrength): 'WATCHING' | 'CAN
   return strength === 'possible' ? 'WATCHING' : 'CANDIDATE';
 }
 
-const STRENGTH_RANK: Record<ExposureStrength, number> = { possible: 1, strategic: 2, probable: 3, direct: 4 };
+/** Single ordering of exposure strength, weakest first. Shared with the pathway evaluator. */
+export const STRENGTH_RANK: Record<ExposureStrength, number> = { possible: 1, strategic: 2, probable: 3, direct: 4 };
 
 /** Stable key for an exposed-asset set, independent of order. */
 function assetSetKey(assets: unknown): string {
@@ -150,8 +156,9 @@ export function buildCandidateExposureRecord(
   };
 }
 
-async function emitRecord(tx: Prisma.TransactionClient, record: ChangeRecord): Promise<void> {
-  await enqueueInTransaction(
+/** Enqueue the record; returns false if an identical record was already queued. */
+async function emitRecord(tx: Prisma.TransactionClient, record: ChangeRecord): Promise<boolean> {
+  const { deduplicated } = await enqueueInTransaction(
     tx,
     CHANGE_RECORD_QUEUE,
     {
@@ -162,6 +169,7 @@ async function emitRecord(tx: Prisma.TransactionClient, record: ChangeRecord): P
     },
     { idempotencyKey: changeRecordKey(record) }
   );
+  return !deduplicated;
 }
 
 const isUniqueViolation = (error: unknown): boolean =>
@@ -206,20 +214,33 @@ async function upsertOnce(input: CandidateExposureInput): Promise<UpsertCandidat
           handoff_version: emit ? 1 : 0,
         },
       });
-      if (emit) {
-        await emitRecord(tx, buildCandidateExposureRecord(created.id, 1, input, now));
-      }
+      const emitted = emit ? await emitRecord(tx, buildCandidateExposureRecord(created.id, 1, input, now)) : false;
       return {
         candidate_exposure_id: created.id,
         validation_status: created.validation_status,
         outcome: 'created',
-        change_record_emitted: emit,
+        change_record_emitted: emitted,
       };
     }
 
     const refreshable =
       existing.validation_status === 'WATCHING' ||
       (existing.validation_status === 'REJECTED' && hasNewEvidence(existing, input));
+
+    // A CANDIDATE that was never handed off (created before the hand-off
+    // existed, or by migrate-events-to-global) gets its first record now, so no
+    // CANDIDATE row is left without one. If one was already queued under v1
+    // the insert is a no-op.
+    if (existing.validation_status === 'CANDIDATE' && existing.handoff_version === 0) {
+      await tx.candidateExposure.update({ where: { id: existing.id }, data: { handoff_version: 1 } });
+      const emitted = await emitRecord(tx, buildCandidateExposureRecord(existing.id, 1, input, now));
+      return {
+        candidate_exposure_id: existing.id,
+        validation_status: existing.validation_status,
+        outcome: 'unchanged',
+        change_record_emitted: emitted,
+      };
+    }
 
     if (!refreshable) {
       return {
@@ -239,14 +260,14 @@ async function upsertOnce(input: CandidateExposureInput): Promise<UpsertCandidat
       data: { ...fields, global_event_id: input.global_event_id, handoff_version: handoffVersion, updated_at: now },
     });
 
-    if (emit) {
-      await emitRecord(tx, buildCandidateExposureRecord(updated.id, handoffVersion, input, now));
-    }
+    const emitted = emit
+      ? await emitRecord(tx, buildCandidateExposureRecord(updated.id, handoffVersion, input, now))
+      : false;
     return {
       candidate_exposure_id: updated.id,
       validation_status: updated.validation_status,
       outcome: 'updated',
-      change_record_emitted: emit,
+      change_record_emitted: emitted,
     };
   });
 }
