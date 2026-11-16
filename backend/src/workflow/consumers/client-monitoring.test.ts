@@ -17,6 +17,11 @@ const agent = vi.hoisted(() => ({ generate: vi.fn() }));
 const upsert = vi.hoisted(() => vi.fn());
 
 vi.mock('../../mastra/index.js', () => ({ mastra: { getAgent: () => agent } }));
+const resolveModel = vi.hoisted(() => vi.fn());
+vi.mock('../../monitoring/agent-models.js', () => ({
+  resolveClientMonitoringModel: resolveModel,
+  modelContext: (model: unknown) => ({ model }),
+}));
 vi.mock('../../monitoring/candidate-exposure-store.js', async (importOriginal) => ({
   ...(await importOriginal<typeof Store>()),
   upsertCandidateExposure: upsert,
@@ -51,6 +56,7 @@ beforeEach(() => {
   fake.organization.findMany.mockReset().mockResolvedValue([]);
   fake.clientExposureProfile.findUnique.mockReset();
   agent.generate.mockReset();
+  resolveModel.mockReset().mockResolvedValue({ id: 'openai/gpt-4o-mini', apiKey: 'org-key' });
   fake.messageQueue.createMany.mockReset().mockImplementation(({ data }: { data: unknown[] }) =>
     Promise.resolve({ count: data.length })
   );
@@ -186,6 +192,23 @@ describe('clientMonitoringConsumer org evaluation', () => {
       outcome: 'created',
       change_record_emitted: true,
     });
+  });
+
+  it("bills the evaluation to the tenant's own model + key via runtimeContext", async () => {
+    agent.generate.mockResolvedValue({ text: JSON.stringify({ candidate_exposures: [] }) });
+    await run(orgRecord(ORG_A));
+    expect(resolveModel).toHaveBeenCalledWith(ORG_A);
+    expect(agent.generate.mock.calls[0][1].runtimeContext).toEqual({
+      model: { id: 'openai/gpt-4o-mini', apiKey: 'org-key' },
+    });
+  });
+
+  it('skips (does not fail) an org with no AI key, and makes no LLM call', async () => {
+    const { MissingApiKeyError } = await import('../../monitoring/config.js');
+    resolveModel.mockRejectedValue(new MissingApiKeyError(ORG_A, 'openai'));
+
+    await expect(run(orgRecord(ORG_A))).resolves.toBeUndefined();
+    expect(agent.generate).not.toHaveBeenCalled();
   });
 
   it('fails the stage on an infrastructure error so the queue retries this org', async () => {

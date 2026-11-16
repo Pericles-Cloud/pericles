@@ -125,6 +125,11 @@ export async function storeDocument(
     '[OrgMemory] Document stored'
   );
 
+  // Strategic context changed: rebuild the profile Client Monitoring reads.
+  // Imported lazily: client-exposure-profile imports this module.
+  const { refreshClientExposureProfile } = await import('./client-exposure-profile.js');
+  await refreshClientExposureProfile(organizationId, 'org_memory');
+
   return docId;
 }
 

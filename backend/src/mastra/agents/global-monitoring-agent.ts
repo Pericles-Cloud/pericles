@@ -20,6 +20,7 @@ import { globalEventLookupTool } from '../tools/global-event-lookup-tool.js';
 import { globalEventResolutionTool } from '../tools/global-event-resolution-tool.js';
 import { eventLinkingTool } from '../tools/event-linking-tool.js';
 import { durationEstimateTool } from '../tools/duration-estimate-tool.js';
+import { modelFromContext } from '../../monitoring/agent-models.js';
 
 /**
  * Global Monitoring Agent (Doctrine §13)
@@ -297,9 +298,8 @@ Always respond with structured JSON matching this schema:
 
 Begin monitoring when given a signal source or time window to process.
 `,
-  // Using gpt-4o-mini for higher rate limits and faster execution
-  // The global monitoring agent primarily orchestrates tool calls, so mini is sufficient
-  model: 'openai/gpt-4o-mini',
+  // Resolved per call (root org's key), never a static platform-key model.
+  model: modelFromContext('Global Monitoring Agent'),
   tools: {
     // Data source monitoring tools (10 risk categories)
     weatherDisasterMonitorTool,

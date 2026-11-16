@@ -341,3 +341,31 @@ export async function triggerBackMatching(organizationId: string): Promise<void>
   // This should emit synthetic global_event_change records for each active event
   // to trigger the client_monitoring consumer
 }
+
+/**
+ * Refresh an organization's Client Exposure Profile after its supply-chain or
+ * strategic data changed (D29, issue #76): called after BOL/ERP syncs, after an
+ * Organizational Memory document is stored, and periodically by the global
+ * worker. Skips the root organization (it is the operator, not a customer).
+ * Never throws: a profile problem must not fail the data sync that triggered
+ * it. Returns the sync result, or null when skipped or failed.
+ */
+export async function refreshClientExposureProfile(
+  organizationId: string,
+  reason: 'erp_sync' | 'bol_sync' | 'org_memory' | 'periodic'
+): Promise<SyncResult | null> {
+  try {
+    const org = await getPrismaClient().organization.findUnique({
+      where: { id: organizationId },
+      select: { is_root: true },
+    });
+    if (!org || org.is_root) return null;
+    const result = await syncClientExposureProfile(organizationId);
+    logger.info({ organizationId, reason, profileVersion: result.profileVersion }, '[ProfileSync] Profile refreshed');
+    return result;
+  } catch (error) {
+    logger.error({ error, organizationId, reason }, '[ProfileSync] Profile refresh failed');
+    return null;
+  }
+}
+

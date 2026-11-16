@@ -28,6 +28,7 @@ import { createGoogleGeocoder } from './geocode.js';
 import { transformBolDataToOrganizationContext } from './transformer.js';
 import { seedShipmentTables, type SeedTablesResult } from './seed-tables.js';
 import type { BolRow, Geocoder, BolTransformOptions } from './types.js';
+import { refreshClientExposureProfile } from '../../monitoring/client-exposure-profile.js';
 
 /** Cache geocode results for 90 days — places don't move; saves re-billing. */
 const GEOCODE_TTL_SECONDS = 90 * 24 * 60 * 60;
@@ -176,6 +177,7 @@ export async function syncBolContextForOrganization(
     } else {
       await persistContext(prisma, organizationId, contextData);
       log('OrganizationContext upserted');
+      await refreshClientExposureProfile(organizationId, 'bol_sync');
     }
 
     return {
@@ -415,6 +417,8 @@ export async function syncBolContextForSubsidiaries(
           );
         }
         log(`${created ? 'Created' : 'Updated'} subsidiary "${brand}" (${organizationId})`);
+        // Suppliers/shipments changed: rebuild the profile Client Monitoring reads.
+        await refreshClientExposureProfile(organizationId, 'bol_sync');
       } else {
         log(`DRY RUN — would seed "${brand}": ${JSON.stringify(counts)}`);
       }

@@ -18,6 +18,7 @@ import { PrismaClient, type Prisma } from '@prisma/client';
 import { sapClient } from './client.js';
 import { transformSAPDataToOrganizationContext, validateOrganizationContext } from './transformer.js';
 import type { OrganizationContextData } from './transformer.js';
+import { refreshClientExposureProfile } from '../../monitoring/client-exposure-profile.js';
 
 const prisma = new PrismaClient();
 
@@ -153,6 +154,12 @@ export async function syncSAPDataForOrganization(
         suppliers: contextData.suppliers.length,
         shipping_lanes: contextData.shipping_lanes.length,
       });
+    }
+
+    if (!dryRun) {
+      // ERP data changed: rebuild the profile Client Monitoring reads
+      // (Client spec §3: "same schedule as the ERP sync").
+      await refreshClientExposureProfile(organizationId, 'erp_sync');
     }
 
     const duration = Date.now() - startTime;

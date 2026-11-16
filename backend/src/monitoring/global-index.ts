@@ -23,6 +23,8 @@ import { emitGlobalEventChange, lockGlobalEvent } from './global-event-changes.j
 import { isMaterialChange } from '../workflow/records/global-event-change.js';
 import { TERMINAL_EVENT_STATUSES } from './exposure-strength.js';
 import type { Prisma } from '@prisma/client';
+import { modelContext, resolveGlobalMonitoringModel } from './agent-models.js';
+import { MissingApiKeyError } from './config.js';
 
 // ============================================================================
 // Global State
@@ -152,8 +154,21 @@ export async function runGlobalMonitoringCycle(): Promise<GlobalCycleMetrics> {
 
     cycleLogger.debug({ prompt: prompt.substring(0, 200) }, '[GlobalCycle] Executing agent');
 
+    // Billed to the Pericles root org's own key (no platform env fallback).
+    // A missing key skips the cycle, loudly: it is a configuration state.
+    let model;
+    try {
+      model = await resolveGlobalMonitoringModel();
+    } catch (error) {
+      if (error instanceof MissingApiKeyError) {
+        cycleLogger.error({ error: error.message }, '[GlobalCycle] Skipped: root organization has no AI key');
+        return metrics;
+      }
+      throw error;
+    }
+
     // Execute agent
-    const response = await agent.generate(prompt);
+    const response = await agent.generate(prompt, { runtimeContext: modelContext(model) });
 
     // Parse agent response
     const result = response.text || '';

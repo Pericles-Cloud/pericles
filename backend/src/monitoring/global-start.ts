@@ -21,6 +21,9 @@
 
 import { startGlobalMonitoring, stopGlobalMonitoring } from './global-index.js';
 import { logger } from './logger.js';
+import { getPrismaClient } from './db-client.js';
+import { refreshClientExposureProfile } from './client-exposure-profile.js';
+import { startDispatchWorker } from '../workflow/dispatch/dispatch-worker.js';
 
 // ============================================================================
 // Parse Command Line Arguments
@@ -54,6 +57,32 @@ function validateEnvironment(): void {
 }
 
 // ============================================================================
+// Periodic profile refresh
+// ============================================================================
+
+let refreshing = false;
+
+/** Refresh every monitoring-enabled customer org's profile, one at a time; never overlaps itself. */
+async function refreshAllProfiles(): Promise<void> {
+  if (refreshing) return;
+  refreshing = true;
+  try {
+    const orgs = await getPrismaClient().organization.findMany({
+      where: { is_root: false, settings: { monitoring_agent_enabled: true } },
+      select: { id: true },
+    });
+    for (const org of orgs) {
+      await refreshClientExposureProfile(org.id, 'periodic');
+    }
+    logger.info({ orgs: orgs.length }, '[GlobalStart] Periodic profile refresh complete');
+  } catch (error) {
+    logger.error({ error }, '[GlobalStart] Periodic profile refresh failed');
+  } finally {
+    refreshing = false;
+  }
+}
+
+// ============================================================================
 // Main Entry Point
 // ============================================================================
 
@@ -76,15 +105,30 @@ async function main() {
     '[GlobalStart] Configuration loaded'
   );
 
-  // Setup graceful shutdown
-  process.on('SIGINT', () => {
-    logger.info('[GlobalStart] Received SIGINT, shutting down...');
-    stopGlobalMonitoring();
-  });
+  // The dispatch worker delivers the change records this process emits to
+  // client_monitoring (and later Validation). It runs here, always: without it
+  // global events never reach any customer (wiki D30).
+  const dispatchWorker = startDispatchWorker();
 
-  process.on('SIGTERM', () => {
-    logger.info('[GlobalStart] Received SIGTERM, shutting down...');
+  // Periodic Client Exposure Profile refresh for every monitoring-enabled org
+  // (D29): catches anything the sync triggers (ERP/BOL, Org Memory) missed.
+  const profileIntervalMs = parseInt(process.env.PROFILE_REFRESH_INTERVAL_MS || String(60 * 60 * 1000), 10);
+  const profileTimer = setInterval(() => {
+    void refreshAllProfiles();
+  }, profileIntervalMs);
+  void refreshAllProfiles();
+
+  const shutdown = (signal: string) => {
+    logger.info(`[GlobalStart] Received ${signal}, shutting down...`);
+    clearInterval(profileTimer);
+    dispatchWorker.stop();
     stopGlobalMonitoring();
+  };
+  process.on('SIGINT', () => {
+    shutdown('SIGINT');
+  });
+  process.on('SIGTERM', () => {
+    shutdown('SIGTERM');
   });
 
   // Start global monitoring loop

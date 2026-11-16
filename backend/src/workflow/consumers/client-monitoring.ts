@@ -20,6 +20,8 @@ import { getPrismaClient } from '../../monitoring/db-client.js';
 import { mastra } from '../../mastra/index.js';
 import { logger } from '../../monitoring/logger.js';
 import { severityRank, TERMINAL_EVENT_STATUSES } from '../../monitoring/exposure-strength.js';
+import { modelContext, resolveClientMonitoringModel } from '../../monitoring/agent-models.js';
+import { MissingApiKeyError } from '../../monitoring/config.js';
 import {
   CandidateEvaluationSchema,
   clearWatchingExposure,
@@ -349,8 +351,25 @@ async function evaluateExposureForOrg(
   const prompt = buildClientMonitoringPrompt(globalEvent, profile, organizationId);
 
   // Execute the agent
+  // The tenant's own model + key (no platform env fallback). An org without a
+  // key is a configuration state, not a fault: skip it, as monitoring does.
+  let model;
+  try {
+    model = await resolveClientMonitoringModel(organizationId);
+  } catch (error) {
+    if (error instanceof MissingApiKeyError) {
+      logger.warn(
+        { organization_id: organizationId, error: error.message },
+        '[ClientMonitoring] Skipped: organization has no AI key'
+      );
+      return { exposuresWritten, handoffsEmitted, cleared };
+    }
+    throw error;
+  }
+
   const response = await agent.generate(prompt, {
     abortSignal: signal,
+    runtimeContext: modelContext(model),
   });
 
   // Parse the response. An unreadable response is a failed evaluation, not
