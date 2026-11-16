@@ -181,13 +181,13 @@ describe('dispatchRecord', () => {
 });
 
 describe('stageTimeoutFor', () => {
-  it('gives the LLM-backed client_monitoring stage a 120s floor', () => {
+  it('defaults the LLM-backed client_monitoring stage to 120s', () => {
     expect(stageTimeoutFor('client_monitoring')).toBe(120_000);
-    expect(stageTimeoutFor('client_monitoring', 5_000)).toBe(120_000);
   });
 
-  it('lets a larger operator-configured timeout win over the floor', () => {
+  it('applies an operator-configured timeout as set, higher or lower', () => {
     expect(stageTimeoutFor('client_monitoring', 300_000)).toBe(300_000);
+    expect(stageTimeoutFor('client_monitoring', 30_000)).toBe(30_000);
   });
 
   it('uses the options value, then the default, for other stages', () => {

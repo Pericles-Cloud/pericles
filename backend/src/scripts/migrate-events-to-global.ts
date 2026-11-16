@@ -290,9 +290,9 @@ async function migrateToCandidateExposure(
       cleared_at: null,
       cleared_reason: null,
       profile_snapshot_ref: 'migration-v1',
-      // Not handed off by this script: the store hands a LEGACY_PENDING
-      // CANDIDATE to Validation on its next evaluation.
-      handoff_version: LEGACY_PENDING,
+      // Not handed off by this script. A CANDIDATE is LEGACY_PENDING (the store
+      // hands it off as v2); other statuses start at 1 like the SQL migration.
+      handoff_version: mapValidationStatusToExposureStatus(event.validation_status) === 'CANDIDATE' ? LEGACY_PENDING : 1,
     };
 
     await prisma.candidateExposure.create({ data: candidateData as any });

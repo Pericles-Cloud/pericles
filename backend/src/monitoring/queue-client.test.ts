@@ -11,6 +11,7 @@ const fake = vi.hoisted(() => ({
   messageQueue: {
     createMany: vi.fn(),
     update: vi.fn(),
+    updateMany: vi.fn(),
   },
   $queryRaw: vi.fn(),
   $executeRaw: vi.fn(),
@@ -46,6 +47,7 @@ const MESSAGE = {
 beforeEach(() => {
   fake.messageQueue.createMany.mockReset().mockResolvedValue({ count: 1 });
   fake.messageQueue.update.mockReset().mockResolvedValue({});
+  fake.messageQueue.updateMany.mockReset().mockResolvedValue({ count: 1 });
   fake.$queryRaw.mockReset().mockResolvedValue([]);
   fake.$executeRaw.mockReset().mockResolvedValue(0);
 });
@@ -300,6 +302,26 @@ describe('consumeFromQueue', () => {
 
   it('defaults the max hold well above a single stage budget', () => {
     expect(MAX_LOCK_HOLD_MS).toBeGreaterThan(120_000);
+  });
+
+  it('completes and fails only rows this worker still holds', async () => {
+    vi.useFakeTimers();
+    try {
+      fake.$queryRaw.mockResolvedValueOnce([row('ok'), row('bad')]).mockResolvedValue([]);
+      const handler = vi.fn().mockResolvedValueOnce(undefined).mockRejectedValueOnce(new Error('boom'));
+      const consumer = consumeFromQueue(QUEUE, handler);
+      await vi.advanceTimersByTimeAsync(0);
+      consumer.stop();
+
+      const wheres = fake.messageQueue.updateMany.mock.calls.map((c) => c[0].where);
+      expect(wheres).toEqual([
+        { id: 'ok', locked_by: expect.any(String) },
+        { id: 'bad', locked_by: expect.any(String) },
+      ]);
+      expect(wheres[0].locked_by).toBe(wheres[1].locked_by);
+    } finally {
+      vi.useRealTimers();
+    }
   });
 });
 

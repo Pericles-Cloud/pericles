@@ -21,21 +21,19 @@ import type { ConsumerRegistry } from './consumer-registry.js';
 export const DEFAULT_STAGE_TIMEOUT_MS = 10_000;
 
 /**
- * Stages that run an LLM agent cannot fit the default budget. client_monitoring
- * runs one agent evaluation per org; a fan-out that runs out of time hands the
- * remaining orgs their own records, so this budget is per org-scoped record in
- * practice. The queue renews a held row's lock while it runs, so a stage longer
- * than the lease is not reclaimed mid-run. An override is a floor: a larger DispatchOptions.stageTimeoutMs
- * configured by the operator still wins.
+ * Default budgets for stages that run an LLM agent and cannot fit the general
+ * default. client_monitoring evaluates one org per record (the fan-out enqueues
+ * an org-scoped record per org), so this is one agent evaluation. The queue
+ * renews a held row's lock while it runs. These are defaults only: an explicit
+ * DispatchOptions.stageTimeoutMs set by the operator always applies, higher or
+ * lower.
  */
 export const STAGE_TIMEOUT_OVERRIDES_MS: Partial<Record<ConsumerName, number>> = {
   client_monitoring: 120_000,
 };
 
-export function stageTimeoutFor(consumer: ConsumerName, fallbackMs?: number): number {
-  const base = fallbackMs ?? DEFAULT_STAGE_TIMEOUT_MS;
-  const override = STAGE_TIMEOUT_OVERRIDES_MS[consumer];
-  return override === undefined ? base : Math.max(override, base);
+export function stageTimeoutFor(consumer: ConsumerName, configuredMs?: number): number {
+  return configuredMs ?? STAGE_TIMEOUT_OVERRIDES_MS[consumer] ?? DEFAULT_STAGE_TIMEOUT_MS;
 }
 
 export type StageStatus = 'completed' | 'skipped_noop' | 'duplicate' | 'failed';

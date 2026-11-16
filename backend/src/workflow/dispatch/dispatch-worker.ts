@@ -15,7 +15,7 @@ import { CHANGE_RECORD_QUEUE, consumeFromQueue, PermanentMessageError } from '..
 import { logger } from '../../monitoring/logger.js';
 import { changeRecordKey, parseChangeRecord } from '../records/change-record.js';
 import { createConsumerRegistry, type ConsumerRegistry } from './consumer-registry.js';
-import { dispatchRecord, DEFAULT_STAGE_TIMEOUT_MS } from './dispatcher.js';
+import { dispatchRecord } from './dispatcher.js';
 import { clientMonitoringConsumer } from '../consumers/client-monitoring.js';
 
 export interface DispatchWorkerOptions {
@@ -51,7 +51,8 @@ export const DISPATCH_CLAIM_BATCH_SIZE = 1;
 export function startDispatchWorker(options: DispatchWorkerOptions = {}): { stop: () => void } {
   const prisma = options.prisma ?? getPrismaClient();
   const registry = options.registry ?? createDefaultRegistry();
-  const stageTimeoutMs = options.stageTimeoutMs ?? DEFAULT_STAGE_TIMEOUT_MS;
+  // Undefined unless the operator sets it: per-stage defaults then apply.
+  const stageTimeoutMs = options.stageTimeoutMs;
 
   logger.info('[DispatchWorker] Starting change-record dispatch worker');
 

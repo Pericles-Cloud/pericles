@@ -121,10 +121,10 @@ export function shouldTriggerVerification(payload: GlobalEventStoreChangePayload
 }
 
 // ============================================================================
-// Org-scoped re-evaluation records (per-org retries)
+// Org-scoped evaluation records (client_monitoring fan-out)
 // ============================================================================
 
-export type OrgReevaluationReason = 'org_retry';
+export type OrgReevaluationReason = 'org_fanout';
 
 /**
  * A global_event_change that asks the client_monitoring consumer to evaluate

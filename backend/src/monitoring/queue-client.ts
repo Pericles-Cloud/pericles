@@ -312,11 +312,19 @@ export async function renewLocks(
   `;
 }
 
-export async function completeMessage(id: string, prisma = getPrismaClient()): Promise<void> {
-  await prisma.messageQueue.update({
-    where: { id },
-    data: { status: 'COMPLETED', processed_at: new Date(), locked_at: null, locked_by: null },
-  });
+/**
+ * Finish a row. With `workerId`, only if this worker still holds it: a row
+ * whose lease expired and was reclaimed belongs to the new owner, and the old
+ * worker must not overwrite its state. Returns false if ownership was lost.
+ */
+export async function completeMessage(id: string, prisma = getPrismaClient(), workerId?: string): Promise<boolean> {
+  const data = { status: 'COMPLETED' as const, processed_at: new Date(), locked_at: null, locked_by: null };
+  if (workerId === undefined) {
+    await prisma.messageQueue.update({ where: { id }, data });
+    return true;
+  }
+  const { count } = await prisma.messageQueue.updateMany({ where: { id, locked_by: workerId }, data });
+  return count > 0;
 }
 
 /**
@@ -326,38 +334,42 @@ export async function completeMessage(id: string, prisma = getPrismaClient()): P
 export async function failMessage(
   row: Pick<ClaimedMessage, 'id' | 'attempts' | 'max_attempts'>,
   error: unknown,
-  prisma = getPrismaClient()
-): Promise<'retry' | 'dead_letter'> {
+  prisma = getPrismaClient(),
+  workerId?: string
+): Promise<'retry' | 'dead_letter' | 'lost_lock'> {
+  // As in completeMessage: never overwrite a row another worker has reclaimed.
+  const write = async (data: Prisma.MessageQueueUpdateManyMutationInput): Promise<boolean> => {
+    if (workerId === undefined) {
+      await prisma.messageQueue.update({ where: { id: row.id }, data });
+      return true;
+    }
+    const { count } = await prisma.messageQueue.updateMany({ where: { id: row.id, locked_by: workerId }, data });
+    return count > 0;
+  };
   const errorMessage = error instanceof Error ? error.message : String(error);
   const permanent = error instanceof PermanentMessageError;
   const exhausted = permanent || row.attempts >= row.max_attempts;
 
   if (exhausted) {
-    await prisma.messageQueue.update({
-      where: { id: row.id },
-      data: {
-        status: 'DEAD_LETTER',
-        failed_at: new Date(),
-        error_message: errorMessage,
-        locked_at: null,
-        locked_by: null,
-      },
-    });
-    return 'dead_letter';
-  }
-
-  await prisma.messageQueue.update({
-    where: { id: row.id },
-    data: {
-      status: 'PENDING',
-      scheduled_at: new Date(Date.now() + computeBackoffMs(row.attempts)),
+    const owned = await write({
+      status: 'DEAD_LETTER',
       failed_at: new Date(),
       error_message: errorMessage,
       locked_at: null,
       locked_by: null,
-    },
+    });
+    return owned ? 'dead_letter' : 'lost_lock';
+  }
+
+  const owned = await write({
+    status: 'PENDING',
+    scheduled_at: new Date(Date.now() + computeBackoffMs(row.attempts)),
+    failed_at: new Date(),
+    error_message: errorMessage,
+    locked_at: null,
+    locked_by: null,
   });
-  return 'retry';
+  return owned ? 'retry' : 'lost_lock';
 }
 
 /**
@@ -396,48 +408,55 @@ export function consumeFromQueue(
         const rows = await claimNextBatch(queueName, batchSize, workerId, prisma);
         claimedAny = rows.length > 0;
 
-        // Hold every claimed row's lease until it is finished.
-        const held = new Set(rows.map((row) => row.id));
-        const claimedAt = Date.now();
-        const renewal = setInterval(() => {
-          if (Date.now() - claimedAt >= maxLockHoldMs) {
-            clearInterval(renewal);
-            logger.error(
-              { queueName, messageIds: [...held], maxLockHoldMs },
-              '[Queue] Batch held past max lock hold; renewal stopped so the lease can expire'
-            );
-            return;
-          }
-          renewLocks([...held], workerId, prisma).catch((error: unknown) => {
-            logger.error({ queueName, error }, '[Queue] Lock renewal failed');
-          });
-        }, LOCK_RENEW_INTERVAL_MS);
-
-        try {
-          for (const row of rows) {
-            try {
-              await handler(
-                {
-                  type: row.message_type as QueueMessage['type'],
-                  payload: row.payload,
-                  timestamp: row.scheduled_at.toISOString(),
-                  organizationId: row.organization_id || '',
-                },
-                { id: row.id, attempts: row.attempts }
-              );
-              await completeMessage(row.id, prisma);
-            } catch (error) {
-              const outcome = await failMessage(row, error, prisma);
+        if (rows.length > 0) {
+          // Hold every claimed row's lease until it is finished. The hold limit
+          // applies to the row currently running: rows waiting their turn in a
+          // healthy batch keep their lease however long the batch takes.
+          const held = new Set(rows.map((row) => row.id));
+          let runningSince = Date.now();
+          const renewal = setInterval(() => {
+            if (Date.now() - runningSince >= maxLockHoldMs) {
+              clearInterval(renewal);
               logger.error(
-                { queueName, messageId: row.id, attempts: row.attempts, outcome, error },
-                '[Queue] Message processing failed'
+                { queueName, messageIds: [...held], maxLockHoldMs },
+                '[Queue] Row ran past max lock hold; renewal stopped so the lease can expire'
               );
-            } finally {
-              held.delete(row.id);
+              return;
             }
+            renewLocks([...held], workerId, prisma).catch((error: unknown) => {
+              logger.error({ queueName, error }, '[Queue] Lock renewal failed');
+            });
+          }, LOCK_RENEW_INTERVAL_MS);
+
+          try {
+            for (const row of rows) {
+              runningSince = Date.now();
+              try {
+                await handler(
+                  {
+                    type: row.message_type as QueueMessage['type'],
+                    payload: row.payload,
+                    timestamp: row.scheduled_at.toISOString(),
+                    organizationId: row.organization_id || '',
+                  },
+                  { id: row.id, attempts: row.attempts }
+                );
+                if (!(await completeMessage(row.id, prisma, workerId))) {
+                  logger.warn({ queueName, messageId: row.id }, '[Queue] Lock lost before completion; left to new owner');
+                }
+              } catch (error) {
+                const outcome = await failMessage(row, error, prisma, workerId);
+                logger.error(
+                  { queueName, messageId: row.id, attempts: row.attempts, outcome, error },
+                  '[Queue] Message processing failed'
+                );
+              } finally {
+                held.delete(row.id);
+              }
+            }
+          } finally {
+            clearInterval(renewal);
           }
-        } finally {
-          clearInterval(renewal);
         }
       } catch (error) {
         logger.error({ queueName, error }, '[Queue] Poll error');

@@ -28,15 +28,15 @@ export { STRENGTH_RANK, statusForStrength, type ExposureStrength };
  */
 const PathwaySchema = z.object({
   pathway: z.enum(['geographic_site', 'geographic_flow', 'entity', 'product', 'regulatory', 'indirect', 'strategic']),
-  match_basis: z.string().default(''),
+  match_basis: z.string().nullish().transform((value) => value ?? ''),
   confidence: z.number().min(0).max(1).catch(0.5),
 });
 
 const AssetSchema = z.object({
   asset_type: z.enum(['facility', 'supplier', 'shipment', 'sku', 'carrier', 'lane', 'customer']),
   asset_id: z.string().min(1),
-  asset_name: z.string().optional(),
-  distance_or_match_basis: z.string().default(''),
+  asset_name: z.string().nullish(),
+  distance_or_match_basis: z.string().nullish().transform((value) => value ?? ''),
 });
 
 /**
@@ -46,8 +46,9 @@ const AssetSchema = z.object({
  */
 function validItems<T extends z.ZodTypeAny>(item: T) {
   return z.preprocess((value) => {
-    if (value === undefined || value === null) return [];
-    return Array.isArray(value) ? value.filter((entry) => item.safeParse(entry).success) : value;
+    // Anything that is not an array (missing, null, an object) is no items.
+    if (!Array.isArray(value)) return [];
+    return value.filter((entry) => item.safeParse(entry).success);
   }, z.array(item));
 }
 
@@ -87,7 +88,11 @@ export const CandidateEvaluationSchema = z.object({
     .optional()
     .catch(null),
   // Required by the spec, but a missing rationale must not drop a real exposure.
-  rationale: z.string().default('').describe('2-4 plain sentences explaining why'),
+  rationale: z
+    .string()
+    .nullish()
+    .transform((value) => value ?? '')
+    .describe('2-4 plain sentences explaining why'),
   exposure_priority: z
     .preprocess(
       (value) => (typeof value === 'string' ? value.trim().toLowerCase() : value),
@@ -205,6 +210,14 @@ export const LEGACY_PENDING = -1;
 /** Hand-off version used for those rows: above any v1 the old tool emitted. */
 const LEGACY_HANDOFF_VERSION = 2;
 
+/** The next hand-off version: never 0 or below, never colliding with a legacy v1. */
+function nextHandoffVersion(current: number): number {
+  return current <= 0 ? LEGACY_HANDOFF_VERSION : current + 1;
+}
+
+/** Clear reasons meaning the event itself ended; a stale evaluation must not reopen these. */
+const EVENT_ENDED_REASONS = new Set(['event_resolved', 'event_retracted', 'event_merged']);
+
 /** Another evaluation changed the row between our read and our write. */
 class ConcurrentUpdateError extends Error {
   constructor() {
@@ -279,13 +292,15 @@ async function upsertOnce(input: CandidateExposureInput): Promise<UpsertCandidat
       };
     }
 
-    // WATCHING is always re-evaluated. CLEARED means a previous exposure ended
-    // (shipment delivered, supplier removed); a new evaluation that still finds
-    // one is a new exposure on the same (org, event) row. REJECTED reopens only
+    // WATCHING is always re-evaluated. CLEARED for an asset reason (shipment
+    // delivered, supplier removed) can renew: a new evaluation that still finds
+    // an exposure is a new one on the same (org, event) row. CLEARED because the
+    // event ended stays cleared, so an evaluation that started before the event
+    // resolved cannot reopen it. REJECTED reopens only
     // if stronger. VALIDATED (and an in-flight CANDIDATE) stay as they are.
     const refreshable =
       existing.validation_status === 'WATCHING' ||
-      existing.validation_status === 'CLEARED' ||
+      (existing.validation_status === 'CLEARED' && !EVENT_ENDED_REASONS.has(existing.cleared_reason ?? '')) ||
       (existing.validation_status === 'REJECTED' && isStronger(existing, input));
 
     // A CANDIDATE row from before hand-offs were versioned is marked
@@ -328,7 +343,7 @@ async function upsertOnce(input: CandidateExposureInput): Promise<UpsertCandidat
 
     // A promotion to CANDIDATE is a new hand-off with the next small version.
     const emit = status === 'CANDIDATE';
-    const handoffVersion = emit ? existing.handoff_version + 1 : existing.handoff_version;
+    const handoffVersion = emit ? nextHandoffVersion(existing.handoff_version) : existing.handoff_version;
 
     // Two concurrent promotions would otherwise both write version n+1 and the
     // second record would dedupe while its content overwrote the row.
@@ -399,8 +414,12 @@ export async function upsertCandidateExposure(
 }
 
 /**
- * Re-send every undecided CANDIDATE of one organization to Validation, each
- * with a fresh hand-off version.
+ * Re-send the *stranded* CANDIDATEs of one organization to Validation, each
+ * with a fresh hand-off version. Stranded means: never handed off (legacy,
+ * handoff_version <= 0), or its current version's exposure_validation stage
+ * was logged skipped_noop. Idempotent: once a re-sent version is dispatched to
+ * a registered consumer it is no longer stranded, so a second call sends
+ * nothing.
  *
  * Until the Validation consumers (event_verification, exposure_validation;
  * GitHub #78) are registered, the dispatcher records candidate_exposure stages
@@ -433,8 +452,20 @@ export async function reemitCandidateHandoffs(
     });
     if (rows.length === 0) break;
 
-    for (const row of rows) {
-      const next = row.handoff_version <= 0 ? LEGACY_HANDOFF_VERSION : row.handoff_version + 1;
+    const skipped = await prisma.dispatchLog.findMany({
+      where: {
+        organization_id: organizationId,
+        consumer: 'exposure_validation',
+        status: 'skipped_noop',
+        record_id: { in: rows.map((r) => r.id) },
+      },
+      select: { record_id: true, record_version: true },
+    });
+    const skippedKeys = new Set(skipped.map((d) => `${d.record_id}:${d.record_version}`));
+    const stranded = rows.filter((r) => r.handoff_version <= 0 || skippedKeys.has(`${r.id}:${r.handoff_version}`));
+
+    for (const row of stranded) {
+      const next = nextHandoffVersion(row.handoff_version);
       try {
         const sent = await prisma.$transaction(async (tx) => {
           await updateIfUnchanged(tx, row, { handoff_version: next });

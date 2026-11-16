@@ -8,6 +8,7 @@ import { Prisma } from '@prisma/client';
 const fake = vi.hoisted(() => ({
   candidateExposure: { findUnique: vi.fn(), findMany: vi.fn(), create: vi.fn(), updateMany: vi.fn() },
   messageQueue: { createMany: vi.fn() },
+  dispatchLog: { findMany: vi.fn() },
   $transaction: vi.fn(),
 }));
 
@@ -60,6 +61,7 @@ beforeEach(() => {
   fake.candidateExposure.create.mockReset();
   fake.candidateExposure.updateMany.mockReset().mockResolvedValue({ count: 1 });
   fake.messageQueue.createMany.mockReset().mockResolvedValue({ count: 1 });
+  fake.dispatchLog.findMany.mockReset().mockResolvedValue([]);
 });
 
 describe('statusForStrength', () => {
@@ -250,6 +252,41 @@ describe('upsertCandidateExposure', () => {
 
     expect(result.change_record_emitted).toBe(true);
     expect(enqueuedRows()[0].idempotency_key).toBe('ce-21:2');
+  });
+
+  it('promotes a migrated non-CANDIDATE row at LEGACY_PENDING to v2, never v0', async () => {
+    fake.candidateExposure.findUnique.mockResolvedValue(
+      existingRow({ id: 'ce-22', validation_status: 'WATCHING', handoff_version: LEGACY_PENDING })
+    );
+
+    await upsertCandidateExposure(INPUT);
+
+    expect(enqueuedRows()[0].payload.record_version).toBe(2);
+  });
+
+  it('keeps an exposure cleared because its event ended, even if an in-flight evaluation still finds it', async () => {
+    fake.candidateExposure.findUnique.mockResolvedValue(
+      existingRow({ id: 'ce-23', validation_status: 'CLEARED', cleared_reason: 'event_resolved', handoff_version: 2 })
+    );
+
+    const result = await upsertCandidateExposure(INPUT);
+
+    expect(result.outcome).toBe('unchanged');
+    expect(fake.messageQueue.createMany).not.toHaveBeenCalled();
+  });
+
+  it('keeps a candidate whose rationale is null or whose arrays are malformed objects', () => {
+    const parsed = CandidateEvaluationSchema.safeParse({
+      exposure_strength: 'direct',
+      rationale: null,
+      exposure_pathways: { pathway: 'entity' },
+      exposed_assets: [{ asset_type: 'facility', asset_id: 'f-1', asset_name: null, distance_or_match_basis: null }],
+    });
+    expect(parsed.success).toBe(true);
+    if (!parsed.success) return;
+    expect(parsed.data.rationale).toBe('');
+    expect(parsed.data.exposure_pathways).toEqual([]);
+    expect(parsed.data.exposed_assets).toHaveLength(1);
   });
 
   it('reports change_record_emitted false when the record was already queued', async () => {
@@ -471,30 +508,48 @@ describe('reemitCandidateHandoffs', () => {
       global_event_hash: INPUT.global_event_hash,
       handoff_version,
     });
+  const skippedAt = (...keys: Array<[string, number]>) =>
+    fake.dispatchLog.findMany.mockResolvedValue(keys.map(([record_id, record_version]) => ({ record_id, record_version })));
 
-  it('re-sends every CANDIDATE of the org with a fresh version, legacy rows as v2', async () => {
-    fake.candidateExposure.findMany.mockResolvedValueOnce([candidate('ce-a', 1), candidate('ce-b', LEGACY_PENDING)]);
+  it('re-sends only stranded rows: legacy, or current version skipped_noop', async () => {
+    fake.candidateExposure.findMany.mockResolvedValueOnce([
+      candidate('ce-a', 1),
+      candidate('ce-b', LEGACY_PENDING),
+      candidate('ce-c', 3),
+    ]);
+    // ce-a v1 was skipped (no consumer). ce-c's v2 was skipped but v3 is current: not stranded.
+    skippedAt(['ce-a', 1], ['ce-c', 2]);
 
     expect(await reemitCandidateHandoffs(ORG)).toBe(2);
-    expect(fake.candidateExposure.findMany.mock.calls[0][0].where).toEqual({
+    expect(fake.dispatchLog.findMany.mock.calls[0][0].where).toMatchObject({
       organization_id: ORG,
-      validation_status: 'CANDIDATE',
+      consumer: 'exposure_validation',
+      status: 'skipped_noop',
     });
     expect(enqueuedRows().map((r) => r.idempotency_key)).toEqual(['ce-a:2', 'ce-b:2']);
   });
 
+  it('is idempotent: a row whose current version was dispatched is not re-sent', async () => {
+    fake.candidateExposure.findMany.mockResolvedValueOnce([candidate('ce-d', 2)]);
+    skippedAt(['ce-d', 1]);
+
+    expect(await reemitCandidateHandoffs(ORG)).toBe(0);
+    expect(fake.messageQueue.createMany).not.toHaveBeenCalled();
+  });
+
   it('skips a row changed concurrently and keeps going', async () => {
-    fake.candidateExposure.findMany.mockResolvedValueOnce([candidate('ce-c', 1), candidate('ce-d', 3)]);
+    fake.candidateExposure.findMany.mockResolvedValueOnce([candidate('ce-e', 1), candidate('ce-f', 3)]);
+    skippedAt(['ce-e', 1], ['ce-f', 3]);
     fake.candidateExposure.updateMany.mockResolvedValueOnce({ count: 0 }).mockResolvedValue({ count: 1 });
 
     expect(await reemitCandidateHandoffs(ORG)).toBe(1);
-    expect(enqueuedRows().map((r) => r.idempotency_key)).toEqual(['ce-d:4']);
+    expect(enqueuedRows().map((r) => r.idempotency_key)).toEqual(['ce-f:4']);
   });
 
   it('pages through all rows', async () => {
     fake.candidateExposure.findMany
-      .mockResolvedValueOnce([candidate('ce-1', 1), candidate('ce-2', 1)])
-      .mockResolvedValueOnce([candidate('ce-3', 1)]);
+      .mockResolvedValueOnce([candidate('ce-1', 0), candidate('ce-2', 0)])
+      .mockResolvedValueOnce([candidate('ce-3', 0)]);
 
     expect(await reemitCandidateHandoffs(ORG, { pageSize: 2 })).toBe(3);
     expect(fake.candidateExposure.findMany.mock.calls[1][0]).toMatchObject({ cursor: { id: 'ce-2' }, skip: 1 });
@@ -504,4 +559,3 @@ describe('reemitCandidateHandoffs', () => {
     await expect(reemitCandidateHandoffs('')).rejects.toThrow('organization_id required');
   });
 });
-

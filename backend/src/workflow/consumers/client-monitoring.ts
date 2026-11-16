@@ -31,14 +31,12 @@ import {
 /**
  * Handle a global_event_change record.
  *
- * Flow:
- * 1. Load the Global Event
- * 2. Fetch all customer organizations
- * 3. For each org:
- *    a. Load Client Exposure Profile
- *    b. Apply admin filters
- *    c. Evaluate all 7 exposure pathways
- *    d. Create CandidateExposure if relevant
+ * Two shapes:
+ * - A global record (no target): the fan-out. It enqueues one org-scoped
+ *   record per monitoring-enabled organization and evaluates none inline, so
+ *   each org's LLM evaluation gets its own stage budget, lease and retries.
+ * - An org-scoped record (target_organization_id = organization_id): evaluate
+ *   that one org. A failure throws, so the queue retries it with backoff.
  */
 export const clientMonitoringConsumer: ConsumerHandler = async ({ record, signal }) => {
   const prisma = getPrismaClient();
@@ -47,7 +45,7 @@ export const clientMonitoringConsumer: ConsumerHandler = async ({ record, signal
     event_id?: string;
     global_event_id?: string;
     change_type?: string;
-    /** Set on org-scoped retry records: evaluate only this org, not every tenant. */
+    /** Set on org-scoped records: evaluate only this org. */
     target_organization_id?: string;
   };
 
@@ -58,7 +56,6 @@ export const clientMonitoringConsumer: ConsumerHandler = async ({ record, signal
     return;
   }
 
-  // An org-scoped retry record targets a single org; a real global event change fans out to all.
   // Tenant isolation: if the key is present at all, it must be a string equal
   // to the record's own scope. A null or malformed target must not fall back
   // to fanning out across every tenant.
@@ -72,150 +69,125 @@ export const clientMonitoringConsumer: ConsumerHandler = async ({ record, signal
     return;
   }
 
-  logger.info(
-    { global_event_id: globalEventId, change_type: payload.change_type },
-    '[ClientMonitoring] Processing global event change'
-  );
-
-  try {
-    // Load the Global Event
-    const globalEvent = await prisma.globalEvent.findUnique({
-      where: { id: globalEventId },
-    });
-
-    if (!globalEvent) {
-      logger.warn({ global_event_id: globalEventId }, '[ClientMonitoring] Global event not found');
-      return;
-    }
-
-    // Fetch customer organizations (exclude root org). An org-scoped record
-    // targets a single org; a real global event change fans out to all.
-    const organizations = await prisma.organization.findMany({
-      where: {
-        ...(targetOrgId ? { id: targetOrgId } : {}),
-        is_root: false,
-        settings: {
-          monitoring_agent_enabled: true,
-        },
-      },
-      select: { id: true, name: true },
-    });
-
-    logger.info(
-      { global_event_id: globalEventId, org_count: organizations.length },
-      '[ClientMonitoring] Fanning out to organizations'
-    );
-
-    // Process each organization
-    let totalExposuresWritten = 0;
-    let totalHandoffs = 0;
-    let totalCleared = 0;
-    const pendingOrgIds: string[] = [];
-
-    for (const [index, org] of organizations.entries()) {
-      if (signal.aborted) {
-        logger.warn({ global_event_id: globalEventId }, '[ClientMonitoring] Aborted during fan-out');
-        pendingOrgIds.push(...organizations.slice(index).map((o) => o.id));
-        break;
-      }
-
-      try {
-        const result = await evaluateExposureForOrg(org.id, globalEvent, signal);
-        totalExposuresWritten += result.exposuresWritten;
-        totalHandoffs += result.handoffsEmitted;
-        totalCleared += result.cleared;
-      } catch (error) {
-        logger.error(
-          { error, organization_id: org.id, global_event_id: globalEventId },
-          '[ClientMonitoring] Failed to evaluate exposure for org'
-        );
-        pendingOrgIds.push(org.id);
-      }
-    }
-
-    logger.info(
-      {
-        global_event_id: globalEventId,
-        orgs_processed: organizations.length - pendingOrgIds.length,
-        orgs_pending_retry: pendingOrgIds.length,
-        exposures_written: totalExposuresWritten,
-        handoffs_emitted: totalHandoffs,
-        exposures_cleared: totalCleared,
-      },
-      '[ClientMonitoring] Completed global event fan-out'
-    );
-
-    if (pendingOrgIds.length > 0) {
-      // A single-org record has nothing to split off: fail the stage so the
-      // dispatcher retries it with backoff.
-      if (targetOrgId) {
-        throw new Error(`[ClientMonitoring] Exposure evaluation for ${targetOrgId} did not complete`);
-      }
-      // Fan-out: hand each failed or not-reached org its own org-scoped record
-      // instead of failing the whole stage, so a retry re-runs only those orgs
-      // (each with its own attempts and backoff), not every org that succeeded.
-      await enqueueOrgRetries(record, globalEventId, pendingOrgIds);
-    }
-  } catch (error) {
-    logger.error(
-      { error, global_event_id: globalEventId },
-      '[ClientMonitoring] Failed to process global event change'
-    );
-    throw error;
+  const globalEvent = await prisma.globalEvent.findUnique({ where: { id: globalEventId } });
+  if (!globalEvent) {
+    logger.warn({ global_event_id: globalEventId }, '[ClientMonitoring] Global event not found');
+    return;
   }
+
+  // Customer organizations with monitoring on (root org excluded).
+  const organizations = await prisma.organization.findMany({
+    where: {
+      ...(targetOrgId ? { id: targetOrgId } : {}),
+      is_root: false,
+      settings: { monitoring_agent_enabled: true },
+    },
+    select: { id: true },
+  });
+
+  if (targetOrgId === undefined) {
+    await enqueueOrgEvaluations(
+      record,
+      globalEventId,
+      organizations.map((o) => o.id)
+    );
+    logger.info(
+      { global_event_id: globalEventId, change_type: payload.change_type, orgs: organizations.length },
+      '[ClientMonitoring] Fanned out org-scoped evaluations'
+    );
+    return;
+  }
+
+  if (organizations.length === 0) {
+    logger.info(
+      { organization_id: targetOrgId, global_event_id: globalEventId },
+      '[ClientMonitoring] Target org not eligible for monitoring; skipping'
+    );
+    return;
+  }
+
+  const result = await evaluateExposureForOrg(targetOrgId, globalEvent, signal);
+  logger.info(
+    {
+      organization_id: targetOrgId,
+      global_event_id: globalEventId,
+      exposures_written: result.exposuresWritten,
+      handoffs_emitted: result.handoffsEmitted,
+      exposures_cleared: result.cleared,
+    },
+    '[ClientMonitoring] Evaluated org exposure'
+  );
 };
 
-/**
- * Extract the agent's JSON object. Throws if there is none or it does not parse.
- */
-function parseAgentJson(text: string): Record<string, unknown> {
-  const start = text.indexOf('{');
-  const end = text.lastIndexOf('}');
-  if (start === -1 || end <= start) {
-    throw new Error('[ClientMonitoring] Agent response contained no JSON object');
+/** The balanced {...} span starting at `start`, skipping braces inside strings. */
+function balancedObjectAt(text: string, start: number): string | null {
+  let depth = 0;
+  let inString = false;
+  let escaped = false;
+  for (let i = start; i < text.length; i++) {
+    const ch = text[i];
+    if (inString) {
+      if (escaped) escaped = false;
+      else if (ch === '\\') escaped = true;
+      else if (ch === '"') inString = false;
+      continue;
+    }
+    if (ch === '"') inString = true;
+    else if (ch === '{') depth++;
+    else if (ch === '}' && --depth === 0) return text.slice(start, i + 1);
   }
-  try {
-    const value: unknown = JSON.parse(text.slice(start, end + 1));
-    if (value && typeof value === 'object' && !Array.isArray(value)) return value as Record<string, unknown>;
-  } catch (error) {
-    throw new Error('[ClientMonitoring] Agent response JSON did not parse', { cause: error });
-  }
-  throw new Error('[ClientMonitoring] Agent response JSON was not an object');
+  return null;
 }
 
-/** Delay before an org retry runs: spread out so a shared outage is not hit all at once. */
-const ORG_RETRY_BASE_DELAY_MS = 30_000;
-const ORG_RETRY_JITTER_MS = 60_000;
+function asObject(candidate: string): Record<string, unknown> | null {
+  try {
+    const value: unknown = JSON.parse(candidate);
+    return value && typeof value === 'object' && !Array.isArray(value) ? (value as Record<string, unknown>) : null;
+  } catch {
+    return null;
+  }
+}
 
 /**
- * Enqueue one org-scoped re-evaluation per org whose evaluation did not
- * complete. Keyed by (source record, org) and the source version, so a
- * redelivery of the source record does not enqueue duplicates.
+ * Extract the agent's JSON object: a fenced ```json block if present,
+ * otherwise the first balanced {...} span that parses to an object (so braces
+ * in surrounding prose do not break it). Throws if none is found.
  */
-async function enqueueOrgRetries(source: ChangeRecord, globalEventId: string, orgIds: string[]): Promise<void> {
-  const now = Date.now();
-  const producedAt = new Date(now).toISOString();
-  const items = orgIds.map((orgId) => {
-    // Jittered delay: if every org failed on a shared cause (LLM outage, rate
-    // limit), the retries must not all hit it again at once.
-    const runAt = new Date(now + ORG_RETRY_BASE_DELAY_MS + Math.floor(Math.random() * ORG_RETRY_JITTER_MS));
-    return changeRecordQueueItem(
+export function parseAgentJson(text: string): Record<string, unknown> {
+  const fenced = /```(?:json)?\s*([\s\S]*?)```/i.exec(text);
+  if (fenced) {
+    const value = asObject(fenced[1].trim());
+    if (value) return value;
+  }
+  for (let start = text.indexOf('{'); start !== -1; start = text.indexOf('{', start + 1)) {
+    const span = balancedObjectAt(text, start);
+    const value = span ? asObject(span) : null;
+    if (value) return value;
+  }
+  throw new Error('[ClientMonitoring] Agent response contained no parseable JSON object');
+}
+
+/**
+ * Enqueue one org-scoped evaluation per organization. Keyed by (source record,
+ * org) and the source version, so a redelivery of the source record does not
+ * enqueue duplicates.
+ */
+async function enqueueOrgEvaluations(source: ChangeRecord, globalEventId: string, orgIds: string[]): Promise<void> {
+  if (orgIds.length === 0) return;
+  const producedAt = new Date().toISOString();
+  const items = orgIds.map((orgId) =>
+    changeRecordQueueItem(
       orgReevaluationRecord({
         recordId: `${source.record_id}:org:${orgId}`,
         recordVersion: source.record_version,
         globalEventId,
         organizationId: orgId,
-        reason: 'org_retry',
+        reason: 'org_fanout',
         producedAt,
-      }),
-      runAt
-    );
-  });
-  await enqueueManyIdempotent(getPrismaClient(), CHANGE_RECORD_QUEUE, items);
-  logger.warn(
-    { source_record_id: source.record_id, global_event_id: globalEventId, orgs: orgIds.length },
-    '[ClientMonitoring] Enqueued org-scoped retries for incomplete evaluations'
+      })
+    )
   );
+  await enqueueManyIdempotent(getPrismaClient(), CHANGE_RECORD_QUEUE, items);
 }
 
 interface ExposureResult {
