@@ -42,7 +42,7 @@ import {
   writeScope,
   type OrganizationWriteGrant,
 } from '../auth/index.js';
-import { resolveShipmentCarrierId, resolveShipmentSupplierId, ShipmentLinkError } from './shipment-links.js';
+import { classifyShipmentWriteError, resolveShipmentCarrierId, resolveShipmentSupplierId } from './shipment-links.js';
 import { getPositionFeed, getOrganizationPositions } from '../integrations/tracking/index.js';
 import {
   resolveSettingsOwnership,
@@ -246,29 +246,12 @@ async function auditDataWrite(
   });
 }
 
-/**
- * Map a shipment write's link errors to a response; returns false for any
- * other error. ShipmentLinkError is a 400. A supplier or carrier deleted
- * between the check and the write: the create's connect fails with P2025 and
- * the update's FK with P2003, both 400. An update whose shipment was deleted
- * concurrently (P2025) is a 404.
- */
-function sendShipmentLinkError(error: unknown, res: Response, op: 'create' | 'update'): boolean {
-  const badRequest = (message: string): true => {
-    res.status(400).json({ success: false, error: { code: 'VALIDATION_ERROR', message } });
-    return true;
-  };
-  if (error instanceof ShipmentLinkError) return badRequest(error.message);
-  if (error instanceof Prisma.PrismaClientKnownRequestError) {
-    if (error.code === 'P2003' || (op === 'create' && error.code === 'P2025')) {
-      return badRequest('The supplier or carrier no longer exists');
-    }
-    if (op === 'update' && error.code === 'P2025') {
-      res.status(404).json({ success: false, error: { code: 'NOT_FOUND', message: 'Shipment not found' } });
-      return true;
-    }
-  }
-  return false;
+/** Send the response for a classified shipment write error; false if it isn't one. */
+function sendShipmentWriteError(error: unknown, res: Response): boolean {
+  const mapped = classifyShipmentWriteError(error);
+  if (!mapped) return false;
+  res.status(mapped.status).json({ success: false, error: { code: mapped.code, message: mapped.message } });
+  return true;
 }
 
 /**
@@ -3367,7 +3350,7 @@ app.post('/api/shipments', async (req: Request, res: Response) => {
       },
     });
   } catch (error) {
-    if (sendShipmentLinkError(error, res, 'create')) return;
+    if (sendShipmentWriteError(error, res)) return;
     console.error('Create shipment error:', error);
     res.status(500).json({ success: false, error: { code: 'INTERNAL_ERROR', message: 'An unexpected error occurred' } });
   }
@@ -3502,7 +3485,7 @@ app.patch('/api/shipments/:id', async (req: Request, res: Response) => {
       },
     });
   } catch (error) {
-    if (sendShipmentLinkError(error, res, 'update')) return;
+    if (sendShipmentWriteError(error, res)) return;
     console.error('Update shipment error:', error);
     res.status(500).json({ success: false, error: { code: 'INTERNAL_ERROR', message: 'An unexpected error occurred' } });
   }

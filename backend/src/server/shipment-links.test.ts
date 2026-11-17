@@ -4,9 +4,11 @@
  * follows Prisma's `where` semantics (an omitted field does not filter); no DB.
  */
 import { describe, it, expect } from 'vitest';
-import type { Prisma } from '@prisma/client';
+import { Prisma } from '@prisma/client';
 import {
   CARRIER_LINK_MESSAGE,
+  LINK_GONE_MESSAGE,
+  classifyShipmentWriteError,
   SUPPLIER_LINK_MESSAGE,
   ShipmentLinkError,
   resolveShipmentCarrierId,
@@ -98,6 +100,47 @@ describe('resolveShipmentCarrierId', () => {
       const e = await rejection(carrier(bad));
       expect(e).toBeInstanceOf(ShipmentLinkError);
       expect((e as Error).message).toBe(CARRIER_LINK_MESSAGE);
+    }
+  });
+});
+
+describe('classifyShipmentWriteError (error -> response)', () => {
+  // Shapes observed from Prisma 6 against Postgres for each case.
+  const prismaError = (code: string, meta: Record<string, unknown>) =>
+    new Prisma.PrismaClientKnownRequestError('test', { code, clientVersion: 'test', meta });
+
+  it('maps a ShipmentLinkError to 400 with its message', () => {
+    expect(classifyShipmentWriteError(new ShipmentLinkError(SUPPLIER_LINK_MESSAGE))).toEqual({
+      status: 400,
+      code: 'VALIDATION_ERROR',
+      message: SUPPLIER_LINK_MESSAGE,
+    });
+  });
+
+  it('maps a concurrently deleted supplier/carrier to 400 (update FK, create connect)', () => {
+    for (const e of [
+      prismaError('P2003', { modelName: 'Shipment', constraint: 'Shipment_supplier_id_fkey' }),
+      prismaError('P2003', { modelName: 'Shipment', constraint: 'Shipment_carrier_id_fkey' }),
+      prismaError('P2025', { modelName: 'Shipment', cause: "No 'Supplier' record (needed to inline the relation on 'Shipment' record(s)) was found for a nested connect on one-to-many relation 'ShipmentToSupplier'." }),
+      prismaError('P2025', { modelName: 'Shipment', cause: "No 'Carrier' record (needed to inline the relation on 'Shipment' record(s)) was found for a nested connect on one-to-many relation 'CarrierToShipment'." }),
+    ]) {
+      expect(classifyShipmentWriteError(e)).toEqual({ status: 400, code: 'VALIDATION_ERROR', message: LINK_GONE_MESSAGE });
+    }
+  });
+
+  it('maps an update of a shipment deleted concurrently to 404', () => {
+    const e = prismaError('P2025', { modelName: 'Shipment', cause: 'No record was found for an update.' });
+    expect(classifyShipmentWriteError(e)).toEqual({ status: 404, code: 'NOT_FOUND', message: 'Shipment not found' });
+  });
+
+  it('does NOT blame the supplier/carrier for other failures in the same transaction (left to the 500 path)', () => {
+    for (const e of [
+      prismaError('P2025', { modelName: 'Shipment', cause: "No 'Organization' record (needed to inline the relation on 'Shipment' record(s)) was found for a nested connect on one-to-many relation 'OrganizationToShipment'." }),
+      prismaError('P2003', { modelName: 'AuthAuditLog', constraint: 'AuthAuditLog_user_id_fkey' }),
+      prismaError('P2002', { modelName: 'Shipment', target: ['id'] }),
+      new Error('boom'),
+    ]) {
+      expect(classifyShipmentWriteError(e)).toBeNull();
     }
   });
 });

@@ -122,6 +122,14 @@ export default function ShipmentsPage() {
   }, [suppliers]);
   const suppliersOf = (orgId: string | undefined): Supplier[] =>
     orgId ? (suppliersByOrg.get(orgId) ?? []) : [];
+  // Each dialog's choices, computed once per render.
+  const createSuppliers = suppliersOf(currentOrganization?.id);
+  const editSuppliers = suppliersOf(selectedShipment?.organizationId);
+  /** The shipment's original supplier when it isn't one of its own org's (a legacy cross-org link). */
+  const legacySupplierId =
+    selectedShipment?.supplierId && !editSuppliers.some((s) => s.id === selectedShipment.supplierId)
+      ? selectedShipment.supplierId
+      : null;
 
   /** May the caller create/edit/delete this org's shipments? (#73) */
   const canManageOrg = (orgId: string): boolean =>
@@ -135,6 +143,9 @@ export default function ShipmentsPage() {
     let isMounted = true;
 
     const fetchData = async () => {
+      // Until this org's suppliers arrive, the list still holds the previous
+      // org's: don't call a link cross-org or a list empty on that basis.
+      setSuppliersLoaded(false);
       const [shipmentsRes, suppliersRes, carriersRes] = await Promise.all([
         getShipments(currentOrganization.id, { includeSubsidiaries: true }),
         getSuppliers({ organizationId: currentOrganization.id, includeSubsidiaries: true }),
@@ -638,11 +649,11 @@ export default function ShipmentsPage() {
                       className="w-full h-9 rounded-md border border-input bg-transparent px-3 py-1 text-sm"
                     >
                       <option value="">Select supplier...</option>
-                      {suppliersOf(currentOrganization.id).map((s) => (
+                      {createSuppliers.map((s) => (
                         <option key={s.id} value={s.id}>{s.name}</option>
                       ))}
                     </select>
-                    {suppliersLoaded && suppliersOf(currentOrganization.id).length === 0 && (
+                    {suppliersLoaded && createSuppliers.length === 0 && (
                       <p className="text-xs text-muted-foreground">
                         {currentOrganization.name} has no suppliers of its own. A shipment can only use its own
                         organization&apos;s suppliers; to use a subsidiary&apos;s, switch to that organization.
@@ -800,17 +811,22 @@ export default function ShipmentsPage() {
                           it isn't mistaken for "no supplier" and can be cleared. */}
                       {/* Keyed on the shipment's ORIGINAL supplier, so the option stays
                           available after the user picks something else. */}
-                      {selectedShipment?.supplierId &&
-                        !suppliersOf(selectedShipment.organizationId).some((s) => s.id === selectedShipment.supplierId) && (
-                          <option value={selectedShipment.supplierId}>
-                            {selectedShipment.supplier?.name ?? 'Unknown supplier'}
-                            {suppliersLoaded ? ' (another organization; choose another or none)' : ''}
-                          </option>
-                        )}
-                      {suppliersOf(selectedShipment?.organizationId).map((s) => (
+                      {legacySupplierId && (
+                        <option value={legacySupplierId}>
+                          {selectedShipment?.supplier?.name ?? 'Unknown supplier'}
+                          {suppliersLoaded ? ' (another organization; choose another or none)' : ''}
+                        </option>
+                      )}
+                      {editSuppliers.map((s) => (
                         <option key={s.id} value={s.id}>{s.name}</option>
                       ))}
                     </select>
+                    {suppliersLoaded && editSuppliers.length === 0 && (
+                      <p className="text-xs text-muted-foreground">
+                        This shipment&apos;s organization has no suppliers of its own. A shipment can only use its own
+                        organization&apos;s suppliers.
+                      </p>
+                    )}
                   </div>
                   <div className="space-y-2">
                     <Label htmlFor="editCarrier">Carrier</Label>
