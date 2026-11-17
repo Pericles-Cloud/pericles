@@ -137,9 +137,10 @@ all run in **one persistent process**. It is separate from the per-org
 | | |
 |---|---|
 | Service | second Coolify application from this repo, same image as the backend |
-| Start command | `npx tsx src/monitoring/global-start.ts` |
+| Start | same Dockerfile as the backend, with env `APP_ENTRY=src/monitoring/global-start.ts` (the image's CMD runs `$APP_ENTRY`; unset = the API server) |
 | Replicas | **1**. The global loop is not locked, so two instances would detect the same events twice. |
-| Env | same as the backend (`DATABASE_URL`, `SECRETS_KEK`, …). Optional: `GLOBAL_MONITORING_INTERVAL_MS` (default 300000) and `PROFILE_REFRESH_INTERVAL_MS` (default 3600000). |
+| Env | `APP_ENTRY` (above), `DATABASE_URL`, `MASTRA_DATABASE_URL`, `SECRETS_KEK`, `NODE_ENV`, `LOG_LEVEL`, `ENABLE_TRACING`, and the monitoring data-source keys (`FRED_API_KEY`, `NVD_API_KEY`, `THENEWSAPI_API_KEY`, `TWITTERAPIIO_API_KEY`). **No** `OPENAI_API_KEY`/`OPENROUTER_API_KEY`: the worker must hold no platform LLM key. Optional: `GLOBAL_MONITORING_INTERVAL_MS` (default 300000), `PROFILE_REFRESH_INTERVAL_MS` (default 3600000), `SHUTDOWN_GRACE_MS` (default 25000; keep below the container's stop grace period). |
+| Domain / health check | none: the worker serves no HTTP |
 
 **Keys: no platform key.**
 - **Global Monitoring** is billed to the **Pericles root organization**, using

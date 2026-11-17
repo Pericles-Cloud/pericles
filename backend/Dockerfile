@@ -47,5 +47,8 @@ COPY --from=builder /app/src ./src
 ENV NODE_ENV=production
 EXPOSE 4112
 
-# Run migrations then start
-CMD ["sh", "-c", "npx prisma migrate deploy && npx tsx src/server/auth-server.ts"]
+# Run migrations, then start the entry point. APP_ENTRY selects it: unset (the
+# backend) runs the API server; the global monitoring worker service sets
+# APP_ENTRY=src/monitoring/global-start.ts (see DEPLOYMENT.md). `exec` replaces
+# the shell so the process receives SIGTERM directly (graceful shutdown).
+CMD ["sh", "-c", "npx prisma migrate deploy && exec npx tsx ${APP_ENTRY:-src/server/auth-server.ts}"]
