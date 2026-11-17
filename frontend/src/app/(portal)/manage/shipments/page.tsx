@@ -146,18 +146,44 @@ export default function ShipmentsPage() {
     shownOrgId.current = currentOrganization?.id;
   }, [currentOrganization?.id]);
 
-  /** Reload the current org's suppliers (after a save rejected a supplier/carrier). */
-  const reloadSuppliers = async (): Promise<void> => {
+  // Only the newest reload may apply (two rejections in a row start two).
+  const reloadSeq = useRef(0);
+
+  /**
+   * After a save rejected a supplier or carrier (INVALID_LINK, e.g. deleted
+   * meanwhile): reload both lists and drop a selection that no longer exists,
+   * so the form doesn't silently resubmit it. An edit keeps the shipment's
+   * own original supplier (a legacy link stays selectable).
+   */
+  const reloadLinks = async (): Promise<void> => {
     const orgId = currentOrganization?.id;
     if (!orgId) return;
-    const res = await getSuppliers({ organizationId: orgId, includeSubsidiaries: true });
-    if (shownOrgId.current !== orgId) return; // switched orgs meanwhile
-    if (res.success && res.data) {
-      setSuppliers(res.data);
+    const seq = ++reloadSeq.current;
+    const [suppliersRes, carriersRes] = await Promise.all([
+      getSuppliers({ organizationId: orgId, includeSubsidiaries: true }),
+      getCarriers(),
+    ]);
+    // Switched orgs, or a newer reload started, meanwhile.
+    if (shownOrgId.current !== orgId || seq !== reloadSeq.current) return;
+    if (suppliersRes.success && suppliersRes.data) {
+      const supplierIds = new Set(suppliersRes.data.map((x) => x.id));
+      setSuppliers(suppliersRes.data);
       setSuppliersLoaded(true);
       setSuppliersFailed(false);
+      setNewShipment((f) => (f.supplierId && !supplierIds.has(f.supplierId) ? { ...f, supplierId: '' } : f));
+      setEditShipment((f) =>
+        f.supplierId && !supplierIds.has(f.supplierId) && f.supplierId !== selectedShipment?.supplierId
+          ? { ...f, supplierId: '' }
+          : f
+      );
     } else {
       setSuppliersFailed(true);
+    }
+    if (carriersRes.success && carriersRes.data) {
+      const carrierIds = new Set(carriersRes.data.map((x) => x.id));
+      setCarriers(carriersRes.data);
+      setNewShipment((f) => (f.carrierId && !carrierIds.has(f.carrierId) ? { ...f, carrierId: '' } : f));
+      setEditShipment((f) => (f.carrierId && !carrierIds.has(f.carrierId) ? { ...f, carrierId: '' } : f));
     }
   };
 
@@ -255,7 +281,7 @@ export default function ShipmentsPage() {
     } else {
       setMessage({ type: 'error', text: response.error?.message || 'Failed to create shipment' });
       // The supplier/carrier was rejected (e.g. deleted meanwhile): refresh the choices.
-      if (response.error?.code === 'INVALID_LINK') void reloadSuppliers();
+      if (response.error?.code === 'INVALID_LINK') void reloadLinks();
     }
     setCreateSubmitting(false);
   };
@@ -308,7 +334,7 @@ export default function ShipmentsPage() {
       setMessage({ type: 'success', text: 'Shipment updated successfully' });
     } else {
       setMessage({ type: 'error', text: response.error?.message || 'Failed to update shipment' });
-      if (response.error?.code === 'INVALID_LINK') void reloadSuppliers();
+      if (response.error?.code === 'INVALID_LINK') void reloadLinks();
     }
     setEditSubmitting(false);
   };

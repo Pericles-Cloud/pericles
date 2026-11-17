@@ -43,7 +43,9 @@ import {
   type OrganizationWriteGrant,
 } from '../auth/index.js';
 import {
+  SHIPMENT_SUPPLIER_SELECT,
   ShipmentRequestError,
+  toShipmentSupplier,
   lockOrganization,
   lockShipment,
   resolveShipmentCarrierId,
@@ -2961,7 +2963,7 @@ app.get('/api/shipments', async (req: Request, res: Response) => {
     const shipments = await prisma.shipment.findMany({
       where: { organization_id: { in: orgIds } },
       include: {
-        supplier: { select: { id: true, name: true, country: true, organization_id: true } },
+        supplier: { select: SHIPMENT_SUPPLIER_SELECT },
         carrier: { select: { id: true, name: true, scac_code: true } },
       },
       orderBy: { arrival_date: 'desc' },
@@ -2974,7 +2976,7 @@ app.get('/api/shipments', async (req: Request, res: Response) => {
         organizationId: s.organization_id,
         supplierId: s.supplier_id,
         carrierId: s.carrier_id,
-        supplier: s.supplier ? { id: s.supplier.id, name: s.supplier.name, country: s.supplier.country, sameOrganization: s.supplier.organization_id === s.organization_id } : null,
+        supplier: toShipmentSupplier(s.organization_id, s.supplier),
         carrier: s.carrier ? { id: s.carrier.id, name: s.carrier.name, scacCode: s.carrier.scac_code } : null,
         bolNumber: s.bol_number,
         masterBolNumber: s.master_bol_number,
@@ -3158,7 +3160,7 @@ app.get('/api/shipments/:id', async (req: Request, res: Response) => {
     const shipment = await prisma.shipment.findUnique({
       where: { id: shipmentId },
       include: {
-        supplier: { select: { id: true, name: true, country: true, address: true, organization_id: true } },
+        supplier: { select: { ...SHIPMENT_SUPPLIER_SELECT, address: true } },
         carrier: { select: { id: true, name: true, scac_code: true } },
       },
     });
@@ -3183,7 +3185,7 @@ app.get('/api/shipments/:id', async (req: Request, res: Response) => {
         organizationId: s.organization_id,
         supplierId: s.supplier_id,
         carrierId: s.carrier_id,
-        supplier: s.supplier ? { id: s.supplier.id, name: s.supplier.name, country: s.supplier.country, address: s.supplier.address, sameOrganization: s.supplier.organization_id === s.organization_id } : null,
+        supplier: toShipmentSupplier(s.organization_id, s.supplier),
         carrier: s.carrier ? { id: s.carrier.id, name: s.carrier.name, scacCode: s.carrier.scac_code } : null,
         bolNumber: s.bol_number,
         masterBolNumber: s.master_bol_number,
@@ -3302,7 +3304,7 @@ app.post('/api/shipments', async (req: Request, res: Response) => {
           notify_party_country_code: shipmentData.notifyPartyCountryCode,
         },
         include: {
-          supplier: { select: { id: true, name: true, country: true, organization_id: true } },
+          supplier: { select: SHIPMENT_SUPPLIER_SELECT },
           carrier: { select: { id: true, name: true, scac_code: true } },
         },
       });
@@ -3318,7 +3320,7 @@ app.post('/api/shipments', async (req: Request, res: Response) => {
         organizationId: s.organization_id,
         supplierId: s.supplier_id,
         carrierId: s.carrier_id,
-        supplier: s.supplier ? { id: s.supplier.id, name: s.supplier.name, country: s.supplier.country, sameOrganization: s.supplier.organization_id === s.organization_id } : null,
+        supplier: toShipmentSupplier(s.organization_id, s.supplier),
         carrier: s.carrier ? { id: s.carrier.id, name: s.carrier.name, scacCode: s.carrier.scac_code } : null,
         bolNumber: s.bol_number,
         masterBolNumber: s.master_bol_number,
@@ -3392,16 +3394,18 @@ app.patch('/api/shipments/:id', async (req: Request, res: Response) => {
     const data = req.body;
 
     const shipment = await prisma.$transaction(async (tx) => {
-      // Lock the shipment row; its current supplier_id (exact, not the
-      // pre-transaction snapshot) is what "re-sent unchanged" compares to.
-      const current = await lockShipment(tx, shipmentId, existingShipment.organization_id);
+      // Lock order (see shipment-links.ts): the links first, then the shipment.
+      // "Re-sent unchanged" is decided on the handler's snapshot, which
+      // lockShipment then confirms (409 if it changed meanwhile).
+      const snapshot = { supplierId: existingShipment.supplier_id, carrierId: existingShipment.carrier_id };
       const supplierId = await resolveShipmentSupplierId(
         tx,
         data.supplierId,
         existingShipment.organization_id,
-        current.supplierId
+        snapshot.supplierId
       );
-      const carrierId = await resolveShipmentCarrierId(tx, data.carrierId);
+      const carrierId = await resolveShipmentCarrierId(tx, data.carrierId, snapshot.carrierId);
+      await lockShipment(tx, shipmentId, existingShipment.organization_id, snapshot);
       const row = await tx.shipment.update({
         where: { id: shipmentId, organization_id: existingShipment.organization_id },
         data: {
@@ -3437,7 +3441,7 @@ app.patch('/api/shipments/:id', async (req: Request, res: Response) => {
           ...(data.notifyPartyCountryCode !== undefined && { notify_party_country_code: data.notifyPartyCountryCode }),
         },
         include: {
-          supplier: { select: { id: true, name: true, country: true, organization_id: true } },
+          supplier: { select: SHIPMENT_SUPPLIER_SELECT },
           carrier: { select: { id: true, name: true, scac_code: true } },
         },
       });
@@ -3453,7 +3457,7 @@ app.patch('/api/shipments/:id', async (req: Request, res: Response) => {
         organizationId: s.organization_id,
         supplierId: s.supplier_id,
         carrierId: s.carrier_id,
-        supplier: s.supplier ? { id: s.supplier.id, name: s.supplier.name, country: s.supplier.country, sameOrganization: s.supplier.organization_id === s.organization_id } : null,
+        supplier: toShipmentSupplier(s.organization_id, s.supplier),
         carrier: s.carrier ? { id: s.carrier.id, name: s.carrier.name, scacCode: s.carrier.scac_code } : null,
         bolNumber: s.bol_number,
         masterBolNumber: s.master_bol_number,

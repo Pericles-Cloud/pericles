@@ -12,6 +12,7 @@ import {
   lockShipment,
   resolveShipmentCarrierId,
   resolveShipmentSupplierId,
+  toShipmentSupplier,
   type LockClient,
 } from './shipment-links.js';
 
@@ -22,7 +23,7 @@ const DB = {
     { id: 'sup-b', organization_id: 'org-b' },
   ],
   Carrier: [{ id: 'car-1' }],
-  Shipment: [{ id: 'shp-a', organization_id: 'org-a', supplier_id: 'sup-b' }],
+  Shipment: [{ id: 'shp-a', organization_id: 'org-a', supplier_id: 'sup-b', carrier_id: 'car-1' }],
 };
 
 function fakeTx() {
@@ -38,7 +39,10 @@ function fakeTx() {
       if (sql.includes('FROM "Carrier"')) return Promise.resolve(DB.Carrier.filter((r) => r.id === id));
       if (sql.includes('FROM "Shipment"'))
         return Promise.resolve(
-          DB.Shipment.filter((r) => r.id === id && r.organization_id === org).map((r) => ({ supplier_id: r.supplier_id }))
+          DB.Shipment.filter((r) => r.id === id && r.organization_id === org).map((r) => ({
+            supplier_id: r.supplier_id,
+            carrier_id: r.carrier_id,
+          }))
         );
       return Promise.reject(new Error(`unexpected query: ${  sql}`));
     },
@@ -55,7 +59,7 @@ describe('resolveShipmentSupplierId', () => {
     const { tx, queries } = fakeTx();
     expect(await resolveShipmentSupplierId(tx, 'sup-a', 'org-a')).toBe('sup-a');
     expect(queries[0]).toMatch(/organization_id = \?/);
-    expect(queries[0]).toMatch(/FOR SHARE/);
+    expect(queries[0]).toMatch(/FOR KEY SHARE/);
   });
 
   it("rejects another organization's supplier and a missing one, with the same 400", async () => {
@@ -102,10 +106,16 @@ describe('resolveShipmentCarrierId', () => {
   it('accepts an existing carrier (locked FOR SHARE); undefined unchanged; null or empty clears', async () => {
     const { tx, queries } = fakeTx();
     expect(await resolveShipmentCarrierId(tx, 'car-1')).toBe('car-1');
-    expect(queries[0]).toMatch(/FOR SHARE/);
+    expect(queries[0]).toMatch(/FOR KEY SHARE/);
     expect(await carrier(undefined)).toBeUndefined();
     expect(await carrier(null)).toBeNull();
     expect(await carrier('')).toBeNull();
+  });
+
+  it('re-sending the current carrier is unchanged and takes no lock', async () => {
+    const { tx, queries } = fakeTx();
+    expect(await resolveShipmentCarrierId(tx, 'car-gone', 'car-gone')).toBeUndefined();
+    expect(queries).toHaveLength(0);
   });
 
   it('rejects a missing carrier or a non-string id with a 400', async () => {
@@ -120,19 +130,43 @@ describe('lockOrganization / lockShipment', () => {
   it('lockOrganization: passes for an existing org (FOR SHARE), 404 otherwise', async () => {
     const { tx, queries } = fakeTx();
     await expect(lockOrganization(tx, 'org-a')).resolves.toBeUndefined();
-    expect(queries[0]).toMatch(/FOR SHARE/);
+    expect(queries[0]).toMatch(/FOR KEY SHARE/);
     const e = await rejection(lockOrganization(tx, 'org-x'));
     expect([e?.status, e?.code]).toEqual([404, 'NOT_FOUND']);
   });
 
-  it('lockShipment: returns the current supplier_id (FOR UPDATE, org-scoped), 404 if gone or in another org', async () => {
+  it('lockShipment: FOR UPDATE, org-scoped; 404 if gone or in another org', async () => {
     const { tx, queries } = fakeTx();
-    expect(await lockShipment(tx, 'shp-a', 'org-a')).toEqual({ supplierId: 'sup-b' });
+    const snap = { supplierId: 'sup-b', carrierId: 'car-1' };
+    await expect(lockShipment(tx, 'shp-a', 'org-a', snap)).resolves.toBeUndefined();
     expect(queries[0]).toMatch(/organization_id = \?/);
     expect(queries[0]).toMatch(/FOR UPDATE/);
     for (const [id, org] of [['shp-x', 'org-a'], ['shp-a', 'org-b']]) {
-      const e = await rejection(lockShipment(tx, id, org));
+      const e = await rejection(lockShipment(tx, id, org, snap));
       expect([e?.status, e?.code, e?.message]).toEqual([404, 'NOT_FOUND', 'Shipment not found']);
     }
+  });
+
+  it('lockShipment: 409 if the links changed since the snapshot the checks were decided on', async () => {
+    const { tx } = fakeTx();
+    for (const snap of [{ supplierId: 'sup-a', carrierId: 'car-1' }, { supplierId: 'sup-b', carrierId: null }]) {
+      const e = await rejection(lockShipment(tx, 'shp-a', 'org-a', snap));
+      expect([e?.status, e?.code]).toEqual([409, 'CONFLICT']);
+    }
+  });
+});
+
+describe('toShipmentSupplier', () => {
+  it("flags a legacy cross-org link without exposing the other tenant's org id", () => {
+    const out = toShipmentSupplier('org-a', { id: 'sup-b', name: 'B', country: null, organization_id: 'org-b' });
+    expect(out).toEqual({ id: 'sup-b', name: 'B', country: null, sameOrganization: false });
+    expect(JSON.stringify(out)).not.toContain('org-b');
+  });
+
+  it('same-org supplier, address passed through when selected, null stays null', () => {
+    expect(
+      toShipmentSupplier('org-a', { id: 'sup-a', name: 'A', country: 'US', organization_id: 'org-a', address: '1 Main' })
+    ).toEqual({ id: 'sup-a', name: 'A', country: 'US', address: '1 Main', sameOrganization: true });
+    expect(toShipmentSupplier('org-a', null)).toBeNull();
   });
 });
