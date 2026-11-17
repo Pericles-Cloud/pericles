@@ -82,10 +82,10 @@ async function validateEnvironment(): Promise<void> {
 /**
  * Report a killed run as a failure.
  *
- * `getPrismaClient()` registers its own SIGINT/SIGTERM handlers that
- * `process.exit(0)` (db-client.ts). Since the exit code is what Coolify records
- * for the scheduled task, a run cut short by the task timeout or a redeploy
- * would otherwise be logged as a success while most orgs never ran.
+ * The exit code is what Coolify records for the scheduled task, so a run cut
+ * short by the task timeout or a redeploy must exit non-zero rather than look
+ * like a success while most orgs never ran. (db-client no longer installs
+ * signal handlers of its own; this handler alone decides.)
  *
  * This must exit **synchronously**. Node runs every listener for a signal in
  * registration order, and ours is registered before the first

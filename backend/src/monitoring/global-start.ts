@@ -24,7 +24,6 @@
 
 import { startGlobalMonitoring, stopGlobalMonitoring } from './global-index.js';
 import { logger } from './logger.js';
-import { disablePrismaSignalHandlers } from './db-client.js';
 import { refreshClientExposureProfile } from './client-exposure-profile.js';
 import { startDispatchWorker } from '../workflow/dispatch/dispatch-worker.js';
 import { resolveOrganizationIds } from './run-once.js';
@@ -106,11 +105,6 @@ async function refreshAllProfiles(): Promise<void> {
 // ============================================================================
 
 async function main() {
-  // This process drains on SIGTERM itself (below). db-client's own handler
-  // would otherwise disconnect and exit 0 at once, killing the in-flight
-  // evaluation the drain exists to finish.
-  disablePrismaSignalHandlers();
-
   logger.info('[GlobalStart] Global Monitoring Agent starting...');
 
   // Validate environment
