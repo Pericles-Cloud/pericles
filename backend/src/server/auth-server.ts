@@ -43,10 +43,11 @@ import {
   type OrganizationWriteGrant,
 } from '../auth/index.js';
 import {
-  classifyShipmentWriteError,
+  ShipmentRequestError,
+  lockOrganization,
+  lockShipment,
   resolveShipmentCarrierId,
   resolveShipmentSupplierId,
-  type ShipmentWriteContext,
 } from './shipment-links.js';
 import { getPositionFeed, getOrganizationPositions } from '../integrations/tracking/index.js';
 import {
@@ -251,15 +252,10 @@ async function auditDataWrite(
   });
 }
 
-/** Send the response for a classified shipment write error; false if it isn't one. */
-async function sendShipmentWriteError(
-  error: unknown,
-  res: Response,
-  ctx: Omit<ShipmentWriteContext, 'client'>
-): Promise<boolean> {
-  const mapped = await classifyShipmentWriteError(error, { client: prisma, ...ctx });
-  if (!mapped) return false;
-  res.status(mapped.status).json({ success: false, error: { code: mapped.code, message: mapped.message } });
+/** Send a ShipmentRequestError's response; false for any other error (a 500). */
+function sendShipmentRequestError(error: unknown, res: Response): boolean {
+  if (!(error instanceof ShipmentRequestError)) return false;
+  res.status(error.status).json({ success: false, error: { code: error.code, message: error.message } });
   return true;
 }
 
@@ -2978,7 +2974,7 @@ app.get('/api/shipments', async (req: Request, res: Response) => {
         organizationId: s.organization_id,
         supplierId: s.supplier_id,
         carrierId: s.carrier_id,
-        supplier: s.supplier ? { id: s.supplier.id, name: s.supplier.name, country: s.supplier.country, organizationId: s.supplier.organization_id } : null,
+        supplier: s.supplier ? { id: s.supplier.id, name: s.supplier.name, country: s.supplier.country, sameOrganization: s.supplier.organization_id === s.organization_id } : null,
         carrier: s.carrier ? { id: s.carrier.id, name: s.carrier.name, scacCode: s.carrier.scac_code } : null,
         bolNumber: s.bol_number,
         masterBolNumber: s.master_bol_number,
@@ -3187,7 +3183,7 @@ app.get('/api/shipments/:id', async (req: Request, res: Response) => {
         organizationId: s.organization_id,
         supplierId: s.supplier_id,
         carrierId: s.carrier_id,
-        supplier: s.supplier ? { id: s.supplier.id, name: s.supplier.name, country: s.supplier.country, address: s.supplier.address, organizationId: s.supplier.organization_id } : null,
+        supplier: s.supplier ? { id: s.supplier.id, name: s.supplier.name, country: s.supplier.country, address: s.supplier.address, sameOrganization: s.supplier.organization_id === s.organization_id } : null,
         carrier: s.carrier ? { id: s.carrier.id, name: s.carrier.name, scacCode: s.carrier.scac_code } : null,
         bolNumber: s.bol_number,
         masterBolNumber: s.master_bol_number,
@@ -3266,6 +3262,8 @@ app.post('/api/shipments', async (req: Request, res: Response) => {
     }
 
     const shipment = await prisma.$transaction(async (tx) => {
+      // Locks: the org, supplier and carrier can't be deleted until this commits.
+      await lockOrganization(tx, organizationId);
       const supplierId = await resolveShipmentSupplierId(tx, shipmentData.supplierId, organizationId);
       const carrierId = await resolveShipmentCarrierId(tx, shipmentData.carrierId);
       const row = await tx.shipment.create({
@@ -3320,7 +3318,7 @@ app.post('/api/shipments', async (req: Request, res: Response) => {
         organizationId: s.organization_id,
         supplierId: s.supplier_id,
         carrierId: s.carrier_id,
-        supplier: s.supplier ? { id: s.supplier.id, name: s.supplier.name, country: s.supplier.country, organizationId: s.supplier.organization_id } : null,
+        supplier: s.supplier ? { id: s.supplier.id, name: s.supplier.name, country: s.supplier.country, sameOrganization: s.supplier.organization_id === s.organization_id } : null,
         carrier: s.carrier ? { id: s.carrier.id, name: s.carrier.name, scacCode: s.carrier.scac_code } : null,
         bolNumber: s.bol_number,
         masterBolNumber: s.master_bol_number,
@@ -3359,8 +3357,7 @@ app.post('/api/shipments', async (req: Request, res: Response) => {
       },
     });
   } catch (error) {
-    const sent = (req.body ?? {}) as { supplierId?: unknown; carrierId?: unknown };
-    if (await sendShipmentWriteError(error, res, { supplierId: sent.supplierId, carrierId: sent.carrierId })) return;
+    if (sendShipmentRequestError(error, res)) return;
     console.error('Create shipment error:', error);
     res.status(500).json({ success: false, error: { code: 'INTERNAL_ERROR', message: 'An unexpected error occurred' } });
   }
@@ -3395,14 +3392,14 @@ app.patch('/api/shipments/:id', async (req: Request, res: Response) => {
     const data = req.body;
 
     const shipment = await prisma.$transaction(async (tx) => {
-      // Re-sending the current link is not a change (see
-      // resolveShipmentSupplierId). A value that is unchanged is never
-      // written, so a link changed concurrently is never restored by this.
+      // Lock the shipment row; its current supplier_id (exact, not the
+      // pre-transaction snapshot) is what "re-sent unchanged" compares to.
+      const current = await lockShipment(tx, shipmentId, existingShipment.organization_id);
       const supplierId = await resolveShipmentSupplierId(
         tx,
         data.supplierId,
         existingShipment.organization_id,
-        existingShipment.supplier_id
+        current.supplierId
       );
       const carrierId = await resolveShipmentCarrierId(tx, data.carrierId);
       const row = await tx.shipment.update({
@@ -3456,7 +3453,7 @@ app.patch('/api/shipments/:id', async (req: Request, res: Response) => {
         organizationId: s.organization_id,
         supplierId: s.supplier_id,
         carrierId: s.carrier_id,
-        supplier: s.supplier ? { id: s.supplier.id, name: s.supplier.name, country: s.supplier.country, organizationId: s.supplier.organization_id } : null,
+        supplier: s.supplier ? { id: s.supplier.id, name: s.supplier.name, country: s.supplier.country, sameOrganization: s.supplier.organization_id === s.organization_id } : null,
         carrier: s.carrier ? { id: s.carrier.id, name: s.carrier.name, scacCode: s.carrier.scac_code } : null,
         bolNumber: s.bol_number,
         masterBolNumber: s.master_bol_number,
@@ -3495,9 +3492,7 @@ app.patch('/api/shipments/:id', async (req: Request, res: Response) => {
       },
     });
   } catch (error) {
-    const sent = (req.body ?? {}) as { supplierId?: unknown; carrierId?: unknown };
-    const updatedId = typeof req.params.id === 'string' ? req.params.id : undefined;
-    if (await sendShipmentWriteError(error, res, { shipmentId: updatedId, supplierId: sent.supplierId, carrierId: sent.carrierId })) return;
+    if (sendShipmentRequestError(error, res)) return;
     console.error('Update shipment error:', error);
     res.status(500).json({ success: false, error: { code: 'INTERNAL_ERROR', message: 'An unexpected error occurred' } });
   }

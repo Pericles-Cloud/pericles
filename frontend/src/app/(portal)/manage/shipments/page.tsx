@@ -137,18 +137,27 @@ export default function ShipmentsPage() {
     selectedShipment?.supplierId && !editSuppliers.some((s) => s.id === selectedShipment.supplierId)
       ? selectedShipment.supplierId
       : null;
-  const unlistedIsCrossOrg =
-    !!selectedShipment?.supplier?.organizationId &&
-    selectedShipment.supplier.organizationId !== selectedShipment.organizationId;
+  const unlistedIsCrossOrg = selectedShipment?.supplier?.sameOrganization === false;
 
-  /** Reload the current org's suppliers (e.g. after a save said one no longer exists). */
+  // The org whose suppliers are on screen, so a late reload for a previous
+  // org can't overwrite the current one's list.
+  const shownOrgId = useRef<string | undefined>(undefined);
+  useEffect(() => {
+    shownOrgId.current = currentOrganization?.id;
+  }, [currentOrganization?.id]);
+
+  /** Reload the current org's suppliers (after a save rejected a supplier/carrier). */
   const reloadSuppliers = async (): Promise<void> => {
-    if (!currentOrganization?.id) return;
-    const res = await getSuppliers({ organizationId: currentOrganization.id, includeSubsidiaries: true });
+    const orgId = currentOrganization?.id;
+    if (!orgId) return;
+    const res = await getSuppliers({ organizationId: orgId, includeSubsidiaries: true });
+    if (shownOrgId.current !== orgId) return; // switched orgs meanwhile
     if (res.success && res.data) {
       setSuppliers(res.data);
       setSuppliersLoaded(true);
       setSuppliersFailed(false);
+    } else {
+      setSuppliersFailed(true);
     }
   };
 
@@ -245,8 +254,8 @@ export default function ShipmentsPage() {
       setMessage({ type: 'success', text: 'Shipment created successfully' });
     } else {
       setMessage({ type: 'error', text: response.error?.message || 'Failed to create shipment' });
-      // A supplier may have been deleted meanwhile: refresh the choices.
-      if (response.error?.code === 'VALIDATION_ERROR') void reloadSuppliers();
+      // The supplier/carrier was rejected (e.g. deleted meanwhile): refresh the choices.
+      if (response.error?.code === 'INVALID_LINK') void reloadSuppliers();
     }
     setCreateSubmitting(false);
   };
@@ -299,7 +308,7 @@ export default function ShipmentsPage() {
       setMessage({ type: 'success', text: 'Shipment updated successfully' });
     } else {
       setMessage({ type: 'error', text: response.error?.message || 'Failed to update shipment' });
-      if (response.error?.code === 'VALIDATION_ERROR') void reloadSuppliers();
+      if (response.error?.code === 'INVALID_LINK') void reloadSuppliers();
     }
     setEditSubmitting(false);
   };

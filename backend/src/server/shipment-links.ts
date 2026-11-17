@@ -1,29 +1,38 @@
 /**
- * Validation of a shipment's links to a supplier and a carrier (#95).
+ * Shipment write checks (#95): a shipment may only link a supplier of its OWN
+ * organization, and an existing carrier (carriers are global).
  *
- * - Supplier: tenant-scoped. A shipment may only link a supplier of its OWN
- *   organization. A missing id and another tenant's id get the same error,
- *   so the check reveals nothing about other tenants.
- * - Carrier: global (not org-scoped); it only has to exist.
+ * The checks LOCK what they check, inside the write transaction:
+ * - the supplier, carrier and (on create) organization with FOR SHARE, so a
+ *   concurrent delete waits until this write commits;
+ * - (on update) the shipment row with FOR UPDATE, which also gives the
+ *   current supplier_id exactly.
+ * So there is no window between check and write, and no need to interpret a
+ * Prisma error afterwards: any other failure is a genuine 500.
  *
- * Both run on the write transaction's client. The read takes no lock, so a
- * link deleted concurrently between the check and the write surfaces as a
- * Prisma P2025/P2003 from the write; the shipment routes map those to a 400
- * too. Any failure here is a ShipmentLinkError (a 400).
+ * Failures are ShipmentRequestError (400 or 404). A missing supplier and
+ * another tenant's supplier get the same message, so nothing is revealed
+ * about other tenants.
  */
-import { Prisma } from '@prisma/client';
+import type { Prisma } from '@prisma/client';
 import { z } from 'zod';
 
-export const SUPPLIER_LINK_MESSAGE = 'supplierId must be a supplier of the same organization as the shipment';
+export const SUPPLIER_LINK_MESSAGE = "supplierId must be an existing supplier of the shipment's organization";
 export const CARRIER_LINK_MESSAGE = 'carrierId must be an existing carrier';
 
-/** A supplierId/carrierId the shipment may not link to: a 400. */
-export class ShipmentLinkError extends Error {
-  constructor(message: string) {
+/** A shipment request that can't be applied: the status and body to send. */
+export class ShipmentRequestError extends Error {
+  constructor(
+    public readonly status: 400 | 404,
+    public readonly code: 'INVALID_LINK' | 'NOT_FOUND',
+    message: string
+  ) {
     super(message);
-    this.name = 'ShipmentLinkError';
+    this.name = 'ShipmentRequestError';
   }
 }
+
+const invalidLink = (message: string) => new ShipmentRequestError(400, 'INVALID_LINK', message);
 
 /** undefined = leave unchanged, null or '' = clear, else an id (max 128). */
 const LinkIdSchema = z
@@ -37,25 +46,45 @@ type LinkId = string | null | undefined;
 
 function parseLinkId(value: unknown, message: string): LinkId {
   const parsed = LinkIdSchema.safeParse(value);
-  if (!parsed.success) throw new ShipmentLinkError(message);
+  if (!parsed.success) throw invalidLink(message);
   return parsed.data;
 }
 
-type LinkClient = Pick<Prisma.TransactionClient, 'supplier' | 'carrier'>;
+/** Only raw queries are needed: Prisma's query builder has no row locks. */
+export type LockClient = Pick<Prisma.TransactionClient, '$queryRaw'>;
+
+/** Create: the organization must exist; held (FOR SHARE) until the write commits. */
+export async function lockOrganization(tx: LockClient, organizationId: string): Promise<void> {
+  const rows = await tx.$queryRaw<Array<{ id: string }>>`
+    SELECT id FROM "Organization" WHERE id = ${organizationId} FOR SHARE`;
+  if (rows.length === 0) throw new ShipmentRequestError(404, 'NOT_FOUND', 'Organization not found');
+}
+
+/**
+ * Update: lock the shipment row (FOR UPDATE) and return its current
+ * supplier_id. 404 if it no longer exists in that organization.
+ */
+export async function lockShipment(
+  tx: LockClient,
+  shipmentId: string,
+  organizationId: string
+): Promise<{ supplierId: string | null }> {
+  const rows = await tx.$queryRaw<Array<{ supplier_id: string | null }>>`
+    SELECT supplier_id FROM "Shipment" WHERE id = ${shipmentId} AND organization_id = ${organizationId} FOR UPDATE`;
+  if (rows.length === 0) throw new ShipmentRequestError(404, 'NOT_FOUND', 'Shipment not found');
+  return { supplierId: rows[0].supplier_id };
+}
 
 /**
  * The supplier_id to write: undefined (unchanged), null (clear), or a
- * supplier of `organizationId`.
+ * supplier of `organizationId`, locked FOR SHARE until the write commits.
  *
- * `currentSupplierId` (PATCH only: the shipment's supplier_id as the handler
- * loaded it, before the transaction): re-sending it is not a change. An
- * unchanged value is never written, so a stale snapshot can't restore a link
- * that was changed concurrently. The edit form always sends
- * it, so an existing cross-org link doesn't block unrelated edits; any NEW
- * link must be same-org.
+ * `currentSupplierId` (update only, from lockShipment): re-sending it is not
+ * a change. The edit form always sends it, so an existing cross-org link
+ * doesn't block unrelated edits; any NEW link must be same-org.
  */
 export async function resolveShipmentSupplierId(
-  tx: LinkClient,
+  tx: LockClient,
   supplierId: unknown,
   organizationId: string,
   currentSupplierId?: string | null
@@ -63,79 +92,17 @@ export async function resolveShipmentSupplierId(
   const id = parseLinkId(supplierId, SUPPLIER_LINK_MESSAGE);
   if (id === undefined || id === null) return id;
   if (currentSupplierId !== undefined && id === currentSupplierId) return undefined;
-  const supplier = await tx.supplier.findFirst({
-    where: { id, organization_id: organizationId },
-    select: { id: true },
-  });
-  if (!supplier) throw new ShipmentLinkError(SUPPLIER_LINK_MESSAGE);
-  return supplier.id;
+  const rows = await tx.$queryRaw<Array<{ id: string }>>`
+    SELECT id FROM "Supplier" WHERE id = ${id} AND organization_id = ${organizationId} FOR SHARE`;
+  if (rows.length === 0) throw invalidLink(SUPPLIER_LINK_MESSAGE);
+  return rows[0].id;
 }
 
-/** The carrier_id to write: undefined (unchanged), null (clear), or an existing carrier. */
-export async function resolveShipmentCarrierId(tx: LinkClient, carrierId: unknown): Promise<LinkId> {
+/** The carrier_id to write: undefined (unchanged), null (clear), or an existing carrier (locked). */
+export async function resolveShipmentCarrierId(tx: LockClient, carrierId: unknown): Promise<LinkId> {
   const id = parseLinkId(carrierId, CARRIER_LINK_MESSAGE);
   if (id === undefined || id === null) return id;
-  const carrier = await tx.carrier.findUnique({ where: { id }, select: { id: true } });
-  if (!carrier) throw new ShipmentLinkError(CARRIER_LINK_MESSAGE);
-  return carrier.id;
-}
-
-/** An HTTP error response for a failed shipment write. */
-export interface ShipmentWriteErrorResponse {
-  status: 400 | 404;
-  code: 'VALIDATION_ERROR' | 'NOT_FOUND';
-  message: string;
-}
-
-export const LINK_GONE_MESSAGE = 'The supplier or carrier no longer exists';
-
-/** What the failed write was given; used to find out what disappeared. */
-export interface ShipmentWriteContext {
-  client: Pick<Prisma.TransactionClient, 'shipment' | 'supplier' | 'carrier'>;
-  /** Update only: the shipment being updated. */
-  shipmentId?: string;
-  /** The request's supplierId / carrierId, as sent. */
-  supplierId?: unknown;
-  carrierId?: unknown;
-}
-
-const isId = (v: unknown): v is string => typeof v === 'string' && v.length > 0 && v.length <= 128;
-
-/**
- * Map a shipment create/update error to a response, or null for anything
- * else (the caller logs it and returns 500).
- *
- * - ShipmentLinkError: 400 with its message.
- * - A Prisma "related record missing" error (P2003 FK, P2025 not found): the
- *   check passed, so something was deleted concurrently. Rather than parse
- *   Prisma's wording (which changes between versions), look it up: the
- *   shipment gone -> 404; the requested supplier or carrier gone -> 400.
- *   If everything still exists, the failure was something else in the same
- *   transaction (the org connect, the audit row's FKs) -> null, so it is
- *   logged as a 500 and never blamed on the supplier or carrier.
- */
-export async function classifyShipmentWriteError(
-  error: unknown,
-  ctx: ShipmentWriteContext
-): Promise<ShipmentWriteErrorResponse | null> {
-  if (error instanceof ShipmentLinkError) {
-    return { status: 400, code: 'VALIDATION_ERROR', message: error.message };
-  }
-  if (!(error instanceof Prisma.PrismaClientKnownRequestError)) return null;
-  if (error.code !== 'P2003' && error.code !== 'P2025') return null;
-  try {
-    if (ctx.shipmentId && !(await ctx.client.shipment.findUnique({ where: { id: ctx.shipmentId }, select: { id: true } }))) {
-      return { status: 404, code: 'NOT_FOUND', message: 'Shipment not found' };
-    }
-    const supplierGone =
-      isId(ctx.supplierId) && !(await ctx.client.supplier.findUnique({ where: { id: ctx.supplierId }, select: { id: true } }));
-    const carrierGone =
-      isId(ctx.carrierId) && !(await ctx.client.carrier.findUnique({ where: { id: ctx.carrierId }, select: { id: true } }));
-    if (supplierGone || carrierGone) {
-      return { status: 400, code: 'VALIDATION_ERROR', message: LINK_GONE_MESSAGE };
-    }
-  } catch {
-    // The lookup itself failed: report the original error as a 500.
-  }
-  return null;
+  const rows = await tx.$queryRaw<Array<{ id: string }>>`SELECT id FROM "Carrier" WHERE id = ${id} FOR SHARE`;
+  if (rows.length === 0) throw invalidLink(CARRIER_LINK_MESSAGE);
+  return rows[0].id;
 }
