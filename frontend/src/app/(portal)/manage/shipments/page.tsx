@@ -84,6 +84,18 @@ export default function ShipmentsPage() {
   // Messages
   const [message, setMessage] = useState<{ type: 'success' | 'error'; text: string } | null>(null);
 
+  // The caller's orgs and write flags (canManageData) don't depend on the
+  // selected org, so load them once rather than on every org switch.
+  useEffect(() => {
+    let isMounted = true;
+    void getOrganizations().then((orgsRes) => {
+      if (isMounted && orgsRes.success && orgsRes.data) setOrganizations(orgsRes.data);
+    });
+    return () => {
+      isMounted = false;
+    };
+  }, []);
+
   /** May the caller create/edit/delete this org's shipments? (#73) */
   const canManageOrg = (orgId: string): boolean =>
     organizations.find((o) => o.id === orgId)?.canManageData === true;
@@ -96,11 +108,10 @@ export default function ShipmentsPage() {
     let isMounted = true;
 
     const fetchData = async () => {
-      const [shipmentsRes, suppliersRes, carriersRes, orgsRes] = await Promise.all([
+      const [shipmentsRes, suppliersRes, carriersRes] = await Promise.all([
         getShipments(currentOrganization.id, { includeSubsidiaries: true }),
         getSuppliers({ organizationId: currentOrganization.id, includeSubsidiaries: true }),
         getCarriers(),
-        getOrganizations(),
       ]);
 
       if (!isMounted) return;
@@ -116,9 +127,6 @@ export default function ShipmentsPage() {
       }
       if (carriersRes.success && carriersRes.data) {
         setCarriers(carriersRes.data);
-      }
-      if (orgsRes.success && orgsRes.data) {
-        setOrganizations(orgsRes.data);
       }
       setIsLoading(false);
     };

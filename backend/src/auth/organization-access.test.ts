@@ -8,7 +8,7 @@
  */
 import { describe, it, expect } from 'vitest';
 import type { PrismaClient } from '@prisma/client';
-import { canWriteOrganizationData, checkOrganizationAccess } from './middleware.js';
+import { canWriteOrganizationData, checkOrganizationAccess, organizationWriteGrant } from './middleware.js';
 
 // Org tree:
 //   root (is_root)         standex (unrelated parent)
@@ -166,5 +166,24 @@ describe('canWriteOrganizationData (#73: shipment/supplier writes)', () => {
 
   it("never grants on another user's membership", async () => {
     expect(await can([active('other', 'root', 'OWNER'), active('other', 'sun', 'ADMIN')], 'sun')).toBe(false);
+  });
+});
+
+describe('organizationWriteGrant (audit: how a write was granted)', () => {
+  const grant = (memberships: Membership[], orgId: string) =>
+    organizationWriteGrant('u', orgId, makeClient(memberships) as unknown as PrismaClient);
+
+  it("reports 'direct' for the org's own OWNER/ADMIN, even if also a root admin", async () => {
+    expect(await grant([active('u', 'sun', 'ADMIN')], 'sun')).toBe('direct');
+    expect(await grant([active('u', 'root', 'ADMIN'), active('u', 'sun', 'OWNER')], 'sun')).toBe('direct');
+  });
+
+  it("reports 'root' for Pericles staff acting on a tenant", async () => {
+    expect(await grant([active('u', 'root', 'OWNER')], 'sun')).toBe('root');
+  });
+
+  it('reports null when denied', async () => {
+    expect(await grant([active('u', 'helios', 'OWNER')], 'sun')).toBeNull();
+    expect(await grant([active('u', 'root', 'ADMIN')], 'nope')).toBeNull();
   });
 });

@@ -23,6 +23,15 @@ import {
   CardTitle,
 } from '@/components/ui/card';
 
+/**
+ * The create form's default org: the current org if the caller may write
+ * there, else the first org they may write to, else none (#73).
+ */
+function defaultWritableOrgId(organizations: OrganizationDetails[], currentOrgId: string | undefined): string {
+  const writable = organizations.filter((o) => o.canManageData);
+  return (writable.find((o) => o.id === currentOrgId) ?? writable[0])?.id ?? '';
+}
+
 export default function SuppliersPage() {
   const { currentOrganization } = useAuth();
 
@@ -87,12 +96,10 @@ export default function SuppliersPage() {
       }
       if (orgsRes.success && orgsRes.data) {
         setOrganizations(orgsRes.data);
-        // Default the create form to the current org if the caller may write
-        // there, else to the first org they may write to.
-        const writable = orgsRes.data.filter((o) => o.canManageData);
-        const defaultOrg =
-          writable.find((o) => o.id === currentOrganization?.id) ?? writable[0];
-        setNewSupplier((prev) => ({ ...prev, organizationId: defaultOrg?.id ?? '' }));
+        setNewSupplier((prev) => ({
+          ...prev,
+          organizationId: defaultWritableOrgId(orgsRes.data!, currentOrganization?.id),
+        }));
       }
       setIsLoading(false);
     };
@@ -144,7 +151,7 @@ export default function SuppliersPage() {
       setSelectedSupplier(response.data);
       setShowCreateModal(false);
       setNewSupplier({
-        organizationId: currentOrganization?.id || organizations[0]?.id || '',
+        organizationId: defaultWritableOrgId(organizations, currentOrganization?.id),
         name: '',
         address: '',
         website: '',

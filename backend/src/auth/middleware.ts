@@ -199,19 +199,31 @@ export async function canWriteOrganizationData(
   organizationId: string,
   client: PrismaClient = prisma
 ): Promise<boolean> {
+  return (await organizationWriteGrant(userId, organizationId, client)) !== null;
+}
+
+/** How a write was granted: 'direct' (own org) or 'root' (Pericles staff), or null if denied. */
+export type OrganizationWriteGrant = 'direct' | 'root';
+
+/** canWriteOrganizationData, also saying how access was granted (for the audit record). */
+export async function organizationWriteGrant(
+  userId: string,
+  organizationId: string,
+  client: PrismaClient = prisma
+): Promise<OrganizationWriteGrant | null> {
   const direct = await client.userOrganization.findUnique({
     where: { user_id_organization_id: { user_id: userId, organization_id: organizationId } },
   });
-  if (direct?.status === 'active' && WRITE_ROLES.has(direct.role)) return true;
+  if (direct?.status === 'active' && WRITE_ROLES.has(direct.role)) return 'direct';
 
   const root = await client.userOrganization.findFirst({
     where: { user_id: userId, status: 'active', organization: { is_root: true } },
   });
-  if (!root || !WRITE_ROLES.has(root.role)) return false;
+  if (!root || !WRITE_ROLES.has(root.role)) return null;
 
   const target = await client.organization.findUnique({
     where: { id: organizationId },
     select: { id: true },
   });
-  return target !== null;
+  return target ? 'root' : null;
 }

@@ -38,6 +38,8 @@ import {
   authenticateRequest,
   checkOrganizationAccess,
   canWriteOrganizationData,
+  organizationWriteGrant,
+  type OrganizationWriteGrant,
 } from '../auth/index.js';
 import { getPositionFeed, getOrganizationPositions } from '../integrations/tracking/index.js';
 import {
@@ -202,6 +204,29 @@ function getRequestInfo(req: Request) {
     : req.ip;
   const userAgent = req.headers['user-agent'];
   return { ipAddress, userAgent };
+}
+
+/**
+ * Audit a shipment/supplier write (#73): who, which org, what, and whether
+ * access was the caller's own org or Pericles root staff acting on a tenant.
+ */
+async function auditDataWrite(
+  req: Request,
+  userId: string,
+  organizationId: string,
+  grant: OrganizationWriteGrant,
+  action: 'create' | 'update' | 'delete',
+  entity: 'supplier' | 'shipment',
+  entityId: string
+): Promise<void> {
+  await logAuthEvent({
+    userId,
+    organizationId,
+    eventType: action === 'create' ? 'DATA_CREATE' : action === 'update' ? 'DATA_UPDATE' : 'DATA_DELETE',
+    eventStatus: 'SUCCESS',
+    ...getRequestInfo(req),
+    metadata: { entity, entity_id: entityId, access: grant },
+  });
 }
 
 // =============================================================================
@@ -1890,7 +1915,7 @@ app.patch('/api/organizations/:id', async (req: Request, res: Response) => {
     res.status(200).json({ success: true, data: formatOrganization(
         organization,
         membership.role as 'OWNER' | 'ADMIN' | 'MEMBER' | 'GUEST',
-        await canWriteOrganizationData(tokenPayload.userId, organization.id)
+        true // this handler already required a direct active OWNER/ADMIN membership
       ),
     });
   } catch (error) {
@@ -2395,7 +2420,8 @@ app.post('/api/suppliers', async (req: Request, res: Response) => {
     }
 
     // OWNER/ADMIN of this org, or a Pericles root-org OWNER/ADMIN (#73).
-    if (!(await canWriteOrganizationData(tokenPayload.userId, organizationId))) {
+    const writeGrant = await organizationWriteGrant(tokenPayload.userId, organizationId);
+    if (!writeGrant) {
       res.status(403).json({ success: false, error: { code: 'FORBIDDEN', message: 'Insufficient permissions' } });
       return;
     }
@@ -2416,6 +2442,7 @@ app.post('/api/suppliers', async (req: Request, res: Response) => {
         notify_party_address: notifyPartyAddress,
       },
     });
+    await auditDataWrite(req, tokenPayload.userId, organizationId, writeGrant, 'create', 'supplier', supplier.id);
 
     res.status(201).json({
       success: true,
@@ -2464,12 +2491,9 @@ app.get('/api/suppliers/:id', async (req: Request, res: Response) => {
       return;
     }
 
-    // Verify user has access to this organization
-    const membership = await prisma.userOrganization.findUnique({
-      where: { user_id_organization_id: { user_id: tokenPayload.userId, organization_id: supplier.organization_id } },
-    });
-
-    if (membership?.status !== 'active') {
+    // Same read rule as the list endpoints: own org, an ancestor, or root (#73).
+    const access = await checkOrganizationAccess(tokenPayload.userId, supplier.organization_id);
+    if (!access.hasAccess) {
       res.status(404).json({ success: false, error: { code: 'NOT_FOUND', message: 'Supplier not found' } });
       return;
     }
@@ -2522,7 +2546,8 @@ app.patch('/api/suppliers/:id', async (req: Request, res: Response) => {
     }
 
     // OWNER/ADMIN of this org, or a Pericles root-org OWNER/ADMIN (#73).
-    if (!(await canWriteOrganizationData(tokenPayload.userId, supplier.organization_id))) {
+    const writeGrant = await organizationWriteGrant(tokenPayload.userId, supplier.organization_id);
+    if (!writeGrant) {
       res.status(403).json({ success: false, error: { code: 'FORBIDDEN', message: 'Insufficient permissions' } });
       return;
     }
@@ -2544,6 +2569,7 @@ app.patch('/api/suppliers/:id', async (req: Request, res: Response) => {
         ...(notifyPartyAddress !== undefined && { notify_party_address: notifyPartyAddress }),
       },
     });
+    await auditDataWrite(req, tokenPayload.userId, supplier.organization_id, writeGrant, 'update', 'supplier', updated.id);
 
     res.status(200).json({
       success: true,
@@ -2593,12 +2619,14 @@ app.delete('/api/suppliers/:id', async (req: Request, res: Response) => {
     }
 
     // OWNER/ADMIN of this org, or a Pericles root-org OWNER/ADMIN (#73).
-    if (!(await canWriteOrganizationData(tokenPayload.userId, supplier.organization_id))) {
+    const writeGrant = await organizationWriteGrant(tokenPayload.userId, supplier.organization_id);
+    if (!writeGrant) {
       res.status(403).json({ success: false, error: { code: 'FORBIDDEN', message: 'Insufficient permissions' } });
       return;
     }
 
     await prisma.supplier.delete({ where: { id: supplierId } });
+    await auditDataWrite(req, tokenPayload.userId, supplier.organization_id, writeGrant, 'delete', 'supplier', supplierId);
 
     res.status(200).json({ success: true, data: { message: 'Supplier deleted successfully' } });
   } catch (error) {
@@ -3073,12 +3101,9 @@ app.get('/api/shipments/:id', async (req: Request, res: Response) => {
       return;
     }
 
-    // Verify user has access to this organization
-    const membership = await prisma.userOrganization.findUnique({
-      where: { user_id_organization_id: { user_id: tokenPayload.userId, organization_id: shipment.organization_id } },
-    });
-
-    if (membership?.status !== 'active') {
+    // Same read rule as the list endpoints: own org, an ancestor, or root (#73).
+    const access = await checkOrganizationAccess(tokenPayload.userId, shipment.organization_id);
+    if (!access.hasAccess) {
       res.status(404).json({ success: false, error: { code: 'NOT_FOUND', message: 'Shipment not found' } });
       return;
     }
@@ -3157,7 +3182,8 @@ app.post('/api/shipments', async (req: Request, res: Response) => {
     }
 
     // OWNER/ADMIN of this org, or a Pericles root-org OWNER/ADMIN (#73).
-    if (!(await canWriteOrganizationData(tokenPayload.userId, organizationId))) {
+    const writeGrant = await organizationWriteGrant(tokenPayload.userId, organizationId);
+    if (!writeGrant) {
       res.status(403).json({ success: false, error: { code: 'FORBIDDEN', message: 'Insufficient permissions' } });
       return;
     }
@@ -3202,6 +3228,7 @@ app.post('/api/shipments', async (req: Request, res: Response) => {
         carrier: { select: { id: true, name: true, scac_code: true } },
       },
     });
+    await auditDataWrite(req, tokenPayload.userId, organizationId, writeGrant, 'create', 'shipment', shipment.id);
 
     const s = shipment;
     res.status(201).json({
@@ -3274,7 +3301,8 @@ app.patch('/api/shipments/:id', async (req: Request, res: Response) => {
     }
 
     // OWNER/ADMIN of this org, or a Pericles root-org OWNER/ADMIN (#73).
-    if (!(await canWriteOrganizationData(tokenPayload.userId, existingShipment.organization_id))) {
+    const writeGrant = await organizationWriteGrant(tokenPayload.userId, existingShipment.organization_id);
+    if (!writeGrant) {
       res.status(403).json({ success: false, error: { code: 'FORBIDDEN', message: 'Insufficient permissions' } });
       return;
     }
@@ -3320,6 +3348,7 @@ app.patch('/api/shipments/:id', async (req: Request, res: Response) => {
         carrier: { select: { id: true, name: true, scac_code: true } },
       },
     });
+    await auditDataWrite(req, tokenPayload.userId, existingShipment.organization_id, writeGrant, 'update', 'shipment', shipment.id);
 
     const s = shipment;
     res.status(200).json({
@@ -3392,12 +3421,14 @@ app.delete('/api/shipments/:id', async (req: Request, res: Response) => {
     }
 
     // OWNER/ADMIN of this org, or a Pericles root-org OWNER/ADMIN (#73).
-    if (!(await canWriteOrganizationData(tokenPayload.userId, shipment.organization_id))) {
+    const writeGrant = await organizationWriteGrant(tokenPayload.userId, shipment.organization_id);
+    if (!writeGrant) {
       res.status(403).json({ success: false, error: { code: 'FORBIDDEN', message: 'Insufficient permissions' } });
       return;
     }
 
     await prisma.shipment.delete({ where: { id: shipmentId } });
+    await auditDataWrite(req, tokenPayload.userId, shipment.organization_id, writeGrant, 'delete', 'shipment', shipmentId);
 
     res.status(200).json({ success: true, data: { message: 'Shipment deleted successfully' } });
   } catch (error) {
