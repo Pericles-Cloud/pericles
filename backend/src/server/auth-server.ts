@@ -42,6 +42,7 @@ import {
   writeScope,
   type OrganizationWriteGrant,
 } from '../auth/index.js';
+import { resolveShipmentSupplierId, SupplierOrganizationMismatchError } from './shipment-supplier.js';
 import { getPositionFeed, getOrganizationPositions } from '../integrations/tracking/index.js';
 import {
   resolveSettingsOwnership,
@@ -243,6 +244,13 @@ async function auditDataWrite(
       metadata: { entity, entity_id: entityId, access: grant },
     },
   });
+}
+
+/** Send the 400 for a SupplierOrganizationMismatchError; returns false for any other error. */
+function sendSupplierMismatch(error: unknown, res: Response): boolean {
+  if (!(error instanceof SupplierOrganizationMismatchError)) return false;
+  res.status(400).json({ success: false, error: { code: 'VALIDATION_ERROR', message: error.message } });
+  return true;
 }
 
 /**
@@ -3248,13 +3256,14 @@ app.post('/api/shipments', async (req: Request, res: Response) => {
     }
 
     const shipment = await prisma.$transaction(async (tx) => {
+      const supplierId = await resolveShipmentSupplierId(tx, shipmentData.supplierId, organizationId);
       const row = await tx.shipment.create({
         data: {
           id: crypto.randomUUID(),
           organization: { connect: { id: organizationId } },
           bol_number: bolNumber,
           master_bol_number: shipmentData.masterBolNumber,
-          supplier: shipmentData.supplierId ? { connect: { id: shipmentData.supplierId } } : undefined,
+          supplier: supplierId ? { connect: { id: supplierId } } : undefined,
           carrier: shipmentData.carrierId ? { connect: { id: shipmentData.carrierId } } : undefined,
           containers_count: shipmentData.containersCount,
           shipping_route: shipmentData.shippingRoute,
@@ -3339,6 +3348,7 @@ app.post('/api/shipments', async (req: Request, res: Response) => {
       },
     });
   } catch (error) {
+    if (sendSupplierMismatch(error, res)) return;
     console.error('Create shipment error:', error);
     res.status(500).json({ success: false, error: { code: 'INTERNAL_ERROR', message: 'An unexpected error occurred' } });
   }
@@ -3373,12 +3383,19 @@ app.patch('/api/shipments/:id', async (req: Request, res: Response) => {
     const data = req.body;
 
     const shipment = await prisma.$transaction(async (tx) => {
+      // Re-sending the current supplier is not a change (the edit form always
+      // sends it), so a legacy cross-org link doesn't block unrelated edits;
+      // any NEW link must be a supplier of this org.
+      const supplierId =
+        data.supplierId === existingShipment.supplier_id
+          ? undefined
+          : await resolveShipmentSupplierId(tx, data.supplierId, existingShipment.organization_id);
       const row = await tx.shipment.update({
         where: { id: shipmentId, organization_id: existingShipment.organization_id },
         data: {
           ...(data.bolNumber !== undefined && { bol_number: data.bolNumber }),
           ...(data.masterBolNumber !== undefined && { master_bol_number: data.masterBolNumber }),
-          ...(data.supplierId !== undefined && { supplier_id: data.supplierId }),
+          ...(supplierId !== undefined && { supplier_id: supplierId }),
           ...(data.carrierId !== undefined && { carrier_id: data.carrierId }),
           ...(data.containersCount !== undefined && { containers_count: data.containersCount }),
           ...(data.shippingRoute !== undefined && { shipping_route: data.shippingRoute }),
@@ -3463,6 +3480,7 @@ app.patch('/api/shipments/:id', async (req: Request, res: Response) => {
       },
     });
   } catch (error) {
+    if (sendSupplierMismatch(error, res)) return;
     console.error('Update shipment error:', error);
     res.status(500).json({ success: false, error: { code: 'INTERNAL_ERROR', message: 'An unexpected error occurred' } });
   }

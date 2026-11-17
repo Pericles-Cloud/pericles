@@ -105,6 +105,13 @@ export default function ShipmentsPage() {
     };
   }, [currentOrganization?.id]);
 
+  /**
+   * A shipment's supplier must belong to the shipment's own org (#95). The
+   * list is rolled up across subsidiaries, so filter it for the form.
+   */
+  const suppliersOf = (orgId: string | undefined): Supplier[] =>
+    orgId ? suppliers.filter((s) => s.organizationId === orgId) : [];
+
   /** May the caller create/edit/delete this org's shipments? (#73) */
   const canManageOrg = (orgId: string): boolean =>
     organizations.find((o) => o.id === orgId)?.canManageData === true;
@@ -619,7 +626,7 @@ export default function ShipmentsPage() {
                       className="w-full h-9 rounded-md border border-input bg-transparent px-3 py-1 text-sm"
                     >
                       <option value="">Select supplier...</option>
-                      {suppliers.map((s) => (
+                      {suppliersOf(currentOrganization.id).map((s) => (
                         <option key={s.id} value={s.id}>{s.name}</option>
                       ))}
                     </select>
@@ -771,7 +778,7 @@ export default function ShipmentsPage() {
                       className="w-full h-9 rounded-md border border-input bg-transparent px-3 py-1 text-sm"
                     >
                       <option value="">Select supplier...</option>
-                      {suppliers.map((s) => (
+                      {suppliersOf(selectedShipment?.organizationId).map((s) => (
                         <option key={s.id} value={s.id}>{s.name}</option>
                       ))}
                     </select>
