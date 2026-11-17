@@ -39,6 +39,7 @@ import {
   checkOrganizationAccess,
   canWriteOrganizationData,
   organizationWriteGrant,
+  writeScope,
   type OrganizationWriteGrant,
 } from '../auth/index.js';
 import { getPositionFeed, getOrganizationPositions } from '../integrations/tracking/index.js';
@@ -210,22 +211,57 @@ function getRequestInfo(req: Request) {
  * Audit a shipment/supplier write (#73): who, which org, what, and whether
  * access was the caller's own org or Pericles root staff acting on a tenant.
  */
+type DataWriteAction = 'create' | 'update' | 'delete';
+type DataWriteEntity = 'supplier' | 'shipment';
+
+const DATA_EVENT_TYPE = { create: 'DATA_CREATE', update: 'DATA_UPDATE', delete: 'DATA_DELETE' } as const;
+
+/**
+ * Write the audit row IN the caller's transaction, so the data write and its
+ * audit record commit together: a failed audit insert rolls the write back
+ * rather than leaving a privileged write with no trace.
+ */
 async function auditDataWrite(
+  tx: Prisma.TransactionClient,
   req: Request,
   userId: string,
   organizationId: string,
   grant: OrganizationWriteGrant,
-  action: 'create' | 'update' | 'delete',
-  entity: 'supplier' | 'shipment',
+  action: DataWriteAction,
+  entity: DataWriteEntity,
   entityId: string
+): Promise<void> {
+  const { ipAddress, userAgent } = getRequestInfo(req);
+  await tx.authAuditLog.create({
+    data: {
+      user_id: userId,
+      organization_id: organizationId,
+      event_type: DATA_EVENT_TYPE[action],
+      event_status: 'SUCCESS',
+      ip_address: ipAddress,
+      user_agent: userAgent,
+      metadata: { entity, entity_id: entityId, access: grant },
+    },
+  });
+}
+
+/** Audit a refused write (403). Best effort: nothing was written to roll back. */
+async function auditDataWriteDenied(
+  req: Request,
+  userId: string,
+  organizationId: string,
+  action: DataWriteAction,
+  entity: DataWriteEntity,
+  entityId: string | null
 ): Promise<void> {
   await logAuthEvent({
     userId,
     organizationId,
-    eventType: action === 'create' ? 'DATA_CREATE' : action === 'update' ? 'DATA_UPDATE' : 'DATA_DELETE',
-    eventStatus: 'SUCCESS',
+    eventType: DATA_EVENT_TYPE[action],
+    eventStatus: 'FAILURE',
     ...getRequestInfo(req),
-    metadata: { entity, entity_id: entityId, access: grant },
+    metadata: { entity, entity_id: entityId },
+    errorMessage: 'Insufficient permissions',
   });
 }
 
@@ -1624,22 +1660,13 @@ app.get('/api/organizations', async (req: Request, res: Response) => {
         orderBy: [{ is_root: 'desc' }, { name: 'asc' }],
       });
 
-      // Writes: a root OWNER/ADMIN may write anywhere; otherwise only orgs
-      // where the caller is a direct OWNER/ADMIN (canWriteOrganizationData).
-      const rootCanWrite = ['OWNER', 'ADMIN'].includes(rootMembership.role);
-      const directWriteOrgIds = new Set(
-        (
-          await prisma.userOrganization.findMany({
-            where: { user_id: tokenPayload.userId, status: 'active', role: { in: ['OWNER', 'ADMIN'] } },
-            select: { organization_id: true },
-          })
-        ).map((m) => m.organization_id)
-      );
+      // canManageData: the same write rule the API enforces (writeScope).
+      const scope = await writeScope(tokenPayload.userId);
       const organizations = allOrganizations.map((org) =>
         formatOrganization(
           org,
           rootMembership.role as 'OWNER' | 'ADMIN' | 'MEMBER' | 'GUEST',
-          rootCanWrite || directWriteOrgIds.has(org.id)
+          scope.rootAdmin || scope.directOrgIds.has(org.id)
         )
       );
 
@@ -1663,15 +1690,10 @@ app.get('/api/organizations', async (req: Request, res: Response) => {
       },
     });
 
-    // `direct`: the caller is a member of this org itself. Only a direct
-    // OWNER/ADMIN may write its data; a parent's role is read-only here (#73).
-    const visible = new Map<
-      string,
-      { organization: (typeof memberships)[number]['organization']; role: string; direct: boolean }
-    >();
+    const visible = new Map<string, { organization: (typeof memberships)[number]['organization']; role: string }>();
     for (const m of memberships) {
       if (!visible.has(m.organization.id)) {
-        visible.set(m.organization.id, { organization: m.organization, role: m.role, direct: true });
+        visible.set(m.organization.id, { organization: m.organization, role: m.role });
       }
     }
 
@@ -1688,18 +1710,21 @@ app.get('/api/organizations', async (req: Request, res: Response) => {
         if (seen.has(child.id)) continue;
         seen.add(child.id);
         const role = roleByParent.get(child.parent_organization_id ?? '') ?? 'MEMBER';
-        visible.set(child.id, { organization: child, role, direct: false });
+        visible.set(child.id, { organization: child, role });
         next.push({ id: child.id, role });
       }
       frontier = next;
     }
 
+    // canManageData: the same write rule the API enforces (writeScope). A
+    // parent's inherited role is read-only for its descendants (#73).
+    const scope = await writeScope(tokenPayload.userId);
     const organizations = [...visible.values()]
-      .map(({ organization, role, direct }) =>
+      .map(({ organization, role }) =>
         formatOrganization(
           organization,
           role as 'OWNER' | 'ADMIN' | 'MEMBER' | 'GUEST',
-          direct && ['OWNER', 'ADMIN'].includes(role)
+          scope.rootAdmin || scope.directOrgIds.has(organization.id)
         )
       )
       .sort((a, b) => Number(b.isRoot) - Number(a.isRoot) || a.name.localeCompare(b.name));
@@ -2422,27 +2447,31 @@ app.post('/api/suppliers', async (req: Request, res: Response) => {
     // OWNER/ADMIN of this org, or a Pericles root-org OWNER/ADMIN (#73).
     const writeGrant = await organizationWriteGrant(tokenPayload.userId, organizationId);
     if (!writeGrant) {
+      await auditDataWriteDenied(req, tokenPayload.userId, organizationId, 'create', 'supplier', null);
       res.status(403).json({ success: false, error: { code: 'FORBIDDEN', message: 'Insufficient permissions' } });
       return;
     }
 
-    const supplier = await prisma.supplier.create({
-      data: {
-        id: crypto.randomUUID(),
-        organization: { connect: { id: organizationId } },
-        name,
-        address,
-        website,
-        contact_info: contactInfo,
-        country,
-        country_code: countryCode,
-        latitude,
-        longitude,
-        notify_party_name: notifyPartyName,
-        notify_party_address: notifyPartyAddress,
-      },
+    const supplier = await prisma.$transaction(async (tx) => {
+      const row = await tx.supplier.create({
+        data: {
+          id: crypto.randomUUID(),
+          organization: { connect: { id: organizationId } },
+          name,
+          address,
+          website,
+          contact_info: contactInfo,
+          country,
+          country_code: countryCode,
+          latitude,
+          longitude,
+          notify_party_name: notifyPartyName,
+          notify_party_address: notifyPartyAddress,
+        },
+      });
+      await auditDataWrite(tx, req, tokenPayload.userId, organizationId, writeGrant, 'create', 'supplier', row.id);
+      return row;
     });
-    await auditDataWrite(req, tokenPayload.userId, organizationId, writeGrant, 'create', 'supplier', supplier.id);
 
     res.status(201).json({
       success: true,
@@ -2548,28 +2577,32 @@ app.patch('/api/suppliers/:id', async (req: Request, res: Response) => {
     // OWNER/ADMIN of this org, or a Pericles root-org OWNER/ADMIN (#73).
     const writeGrant = await organizationWriteGrant(tokenPayload.userId, supplier.organization_id);
     if (!writeGrant) {
+      await auditDataWriteDenied(req, tokenPayload.userId, supplier.organization_id, 'update', 'supplier', supplier.id);
       res.status(403).json({ success: false, error: { code: 'FORBIDDEN', message: 'Insufficient permissions' } });
       return;
     }
 
     const { name, address, website, contactInfo, country, countryCode, latitude, longitude, notifyPartyName, notifyPartyAddress } = req.body;
 
-    const updated = await prisma.supplier.update({
-      where: { id: supplierId },
-      data: {
-        ...(name !== undefined && { name }),
-        ...(address !== undefined && { address }),
-        ...(website !== undefined && { website }),
-        ...(contactInfo !== undefined && { contact_info: contactInfo }),
-        ...(country !== undefined && { country }),
-        ...(countryCode !== undefined && { country_code: countryCode }),
-        ...(latitude !== undefined && { latitude }),
-        ...(longitude !== undefined && { longitude }),
-        ...(notifyPartyName !== undefined && { notify_party_name: notifyPartyName }),
-        ...(notifyPartyAddress !== undefined && { notify_party_address: notifyPartyAddress }),
-      },
+    const updated = await prisma.$transaction(async (tx) => {
+      const row = await tx.supplier.update({
+        where: { id: supplierId },
+        data: {
+          ...(name !== undefined && { name }),
+          ...(address !== undefined && { address }),
+          ...(website !== undefined && { website }),
+          ...(contactInfo !== undefined && { contact_info: contactInfo }),
+          ...(country !== undefined && { country }),
+          ...(countryCode !== undefined && { country_code: countryCode }),
+          ...(latitude !== undefined && { latitude }),
+          ...(longitude !== undefined && { longitude }),
+          ...(notifyPartyName !== undefined && { notify_party_name: notifyPartyName }),
+          ...(notifyPartyAddress !== undefined && { notify_party_address: notifyPartyAddress }),
+        },
+      });
+      await auditDataWrite(tx, req, tokenPayload.userId, supplier.organization_id, writeGrant, 'update', 'supplier', row.id);
+      return row;
     });
-    await auditDataWrite(req, tokenPayload.userId, supplier.organization_id, writeGrant, 'update', 'supplier', updated.id);
 
     res.status(200).json({
       success: true,
@@ -2621,12 +2654,15 @@ app.delete('/api/suppliers/:id', async (req: Request, res: Response) => {
     // OWNER/ADMIN of this org, or a Pericles root-org OWNER/ADMIN (#73).
     const writeGrant = await organizationWriteGrant(tokenPayload.userId, supplier.organization_id);
     if (!writeGrant) {
+      await auditDataWriteDenied(req, tokenPayload.userId, supplier.organization_id, 'delete', 'supplier', supplier.id);
       res.status(403).json({ success: false, error: { code: 'FORBIDDEN', message: 'Insufficient permissions' } });
       return;
     }
 
-    await prisma.supplier.delete({ where: { id: supplierId } });
-    await auditDataWrite(req, tokenPayload.userId, supplier.organization_id, writeGrant, 'delete', 'supplier', supplierId);
+    await prisma.$transaction(async (tx) => {
+      await tx.supplier.delete({ where: { id: supplierId } });
+      await auditDataWrite(tx, req, tokenPayload.userId, supplier.organization_id, writeGrant, 'delete', 'supplier', supplierId);
+    });
 
     res.status(200).json({ success: true, data: { message: 'Supplier deleted successfully' } });
   } catch (error) {
@@ -3184,51 +3220,55 @@ app.post('/api/shipments', async (req: Request, res: Response) => {
     // OWNER/ADMIN of this org, or a Pericles root-org OWNER/ADMIN (#73).
     const writeGrant = await organizationWriteGrant(tokenPayload.userId, organizationId);
     if (!writeGrant) {
+      await auditDataWriteDenied(req, tokenPayload.userId, organizationId, 'create', 'shipment', null);
       res.status(403).json({ success: false, error: { code: 'FORBIDDEN', message: 'Insufficient permissions' } });
       return;
     }
 
-    const shipment = await prisma.shipment.create({
-      data: {
-        id: crypto.randomUUID(),
-        organization: { connect: { id: organizationId } },
-        bol_number: bolNumber,
-        master_bol_number: shipmentData.masterBolNumber,
-        supplier: shipmentData.supplierId ? { connect: { id: shipmentData.supplierId } } : undefined,
-        carrier: shipmentData.carrierId ? { connect: { id: shipmentData.carrierId } } : undefined,
-        containers_count: shipmentData.containersCount,
-        shipping_route: shipmentData.shippingRoute,
-        mode_of_transport: shipmentData.modeOfTransport,
-        value_usd: shipmentData.valueUsd,
-        arrival_date: shipmentData.arrivalDate ? new Date(shipmentData.arrivalDate) : undefined,
-        estimated_arrival_date: shipmentData.estimatedArrivalDate ? new Date(shipmentData.estimatedArrivalDate) : undefined,
-        destination_port: shipmentData.destinationPort,
-        destination_port_code: shipmentData.destinationPortCode,
-        departure_port: shipmentData.departurePort,
-        departure_port_code: shipmentData.departurePortCode,
-        vessel_name: shipmentData.vesselName,
-        vessel_code: shipmentData.vesselCode,
-        voyage: shipmentData.voyage,
-        container_ids: shipmentData.containerIds,
-        container_sizes: shipmentData.containerSizes,
-        container_types: shipmentData.containerTypes,
-        hs_codes: shipmentData.hsCodes,
-        hs_code_descriptions: shipmentData.hsCodeDescriptions,
-        product_description: shipmentData.productDescription,
-        quantity: shipmentData.quantity,
-        quantity_unit: shipmentData.quantityUnit,
-        teu: shipmentData.teu,
-        weight: shipmentData.weight,
-        notify_party_name: shipmentData.notifyPartyName,
-        notify_party_address: shipmentData.notifyPartyAddress,
-        notify_party_country_code: shipmentData.notifyPartyCountryCode,
-      },
-      include: {
-        supplier: { select: { id: true, name: true, country: true } },
-        carrier: { select: { id: true, name: true, scac_code: true } },
-      },
+    const shipment = await prisma.$transaction(async (tx) => {
+      const row = await tx.shipment.create({
+        data: {
+          id: crypto.randomUUID(),
+          organization: { connect: { id: organizationId } },
+          bol_number: bolNumber,
+          master_bol_number: shipmentData.masterBolNumber,
+          supplier: shipmentData.supplierId ? { connect: { id: shipmentData.supplierId } } : undefined,
+          carrier: shipmentData.carrierId ? { connect: { id: shipmentData.carrierId } } : undefined,
+          containers_count: shipmentData.containersCount,
+          shipping_route: shipmentData.shippingRoute,
+          mode_of_transport: shipmentData.modeOfTransport,
+          value_usd: shipmentData.valueUsd,
+          arrival_date: shipmentData.arrivalDate ? new Date(shipmentData.arrivalDate) : undefined,
+          estimated_arrival_date: shipmentData.estimatedArrivalDate ? new Date(shipmentData.estimatedArrivalDate) : undefined,
+          destination_port: shipmentData.destinationPort,
+          destination_port_code: shipmentData.destinationPortCode,
+          departure_port: shipmentData.departurePort,
+          departure_port_code: shipmentData.departurePortCode,
+          vessel_name: shipmentData.vesselName,
+          vessel_code: shipmentData.vesselCode,
+          voyage: shipmentData.voyage,
+          container_ids: shipmentData.containerIds,
+          container_sizes: shipmentData.containerSizes,
+          container_types: shipmentData.containerTypes,
+          hs_codes: shipmentData.hsCodes,
+          hs_code_descriptions: shipmentData.hsCodeDescriptions,
+          product_description: shipmentData.productDescription,
+          quantity: shipmentData.quantity,
+          quantity_unit: shipmentData.quantityUnit,
+          teu: shipmentData.teu,
+          weight: shipmentData.weight,
+          notify_party_name: shipmentData.notifyPartyName,
+          notify_party_address: shipmentData.notifyPartyAddress,
+          notify_party_country_code: shipmentData.notifyPartyCountryCode,
+        },
+        include: {
+          supplier: { select: { id: true, name: true, country: true } },
+          carrier: { select: { id: true, name: true, scac_code: true } },
+        },
+      });
+      await auditDataWrite(tx, req, tokenPayload.userId, organizationId, writeGrant, 'create', 'shipment', row.id);
+      return row;
     });
-    await auditDataWrite(req, tokenPayload.userId, organizationId, writeGrant, 'create', 'shipment', shipment.id);
 
     const s = shipment;
     res.status(201).json({
@@ -3303,52 +3343,56 @@ app.patch('/api/shipments/:id', async (req: Request, res: Response) => {
     // OWNER/ADMIN of this org, or a Pericles root-org OWNER/ADMIN (#73).
     const writeGrant = await organizationWriteGrant(tokenPayload.userId, existingShipment.organization_id);
     if (!writeGrant) {
+      await auditDataWriteDenied(req, tokenPayload.userId, existingShipment.organization_id, 'update', 'shipment', existingShipment.id);
       res.status(403).json({ success: false, error: { code: 'FORBIDDEN', message: 'Insufficient permissions' } });
       return;
     }
 
     const data = req.body;
 
-    const shipment = await prisma.shipment.update({
-      where: { id: shipmentId },
-      data: {
-        ...(data.bolNumber !== undefined && { bol_number: data.bolNumber }),
-        ...(data.masterBolNumber !== undefined && { master_bol_number: data.masterBolNumber }),
-        ...(data.supplierId !== undefined && { supplier_id: data.supplierId }),
-        ...(data.carrierId !== undefined && { carrier_id: data.carrierId }),
-        ...(data.containersCount !== undefined && { containers_count: data.containersCount }),
-        ...(data.shippingRoute !== undefined && { shipping_route: data.shippingRoute }),
-        ...(data.modeOfTransport !== undefined && { mode_of_transport: data.modeOfTransport }),
-        ...(data.valueUsd !== undefined && { value_usd: data.valueUsd }),
-        ...(data.arrivalDate !== undefined && { arrival_date: data.arrivalDate ? new Date(data.arrivalDate) : null }),
-        ...(data.estimatedArrivalDate !== undefined && { estimated_arrival_date: data.estimatedArrivalDate ? new Date(data.estimatedArrivalDate) : null }),
-        ...(data.destinationPort !== undefined && { destination_port: data.destinationPort }),
-        ...(data.destinationPortCode !== undefined && { destination_port_code: data.destinationPortCode }),
-        ...(data.departurePort !== undefined && { departure_port: data.departurePort }),
-        ...(data.departurePortCode !== undefined && { departure_port_code: data.departurePortCode }),
-        ...(data.vesselName !== undefined && { vessel_name: data.vesselName }),
-        ...(data.vesselCode !== undefined && { vessel_code: data.vesselCode }),
-        ...(data.voyage !== undefined && { voyage: data.voyage }),
-        ...(data.containerIds !== undefined && { container_ids: data.containerIds }),
-        ...(data.containerSizes !== undefined && { container_sizes: data.containerSizes }),
-        ...(data.containerTypes !== undefined && { container_types: data.containerTypes }),
-        ...(data.hsCodes !== undefined && { hs_codes: data.hsCodes }),
-        ...(data.hsCodeDescriptions !== undefined && { hs_code_descriptions: data.hsCodeDescriptions }),
-        ...(data.productDescription !== undefined && { product_description: data.productDescription }),
-        ...(data.quantity !== undefined && { quantity: data.quantity }),
-        ...(data.quantityUnit !== undefined && { quantity_unit: data.quantityUnit }),
-        ...(data.teu !== undefined && { teu: data.teu }),
-        ...(data.weight !== undefined && { weight: data.weight }),
-        ...(data.notifyPartyName !== undefined && { notify_party_name: data.notifyPartyName }),
-        ...(data.notifyPartyAddress !== undefined && { notify_party_address: data.notifyPartyAddress }),
-        ...(data.notifyPartyCountryCode !== undefined && { notify_party_country_code: data.notifyPartyCountryCode }),
-      },
-      include: {
-        supplier: { select: { id: true, name: true, country: true } },
-        carrier: { select: { id: true, name: true, scac_code: true } },
-      },
+    const shipment = await prisma.$transaction(async (tx) => {
+      const row = await tx.shipment.update({
+        where: { id: shipmentId },
+        data: {
+          ...(data.bolNumber !== undefined && { bol_number: data.bolNumber }),
+          ...(data.masterBolNumber !== undefined && { master_bol_number: data.masterBolNumber }),
+          ...(data.supplierId !== undefined && { supplier_id: data.supplierId }),
+          ...(data.carrierId !== undefined && { carrier_id: data.carrierId }),
+          ...(data.containersCount !== undefined && { containers_count: data.containersCount }),
+          ...(data.shippingRoute !== undefined && { shipping_route: data.shippingRoute }),
+          ...(data.modeOfTransport !== undefined && { mode_of_transport: data.modeOfTransport }),
+          ...(data.valueUsd !== undefined && { value_usd: data.valueUsd }),
+          ...(data.arrivalDate !== undefined && { arrival_date: data.arrivalDate ? new Date(data.arrivalDate) : null }),
+          ...(data.estimatedArrivalDate !== undefined && { estimated_arrival_date: data.estimatedArrivalDate ? new Date(data.estimatedArrivalDate) : null }),
+          ...(data.destinationPort !== undefined && { destination_port: data.destinationPort }),
+          ...(data.destinationPortCode !== undefined && { destination_port_code: data.destinationPortCode }),
+          ...(data.departurePort !== undefined && { departure_port: data.departurePort }),
+          ...(data.departurePortCode !== undefined && { departure_port_code: data.departurePortCode }),
+          ...(data.vesselName !== undefined && { vessel_name: data.vesselName }),
+          ...(data.vesselCode !== undefined && { vessel_code: data.vesselCode }),
+          ...(data.voyage !== undefined && { voyage: data.voyage }),
+          ...(data.containerIds !== undefined && { container_ids: data.containerIds }),
+          ...(data.containerSizes !== undefined && { container_sizes: data.containerSizes }),
+          ...(data.containerTypes !== undefined && { container_types: data.containerTypes }),
+          ...(data.hsCodes !== undefined && { hs_codes: data.hsCodes }),
+          ...(data.hsCodeDescriptions !== undefined && { hs_code_descriptions: data.hsCodeDescriptions }),
+          ...(data.productDescription !== undefined && { product_description: data.productDescription }),
+          ...(data.quantity !== undefined && { quantity: data.quantity }),
+          ...(data.quantityUnit !== undefined && { quantity_unit: data.quantityUnit }),
+          ...(data.teu !== undefined && { teu: data.teu }),
+          ...(data.weight !== undefined && { weight: data.weight }),
+          ...(data.notifyPartyName !== undefined && { notify_party_name: data.notifyPartyName }),
+          ...(data.notifyPartyAddress !== undefined && { notify_party_address: data.notifyPartyAddress }),
+          ...(data.notifyPartyCountryCode !== undefined && { notify_party_country_code: data.notifyPartyCountryCode }),
+        },
+        include: {
+          supplier: { select: { id: true, name: true, country: true } },
+          carrier: { select: { id: true, name: true, scac_code: true } },
+        },
+      });
+      await auditDataWrite(tx, req, tokenPayload.userId, existingShipment.organization_id, writeGrant, 'update', 'shipment', row.id);
+      return row;
     });
-    await auditDataWrite(req, tokenPayload.userId, existingShipment.organization_id, writeGrant, 'update', 'shipment', shipment.id);
 
     const s = shipment;
     res.status(200).json({
@@ -3423,12 +3467,15 @@ app.delete('/api/shipments/:id', async (req: Request, res: Response) => {
     // OWNER/ADMIN of this org, or a Pericles root-org OWNER/ADMIN (#73).
     const writeGrant = await organizationWriteGrant(tokenPayload.userId, shipment.organization_id);
     if (!writeGrant) {
+      await auditDataWriteDenied(req, tokenPayload.userId, shipment.organization_id, 'delete', 'shipment', shipment.id);
       res.status(403).json({ success: false, error: { code: 'FORBIDDEN', message: 'Insufficient permissions' } });
       return;
     }
 
-    await prisma.shipment.delete({ where: { id: shipmentId } });
-    await auditDataWrite(req, tokenPayload.userId, shipment.organization_id, writeGrant, 'delete', 'shipment', shipmentId);
+    await prisma.$transaction(async (tx) => {
+      await tx.shipment.delete({ where: { id: shipmentId } });
+      await auditDataWrite(tx, req, tokenPayload.userId, shipment.organization_id, writeGrant, 'delete', 'shipment', shipmentId);
+    });
 
     res.status(200).json({ success: true, data: { message: 'Shipment deleted successfully' } });
   } catch (error) {

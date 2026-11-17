@@ -84,8 +84,11 @@ export default function CarriersPage() {
     c.scacCode.toLowerCase().includes(searchQuery.toLowerCase())
   );
 
-  // Check if user is admin of any org (carriers are global, so any admin can manage)
-  const canManageCarriers = organizations.some(o => ['OWNER', 'ADMIN'].includes(o.role));
+  // Carriers are global: the API allows any active OWNER/ADMIN membership.
+  // `role` may be inherited (a root MEMBER sees MEMBER everywhere), so use
+  // canManageData, which is true exactly where the user is a direct
+  // OWNER/ADMIN, or everywhere for a root OWNER/ADMIN (#73).
+  const canManageCarriers = organizations.some((o) => o.canManageData);
 
   const handleCreate = async (e: React.FormEvent) => {
     e.preventDefault();

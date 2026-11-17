@@ -1,6 +1,6 @@
 'use client';
 
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useRef } from 'react';
 import { useAuth } from '@/providers/auth-provider';
 import {
   Shipment,
@@ -85,16 +85,22 @@ export default function ShipmentsPage() {
   const [message, setMessage] = useState<{ type: 'success' | 'error'; text: string } | null>(null);
 
   // The caller's orgs and write flags (canManageData) don't depend on the
-  // selected org, so load them once rather than on every org switch.
+  // selected org: load them once, and only retry (on the next org switch) if
+  // that load failed, so a transient error doesn't hide write actions for good.
+  const orgsLoaded = useRef(false);
   useEffect(() => {
+    if (orgsLoaded.current) return;
     let isMounted = true;
     void getOrganizations().then((orgsRes) => {
-      if (isMounted && orgsRes.success && orgsRes.data) setOrganizations(orgsRes.data);
+      if (isMounted && orgsRes.success && orgsRes.data) {
+        orgsLoaded.current = true;
+        setOrganizations(orgsRes.data);
+      }
     });
     return () => {
       isMounted = false;
     };
-  }, []);
+  }, [currentOrganization?.id]);
 
   /** May the caller create/edit/delete this org's shipments? (#73) */
   const canManageOrg = (orgId: string): boolean =>

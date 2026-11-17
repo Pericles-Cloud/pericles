@@ -179,21 +179,40 @@ export async function checkOrganizationAccess(
   return { hasAccess: false, reason: 'not_member' };
 }
 
-const WRITE_ROLES = new Set(['OWNER', 'ADMIN']);
+const WRITE_ROLES = ['OWNER', 'ADMIN'];
 
 /**
- * May this user create, edit or delete an organization's operational data
- * (shipments, suppliers)? (#73)
- *
- * - An active OWNER/ADMIN membership in the organization itself, OR
- * - an active OWNER/ADMIN membership in the Pericles ROOT organization (staff
- *   who already read every tenant), provided the organization exists.
+ * Where a user may create, edit or delete operational data (shipments,
+ * suppliers) (#73): every org where they are an active OWNER/ADMIN, and, if
+ * they are an active OWNER/ADMIN of a Pericles ROOT org, every org.
  *
  * Deliberately NOT the ancestor rollup that checkOrganizationAccess grants
  * for reads: a parent company's admin may read its subsidiaries' rows but not
- * modify them. Keep this in step with `canManageData` in GET
- * /api/organizations, which tells the UI where to show write actions.
+ * modify them. The ONE implementation of the write rule: the API check
+ * (organizationWriteGrant) and the UI flag (`canManageData` in GET
+ * /api/organizations) both use it.
  */
+export interface WriteScope {
+  /** Active OWNER/ADMIN of a root org: may write to every existing org. */
+  rootAdmin: boolean;
+  /** Orgs where the user is an active OWNER/ADMIN directly. */
+  directOrgIds: Set<string>;
+}
+
+export async function writeScope(userId: string, client: PrismaClient = prisma): Promise<WriteScope> {
+  // One query, filtered by role: with more than one root org (is_root is not
+  // unique) an unordered "first root membership" could pick a MEMBER row.
+  const memberships = await client.userOrganization.findMany({
+    where: { user_id: userId, status: 'active', role: { in: WRITE_ROLES } },
+    select: { organization_id: true, organization: { select: { is_root: true } } },
+  });
+  return {
+    rootAdmin: memberships.some((m) => m.organization.is_root),
+    directOrgIds: new Set(memberships.map((m) => m.organization_id)),
+  };
+}
+
+/** May this user write this organization's shipments/suppliers? See writeScope. */
 export async function canWriteOrganizationData(
   userId: string,
   organizationId: string,
@@ -202,7 +221,7 @@ export async function canWriteOrganizationData(
   return (await organizationWriteGrant(userId, organizationId, client)) !== null;
 }
 
-/** How a write was granted: 'direct' (own org) or 'root' (Pericles staff), or null if denied. */
+/** How a write was granted: 'direct' (own org) or 'root' (Pericles staff). */
 export type OrganizationWriteGrant = 'direct' | 'root';
 
 /** canWriteOrganizationData, also saying how access was granted (for the audit record). */
@@ -211,16 +230,9 @@ export async function organizationWriteGrant(
   organizationId: string,
   client: PrismaClient = prisma
 ): Promise<OrganizationWriteGrant | null> {
-  const direct = await client.userOrganization.findUnique({
-    where: { user_id_organization_id: { user_id: userId, organization_id: organizationId } },
-  });
-  if (direct?.status === 'active' && WRITE_ROLES.has(direct.role)) return 'direct';
-
-  const root = await client.userOrganization.findFirst({
-    where: { user_id: userId, status: 'active', organization: { is_root: true } },
-  });
-  if (!root || !WRITE_ROLES.has(root.role)) return null;
-
+  const scope = await writeScope(userId, client);
+  if (scope.directOrgIds.has(organizationId)) return 'direct';
+  if (!scope.rootAdmin) return null;
   const target = await client.organization.findUnique({
     where: { id: organizationId },
     select: { id: true },

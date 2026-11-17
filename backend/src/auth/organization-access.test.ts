@@ -8,7 +8,7 @@
  */
 import { describe, it, expect } from 'vitest';
 import type { PrismaClient } from '@prisma/client';
-import { canWriteOrganizationData, checkOrganizationAccess, organizationWriteGrant } from './middleware.js';
+import { canWriteOrganizationData, checkOrganizationAccess, organizationWriteGrant, writeScope } from './middleware.js';
 
 // Org tree:
 //   root (is_root)         standex (unrelated parent)
@@ -48,6 +48,20 @@ function makeClient(memberships: Membership[], orgs: Record<string, Org> = ORGS)
           memberships.find(
             (x) => x.user_id === where.user_id && x.status === 'active' && orgs[x.organization_id]?.is_root
           ) ?? null
+        ),
+      findMany: ({ where }: { where: { user_id: string; status?: string; role?: { in: string[] } } }) =>
+        Promise.resolve(
+          memberships
+            .filter(
+              (x) =>
+                x.user_id === where.user_id &&
+                (where.status === undefined || x.status === where.status) &&
+                (where.role === undefined || where.role.in.includes(x.role))
+            )
+            .map((x) => ({
+              organization_id: x.organization_id,
+              organization: { is_root: orgs[x.organization_id]?.is_root ?? false },
+            }))
         ),
     },
     organization: {
@@ -185,5 +199,38 @@ describe('organizationWriteGrant (audit: how a write was granted)', () => {
   it('reports null when denied', async () => {
     expect(await grant([active('u', 'helios', 'OWNER')], 'sun')).toBeNull();
     expect(await grant([active('u', 'root', 'ADMIN')], 'nope')).toBeNull();
+  });
+});
+
+describe('writeScope (the one write rule: API check and UI canManageData)', () => {
+  const scope = (memberships: Membership[], orgs?: Record<string, Org>) =>
+    writeScope('u', makeClient(memberships, orgs) as unknown as PrismaClient);
+
+  it('lists direct OWNER/ADMIN orgs only, not MEMBER/GUEST or inactive', async () => {
+    const sc = await scope([
+      active('u', 'sun', 'ADMIN'),
+      active('u', 'helios', 'MEMBER'),
+      active('u', 'faster', 'GUEST'),
+      { user_id: 'u', organization_id: 'standex', role: 'OWNER', status: 'pending' },
+    ]);
+    expect([...sc.directOrgIds]).toEqual(['sun']);
+    expect(sc.rootAdmin).toBe(false);
+  });
+
+  it('a root MEMBER is not a root admin', async () => {
+    expect((await scope([active('u', 'root', 'MEMBER')])).rootAdmin).toBe(false);
+  });
+
+  it('is deterministic with two root orgs: an ADMIN row in either makes the user a root admin', async () => {
+    const twoRoots = { ...ORGS, root2: { id: 'root2', parent_organization_id: null, is_root: true } };
+    const sc = await scope([active('u', 'root', 'MEMBER'), active('u', 'root2', 'ADMIN')], twoRoots);
+    expect(sc.rootAdmin).toBe(true);
+    expect(
+      await organizationWriteGrant(
+        'u',
+        'sun',
+        makeClient([active('u', 'root', 'MEMBER'), active('u', 'root2', 'ADMIN')], twoRoots) as unknown as PrismaClient
+      )
+    ).toBe('root');
   });
 });
