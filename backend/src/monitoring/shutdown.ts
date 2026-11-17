@@ -32,12 +32,11 @@ export function shutdownGraceMs(): number {
   return value;
 }
 
-export interface ServiceOptions {
-  /** Log prefix, e.g. "[GlobalStart]". */
-  name: string;
-  /** Starts the main loop; resolves when the loop stops. */
-  loop: () => Promise<void>;
-  /** Stops the main loop (and cuts its sleep short). */
+/** What a service has running once started. */
+export interface ServiceParts {
+  /** The main loop; resolves when it stops. */
+  loop: Promise<void>;
+  /** Stops the main loop (its sleep ends at once). */
   stopLoop: () => void;
   /** Work to finish before exit, e.g. the dispatch worker's stop(). */
   drain?: () => Promise<void>;
@@ -45,38 +44,78 @@ export interface ServiceOptions {
   cleanup?: () => void;
 }
 
-/** Run a service until it is stopped by a signal (exit 0) or its loop gives up (exit 1). */
-export async function runService(options: ServiceOptions): Promise<void> {
-  const graceMs = shutdownGraceMs();
-  let shuttingDown = false;
-  let loopDone: Promise<void> = Promise.resolve();
+export interface ServiceOptions {
+  /** Log prefix, e.g. "[GlobalStart]". */
+  name: string;
+  /**
+   * Starts everything (workers, timers, the loop). Called AFTER the signal
+   * handlers are installed: as PID 1 a process ignores signals it has no
+   * handler for, so a SIGTERM during startup would otherwise be dropped.
+   */
+  start: () => Promise<ServiceParts> | ServiceParts;
+}
 
-  const shutdown = (signal: string): void => {
-    if (shuttingDown) return;
+/** Wait for p, but no longer than ms. */
+function bounded(p: Promise<unknown>, ms: number): Promise<void> {
+  const grace = new Promise<void>((resolve) => setTimeout(resolve, ms).unref());
+  return Promise.race([p.then(() => undefined, () => undefined), grace]);
+}
+
+/** Close the shared Prisma client (and its connections) before exit, best effort. */
+async function closeDatabase(): Promise<void> {
+  try {
+    const { getPrismaClient } = await import('./db-client.js');
+    await bounded(getPrismaClient().$disconnect(), 2000);
+  } catch {
+    // Nothing to close, or it failed: exiting anyway.
+  }
+}
+
+/**
+ * Run a service until it is stopped by a signal (exit 0) or its loop gives up
+ * (exit 1). A second signal while draining forces an immediate exit 1.
+ */
+export async function runService(options: ServiceOptions): Promise<void> {
+  const graceMs = shutdownGraceMs(); // validated at startup, before any side effect
+  let parts: ServiceParts | null = null;
+  let shuttingDown = false;
+
+  const finish = async (code: number): Promise<never> => {
+    parts?.cleanup?.();
+    await bounded(Promise.all([parts?.loop, parts?.drain?.()]), graceMs);
+    await closeDatabase();
+    process.exit(code);
+  };
+
+  const onSignal = (signal: string): void => {
+    if (shuttingDown) {
+      logger.warn(`${options.name} Received ${signal} again; exiting now`);
+      process.exit(1);
+    }
     shuttingDown = true;
     logger.info(`${options.name} Received ${signal}, draining (up to ${graceMs}ms)...`);
-    options.stopLoop();
-    options.cleanup?.();
-    const grace = new Promise<void>((resolve) => setTimeout(resolve, graceMs).unref());
-    const work = Promise.all([loopDone, options.drain?.() ?? Promise.resolve()]).then(() => undefined);
-    void Promise.race([work, grace]).finally(() => {
-      process.exit(0);
-    });
+    parts?.stopLoop();
+    // If startup is still running, the drain happens once start() returns.
+    if (parts) void finish(0);
   };
   process.on('SIGINT', () => {
-    shutdown('SIGINT');
+    onSignal('SIGINT');
   });
   process.on('SIGTERM', () => {
-    shutdown('SIGTERM');
+    onSignal('SIGTERM');
   });
 
-  loopDone = options.loop();
-  await loopDone;
+  parts = await options.start();
+  if (shuttingDown) {
+    // A signal arrived during startup: stop what just started and drain.
+    parts.stopLoop();
+    await finish(0);
+  }
+
+  await parts.loop;
 
   // A requested stop also ends the loop; the signal handler owns that exit.
   if (shuttingDown) return;
   logger.fatal(`${options.name} Loop stopped on its own; exiting so the service is restarted`);
-  options.cleanup?.();
-  void options.drain?.();
-  process.exit(1);
+  await finish(1);
 }

@@ -127,28 +127,36 @@ async function main() {
     '[GlobalStart] Configuration loaded'
   );
 
-  // The dispatch worker delivers the change records this process emits to
-  // client_monitoring (and later Validation). It runs here, always: without it
-  // global events never reach any customer (wiki D30).
-  const dispatchWorker = startDispatchWorker();
-
-  // Periodic Client Exposure Profile refresh for every monitoring-enabled org
-  // (D29): catches anything the sync triggers (ERP/BOL, Org Memory) missed.
+  // Validated before anything starts.
   const profileIntervalMs = positiveIntervalMs('PROFILE_REFRESH_INTERVAL_MS', 60 * 60 * 1000);
-  const profileTimer = setInterval(() => {
-    void refreshAllProfiles();
-  }, profileIntervalMs);
-  void refreshAllProfiles();
 
-  // Lifecycle: SIGTERM/SIGINT drain the in-flight cycle and dispatch record
-  // (bounded by SHUTDOWN_GRACE_MS) and exit 0; the loop giving up exits 1.
+  // Lifecycle: signal handlers first, then startup, so a SIGTERM during
+  // startup is not dropped (as PID 1 an unhandled signal is ignored).
+  // SIGTERM/SIGINT drain the in-flight cycle and dispatch record (bounded by
+  // SHUTDOWN_GRACE_MS) and exit 0; the loop giving up exits 1.
   await runService({
     name: '[GlobalStart]',
-    loop: () => startGlobalMonitoring({ pollingIntervalMs: intervalMs }),
-    stopLoop: stopGlobalMonitoring,
-    drain: () => dispatchWorker.stop(),
-    cleanup: () => {
-      clearInterval(profileTimer);
+    start: () => {
+      // The dispatch worker delivers the change records this process emits
+      // to client_monitoring (and later Validation). Without it global events
+      // never reach any customer (wiki D30).
+      const dispatchWorker = startDispatchWorker();
+
+      // Periodic Client Exposure Profile refresh for every monitored org
+      // (D29): catches anything the sync triggers (ERP/BOL, Org Memory) missed.
+      const profileTimer = setInterval(() => {
+        void refreshAllProfiles();
+      }, profileIntervalMs);
+      void refreshAllProfiles();
+
+      return {
+        loop: startGlobalMonitoring({ pollingIntervalMs: intervalMs }),
+        stopLoop: stopGlobalMonitoring,
+        drain: () => dispatchWorker.stop(),
+        cleanup: () => {
+          clearInterval(profileTimer);
+        },
+      };
     },
   });
 }

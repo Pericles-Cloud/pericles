@@ -26,10 +26,22 @@ function run(mode: string, env: Record<string, string> = {}): Promise<{ code: nu
 }
 
 describe('runService', () => {
-  it('exits 1 when the loop stops on its own, so the platform restarts the service', async () => {
+  it('exits 1 when the loop stops on its own, after draining the work in flight', async () => {
     const { code, output } = await run('gives-up');
     expect(code).toBe(1);
-    expect(output).toContain('Loop stopped on its own');
+    expect(output).toContain('drained');
+  }, TIMEOUT);
+
+  it('handles a SIGTERM that arrives during startup (not dropped), then drains and exits 0', async () => {
+    const { code, output } = await run('startup-signal');
+    expect(code).toBe(0);
+    expect(output).toContain('drained');
+  }, TIMEOUT);
+
+  it('a second signal while draining forces exit 1 at once', async () => {
+    const { code, ms } = await run('double-signal', { SHUTDOWN_GRACE_MS: '20000' });
+    expect(code).toBe(1);
+    expect(ms).toBeLessThan(15_000);
   }, TIMEOUT);
 
   it('on SIGTERM waits for the drain, then exits 0', async () => {

@@ -20,6 +20,7 @@ import { PrismaClient } from '@prisma/client';
 
 const MIGRATIONS_DIR = 'prisma/migrations';
 const POLL_MS = 5000;
+const CHECK_TIMEOUT_MS = 10_000;
 
 function waitLimitSeconds(): number {
   const raw = process.env.MIGRATION_WAIT_SECONDS;
@@ -103,8 +104,9 @@ async function main(): Promise<void> {
   try {
     for (;;) {
       try {
-        // Each check is bounded by what is left of the deadline (at least 1s).
-        const missing = await within(pending(prisma, shipped), Math.max(1000, deadline - Date.now()));
+        // Each check is capped (10s, or what is left of the deadline): a hung
+        // check is abandoned and retried, so a database that recovers is seen.
+        const missing = await within(pending(prisma, shipped), Math.max(1000, Math.min(CHECK_TIMEOUT_MS, deadline - Date.now())));
         if (missing.length === 0) {
           console.log(`wait-for-migrations: all ${shipped.length} migrations applied`);
           return;

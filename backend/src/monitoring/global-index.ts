@@ -25,6 +25,7 @@ import { TERMINAL_EVENT_STATUSES } from './exposure-strength.js';
 import type { Prisma } from '@prisma/client';
 import { GlobalBillingConfigError, modelContext, resolveGlobalMonitoringModel } from './agent-models.js';
 import { MissingApiKeyError, agentTimeoutMs } from './config.js';
+import { createInterruptibleSleep } from './interruptible-sleep.js';
 
 // ============================================================================
 // Global State
@@ -59,6 +60,7 @@ export async function startGlobalMonitoring(config: GlobalMonitoringConfig): Pro
   );
 
   isRunning = true;
+  loopSleep.reset();
 
   while (isRunning) {
     try {
@@ -96,7 +98,7 @@ export async function startGlobalMonitoring(config: GlobalMonitoringConfig): Pro
  */
 export function stopGlobalMonitoring(): void {
   isRunning = false;
-  wakeSleep?.();
+  loopSleep.stop();
   logger.info('[GlobalMonitoring] Stopping global monitoring loop...');
 }
 
@@ -568,18 +570,6 @@ Also check Active events for resolution and mark stale events.
 Return results in JSON format.`;
 }
 
-/** Wakes the loop's current sleep early (set while sleeping). */
-let wakeSleep: (() => void) | null = null;
-
-/** A sleep the stop function can cut short, so a requested stop does not wait a whole interval. */
-function sleep(ms: number): Promise<void> {
-  return new Promise((resolve) => {
-    const timer = setTimeout(done, ms);
-    function done(): void {
-      clearTimeout(timer);
-      wakeSleep = null;
-      resolve();
-    }
-    wakeSleep = done;
-  });
-}
+/** The loop's sleep: ended early, and skipped, once the loop is stopped. */
+const loopSleep = createInterruptibleSleep();
+const sleep = loopSleep.sleep;

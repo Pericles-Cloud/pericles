@@ -96,18 +96,21 @@ async function main() {
       '[Start] Configuration loaded'
     );
 
-    // Change-record dispatch (Doctrine §13). Opt-in, off by default.
-    const dispatchWorker =
-      process.env.DISPATCH_WORKER_ENABLED === 'true' ? startDispatchWorker() : null;
-
     // Lifecycle (shared with global-start): SIGTERM/SIGINT drain the in-flight
     // cycle and dispatch record (bounded by SHUTDOWN_GRACE_MS) and exit 0; the
     // loop giving up on its own exits 1 so the platform restarts the service.
     await runService({
       name: '[Start]',
-      loop: () => startMonitoring(config),
-      stopLoop: stopMonitoring,
-      drain: () => dispatchWorker?.stop() ?? Promise.resolve(),
+      start: () => {
+        // Change-record dispatch (Doctrine §13). Opt-in, off by default.
+        const dispatchWorker =
+          process.env.DISPATCH_WORKER_ENABLED === 'true' ? startDispatchWorker() : null;
+        return {
+          loop: startMonitoring(config),
+          stopLoop: stopMonitoring,
+          drain: () => dispatchWorker?.stop() ?? Promise.resolve(),
+        };
+      },
     });
   } catch (error) {
     logger.fatal({ error }, '[Start] Failed to start monitoring');

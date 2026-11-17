@@ -42,5 +42,8 @@ else
   trap - TERM INT
 fi
 
-# shellcheck disable=SC2086 # APP_ARGS is deliberately split into arguments
+# APP_ARGS is split on whitespace on purpose; globbing is turned off so a
+# '*' or '[...]' in an argument stays literal.
+set -f
+# shellcheck disable=SC2086
 exec node --import tsx "$ENTRY" ${APP_ARGS:-}
