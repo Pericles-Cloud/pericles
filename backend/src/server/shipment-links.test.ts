@@ -105,42 +105,77 @@ describe('resolveShipmentCarrierId', () => {
 });
 
 describe('classifyShipmentWriteError (error -> response)', () => {
-  // Shapes observed from Prisma 6 against Postgres for each case.
-  const prismaError = (code: string, meta: Record<string, unknown>) =>
-    new Prisma.PrismaClientKnownRequestError('test', { code, clientVersion: 'test', meta });
+  const prismaError = (code: string) =>
+    new Prisma.PrismaClientKnownRequestError('test', { code, clientVersion: 'test', meta: {} });
 
-  it('maps a ShipmentLinkError to 400 with its message', () => {
-    expect(classifyShipmentWriteError(new ShipmentLinkError(SUPPLIER_LINK_MESSAGE))).toEqual({
+  // What still exists after the failed write.
+  const world = (exists: { shipments?: string[]; suppliers?: string[]; carriers?: string[] }) => {
+    const finder = (ids: string[] = []) => ({
+      findUnique: ({ where }: { where: { id: string } }) => Promise.resolve(ids.includes(where.id) ? { id: where.id } : null),
+    });
+    return {
+      shipment: finder(exists.shipments),
+      supplier: finder(exists.suppliers),
+      carrier: finder(exists.carriers),
+    } as unknown as Parameters<typeof classifyShipmentWriteError>[1]['client'];
+  };
+
+  it('maps a ShipmentLinkError to 400 with its message', async () => {
+    expect(await classifyShipmentWriteError(new ShipmentLinkError(SUPPLIER_LINK_MESSAGE), { client: world({}) })).toEqual({
       status: 400,
       code: 'VALIDATION_ERROR',
       message: SUPPLIER_LINK_MESSAGE,
     });
   });
 
-  it('maps a concurrently deleted supplier/carrier to 400 (update FK, create connect)', () => {
-    for (const e of [
-      prismaError('P2003', { modelName: 'Shipment', constraint: 'Shipment_supplier_id_fkey' }),
-      prismaError('P2003', { modelName: 'Shipment', constraint: 'Shipment_carrier_id_fkey' }),
-      prismaError('P2025', { modelName: 'Shipment', cause: "No 'Supplier' record (needed to inline the relation on 'Shipment' record(s)) was found for a nested connect on one-to-many relation 'ShipmentToSupplier'." }),
-      prismaError('P2025', { modelName: 'Shipment', cause: "No 'Carrier' record (needed to inline the relation on 'Shipment' record(s)) was found for a nested connect on one-to-many relation 'CarrierToShipment'." }),
-    ]) {
-      expect(classifyShipmentWriteError(e)).toEqual({ status: 400, code: 'VALIDATION_ERROR', message: LINK_GONE_MESSAGE });
+  it('a supplier or carrier deleted concurrently -> 400 (P2003 or P2025, whatever the wording)', async () => {
+    for (const code of ['P2003', 'P2025']) {
+      expect(
+        await classifyShipmentWriteError(prismaError(code), { client: world({ suppliers: [] }), supplierId: 'sup-x' })
+      ).toEqual({ status: 400, code: 'VALIDATION_ERROR', message: LINK_GONE_MESSAGE });
+      expect(
+        await classifyShipmentWriteError(prismaError(code), {
+          client: world({ suppliers: ['sup-x'], carriers: [] }),
+          supplierId: 'sup-x',
+          carrierId: 'car-x',
+        })
+      ).toEqual({ status: 400, code: 'VALIDATION_ERROR', message: LINK_GONE_MESSAGE });
     }
   });
 
-  it('maps an update of a shipment deleted concurrently to 404', () => {
-    const e = prismaError('P2025', { modelName: 'Shipment', cause: 'No record was found for an update.' });
-    expect(classifyShipmentWriteError(e)).toEqual({ status: 404, code: 'NOT_FOUND', message: 'Shipment not found' });
+  it('the shipment being updated was deleted concurrently -> 404', async () => {
+    expect(
+      await classifyShipmentWriteError(prismaError('P2025'), { client: world({ suppliers: ['sup-x'] }), shipmentId: 'shp-x', supplierId: 'sup-x' })
+    ).toEqual({ status: 404, code: 'NOT_FOUND', message: 'Shipment not found' });
   });
 
-  it('does NOT blame the supplier/carrier for other failures in the same transaction (left to the 500 path)', () => {
-    for (const e of [
-      prismaError('P2025', { modelName: 'Shipment', cause: "No 'Organization' record (needed to inline the relation on 'Shipment' record(s)) was found for a nested connect on one-to-many relation 'OrganizationToShipment'." }),
-      prismaError('P2003', { modelName: 'AuthAuditLog', constraint: 'AuthAuditLog_user_id_fkey' }),
-      prismaError('P2002', { modelName: 'Shipment', target: ['id'] }),
-      new Error('boom'),
-    ]) {
-      expect(classifyShipmentWriteError(e)).toBeNull();
-    }
+  it('everything still exists -> null: another failure in the transaction is not blamed on the links', async () => {
+    const ctx = {
+      client: world({ shipments: ['shp-x'], suppliers: ['sup-x'], carriers: ['car-x'] }),
+      shipmentId: 'shp-x',
+      supplierId: 'sup-x',
+      carrierId: 'car-x',
+    };
+    expect(await classifyShipmentWriteError(prismaError('P2003'), ctx)).toBeNull();
+    expect(await classifyShipmentWriteError(prismaError('P2025'), { ...ctx, supplierId: undefined, carrierId: null })).toBeNull();
+  });
+
+  it('other errors -> null without any lookup', async () => {
+    const throwing = {
+      shipment: { findUnique: () => Promise.reject(new Error('should not look up')) },
+      supplier: { findUnique: () => Promise.reject(new Error('should not look up')) },
+      carrier: { findUnique: () => Promise.reject(new Error('should not look up')) },
+    } as unknown as Parameters<typeof classifyShipmentWriteError>[1]['client'];
+    expect(await classifyShipmentWriteError(prismaError('P2002'), { client: throwing, supplierId: 'sup-x' })).toBeNull();
+    expect(await classifyShipmentWriteError(new Error('boom'), { client: throwing, supplierId: 'sup-x' })).toBeNull();
+  });
+
+  it('a failing lookup reports the original error (null), not a guess', async () => {
+    const failing = {
+      shipment: { findUnique: () => Promise.reject(new Error('db down')) },
+      supplier: { findUnique: () => Promise.reject(new Error('db down')) },
+      carrier: { findUnique: () => Promise.reject(new Error('db down')) },
+    } as unknown as Parameters<typeof classifyShipmentWriteError>[1]['client'];
+    expect(await classifyShipmentWriteError(prismaError('P2003'), { client: failing, supplierId: 'sup-x' })).toBeNull();
   });
 });

@@ -42,7 +42,12 @@ import {
   writeScope,
   type OrganizationWriteGrant,
 } from '../auth/index.js';
-import { classifyShipmentWriteError, resolveShipmentCarrierId, resolveShipmentSupplierId } from './shipment-links.js';
+import {
+  classifyShipmentWriteError,
+  resolveShipmentCarrierId,
+  resolveShipmentSupplierId,
+  type ShipmentWriteContext,
+} from './shipment-links.js';
 import { getPositionFeed, getOrganizationPositions } from '../integrations/tracking/index.js';
 import {
   resolveSettingsOwnership,
@@ -247,8 +252,12 @@ async function auditDataWrite(
 }
 
 /** Send the response for a classified shipment write error; false if it isn't one. */
-function sendShipmentWriteError(error: unknown, res: Response): boolean {
-  const mapped = classifyShipmentWriteError(error);
+async function sendShipmentWriteError(
+  error: unknown,
+  res: Response,
+  ctx: Omit<ShipmentWriteContext, 'client'>
+): Promise<boolean> {
+  const mapped = await classifyShipmentWriteError(error, { client: prisma, ...ctx });
   if (!mapped) return false;
   res.status(mapped.status).json({ success: false, error: { code: mapped.code, message: mapped.message } });
   return true;
@@ -2956,7 +2965,7 @@ app.get('/api/shipments', async (req: Request, res: Response) => {
     const shipments = await prisma.shipment.findMany({
       where: { organization_id: { in: orgIds } },
       include: {
-        supplier: { select: { id: true, name: true, country: true } },
+        supplier: { select: { id: true, name: true, country: true, organization_id: true } },
         carrier: { select: { id: true, name: true, scac_code: true } },
       },
       orderBy: { arrival_date: 'desc' },
@@ -2969,7 +2978,7 @@ app.get('/api/shipments', async (req: Request, res: Response) => {
         organizationId: s.organization_id,
         supplierId: s.supplier_id,
         carrierId: s.carrier_id,
-        supplier: s.supplier ? { id: s.supplier.id, name: s.supplier.name, country: s.supplier.country } : null,
+        supplier: s.supplier ? { id: s.supplier.id, name: s.supplier.name, country: s.supplier.country, organizationId: s.supplier.organization_id } : null,
         carrier: s.carrier ? { id: s.carrier.id, name: s.carrier.name, scacCode: s.carrier.scac_code } : null,
         bolNumber: s.bol_number,
         masterBolNumber: s.master_bol_number,
@@ -3153,7 +3162,7 @@ app.get('/api/shipments/:id', async (req: Request, res: Response) => {
     const shipment = await prisma.shipment.findUnique({
       where: { id: shipmentId },
       include: {
-        supplier: { select: { id: true, name: true, country: true, address: true } },
+        supplier: { select: { id: true, name: true, country: true, address: true, organization_id: true } },
         carrier: { select: { id: true, name: true, scac_code: true } },
       },
     });
@@ -3178,7 +3187,7 @@ app.get('/api/shipments/:id', async (req: Request, res: Response) => {
         organizationId: s.organization_id,
         supplierId: s.supplier_id,
         carrierId: s.carrier_id,
-        supplier: s.supplier ? { id: s.supplier.id, name: s.supplier.name, country: s.supplier.country, address: s.supplier.address } : null,
+        supplier: s.supplier ? { id: s.supplier.id, name: s.supplier.name, country: s.supplier.country, address: s.supplier.address, organizationId: s.supplier.organization_id } : null,
         carrier: s.carrier ? { id: s.carrier.id, name: s.carrier.name, scacCode: s.carrier.scac_code } : null,
         bolNumber: s.bol_number,
         masterBolNumber: s.master_bol_number,
@@ -3295,7 +3304,7 @@ app.post('/api/shipments', async (req: Request, res: Response) => {
           notify_party_country_code: shipmentData.notifyPartyCountryCode,
         },
         include: {
-          supplier: { select: { id: true, name: true, country: true } },
+          supplier: { select: { id: true, name: true, country: true, organization_id: true } },
           carrier: { select: { id: true, name: true, scac_code: true } },
         },
       });
@@ -3311,7 +3320,7 @@ app.post('/api/shipments', async (req: Request, res: Response) => {
         organizationId: s.organization_id,
         supplierId: s.supplier_id,
         carrierId: s.carrier_id,
-        supplier: s.supplier ? { id: s.supplier.id, name: s.supplier.name, country: s.supplier.country } : null,
+        supplier: s.supplier ? { id: s.supplier.id, name: s.supplier.name, country: s.supplier.country, organizationId: s.supplier.organization_id } : null,
         carrier: s.carrier ? { id: s.carrier.id, name: s.carrier.name, scacCode: s.carrier.scac_code } : null,
         bolNumber: s.bol_number,
         masterBolNumber: s.master_bol_number,
@@ -3350,7 +3359,8 @@ app.post('/api/shipments', async (req: Request, res: Response) => {
       },
     });
   } catch (error) {
-    if (sendShipmentWriteError(error, res)) return;
+    const sent = (req.body ?? {}) as { supplierId?: unknown; carrierId?: unknown };
+    if (await sendShipmentWriteError(error, res, { supplierId: sent.supplierId, carrierId: sent.carrierId })) return;
     console.error('Create shipment error:', error);
     res.status(500).json({ success: false, error: { code: 'INTERNAL_ERROR', message: 'An unexpected error occurred' } });
   }
@@ -3430,7 +3440,7 @@ app.patch('/api/shipments/:id', async (req: Request, res: Response) => {
           ...(data.notifyPartyCountryCode !== undefined && { notify_party_country_code: data.notifyPartyCountryCode }),
         },
         include: {
-          supplier: { select: { id: true, name: true, country: true } },
+          supplier: { select: { id: true, name: true, country: true, organization_id: true } },
           carrier: { select: { id: true, name: true, scac_code: true } },
         },
       });
@@ -3446,7 +3456,7 @@ app.patch('/api/shipments/:id', async (req: Request, res: Response) => {
         organizationId: s.organization_id,
         supplierId: s.supplier_id,
         carrierId: s.carrier_id,
-        supplier: s.supplier ? { id: s.supplier.id, name: s.supplier.name, country: s.supplier.country } : null,
+        supplier: s.supplier ? { id: s.supplier.id, name: s.supplier.name, country: s.supplier.country, organizationId: s.supplier.organization_id } : null,
         carrier: s.carrier ? { id: s.carrier.id, name: s.carrier.name, scacCode: s.carrier.scac_code } : null,
         bolNumber: s.bol_number,
         masterBolNumber: s.master_bol_number,
@@ -3485,7 +3495,9 @@ app.patch('/api/shipments/:id', async (req: Request, res: Response) => {
       },
     });
   } catch (error) {
-    if (sendShipmentWriteError(error, res)) return;
+    const sent = (req.body ?? {}) as { supplierId?: unknown; carrierId?: unknown };
+    const updatedId = typeof req.params.id === 'string' ? req.params.id : undefined;
+    if (await sendShipmentWriteError(error, res, { shipmentId: updatedId, supplierId: sent.supplierId, carrierId: sent.carrierId })) return;
     console.error('Update shipment error:', error);
     res.status(500).json({ success: false, error: { code: 'INTERNAL_ERROR', message: 'An unexpected error occurred' } });
   }

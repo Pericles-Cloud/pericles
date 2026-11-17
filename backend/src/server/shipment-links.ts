@@ -25,15 +25,20 @@ export class ShipmentLinkError extends Error {
   }
 }
 
-/** undefined = leave unchanged, null or '' = clear, else an id. */
-const LinkIdSchema = z.union([z.string().min(1).max(128), z.null(), z.literal('')]).optional();
+/** undefined = leave unchanged, null or '' = clear, else an id (max 128). */
+const LinkIdSchema = z
+  .string()
+  .max(128)
+  .nullable()
+  .optional()
+  .transform((v) => (v === '' ? null : v));
 
 type LinkId = string | null | undefined;
 
 function parseLinkId(value: unknown, message: string): LinkId {
   const parsed = LinkIdSchema.safeParse(value);
   if (!parsed.success) throw new ShipmentLinkError(message);
-  return parsed.data === '' ? null : parsed.data;
+  return parsed.data;
 }
 
 type LinkClient = Pick<Prisma.TransactionClient, 'supplier' | 'carrier'>;
@@ -84,36 +89,53 @@ export interface ShipmentWriteErrorResponse {
 
 export const LINK_GONE_MESSAGE = 'The supplier or carrier no longer exists';
 
-/** The FKs whose violation means a linked supplier/carrier was deleted concurrently. */
-const LINK_FK_CONSTRAINTS = new Set(['Shipment_supplier_id_fkey', 'Shipment_carrier_id_fkey']);
+/** What the failed write was given; used to find out what disappeared. */
+export interface ShipmentWriteContext {
+  client: Pick<Prisma.TransactionClient, 'shipment' | 'supplier' | 'carrier'>;
+  /** Update only: the shipment being updated. */
+  shipmentId?: string;
+  /** The request's supplierId / carrierId, as sent. */
+  supplierId?: unknown;
+  carrierId?: unknown;
+}
+
+const isId = (v: unknown): v is string => typeof v === 'string' && v.length > 0 && v.length <= 128;
 
 /**
  * Map a shipment create/update error to a response, or null for anything
- * else (the caller logs it and returns 500). Matched precisely on what Prisma
- * reports, so an unrelated failure in the same transaction (the org connect,
- * the audit row's FKs) is never blamed on the supplier or carrier:
+ * else (the caller logs it and returns 500).
+ *
  * - ShipmentLinkError: 400 with its message.
- * - P2003 on Shipment_supplier_id_fkey / Shipment_carrier_id_fkey (update),
- *   or P2025 "No 'Supplier'|'Carrier' record" (create's connect): the link
- *   was deleted between the check and the write, 400.
- * - P2025 "No record was found for an update": the shipment itself was
- *   deleted concurrently, 404.
+ * - A Prisma "related record missing" error (P2003 FK, P2025 not found): the
+ *   check passed, so something was deleted concurrently. Rather than parse
+ *   Prisma's wording (which changes between versions), look it up: the
+ *   shipment gone -> 404; the requested supplier or carrier gone -> 400.
+ *   If everything still exists, the failure was something else in the same
+ *   transaction (the org connect, the audit row's FKs) -> null, so it is
+ *   logged as a 500 and never blamed on the supplier or carrier.
  */
-export function classifyShipmentWriteError(error: unknown): ShipmentWriteErrorResponse | null {
+export async function classifyShipmentWriteError(
+  error: unknown,
+  ctx: ShipmentWriteContext
+): Promise<ShipmentWriteErrorResponse | null> {
   if (error instanceof ShipmentLinkError) {
     return { status: 400, code: 'VALIDATION_ERROR', message: error.message };
   }
   if (!(error instanceof Prisma.PrismaClientKnownRequestError)) return null;
-  const meta = (error.meta ?? {}) as { constraint?: unknown; cause?: unknown };
-  const cause = typeof meta.cause === 'string' ? meta.cause : '';
-  if (error.code === 'P2003' && typeof meta.constraint === 'string' && LINK_FK_CONSTRAINTS.has(meta.constraint)) {
-    return { status: 400, code: 'VALIDATION_ERROR', message: LINK_GONE_MESSAGE };
-  }
-  if (error.code === 'P2025' && /^No '(Supplier|Carrier)' record/.test(cause)) {
-    return { status: 400, code: 'VALIDATION_ERROR', message: LINK_GONE_MESSAGE };
-  }
-  if (error.code === 'P2025' && cause.startsWith('No record was found for an update')) {
-    return { status: 404, code: 'NOT_FOUND', message: 'Shipment not found' };
+  if (error.code !== 'P2003' && error.code !== 'P2025') return null;
+  try {
+    if (ctx.shipmentId && !(await ctx.client.shipment.findUnique({ where: { id: ctx.shipmentId }, select: { id: true } }))) {
+      return { status: 404, code: 'NOT_FOUND', message: 'Shipment not found' };
+    }
+    const supplierGone =
+      isId(ctx.supplierId) && !(await ctx.client.supplier.findUnique({ where: { id: ctx.supplierId }, select: { id: true } }));
+    const carrierGone =
+      isId(ctx.carrierId) && !(await ctx.client.carrier.findUnique({ where: { id: ctx.carrierId }, select: { id: true } }));
+    if (supplierGone || carrierGone) {
+      return { status: 400, code: 'VALIDATION_ERROR', message: LINK_GONE_MESSAGE };
+    }
+  } catch {
+    // The lookup itself failed: report the original error as a 500.
   }
   return null;
 }

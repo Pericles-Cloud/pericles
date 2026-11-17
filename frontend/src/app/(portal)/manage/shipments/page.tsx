@@ -33,8 +33,10 @@ export default function ShipmentsPage() {
 
   const [shipments, setShipments] = useState<Shipment[]>([]);
   const [suppliers, setSuppliers] = useState<Supplier[]>([]);
-  /** The supplier list loaded successfully (only then can a link be called cross-org). */
+  /** The supplier list for the current org loaded successfully. */
   const [suppliersLoaded, setSuppliersLoaded] = useState(false);
+  /** The supplier list failed to load (shown, so empty dropdowns aren't a mystery). */
+  const [suppliersFailed, setSuppliersFailed] = useState(false);
   const [carriers, setCarriers] = useState<Carrier[]>([]);
   const [organizations, setOrganizations] = useState<OrganizationDetails[]>([]);
   const [selectedShipment, setSelectedShipment] = useState<Shipment | null>(null);
@@ -125,11 +127,30 @@ export default function ShipmentsPage() {
   // Each dialog's choices, computed once per render.
   const createSuppliers = suppliersOf(currentOrganization?.id);
   const editSuppliers = suppliersOf(selectedShipment?.organizationId);
-  /** The shipment's original supplier when it isn't one of its own org's (a legacy cross-org link). */
-  const legacySupplierId =
+  /**
+   * The shipment's original supplier when it isn't in the dropdown, so it is
+   * still shown and selectable. It is labelled "another organization" only
+   * when the server says so (supplier.organizationId), never because the
+   * client-side list is stale or missing it.
+   */
+  const unlistedSupplierId =
     selectedShipment?.supplierId && !editSuppliers.some((s) => s.id === selectedShipment.supplierId)
       ? selectedShipment.supplierId
       : null;
+  const unlistedIsCrossOrg =
+    !!selectedShipment?.supplier?.organizationId &&
+    selectedShipment.supplier.organizationId !== selectedShipment.organizationId;
+
+  /** Reload the current org's suppliers (e.g. after a save said one no longer exists). */
+  const reloadSuppliers = async (): Promise<void> => {
+    if (!currentOrganization?.id) return;
+    const res = await getSuppliers({ organizationId: currentOrganization.id, includeSubsidiaries: true });
+    if (res.success && res.data) {
+      setSuppliers(res.data);
+      setSuppliersLoaded(true);
+      setSuppliersFailed(false);
+    }
+  };
 
   /** May the caller create/edit/delete this org's shipments? (#73) */
   const canManageOrg = (orgId: string): boolean =>
@@ -146,6 +167,7 @@ export default function ShipmentsPage() {
       // Until this org's suppliers arrive, the list still holds the previous
       // org's: don't call a link cross-org or a list empty on that basis.
       setSuppliersLoaded(false);
+      setSuppliersFailed(false);
       const [shipmentsRes, suppliersRes, carriersRes] = await Promise.all([
         getShipments(currentOrganization.id, { includeSubsidiaries: true }),
         getSuppliers({ organizationId: currentOrganization.id, includeSubsidiaries: true }),
@@ -163,6 +185,10 @@ export default function ShipmentsPage() {
         // for any parent/root view, which owns no rows of its own.
         setSuppliers(suppliersRes.data);
         setSuppliersLoaded(true);
+      } else {
+        // Don't keep filtering the previous org's list.
+        setSuppliers([]);
+        setSuppliersFailed(true);
       }
       if (carriersRes.success && carriersRes.data) {
         setCarriers(carriersRes.data);
@@ -219,6 +245,8 @@ export default function ShipmentsPage() {
       setMessage({ type: 'success', text: 'Shipment created successfully' });
     } else {
       setMessage({ type: 'error', text: response.error?.message || 'Failed to create shipment' });
+      // A supplier may have been deleted meanwhile: refresh the choices.
+      if (response.error?.code === 'VALIDATION_ERROR') void reloadSuppliers();
     }
     setCreateSubmitting(false);
   };
@@ -271,6 +299,7 @@ export default function ShipmentsPage() {
       setMessage({ type: 'success', text: 'Shipment updated successfully' });
     } else {
       setMessage({ type: 'error', text: response.error?.message || 'Failed to update shipment' });
+      if (response.error?.code === 'VALIDATION_ERROR') void reloadSuppliers();
     }
     setEditSubmitting(false);
   };
@@ -653,6 +682,9 @@ export default function ShipmentsPage() {
                         <option key={s.id} value={s.id}>{s.name}</option>
                       ))}
                     </select>
+                    {suppliersFailed && (
+                      <p className="text-xs text-destructive">Couldn&apos;t load suppliers. Reload the page to try again.</p>
+                    )}
                     {suppliersLoaded && createSuppliers.length === 0 && (
                       <p className="text-xs text-muted-foreground">
                         {currentOrganization.name} has no suppliers of its own. A shipment can only use its own
@@ -811,16 +843,19 @@ export default function ShipmentsPage() {
                           it isn't mistaken for "no supplier" and can be cleared. */}
                       {/* Keyed on the shipment's ORIGINAL supplier, so the option stays
                           available after the user picks something else. */}
-                      {legacySupplierId && (
-                        <option value={legacySupplierId}>
+                      {unlistedSupplierId && (
+                        <option value={unlistedSupplierId}>
                           {selectedShipment?.supplier?.name ?? 'Unknown supplier'}
-                          {suppliersLoaded ? ' (another organization; choose another or none)' : ''}
+                          {unlistedIsCrossOrg ? ' (another organization; choose another or none)' : ''}
                         </option>
                       )}
                       {editSuppliers.map((s) => (
                         <option key={s.id} value={s.id}>{s.name}</option>
                       ))}
                     </select>
+                    {suppliersFailed && (
+                      <p className="text-xs text-destructive">Couldn&apos;t load suppliers. Reload the page to try again.</p>
+                    )}
                     {suppliersLoaded && editSuppliers.length === 0 && (
                       <p className="text-xs text-muted-foreground">
                         This shipment&apos;s organization has no suppliers of its own. A shipment can only use its own
