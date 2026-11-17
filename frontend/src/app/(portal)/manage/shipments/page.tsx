@@ -1,6 +1,6 @@
 'use client';
 
-import { useState, useEffect, useRef } from 'react';
+import { useState, useEffect, useMemo, useRef } from 'react';
 import { useAuth } from '@/providers/auth-provider';
 import {
   Shipment,
@@ -109,8 +109,17 @@ export default function ShipmentsPage() {
    * A shipment's supplier must belong to the shipment's own org (#95). The
    * list is rolled up across subsidiaries, so filter it for the form.
    */
+  const suppliersByOrg = useMemo(() => {
+    const byOrg = new Map<string, Supplier[]>();
+    for (const s of suppliers) {
+      const list = byOrg.get(s.organizationId);
+      if (list) list.push(s);
+      else byOrg.set(s.organizationId, [s]);
+    }
+    return byOrg;
+  }, [suppliers]);
   const suppliersOf = (orgId: string | undefined): Supplier[] =>
-    orgId ? suppliers.filter((s) => s.organizationId === orgId) : [];
+    orgId ? (suppliersByOrg.get(orgId) ?? []) : [];
 
   /** May the caller create/edit/delete this org's shipments? (#73) */
   const canManageOrg = (orgId: string): boolean =>
@@ -777,7 +786,15 @@ export default function ShipmentsPage() {
                       onChange={(e) => setEditShipment({ ...editShipment, supplierId: e.target.value })}
                       className="w-full h-9 rounded-md border border-input bg-transparent px-3 py-1 text-sm"
                     >
-                      <option value="">Select supplier...</option>
+                      <option value="">No supplier</option>
+                      {/* A legacy link to another org's supplier (#95): show it, so
+                          it isn't mistaken for "no supplier" and can be cleared. */}
+                      {editShipment.supplierId &&
+                        !suppliersOf(selectedShipment?.organizationId).some((s) => s.id === editShipment.supplierId) && (
+                          <option value={editShipment.supplierId}>
+                            {selectedShipment?.supplier?.name ?? 'Unknown supplier'} (another organization; choose another or none)
+                          </option>
+                        )}
                       {suppliersOf(selectedShipment?.organizationId).map((s) => (
                         <option key={s.id} value={s.id}>{s.name}</option>
                       ))}
