@@ -22,10 +22,9 @@
 import { loadMonitoringConfig, getEnvironmentOverrides } from './config.js';
 import { startMonitoring, stopMonitoring } from './index.js';
 import { logger } from './logger.js';
+import { runService } from './shutdown.js';
 import { startDispatchWorker } from '../workflow/dispatch/dispatch-worker.js';
 
-/** Drain time on SIGTERM/SIGINT, below Docker's default 10s stop timeout. */
-const SHUTDOWN_GRACE_MS = 8_000;
 
 // ============================================================================
 // Parse Command Line Arguments
@@ -101,30 +100,15 @@ async function main() {
     const dispatchWorker =
       process.env.DISPATCH_WORKER_ENABLED === 'true' ? startDispatchWorker() : null;
 
-    // Graceful shutdown: stop claiming work, let the record in flight finish
-    // (bounded), then exit 0. db-client installs no signal handlers, so this
-    // handler must end the process itself; the monitoring loop may be asleep
-    // for a whole polling interval.
-    let shuttingDown = false;
-    const shutdown = (signal: string) => {
-      if (shuttingDown) return;
-      shuttingDown = true;
-      logger.info(`[Start] Received ${signal}, shutting down...`);
-      stopMonitoring();
-      const grace = new Promise<void>((resolve) => setTimeout(resolve, SHUTDOWN_GRACE_MS).unref());
-      void Promise.race([dispatchWorker?.stop() ?? Promise.resolve(), grace]).finally(() => {
-        process.exit(0);
-      });
-    };
-    process.on('SIGINT', () => {
-      shutdown('SIGINT');
+    // Lifecycle (shared with global-start): SIGTERM/SIGINT drain the in-flight
+    // cycle and dispatch record (bounded by SHUTDOWN_GRACE_MS) and exit 0; the
+    // loop giving up on its own exits 1 so the platform restarts the service.
+    await runService({
+      name: '[Start]',
+      loop: () => startMonitoring(config),
+      stopLoop: stopMonitoring,
+      drain: () => dispatchWorker?.stop() ?? Promise.resolve(),
     });
-    process.on('SIGTERM', () => {
-      shutdown('SIGTERM');
-    });
-
-    // Start monitoring loop
-    await startMonitoring(config);
   } catch (error) {
     logger.fatal({ error }, '[Start] Failed to start monitoring');
     process.exit(1);

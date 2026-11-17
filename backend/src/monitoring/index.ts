@@ -133,6 +133,7 @@ export async function startMonitoring(config: MonitoringConfig): Promise<void> {
  */
 export function stopMonitoring(): void {
   isRunning = false;
+  wakeSleep?.();
   logger.info('[Monitoring] Stopping monitoring loop...');
 }
 
@@ -1265,8 +1266,20 @@ Return ONLY a JSON object with "detected_events" array and "total_events_detecte
 /**
  * Sleep for specified milliseconds
  */
+/** Wakes the loop's current sleep early (set while sleeping). */
+let wakeSleep: (() => void) | null = null;
+
+/** A sleep the stop function can cut short, so a requested stop does not wait a whole interval. */
 function sleep(ms: number): Promise<void> {
-  return new Promise((resolve) => setTimeout(resolve, ms));
+  return new Promise((resolve) => {
+    const timer = setTimeout(done, ms);
+    function done(): void {
+      clearTimeout(timer);
+      wakeSleep = null;
+      resolve();
+    }
+    wakeSleep = done;
+  });
 }
 
 /**

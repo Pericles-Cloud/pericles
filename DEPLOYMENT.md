@@ -128,9 +128,10 @@ observed duration, or add a lock first.
 
 **B. Persistent worker.** For the full 15-second cadence
 (`MONITORING_DEFAULT_INTERVAL_MS`), which no cron can reach, add a **second
-Coolify service** from the same repo with start command
-`npx tsx src/monitoring/start.ts --organization-id=<uuid>` and disable the
-scheduled task above.
+Coolify service** from the same repo and image, with env
+`APP_ENTRY=src/monitoring/start.ts` and `APP_ARGS=--organization-id=<uuid>`
+(no custom start command, so it goes through `docker-entrypoint.sh` and waits
+for migrations), and disable the scheduled task above.
 
 ### Global + Client Monitoring worker (#76)
 The Global Monitoring Agent, the change-record dispatch worker (which runs the
@@ -154,11 +155,9 @@ Known trade-offs:
 - **Two builds per push.** The backend and the worker each build the same
   image. Reusing one image (registry tag or a Docker Image source) would
   remove the duplicate build.
-- **The per-org worker (option B above)** keeps its custom start command,
-  because it needs `--organization-id`. A start command replaces the image's
-  `CMD` (`docker-entrypoint.sh`; there is no `ENTRYPOINT`), so it skips
-  migrations, which is correct for a second service. Keep the script as `CMD`:
-  as an `ENTRYPOINT` a start command would become its arguments instead.
+- **Do not set a custom start command** on any service from this image: it
+  replaces `CMD` (`docker-entrypoint.sh`; there is no `ENTRYPOINT`) and skips
+  the APP_ENTRY checks and the migration wait. Use `APP_ENTRY` / `APP_ARGS`.
 
 **Keys: no platform key.**
 - **Global Monitoring** is billed to the **Pericles root organization**, using

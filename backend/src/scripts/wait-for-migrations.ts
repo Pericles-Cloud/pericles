@@ -58,8 +58,39 @@ function oneLine(error: unknown): string {
     .join(' | ');
 }
 
-/** Errors that will not fix themselves by waiting: fail at once (exit 1). */
-const CONFIGURATION_ERRORS = /P1000|P1013|Authentication failed|invalid (database|connection) (url|string)|permission denied/i;
+/**
+ * Errors that will not fix themselves by waiting: fail at once (exit 1).
+ * P1000 bad credentials, P1003 database does not exist, P1010 access denied,
+ * P1012/P1013 invalid datasource URL. An unreachable host (P1001) is retried:
+ * at deploy time the database may still be starting.
+ */
+const CONFIGURATION_CODES = new Set(['P1000', 'P1003', 'P1010', 'P1012', 'P1013']);
+const CONFIGURATION_MESSAGES =
+  /Authentication failed|does not exist on the database server|Error validating datasource|must start with the protocol|invalid (database|connection) (url|string)|permission denied/i;
+
+function isConfigurationError(error: unknown, message: string): boolean {
+  const code = (error as { errorCode?: unknown; code?: unknown } | null)?.errorCode ?? (error as { code?: unknown } | null)?.code;
+  return (typeof code === 'string' && CONFIGURATION_CODES.has(code)) || CONFIGURATION_MESSAGES.test(message);
+}
+
+/** Reject after ms, so a hung connection or query cannot outlive the deadline. */
+function within<T>(promise: Promise<T>, ms: number): Promise<T> {
+  return new Promise<T>((resolve, reject) => {
+    const timer = setTimeout(() => {
+      reject(new Error(`check timed out after ${ms}ms`));
+    }, ms);
+    promise.then(
+      (value) => {
+        clearTimeout(timer);
+        resolve(value);
+      },
+      (error: unknown) => {
+        clearTimeout(timer);
+        reject(error instanceof Error ? error : new Error(String(error)));
+      }
+    );
+  });
+}
 
 async function main(): Promise<void> {
   if (!process.env.DATABASE_URL) {
@@ -72,7 +103,8 @@ async function main(): Promise<void> {
   try {
     for (;;) {
       try {
-        const missing = await pending(prisma, shipped);
+        // Each check is bounded by what is left of the deadline (at least 1s).
+        const missing = await within(pending(prisma, shipped), Math.max(1000, deadline - Date.now()));
         if (missing.length === 0) {
           console.log(`wait-for-migrations: all ${shipped.length} migrations applied`);
           return;
@@ -83,7 +115,7 @@ async function main(): Promise<void> {
         if (/42P01|_prisma_migrations.*does not exist|relation .* does not exist/i.test(message)) {
           // A fresh database: no migration table yet, so nothing is applied.
           console.log(`wait-for-migrations: waiting for ${shipped.length} migration(s): none applied yet`);
-        } else if (CONFIGURATION_ERRORS.test(message)) {
+        } else if (isConfigurationError(error, message)) {
           console.error(`wait-for-migrations: configuration error, not retrying: ${message}`);
           process.exitCode = 1;
           return;
@@ -93,8 +125,8 @@ async function main(): Promise<void> {
       }
       if (Date.now() >= deadline) {
         console.error('wait-for-migrations: schema still not up to date; exiting so the platform retries');
-        process.exitCode = 1;
-        return;
+        // Exit now: a hung query would also keep $disconnect() from settling.
+        process.exit(1);
       }
       await new Promise((resolve) => setTimeout(resolve, POLL_MS));
     }

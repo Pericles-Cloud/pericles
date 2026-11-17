@@ -7,9 +7,10 @@
  * in-process. These spawn the real script and assert on exit codes and output.
  *
  * The SIGTERM/SIGINT cases guard a defect that shipped and was caught in review
- * rather than by the code failing: an async signal handler lost the race to
- * db-client's `exit(0)`, so a killed run reported success. Reinstating that
- * implementation fails those two tests.
+ * rather than by the code failing: an async signal handler lost the race to a
+ * later listener's `exit(0)` (db-client's, since removed), so a killed run
+ * reported success. The fixture installs such a competing listener itself, so
+ * reinstating that implementation still fails those two tests.
  *
  * No database and no OpenAI: DATABASE_URL points at a closed port, and no path
  * exercised here opens a connection.
@@ -124,10 +125,8 @@ describe('run-once (process level)', () => {
   it(
     'reports failure — not success — when killed by SIGTERM',
     async () => {
-      // Regression guard. db-client registers its own SIGTERM handler that
-      // exits 0; run-once must exit synchronously so its handler wins. If this
-      // returns 0, a run cut short by the task timeout or a redeploy is being
-      // recorded as a successful scheduled task.
+      // Regression guard: run-once's handler must exit synchronously, before a
+      // later asynchronous listener (installed by the fixture) can exit 0.
       const { code, output } = await run(path.join(FIXTURES, 'signal-order.ts'), {
         args: ['SIGTERM'],
       });

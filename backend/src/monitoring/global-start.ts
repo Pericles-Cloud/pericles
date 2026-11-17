@@ -24,6 +24,7 @@
 
 import { startGlobalMonitoring, stopGlobalMonitoring } from './global-index.js';
 import { logger } from './logger.js';
+import { runService } from './shutdown.js';
 import { refreshClientExposureProfile } from './client-exposure-profile.js';
 import { startDispatchWorker } from '../workflow/dispatch/dispatch-worker.js';
 import { resolveOrganizationIds } from './run-once.js';
@@ -139,44 +140,17 @@ async function main() {
   }, profileIntervalMs);
   void refreshAllProfiles();
 
-  // A requested stop (every redeploy sends SIGTERM) exits 0, not as a crash.
-  // It first lets the record in flight finish, bounded by SHUTDOWN_GRACE_MS
-  // (default 8s, below Docker's default 10s stop timeout; raise both together
-  // to drain longer evaluations): killing a Client
-  // Monitoring evaluation mid-call wastes a paid LLM call that the retry then
-  // pays for again. The global loop's sleep is not waited for.
-  const graceMs = positiveIntervalMs('SHUTDOWN_GRACE_MS', 8_000);
-  let shuttingDown = false;
-  const shutdown = (signal: string) => {
-    if (shuttingDown) return;
-    shuttingDown = true;
-    logger.info(`[GlobalStart] Received ${signal}, draining (up to ${graceMs}ms)...`);
-    clearInterval(profileTimer);
-    stopGlobalMonitoring();
-    const grace = new Promise<void>((resolve) => setTimeout(resolve, graceMs).unref());
-    void Promise.race([dispatchWorker.stop(), grace]).finally(() => {
-      process.exit(0);
-    });
-  };
-  process.on('SIGINT', () => {
-    shutdown('SIGINT');
+  // Lifecycle: SIGTERM/SIGINT drain the in-flight cycle and dispatch record
+  // (bounded by SHUTDOWN_GRACE_MS) and exit 0; the loop giving up exits 1.
+  await runService({
+    name: '[GlobalStart]',
+    loop: () => startGlobalMonitoring({ pollingIntervalMs: intervalMs }),
+    stopLoop: stopGlobalMonitoring,
+    drain: () => dispatchWorker.stop(),
+    cleanup: () => {
+      clearInterval(profileTimer);
+    },
   });
-  process.on('SIGTERM', () => {
-    shutdown('SIGTERM');
-  });
-
-  // Start global monitoring loop. It returns only when it gives up (e.g. after
-  // repeated failures). Exit non-zero then, so the platform restarts the
-  // service: the dispatch worker and timer would otherwise keep a process alive
-  // that no longer detects anything.
-  await startGlobalMonitoring({ pollingIntervalMs: intervalMs });
-  // A requested shutdown also ends the loop: its handler owns the exit (0,
-  // after the drain), so do not report it as a crash here.
-  if (shuttingDown) return;
-  logger.fatal('[GlobalStart] Global monitoring loop stopped; exiting so the service is restarted');
-  clearInterval(profileTimer);
-  void dispatchWorker.stop();
-  process.exit(1);
 }
 
 // ============================================================================

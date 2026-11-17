@@ -74,3 +74,14 @@ describe('resolveMastraStoreConfig — timeouts', () => {
     expect(params.has('sslmode')).toBe(false);
   });
 });
+
+describe('getPrismaClient — process signals', () => {
+  it('installs no SIGTERM/SIGINT listeners (each entry point owns its shutdown)', async () => {
+    const { getPrismaClient } = await import('./db-client.js');
+    const before = { term: process.listenerCount('SIGTERM'), int: process.listenerCount('SIGINT') };
+    getPrismaClient(); // constructing the client opens no connection
+    expect(process.listenerCount('SIGTERM')).toBe(before.term);
+    expect(process.listenerCount('SIGINT')).toBe(before.int);
+  });
+});
+

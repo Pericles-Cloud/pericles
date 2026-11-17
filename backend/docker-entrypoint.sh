@@ -2,7 +2,9 @@
 # Container entry point for every service built from this image.
 #
 # APP_ENTRY selects the program (unset = the API server). The global monitoring
-# worker sets APP_ENTRY=src/monitoring/global-start.ts (see DEPLOYMENT.md).
+# worker sets APP_ENTRY=src/monitoring/global-start.ts; the per-org worker sets
+# APP_ENTRY=src/monitoring/start.ts and APP_ARGS=--organization-id=<uuid>
+# (APP_ARGS is split on whitespace). See DEPLOYMENT.md.
 #
 # Migrations: only the API server runs them. Every other service waits until
 # all migrations shipped in this image are applied (wait-for-migrations.ts),
@@ -15,6 +17,12 @@
 set -eu
 
 API_ENTRY="src/server/auth-server.ts"
+# Set but empty is a configuration mistake (e.g. a blank Coolify env var), not
+# "the API server": failing loudly beats a silent second API that migrates.
+if [ "${APP_ENTRY+set}" = "set" ] && [ -z "$APP_ENTRY" ]; then
+  echo "docker-entrypoint: APP_ENTRY is set but empty; unset it for the API server" >&2
+  exit 1
+fi
 ENTRY="${APP_ENTRY:-$API_ENTRY}"
 if [ ! -f "$ENTRY" ]; then
   echo "docker-entrypoint: APP_ENTRY file not found: '$ENTRY'" >&2
@@ -34,4 +42,5 @@ else
   trap - TERM INT
 fi
 
-exec node --import tsx "$ENTRY"
+# shellcheck disable=SC2086 # APP_ARGS is deliberately split into arguments
+exec node --import tsx "$ENTRY" ${APP_ARGS:-}
