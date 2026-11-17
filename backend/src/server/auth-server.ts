@@ -245,22 +245,34 @@ async function auditDataWrite(
   });
 }
 
-/** Audit a refused write (403). Best effort: nothing was written to roll back. */
-async function auditDataWriteDenied(
+/**
+ * Audit a refused write (403). Best effort and not awaited: nothing was
+ * written to roll back, so the 403 need not wait for it.
+ *
+ * For a refused create the org comes from the request body, so it is recorded
+ * only in metadata (truncated), not as the row's organization_id: otherwise
+ * anyone could add "attempts" to any tenant's audit trail by naming it.
+ */
+function auditDataWriteDenied(
   req: Request,
   userId: string,
   organizationId: string,
   action: DataWriteAction,
   entity: DataWriteEntity,
   entityId: string | null
-): Promise<void> {
-  await logAuthEvent({
+): void {
+  const trusted = action !== 'create'; // update/delete: the existing row's own org
+  void logAuthEvent({
     userId,
-    organizationId,
+    organizationId: trusted ? organizationId : undefined,
     eventType: DATA_EVENT_TYPE[action],
     eventStatus: 'FAILURE',
     ...getRequestInfo(req),
-    metadata: { entity, entity_id: entityId },
+    metadata: {
+      entity,
+      entity_id: entityId,
+      ...(trusted ? {} : { requested_organization_id: organizationId.slice(0, 64) }),
+    },
     errorMessage: 'Insufficient permissions',
   });
 }
@@ -2444,10 +2456,15 @@ app.post('/api/suppliers', async (req: Request, res: Response) => {
       return;
     }
 
+    if (typeof organizationId !== 'string') {
+      res.status(400).json({ success: false, error: { code: 'VALIDATION_ERROR', message: 'organizationId must be a string' } });
+      return;
+    }
+
     // OWNER/ADMIN of this org, or a Pericles root-org OWNER/ADMIN (#73).
     const writeGrant = await organizationWriteGrant(tokenPayload.userId, organizationId);
     if (!writeGrant) {
-      await auditDataWriteDenied(req, tokenPayload.userId, organizationId, 'create', 'supplier', null);
+      auditDataWriteDenied(req, tokenPayload.userId, organizationId, 'create', 'supplier', null);
       res.status(403).json({ success: false, error: { code: 'FORBIDDEN', message: 'Insufficient permissions' } });
       return;
     }
@@ -2577,7 +2594,7 @@ app.patch('/api/suppliers/:id', async (req: Request, res: Response) => {
     // OWNER/ADMIN of this org, or a Pericles root-org OWNER/ADMIN (#73).
     const writeGrant = await organizationWriteGrant(tokenPayload.userId, supplier.organization_id);
     if (!writeGrant) {
-      await auditDataWriteDenied(req, tokenPayload.userId, supplier.organization_id, 'update', 'supplier', supplier.id);
+      auditDataWriteDenied(req, tokenPayload.userId, supplier.organization_id, 'update', 'supplier', supplier.id);
       res.status(403).json({ success: false, error: { code: 'FORBIDDEN', message: 'Insufficient permissions' } });
       return;
     }
@@ -2586,7 +2603,7 @@ app.patch('/api/suppliers/:id', async (req: Request, res: Response) => {
 
     const updated = await prisma.$transaction(async (tx) => {
       const row = await tx.supplier.update({
-        where: { id: supplierId },
+        where: { id: supplierId, organization_id: supplier.organization_id },
         data: {
           ...(name !== undefined && { name }),
           ...(address !== undefined && { address }),
@@ -2654,13 +2671,13 @@ app.delete('/api/suppliers/:id', async (req: Request, res: Response) => {
     // OWNER/ADMIN of this org, or a Pericles root-org OWNER/ADMIN (#73).
     const writeGrant = await organizationWriteGrant(tokenPayload.userId, supplier.organization_id);
     if (!writeGrant) {
-      await auditDataWriteDenied(req, tokenPayload.userId, supplier.organization_id, 'delete', 'supplier', supplier.id);
+      auditDataWriteDenied(req, tokenPayload.userId, supplier.organization_id, 'delete', 'supplier', supplier.id);
       res.status(403).json({ success: false, error: { code: 'FORBIDDEN', message: 'Insufficient permissions' } });
       return;
     }
 
     await prisma.$transaction(async (tx) => {
-      await tx.supplier.delete({ where: { id: supplierId } });
+      await tx.supplier.delete({ where: { id: supplierId, organization_id: supplier.organization_id } });
       await auditDataWrite(tx, req, tokenPayload.userId, supplier.organization_id, writeGrant, 'delete', 'supplier', supplierId);
     });
 
@@ -3217,10 +3234,15 @@ app.post('/api/shipments', async (req: Request, res: Response) => {
       return;
     }
 
+    if (typeof organizationId !== 'string') {
+      res.status(400).json({ success: false, error: { code: 'VALIDATION_ERROR', message: 'organizationId must be a string' } });
+      return;
+    }
+
     // OWNER/ADMIN of this org, or a Pericles root-org OWNER/ADMIN (#73).
     const writeGrant = await organizationWriteGrant(tokenPayload.userId, organizationId);
     if (!writeGrant) {
-      await auditDataWriteDenied(req, tokenPayload.userId, organizationId, 'create', 'shipment', null);
+      auditDataWriteDenied(req, tokenPayload.userId, organizationId, 'create', 'shipment', null);
       res.status(403).json({ success: false, error: { code: 'FORBIDDEN', message: 'Insufficient permissions' } });
       return;
     }
@@ -3343,7 +3365,7 @@ app.patch('/api/shipments/:id', async (req: Request, res: Response) => {
     // OWNER/ADMIN of this org, or a Pericles root-org OWNER/ADMIN (#73).
     const writeGrant = await organizationWriteGrant(tokenPayload.userId, existingShipment.organization_id);
     if (!writeGrant) {
-      await auditDataWriteDenied(req, tokenPayload.userId, existingShipment.organization_id, 'update', 'shipment', existingShipment.id);
+      auditDataWriteDenied(req, tokenPayload.userId, existingShipment.organization_id, 'update', 'shipment', existingShipment.id);
       res.status(403).json({ success: false, error: { code: 'FORBIDDEN', message: 'Insufficient permissions' } });
       return;
     }
@@ -3352,7 +3374,7 @@ app.patch('/api/shipments/:id', async (req: Request, res: Response) => {
 
     const shipment = await prisma.$transaction(async (tx) => {
       const row = await tx.shipment.update({
-        where: { id: shipmentId },
+        where: { id: shipmentId, organization_id: existingShipment.organization_id },
         data: {
           ...(data.bolNumber !== undefined && { bol_number: data.bolNumber }),
           ...(data.masterBolNumber !== undefined && { master_bol_number: data.masterBolNumber }),
@@ -3467,13 +3489,13 @@ app.delete('/api/shipments/:id', async (req: Request, res: Response) => {
     // OWNER/ADMIN of this org, or a Pericles root-org OWNER/ADMIN (#73).
     const writeGrant = await organizationWriteGrant(tokenPayload.userId, shipment.organization_id);
     if (!writeGrant) {
-      await auditDataWriteDenied(req, tokenPayload.userId, shipment.organization_id, 'delete', 'shipment', shipment.id);
+      auditDataWriteDenied(req, tokenPayload.userId, shipment.organization_id, 'delete', 'shipment', shipment.id);
       res.status(403).json({ success: false, error: { code: 'FORBIDDEN', message: 'Insufficient permissions' } });
       return;
     }
 
     await prisma.$transaction(async (tx) => {
-      await tx.shipment.delete({ where: { id: shipmentId } });
+      await tx.shipment.delete({ where: { id: shipmentId, organization_id: shipment.organization_id } });
       await auditDataWrite(tx, req, tokenPayload.userId, shipment.organization_id, writeGrant, 'delete', 'shipment', shipmentId);
     });
 

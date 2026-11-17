@@ -128,6 +128,10 @@ export default function SuppliersPage() {
 
   /** Orgs the caller may add suppliers to (the create form's choices). */
   const writableOrganizations = organizations.filter((o) => o.canManageData);
+  // Offer Add Supplier only when the org being viewed is writable, like the
+  // shipments page: otherwise the form would quietly default to another org
+  // and the supplier would land somewhere the user isn't looking.
+  const canAddHere = writableOrganizations.some((o) => o.id === currentOrganization?.id);
 
   const handleCreate = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -247,7 +251,7 @@ export default function SuppliersPage() {
             Manage your supply chain suppliers
           </p>
         </div>
-        {writableOrganizations.length > 0 && (
+        {canAddHere && (
           <Button onClick={() => setShowCreateModal(true)}>
             <svg className="size-4 mr-2" fill="none" viewBox="0 0 24 24" strokeWidth="1.5" stroke="currentColor">
               <path strokeLinecap="round" strokeLinejoin="round" d="M12 4.5v15m7.5-7.5h-15" />
@@ -289,7 +293,7 @@ export default function SuppliersPage() {
               <Card>
                 <CardContent className="py-8 text-center">
                   <p className="text-muted-foreground">No suppliers found</p>
-                  {writableOrganizations.length > 0 && (
+                  {canAddHere && (
                     <Button
                       variant="outline"
                       className="mt-4"

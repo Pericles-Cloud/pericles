@@ -84,16 +84,19 @@ export default function ShipmentsPage() {
   // Messages
   const [message, setMessage] = useState<{ type: 'success' | 'error'; text: string } | null>(null);
 
-  // The caller's orgs and write flags (canManageData) don't depend on the
-  // selected org: load them once, and only retry (on the next org switch) if
-  // that load failed, so a transient error doesn't hide write actions for good.
-  const orgsLoaded = useRef(false);
+  // The caller's orgs and write flags (canManageData). For root users this is
+  // every org, so don't refetch on every org switch: only when the list is
+  // missing the selected org (first load, a failed load, or an org created or
+  // joined since). A permission change on an org already listed shows after a
+  // reload.
+  const orgIds = useRef(new Set<string>());
   useEffect(() => {
-    if (orgsLoaded.current) return;
+    const selected = currentOrganization?.id;
+    if (!selected || orgIds.current.has(selected)) return;
     let isMounted = true;
     void getOrganizations().then((orgsRes) => {
       if (isMounted && orgsRes.success && orgsRes.data) {
-        orgsLoaded.current = true;
+        orgIds.current = new Set(orgsRes.data.map((o) => o.id));
         setOrganizations(orgsRes.data);
       }
     });
