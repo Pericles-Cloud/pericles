@@ -12,7 +12,7 @@
  *   DATABASE_URL - PostgreSQL connection string (required)
  *   GLOBAL_MONITORING_INTERVAL_MS - Polling interval (default: 300000 = 5 minutes)
  *   PROFILE_REFRESH_INTERVAL_MS - Periodic profile refresh (default: 3600000 = 1 hour)
- *   SHUTDOWN_GRACE_MS - Drain time on SIGTERM (default: 8000)
+ *   SHUTDOWN_GRACE_MS - Drain time on SIGTERM (default: 7000; keep the stop timeout > it + 2s)
  *   LOG_LEVEL - Logging level: debug|info|warn|error (default: info)
  *
  * This process runs the Global Monitoring Agent continuously, monitoring
@@ -28,6 +28,7 @@ import { runService } from './shutdown.js';
 import { refreshClientExposureProfile } from './client-exposure-profile.js';
 import { startDispatchWorker } from '../workflow/dispatch/dispatch-worker.js';
 import { resolveOrganizationIds } from './run-once.js';
+import { envMs, validMs } from './durations.js';
 
 // ============================================================================
 // Parse Command Line Arguments
@@ -60,45 +61,42 @@ function validateEnvironment(): void {
   }
 }
 
-/** An interval in ms: an integer >= 1000. An invalid value stops the process (never NaN, which setTimeout reads as ~1ms). */
-function validIntervalMs(name: string, value: unknown): number {
-  const ms = Number(value);
-  if (!Number.isInteger(ms) || ms < 1000) {
-    logger.fatal({ name, value }, `${name} must be an integer number of milliseconds >= 1000`);
-    process.exit(1);
-  }
-  return ms;
-}
-
-/** An interval from the environment, or the default. */
-function positiveIntervalMs(name: string, fallback: number): number {
-  const raw = process.env[name];
-  return raw === undefined || raw === '' ? fallback : validIntervalMs(name, raw);
-}
-
 // ============================================================================
 // Periodic profile refresh
 // ============================================================================
 
-let refreshing = false;
+/** The refresh in flight, if any (shutdown waits for it). */
+let refreshInFlight: Promise<void> | null = null;
+/** Set on shutdown: the refresh stops before its next org. */
+let refreshStopping = false;
 
 /** Refresh every monitoring-enabled customer org's profile, one at a time; never overlaps itself. */
-async function refreshAllProfiles(): Promise<void> {
-  if (refreshing) return;
-  refreshing = true;
-  try {
-    // Same eligibility as the per-org monitoring cron (inherited
-    // monitoring_agent_enabled, root excluded, has an OrganizationContext).
-    const orgIds = await resolveOrganizationIds({ all: true, organizationIds: [] });
-    for (const orgId of orgIds) {
-      await refreshClientExposureProfile(orgId, 'periodic');
+function refreshAllProfiles(): Promise<void> {
+  refreshInFlight ??= (async () => {
+    try {
+      // Same eligibility as the per-org monitoring cron (inherited
+      // monitoring_agent_enabled, root excluded, has an OrganizationContext).
+      const orgIds = await resolveOrganizationIds({ all: true, organizationIds: [] });
+      let done = 0;
+      for (const orgId of orgIds) {
+        if (refreshStopping) break;
+        await refreshClientExposureProfile(orgId, 'periodic');
+        done++;
+      }
+      logger.info({ orgs: orgIds.length, done }, '[GlobalStart] Periodic profile refresh finished');
+    } catch (error) {
+      logger.error({ error }, '[GlobalStart] Periodic profile refresh failed');
+    } finally {
+      refreshInFlight = null;
     }
-    logger.info({ orgs: orgIds.length }, '[GlobalStart] Periodic profile refresh complete');
-  } catch (error) {
-    logger.error({ error }, '[GlobalStart] Periodic profile refresh failed');
-  } finally {
-    refreshing = false;
-  }
+  })();
+  return refreshInFlight;
+}
+
+/** Shutdown: stop starting new orgs and wait for the one being written. */
+function stopProfileRefresh(): Promise<void> {
+  refreshStopping = true;
+  return refreshInFlight ?? Promise.resolve();
 }
 
 // ============================================================================
@@ -117,8 +115,8 @@ async function main() {
   // Load configuration
   const intervalMs =
     args.intervalMs !== undefined
-      ? validIntervalMs('--interval', args.intervalMs)
-      : positiveIntervalMs('GLOBAL_MONITORING_INTERVAL_MS', 300000);
+      ? validMs('--interval', args.intervalMs)
+      : envMs('GLOBAL_MONITORING_INTERVAL_MS', 300000);
 
   logger.info(
     {
@@ -128,7 +126,7 @@ async function main() {
   );
 
   // Validated before anything starts.
-  const profileIntervalMs = positiveIntervalMs('PROFILE_REFRESH_INTERVAL_MS', 60 * 60 * 1000);
+  const profileIntervalMs = envMs('PROFILE_REFRESH_INTERVAL_MS', 60 * 60 * 1000);
 
   // Lifecycle: signal handlers first, then startup, so a SIGTERM during
   // startup is not dropped (as PID 1 an unhandled signal is ignored).
@@ -152,7 +150,7 @@ async function main() {
       return {
         loop: startGlobalMonitoring({ pollingIntervalMs: intervalMs }),
         stopLoop: stopGlobalMonitoring,
-        drain: () => dispatchWorker.stop(),
+        drain: () => Promise.allSettled([dispatchWorker.stop(), stopProfileRefresh()]),
         cleanup: () => {
           clearInterval(profileTimer);
         },

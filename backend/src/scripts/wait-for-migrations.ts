@@ -17,6 +17,7 @@
 
 import { readdirSync } from 'node:fs';
 import { PrismaClient } from '@prisma/client';
+import { withTimeout } from '../monitoring/durations.js';
 
 const MIGRATIONS_DIR = 'prisma/migrations';
 const POLL_MS = 5000;
@@ -74,25 +75,6 @@ function isConfigurationError(error: unknown, message: string): boolean {
   return (typeof code === 'string' && CONFIGURATION_CODES.has(code)) || CONFIGURATION_MESSAGES.test(message);
 }
 
-/** Reject after ms, so a hung connection or query cannot outlive the deadline. */
-function within<T>(promise: Promise<T>, ms: number): Promise<T> {
-  return new Promise<T>((resolve, reject) => {
-    const timer = setTimeout(() => {
-      reject(new Error(`check timed out after ${ms}ms`));
-    }, ms);
-    promise.then(
-      (value) => {
-        clearTimeout(timer);
-        resolve(value);
-      },
-      (error: unknown) => {
-        clearTimeout(timer);
-        reject(error instanceof Error ? error : new Error(String(error)));
-      }
-    );
-  });
-}
-
 async function main(): Promise<void> {
   if (!process.env.DATABASE_URL) {
     console.error('wait-for-migrations: DATABASE_URL is not set');
@@ -106,9 +88,14 @@ async function main(): Promise<void> {
       try {
         // Each check is capped (10s, or what is left of the deadline): a hung
         // check is abandoned and retried, so a database that recovers is seen.
-        const missing = await within(pending(prisma, shipped), Math.max(1000, Math.min(CHECK_TIMEOUT_MS, deadline - Date.now())));
+        const missing = await withTimeout(
+          pending(prisma, shipped),
+          Math.max(1000, Math.min(CHECK_TIMEOUT_MS, deadline - Date.now())),
+          'reject'
+        );
         if (missing.length === 0) {
           console.log(`wait-for-migrations: all ${shipped.length} migrations applied`);
+          process.exitCode = 0;
           return;
         }
         console.log(`wait-for-migrations: waiting for ${missing.length} migration(s): ${missing.join(', ')}`);
@@ -133,7 +120,11 @@ async function main(): Promise<void> {
       await new Promise((resolve) => setTimeout(resolve, POLL_MS));
     }
   } finally {
-    await prisma.$disconnect();
+    // Bounded, then exit explicitly: a check abandoned on its timeout can
+    // still hold a connection, which would keep $disconnect() (and so this
+    // process, and the service waiting on it) from ever finishing.
+    await withTimeout(prisma.$disconnect(), 2000, 'resolve');
+    process.exit(process.exitCode ?? 0);
   }
 }
 

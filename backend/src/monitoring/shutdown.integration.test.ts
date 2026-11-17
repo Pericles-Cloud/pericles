@@ -32,6 +32,25 @@ describe('runService', () => {
     expect(output).toContain('drained');
   }, TIMEOUT);
 
+  it('a SIGTERM while exiting after a give-up keeps exit 1 and the drain', async () => {
+    const { code, output } = await run('gives-up-signal');
+    expect(code).toBe(1);
+    expect(output).toContain('drained');
+  }, TIMEOUT);
+
+  it('a permanent stop (restartable false) stays up instead of exiting, until signalled', async () => {
+    const { code, output, ms } = await run('permanent');
+    expect(output).toContain('permanent error');
+    expect(ms).toBeGreaterThanOrEqual(1500);
+    expect(code).toBe(0);
+  }, TIMEOUT);
+
+  it('waits for the drain even if the loop rejects while stopping', async () => {
+    const { code, output } = await run('loop-rejects');
+    expect(code).toBe(0);
+    expect(output).toContain('drained');
+  }, TIMEOUT);
+
   it('handles a SIGTERM that arrives during startup (not dropped), then drains and exits 0', async () => {
     const { code, output } = await run('startup-signal');
     expect(code).toBe(0);

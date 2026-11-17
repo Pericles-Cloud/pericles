@@ -20,7 +20,7 @@
  */
 
 import { loadMonitoringConfig, getEnvironmentOverrides } from './config.js';
-import { startMonitoring, stopMonitoring } from './index.js';
+import { monitoringStopReason, startMonitoring, stopMonitoring } from './index.js';
 import { logger } from './logger.js';
 import { runService } from './shutdown.js';
 import { startDispatchWorker } from '../workflow/dispatch/dispatch-worker.js';
@@ -82,40 +82,37 @@ async function main() {
 
   logger.info({ organizationId: args.organizationId }, '[Start] Organization ID provided');
 
-  try {
-    // Load configuration
-    const envOverrides = getEnvironmentOverrides();
-    const config = await loadMonitoringConfig(args.organizationId, envOverrides);
+  // Lifecycle (shared with global-start): the signal handlers go in first,
+  // so a SIGTERM while the config loads is handled, not dropped (PID 1).
+  // SIGTERM/SIGINT drain the in-flight cycle and dispatch record (bounded by
+  // SHUTDOWN_GRACE_MS) and exit 0. The loop giving up after repeated errors
+  // exits 1 so the platform restarts it; a FATAL error (e.g. an invalid key)
+  // stays up idle instead, since a restart would repeat it and pay each time.
+  const organizationId = args.organizationId;
+  await runService({
+    name: '[Start]',
+    start: async () => {
+      const config = await loadMonitoringConfig(organizationId, getEnvironmentOverrides());
+      logger.info(
+        {
+          organizationId: config.organizationId,
+          pollingIntervalMs: config.pollingIntervalMs,
+          enabledSources: config.enabledSources,
+        },
+        '[Start] Configuration loaded'
+      );
 
-    logger.info(
-      {
-        organizationId: config.organizationId,
-        pollingIntervalMs: config.pollingIntervalMs,
-        enabledSources: config.enabledSources,
-      },
-      '[Start] Configuration loaded'
-    );
-
-    // Lifecycle (shared with global-start): SIGTERM/SIGINT drain the in-flight
-    // cycle and dispatch record (bounded by SHUTDOWN_GRACE_MS) and exit 0; the
-    // loop giving up on its own exits 1 so the platform restarts the service.
-    await runService({
-      name: '[Start]',
-      start: () => {
-        // Change-record dispatch (Doctrine §13). Opt-in, off by default.
-        const dispatchWorker =
-          process.env.DISPATCH_WORKER_ENABLED === 'true' ? startDispatchWorker() : null;
-        return {
-          loop: startMonitoring(config),
-          stopLoop: stopMonitoring,
-          drain: () => dispatchWorker?.stop() ?? Promise.resolve(),
-        };
-      },
-    });
-  } catch (error) {
-    logger.fatal({ error }, '[Start] Failed to start monitoring');
-    process.exit(1);
-  }
+      // Change-record dispatch (Doctrine §13). Opt-in, off by default.
+      const dispatchWorker =
+        process.env.DISPATCH_WORKER_ENABLED === 'true' ? startDispatchWorker() : null;
+      return {
+        loop: startMonitoring(config),
+        stopLoop: stopMonitoring,
+        drain: () => dispatchWorker?.stop() ?? Promise.resolve(),
+        restartable: () => monitoringStopReason() !== 'fatal',
+      };
+    },
+  });
 }
 
 // ============================================================================
