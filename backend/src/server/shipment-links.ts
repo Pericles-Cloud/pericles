@@ -9,10 +9,12 @@
  * - (update) the shipment row with FOR UPDATE.
  *
  * Lock order is parent first, then the shipment: organization -> supplier ->
- * carrier -> shipment. That is the order a cascading DELETE locks in
- * (org -> its suppliers -> their shipments), so the two wait for each other
- * instead of deadlocking. A link the request re-sends unchanged is not
- * locked at all.
+ * carrier -> shipment, the order a supplier/carrier delete's SET NULL
+ * cascade locks in, so those wait instead of deadlocking. An organization
+ * delete cascades to suppliers and shipments in an order Postgres chooses
+ * (by trigger name), so a deadlock with it is still possible; Postgres then
+ * aborts one side, and isDeadlock lets the route answer 409 "retry". A link
+ * the request re-sends unchanged is not locked at all.
  *
  * So there is no window between check and write, and no Prisma error to
  * interpret afterwards: any other failure is a genuine 500.
@@ -21,7 +23,7 @@
  * another tenant's supplier get the same message, so nothing is revealed
  * about other tenants.
  */
-import type { Prisma } from '@prisma/client';
+import { Prisma } from '@prisma/client';
 import { z } from 'zod';
 
 export const SUPPLIER_LINK_MESSAGE = "supplierId must be an existing supplier of the shipment's organization";
@@ -76,19 +78,23 @@ export interface ShipmentLinks {
 /**
  * Update: lock the shipment row (FOR UPDATE), AFTER the links it will point
  * to (lock order). 404 if it no longer exists in that organization; 409 if
- * its links changed since the handler's snapshot, because the checks above
- * were decided on that snapshot (the client should reload and retry).
+ * a link the request SENDS changed since the handler's snapshot, because the
+ * "unchanged" decision for it was made on that snapshot. Links the request
+ * doesn't send are not compared (a concurrent SET NULL there doesn't matter).
  */
 export async function lockShipment(
   tx: LockClient,
   shipmentId: string,
   organizationId: string,
-  snapshot: ShipmentLinks
+  snapshot: ShipmentLinks,
+  sent: { supplier: boolean; carrier: boolean }
 ): Promise<void> {
   const rows = await tx.$queryRaw<Array<{ supplier_id: string | null; carrier_id: string | null }>>`
     SELECT supplier_id, carrier_id FROM "Shipment" WHERE id = ${shipmentId} AND organization_id = ${organizationId} FOR UPDATE`;
   if (rows.length === 0) throw new ShipmentRequestError(404, 'NOT_FOUND', 'Shipment not found');
-  if (rows[0].supplier_id !== snapshot.supplierId || rows[0].carrier_id !== snapshot.carrierId) {
+  const supplierChanged = sent.supplier && rows[0].supplier_id !== snapshot.supplierId;
+  const carrierChanged = sent.carrier && rows[0].carrier_id !== snapshot.carrierId;
+  if (supplierChanged || carrierChanged) {
     throw new ShipmentRequestError(409, 'CONFLICT', 'The shipment was changed by someone else; reload and try again');
   }
 }
@@ -154,4 +160,17 @@ export function toShipmentSupplier(
     ...(supplier.address !== undefined && { address: supplier.address }),
     sameOrganization: supplier.organization_id === shipmentOrganizationId,
   };
+}
+
+/**
+ * Postgres aborted the write as a deadlock victim (SQLSTATE 40P01), e.g. with
+ * a concurrent organization delete. Stable across Prisma versions: raw
+ * queries report it as P2010 with the SQLSTATE in meta.code, ORM writes as
+ * P2034. The route answers 409 so the client retries.
+ */
+export function isDeadlock(error: unknown): boolean {
+  if (!(error instanceof Prisma.PrismaClientKnownRequestError)) return false;
+  if (error.code === 'P2034') return true;
+  const meta = (error.meta ?? {}) as { code?: unknown };
+  return error.code === 'P2010' && meta.code === '40P01';
 }

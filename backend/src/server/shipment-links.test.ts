@@ -4,6 +4,7 @@
  * that every lookup locks (FOR SHARE / FOR UPDATE) and is org-scoped.
  */
 import { describe, it, expect } from 'vitest';
+import { Prisma } from '@prisma/client';
 import {
   CARRIER_LINK_MESSAGE,
   SUPPLIER_LINK_MESSAGE,
@@ -12,6 +13,7 @@ import {
   lockShipment,
   resolveShipmentCarrierId,
   resolveShipmentSupplierId,
+  isDeadlock,
   toShipmentSupplier,
   type LockClient,
 } from './shipment-links.js';
@@ -138,21 +140,31 @@ describe('lockOrganization / lockShipment', () => {
   it('lockShipment: FOR UPDATE, org-scoped; 404 if gone or in another org', async () => {
     const { tx, queries } = fakeTx();
     const snap = { supplierId: 'sup-b', carrierId: 'car-1' };
-    await expect(lockShipment(tx, 'shp-a', 'org-a', snap)).resolves.toBeUndefined();
+    const both = { supplier: true, carrier: true };
+    await expect(lockShipment(tx, 'shp-a', 'org-a', snap, both)).resolves.toBeUndefined();
     expect(queries[0]).toMatch(/organization_id = \?/);
     expect(queries[0]).toMatch(/FOR UPDATE/);
     for (const [id, org] of [['shp-x', 'org-a'], ['shp-a', 'org-b']]) {
-      const e = await rejection(lockShipment(tx, id, org, snap));
+      const e = await rejection(lockShipment(tx, id, org, snap, both));
       expect([e?.status, e?.code, e?.message]).toEqual([404, 'NOT_FOUND', 'Shipment not found']);
     }
   });
 
-  it('lockShipment: 409 if the links changed since the snapshot the checks were decided on', async () => {
+  it('lockShipment: 409 if a link the request SENDS changed since the snapshot', async () => {
     const { tx } = fakeTx();
+    const both = { supplier: true, carrier: true };
     for (const snap of [{ supplierId: 'sup-a', carrierId: 'car-1' }, { supplierId: 'sup-b', carrierId: null }]) {
-      const e = await rejection(lockShipment(tx, 'shp-a', 'org-a', snap));
+      const e = await rejection(lockShipment(tx, 'shp-a', 'org-a', snap, both));
       expect([e?.status, e?.code]).toEqual([409, 'CONFLICT']);
     }
+  });
+
+  it('lockShipment: a changed link the request does NOT send is not a conflict', async () => {
+    const { tx } = fakeTx();
+    const changed = { supplierId: 'sup-a', carrierId: null }; // both differ from the row
+    await expect(lockShipment(tx, 'shp-a', 'org-a', changed, { supplier: false, carrier: false })).resolves.toBeUndefined();
+    const e = await rejection(lockShipment(tx, 'shp-a', 'org-a', changed, { supplier: false, carrier: true }));
+    expect(e?.status).toBe(409);
   });
 });
 
@@ -168,5 +180,21 @@ describe('toShipmentSupplier', () => {
       toShipmentSupplier('org-a', { id: 'sup-a', name: 'A', country: 'US', organization_id: 'org-a', address: '1 Main' })
     ).toEqual({ id: 'sup-a', name: 'A', country: 'US', address: '1 Main', sameOrganization: true });
     expect(toShipmentSupplier('org-a', null)).toBeNull();
+  });
+});
+
+describe('isDeadlock', () => {
+  const err = (code: string, meta: Record<string, unknown> = {}) =>
+    new Prisma.PrismaClientKnownRequestError('test', { code, clientVersion: 'test', meta });
+
+  it('recognises a deadlock from a raw query (P2010 + SQLSTATE 40P01) or an ORM write (P2034)', () => {
+    expect(isDeadlock(err('P2010', { code: '40P01' }))).toBe(true);
+    expect(isDeadlock(err('P2034'))).toBe(true);
+  });
+
+  it('nothing else', () => {
+    expect(isDeadlock(err('P2010', { code: '23503' }))).toBe(false);
+    expect(isDeadlock(err('P2003'))).toBe(false);
+    expect(isDeadlock(new Error('40P01'))).toBe(false);
   });
 });

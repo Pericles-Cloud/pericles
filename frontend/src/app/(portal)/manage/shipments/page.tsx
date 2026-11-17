@@ -33,6 +33,8 @@ export default function ShipmentsPage() {
 
   const [shipments, setShipments] = useState<Shipment[]>([]);
   const [suppliers, setSuppliers] = useState<Supplier[]>([]);
+  /** Bumped to reload the page's data (after a 409/404 on save). */
+  const [dataVersion, setDataVersion] = useState(0);
   /** The supplier list for the current org loaded successfully. */
   const [suppliersLoaded, setSuppliersLoaded] = useState(false);
   /** The supplier list failed to load (shown, so empty dropdowns aren't a mystery). */
@@ -171,8 +173,15 @@ export default function ShipmentsPage() {
       setSuppliersLoaded(true);
       setSuppliersFailed(false);
       setNewShipment((f) => (f.supplierId && !supplierIds.has(f.supplierId) ? { ...f, supplierId: '' } : f));
+      // Keep the shipment's original supplier only if it is a legacy
+      // cross-org link (never in this list by design). A same-org original
+      // missing from the reloaded list was deleted: clear it, or every save
+      // would resend it and be rejected again.
+      const keepOriginal = selectedShipment?.supplier?.sameOrganization === false;
       setEditShipment((f) =>
-        f.supplierId && !supplierIds.has(f.supplierId) && f.supplierId !== selectedShipment?.supplierId
+        f.supplierId &&
+        !supplierIds.has(f.supplierId) &&
+        !(keepOriginal && f.supplierId === selectedShipment.supplierId)
           ? { ...f, supplierId: '' }
           : f
       );
@@ -203,6 +212,7 @@ export default function ShipmentsPage() {
       // org's: don't call a link cross-org or a list empty on that basis.
       setSuppliersLoaded(false);
       setSuppliersFailed(false);
+      const seq = ++reloadSeq.current;
       const [shipmentsRes, suppliersRes, carriersRes] = await Promise.all([
         getShipments(currentOrganization.id, { includeSubsidiaries: true }),
         getSuppliers({ organizationId: currentOrganization.id, includeSubsidiaries: true }),
@@ -210,11 +220,15 @@ export default function ShipmentsPage() {
       ]);
 
       if (!isMounted) return;
+      // A newer load (this effect or reloadLinks) has started: it decides the lists.
+      const newest = seq === reloadSeq.current;
 
       if (shipmentsRes.success && shipmentsRes.data) {
         setShipments(shipmentsRes.data);
       }
-      if (suppliersRes.success && suppliersRes.data) {
+      if (!newest) {
+        // Leave suppliers/carriers to the newer load.
+      } else if (suppliersRes.success && suppliersRes.data) {
         // Already scoped to the org's subtree by the server — the previous
         // own-org-only filter emptied the list (and the supplier dropdowns)
         // for any parent/root view, which owns no rows of its own.
@@ -225,7 +239,7 @@ export default function ShipmentsPage() {
         setSuppliers([]);
         setSuppliersFailed(true);
       }
-      if (carriersRes.success && carriersRes.data) {
+      if (newest && carriersRes.success && carriersRes.data) {
         setCarriers(carriersRes.data);
       }
       setIsLoading(false);
@@ -236,7 +250,7 @@ export default function ShipmentsPage() {
     return () => {
       isMounted = false;
     };
-  }, [currentOrganization?.id]);
+  }, [currentOrganization?.id, dataVersion]);
 
   // Handle case when organization is not yet loaded
   const isLoadingOrNoOrg = isLoading || !currentOrganization?.id;
@@ -335,6 +349,13 @@ export default function ShipmentsPage() {
     } else {
       setMessage({ type: 'error', text: response.error?.message || 'Failed to update shipment' });
       if (response.error?.code === 'INVALID_LINK') void reloadLinks();
+      // Changed or deleted by someone else: close the stale form and reload,
+      // so a retry starts from the current shipment.
+      if (response.error?.code === 'CONFLICT' || response.error?.code === 'NOT_FOUND') {
+        setShowEditModal(false);
+        setSelectedShipment(null);
+        setDataVersion((v) => v + 1);
+      }
     }
     setEditSubmitting(false);
   };

@@ -45,6 +45,7 @@ import {
 import {
   SHIPMENT_SUPPLIER_SELECT,
   ShipmentRequestError,
+  isDeadlock,
   toShipmentSupplier,
   lockOrganization,
   lockShipment,
@@ -254,8 +255,12 @@ async function auditDataWrite(
   });
 }
 
-/** Send a ShipmentRequestError's response; false for any other error (a 500). */
+/** Send a ShipmentRequestError's (or a deadlock's) response; false for any other error (a 500). */
 function sendShipmentRequestError(error: unknown, res: Response): boolean {
+  if (isDeadlock(error)) {
+    res.status(409).json({ success: false, error: { code: 'CONFLICT', message: 'The shipment was being changed at the same time; try again' } });
+    return true;
+  }
   if (!(error instanceof ShipmentRequestError)) return false;
   res.status(error.status).json({ success: false, error: { code: error.code, message: error.message } });
   return true;
@@ -3405,7 +3410,10 @@ app.patch('/api/shipments/:id', async (req: Request, res: Response) => {
         snapshot.supplierId
       );
       const carrierId = await resolveShipmentCarrierId(tx, data.carrierId, snapshot.carrierId);
-      await lockShipment(tx, shipmentId, existingShipment.organization_id, snapshot);
+      await lockShipment(tx, shipmentId, existingShipment.organization_id, snapshot, {
+        supplier: data.supplierId !== undefined,
+        carrier: data.carrierId !== undefined,
+      });
       const row = await tx.shipment.update({
         where: { id: shipmentId, organization_id: existingShipment.organization_id },
         data: {
