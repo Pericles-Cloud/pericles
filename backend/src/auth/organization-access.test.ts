@@ -8,7 +8,7 @@
  */
 import { describe, it, expect } from 'vitest';
 import type { PrismaClient } from '@prisma/client';
-import { checkOrganizationAccess } from './middleware.js';
+import { canWriteOrganizationData, checkOrganizationAccess, organizationWriteGrant, writeScope } from './middleware.js';
 
 // Org tree:
 //   root (is_root)         standex (unrelated parent)
@@ -48,6 +48,20 @@ function makeClient(memberships: Membership[], orgs: Record<string, Org> = ORGS)
           memberships.find(
             (x) => x.user_id === where.user_id && x.status === 'active' && orgs[x.organization_id]?.is_root
           ) ?? null
+        ),
+      findMany: ({ where }: { where: { user_id: string; status?: string; role?: { in: string[] } } }) =>
+        Promise.resolve(
+          memberships
+            .filter(
+              (x) =>
+                x.user_id === where.user_id &&
+                (where.status === undefined || x.status === where.status) &&
+                (where.role === undefined || where.role.in.includes(x.role))
+            )
+            .map((x) => ({
+              organization_id: x.organization_id,
+              organization: { is_root: orgs[x.organization_id]?.is_root ?? false },
+            }))
         ),
     },
     organization: {
@@ -117,5 +131,106 @@ describe('checkOrganizationAccess', () => {
     };
     const res = await call([active('u', 'unrelated')], 'u', 'a', cyclic);
     expect(res).toEqual({ hasAccess: false, reason: 'not_member' });
+  });
+});
+
+describe('canWriteOrganizationData (#73: shipment/supplier writes)', () => {
+  const can = (memberships: Membership[], orgId: string, userId = 'u') =>
+    canWriteOrganizationData(userId, orgId, makeClient(memberships) as unknown as PrismaClient);
+
+  it('allows a direct OWNER or ADMIN of the org', async () => {
+    expect(await can([active('u', 'sun', 'OWNER')], 'sun')).toBe(true);
+    expect(await can([active('u', 'sun', 'ADMIN')], 'sun')).toBe(true);
+  });
+
+  it('denies a direct MEMBER or GUEST, and an inactive ADMIN', async () => {
+    expect(await can([active('u', 'sun', 'MEMBER')], 'sun')).toBe(false);
+    expect(await can([active('u', 'sun', 'GUEST')], 'sun')).toBe(false);
+    expect(await can([{ user_id: 'u', organization_id: 'sun', role: 'ADMIN', status: 'pending' }], 'sun')).toBe(false);
+  });
+
+  it('allows a root-org OWNER/ADMIN to write to any existing org', async () => {
+    for (const role of ['OWNER', 'ADMIN']) {
+      for (const org of ['helios', 'sun', 'subsub', 'standex']) {
+        expect(await can([active('u', 'root', role)], org)).toBe(true);
+      }
+    }
+  });
+
+  it('denies a root-org OWNER/ADMIN for an org that does not exist', async () => {
+    expect(await can([active('u', 'root', 'ADMIN')], 'nope')).toBe(false);
+  });
+
+  it('denies a root-org MEMBER (read access only)', async () => {
+    expect(await can([active('u', 'root', 'MEMBER')], 'sun')).toBe(false);
+  });
+
+  it('does NOT extend writes down the hierarchy: a parent ADMIN cannot write to its subsidiaries', async () => {
+    const parentAdmin = [active('u', 'helios', 'OWNER')];
+    expect(await can(parentAdmin, 'helios')).toBe(true);
+    expect(await can(parentAdmin, 'sun')).toBe(false);
+    expect(await can(parentAdmin, 'subsub')).toBe(false);
+    expect(await can(parentAdmin, 'faster')).toBe(false);
+  });
+
+  it('allows a root MEMBER who is also a direct ADMIN of the org', async () => {
+    expect(await can([active('u', 'root', 'MEMBER'), active('u', 'sun', 'ADMIN')], 'sun')).toBe(true);
+    expect(await can([active('u', 'root', 'MEMBER'), active('u', 'sun', 'ADMIN')], 'faster')).toBe(false);
+  });
+
+  it("never grants on another user's membership", async () => {
+    expect(await can([active('other', 'root', 'OWNER'), active('other', 'sun', 'ADMIN')], 'sun')).toBe(false);
+  });
+});
+
+describe('organizationWriteGrant (audit: how a write was granted)', () => {
+  const grant = (memberships: Membership[], orgId: string) =>
+    organizationWriteGrant('u', orgId, makeClient(memberships) as unknown as PrismaClient);
+
+  it("reports 'direct' for the org's own OWNER/ADMIN, even if also a root admin", async () => {
+    expect(await grant([active('u', 'sun', 'ADMIN')], 'sun')).toBe('direct');
+    expect(await grant([active('u', 'root', 'ADMIN'), active('u', 'sun', 'OWNER')], 'sun')).toBe('direct');
+  });
+
+  it("reports 'root' for Pericles staff acting on a tenant", async () => {
+    expect(await grant([active('u', 'root', 'OWNER')], 'sun')).toBe('root');
+  });
+
+  it('reports null when denied', async () => {
+    expect(await grant([active('u', 'helios', 'OWNER')], 'sun')).toBeNull();
+    expect(await grant([active('u', 'root', 'ADMIN')], 'nope')).toBeNull();
+  });
+});
+
+describe('writeScope (the one write rule: API check and UI canManageData)', () => {
+  const scope = (memberships: Membership[], orgs?: Record<string, Org>) =>
+    writeScope('u', makeClient(memberships, orgs) as unknown as PrismaClient);
+
+  it('lists direct OWNER/ADMIN orgs only, not MEMBER/GUEST or inactive', async () => {
+    const sc = await scope([
+      active('u', 'sun', 'ADMIN'),
+      active('u', 'helios', 'MEMBER'),
+      active('u', 'faster', 'GUEST'),
+      { user_id: 'u', organization_id: 'standex', role: 'OWNER', status: 'pending' },
+    ]);
+    expect([...sc.directOrgIds]).toEqual(['sun']);
+    expect(sc.rootAdmin).toBe(false);
+  });
+
+  it('a root MEMBER is not a root admin', async () => {
+    expect((await scope([active('u', 'root', 'MEMBER')])).rootAdmin).toBe(false);
+  });
+
+  it('is deterministic with two root orgs: an ADMIN row in either makes the user a root admin', async () => {
+    const twoRoots = { ...ORGS, root2: { id: 'root2', parent_organization_id: null, is_root: true } };
+    const sc = await scope([active('u', 'root', 'MEMBER'), active('u', 'root2', 'ADMIN')], twoRoots);
+    expect(sc.rootAdmin).toBe(true);
+    expect(
+      await organizationWriteGrant(
+        'u',
+        'sun',
+        makeClient([active('u', 'root', 'MEMBER'), active('u', 'root2', 'ADMIN')], twoRoots) as unknown as PrismaClient
+      )
+    ).toBe('root');
   });
 });

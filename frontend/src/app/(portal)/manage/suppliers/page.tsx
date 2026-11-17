@@ -23,6 +23,15 @@ import {
   CardTitle,
 } from '@/components/ui/card';
 
+/**
+ * The create form's default org: the current org if the caller may write
+ * there, else the first org they may write to, else none (#73).
+ */
+function defaultWritableOrgId(organizations: OrganizationDetails[], currentOrgId: string | undefined): string {
+  const writable = organizations.filter((o) => o.canManageData);
+  return (writable.find((o) => o.id === currentOrgId) ?? writable[0])?.id ?? '';
+}
+
 export default function SuppliersPage() {
   const { currentOrganization } = useAuth();
 
@@ -87,9 +96,10 @@ export default function SuppliersPage() {
       }
       if (orgsRes.success && orgsRes.data) {
         setOrganizations(orgsRes.data);
-        if (orgsRes.data.length > 0) {
-          setNewSupplier((prev) => ({ ...prev, organizationId: currentOrganization?.id || orgsRes.data![0].id }));
-        }
+        setNewSupplier((prev) => ({
+          ...prev,
+          organizationId: defaultWritableOrgId(orgsRes.data!, currentOrganization?.id),
+        }));
       }
       setIsLoading(false);
     };
@@ -113,8 +123,15 @@ export default function SuppliersPage() {
 
   const canManageSupplier = (supplier: Supplier) => {
     const org = organizations.find((o) => o.id === supplier.organizationId);
-    return org && ['OWNER', 'ADMIN'].includes(org.role);
+    return org?.canManageData === true;
   };
+
+  /** Orgs the caller may add suppliers to (the create form's choices). */
+  const writableOrganizations = organizations.filter((o) => o.canManageData);
+  // Offer Add Supplier only when the org being viewed is writable, like the
+  // shipments page: otherwise the form would quietly default to another org
+  // and the supplier would land somewhere the user isn't looking.
+  const canAddHere = writableOrganizations.some((o) => o.id === currentOrganization?.id);
 
   const handleCreate = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -138,7 +155,7 @@ export default function SuppliersPage() {
       setSelectedSupplier(response.data);
       setShowCreateModal(false);
       setNewSupplier({
-        organizationId: currentOrganization?.id || organizations[0]?.id || '',
+        organizationId: defaultWritableOrgId(organizations, currentOrganization?.id),
         name: '',
         address: '',
         website: '',
@@ -234,12 +251,14 @@ export default function SuppliersPage() {
             Manage your supply chain suppliers
           </p>
         </div>
-        <Button onClick={() => setShowCreateModal(true)}>
-          <svg className="size-4 mr-2" fill="none" viewBox="0 0 24 24" strokeWidth="1.5" stroke="currentColor">
-            <path strokeLinecap="round" strokeLinejoin="round" d="M12 4.5v15m7.5-7.5h-15" />
-          </svg>
-          Add Supplier
-        </Button>
+        {canAddHere && (
+          <Button onClick={() => setShowCreateModal(true)}>
+            <svg className="size-4 mr-2" fill="none" viewBox="0 0 24 24" strokeWidth="1.5" stroke="currentColor">
+              <path strokeLinecap="round" strokeLinejoin="round" d="M12 4.5v15m7.5-7.5h-15" />
+            </svg>
+            Add Supplier
+          </Button>
+        )}
       </div>
 
       {message && (
@@ -274,13 +293,15 @@ export default function SuppliersPage() {
               <Card>
                 <CardContent className="py-8 text-center">
                   <p className="text-muted-foreground">No suppliers found</p>
-                  <Button
-                    variant="outline"
-                    className="mt-4"
-                    onClick={() => setShowCreateModal(true)}
-                  >
-                    Add your first supplier
-                  </Button>
+                  {canAddHere && (
+                    <Button
+                      variant="outline"
+                      className="mt-4"
+                      onClick={() => setShowCreateModal(true)}
+                    >
+                      Add your first supplier
+                    </Button>
+                  )}
                 </CardContent>
               </Card>
             ) : (
@@ -491,7 +512,7 @@ export default function SuppliersPage() {
                     className="w-full h-9 rounded-md border border-input bg-transparent px-3 py-1 text-sm"
                     required
                   >
-                    {organizations.filter(o => ['OWNER', 'ADMIN'].includes(o.role)).map((org) => (
+                    {writableOrganizations.map((org) => (
                       <option key={org.id} value={org.id}>{org.name}</option>
                     ))}
                   </select>

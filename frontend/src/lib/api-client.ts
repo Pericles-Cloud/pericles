@@ -349,6 +349,12 @@ export async function deleteAccount(): Promise<ApiResponse<{ message: string }>>
 // Organization API functions
 
 export interface OrganizationDetails extends Organization {
+  /**
+   * May the caller create/edit/delete this org's shipments and suppliers?
+   * `role` may be inherited from a parent or the root org (reads), so gate
+   * write actions on this instead (#73).
+   */
+  canManageData: boolean;
   emailDomains: string[];
   isRoot: boolean;
   parentOrganizationId: string | null;

@@ -16,7 +16,11 @@ export type AuthEventType =
   | 'GOOGLE_SSO_LINK'
   | 'PROFILE_UPDATE'
   | 'PASSWORD_CHANGE'
-  | 'ACCOUNT_DELETED';
+  | 'ACCOUNT_DELETED'
+  // Operational data writes (shipments, suppliers); metadata says what and how granted (#73)
+  | 'DATA_CREATE'
+  | 'DATA_UPDATE'
+  | 'DATA_DELETE';
 
 export type AuthEventStatus = 'SUCCESS' | 'FAILURE';
 
