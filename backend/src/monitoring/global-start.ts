@@ -170,6 +170,9 @@ async function main() {
   // service: the dispatch worker and timer would otherwise keep a process alive
   // that no longer detects anything.
   await startGlobalMonitoring({ pollingIntervalMs: intervalMs });
+  // A requested shutdown also ends the loop: its handler owns the exit (0,
+  // after the drain), so do not report it as a crash here.
+  if (shuttingDown) return;
   logger.fatal('[GlobalStart] Global monitoring loop stopped; exiting so the service is restarted');
   clearInterval(profileTimer);
   void dispatchWorker.stop();

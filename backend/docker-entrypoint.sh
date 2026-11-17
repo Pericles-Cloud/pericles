@@ -25,7 +25,13 @@ fi
 if [ "$(realpath "$ENTRY")" = "$(realpath "$API_ENTRY")" ]; then
   npx prisma migrate deploy
 else
-  node --import tsx src/scripts/wait-for-migrations.ts
+  # PID 1 is still sh here and would ignore SIGTERM for the whole wait: stop
+  # promptly instead. (Not done for `migrate deploy` above: interrupting a
+  # migration can leave it half-applied.)
+  trap 'exit 143' TERM INT
+  node --import tsx src/scripts/wait-for-migrations.ts &
+  wait $!
+  trap - TERM INT
 fi
 
 exec node --import tsx "$ENTRY"

@@ -24,6 +24,9 @@ import { startMonitoring, stopMonitoring } from './index.js';
 import { logger } from './logger.js';
 import { startDispatchWorker } from '../workflow/dispatch/dispatch-worker.js';
 
+/** Drain time on SIGTERM/SIGINT, below Docker's default 10s stop timeout. */
+const SHUTDOWN_GRACE_MS = 8_000;
+
 // ============================================================================
 // Parse Command Line Arguments
 // ============================================================================
@@ -98,17 +101,26 @@ async function main() {
     const dispatchWorker =
       process.env.DISPATCH_WORKER_ENABLED === 'true' ? startDispatchWorker() : null;
 
-    // Setup graceful shutdown
+    // Graceful shutdown: stop claiming work, let the record in flight finish
+    // (bounded), then exit 0. db-client installs no signal handlers, so this
+    // handler must end the process itself; the monitoring loop may be asleep
+    // for a whole polling interval.
+    let shuttingDown = false;
+    const shutdown = (signal: string) => {
+      if (shuttingDown) return;
+      shuttingDown = true;
+      logger.info(`[Start] Received ${signal}, shutting down...`);
+      stopMonitoring();
+      const grace = new Promise<void>((resolve) => setTimeout(resolve, SHUTDOWN_GRACE_MS).unref());
+      void Promise.race([dispatchWorker?.stop() ?? Promise.resolve(), grace]).finally(() => {
+        process.exit(0);
+      });
+    };
     process.on('SIGINT', () => {
-      logger.info('[Start] Received SIGINT, shutting down...');
-      void dispatchWorker?.stop();
-      stopMonitoring();
+      shutdown('SIGINT');
     });
-
     process.on('SIGTERM', () => {
-      logger.info('[Start] Received SIGTERM, shutting down...');
-      void dispatchWorker?.stop();
-      stopMonitoring();
+      shutdown('SIGTERM');
     });
 
     // Start monitoring loop

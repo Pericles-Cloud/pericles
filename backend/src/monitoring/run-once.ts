@@ -87,16 +87,10 @@ async function validateEnvironment(): Promise<void> {
  * like a success while most orgs never ran. (db-client no longer installs
  * signal handlers of its own; this handler alone decides.)
  *
- * This must exit **synchronously**. Node runs every listener for a signal in
- * registration order, and ours is registered before the first
- * `getPrismaClient()` call — but only a synchronous `process.exit` stops the
- * chain there. Deferring through an async helper hands control back to the
- * loop, db-client's handler runs, and its `$disconnect().then(exit(0))` settles
- * first — reinstating the exact false success this guards against.
- *
- * The cost is no log flush on the way out. In the container that is free
- * (NODE_ENV=production, so pino writes synchronously); locally the line may be
- * clipped. Reporting the right exit code matters more.
+ * It exits synchronously, so no other listener (or pending work) can turn the
+ * signal into a clean-looking exit first. The cost is no log flush on the way
+ * out; in the container that is free (NODE_ENV=production, so pino writes
+ * synchronously), locally the line may be clipped.
  */
 export function installSignalHandlers(): void {
   for (const signal of ['SIGINT', 'SIGTERM'] as const) {

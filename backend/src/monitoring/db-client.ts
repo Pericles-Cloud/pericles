@@ -5,7 +5,9 @@ import { PostgresStore } from '@mastra/pg';
  * Prisma Database Client Singleton
  *
  * Ensures only one Prisma client instance exists throughout the application.
- * Implements graceful disconnect on process termination.
+ * It installs no process signal handlers: every long-running entry point
+ * (auth-server, global-start, start.ts, run-once) owns its shutdown. A new
+ * entry point must decide what SIGTERM/SIGINT do; nothing does it for it.
  */
 
 let prisma: PrismaClient;

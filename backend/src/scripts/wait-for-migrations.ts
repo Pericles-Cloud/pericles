@@ -58,7 +58,14 @@ function oneLine(error: unknown): string {
     .join(' | ');
 }
 
+/** Errors that will not fix themselves by waiting: fail at once (exit 1). */
+const CONFIGURATION_ERRORS = /P1000|P1013|Authentication failed|invalid (database|connection) (url|string)|permission denied/i;
+
 async function main(): Promise<void> {
+  if (!process.env.DATABASE_URL) {
+    console.error('wait-for-migrations: DATABASE_URL is not set');
+    process.exit(1);
+  }
   const deadline = Date.now() + waitLimitSeconds() * 1000;
   const shipped = shippedMigrations();
   const prisma = new PrismaClient();
@@ -76,8 +83,12 @@ async function main(): Promise<void> {
         if (/42P01|_prisma_migrations.*does not exist|relation .* does not exist/i.test(message)) {
           // A fresh database: no migration table yet, so nothing is applied.
           console.log(`wait-for-migrations: waiting for ${shipped.length} migration(s): none applied yet`);
+        } else if (CONFIGURATION_ERRORS.test(message)) {
+          console.error(`wait-for-migrations: configuration error, not retrying: ${message}`);
+          process.exitCode = 1;
+          return;
         } else {
-          console.error(`wait-for-migrations: check failed: ${message}`);
+          console.error(`wait-for-migrations: check failed (will retry): ${message}`);
         }
       }
       if (Date.now() >= deadline) {
