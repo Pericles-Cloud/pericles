@@ -6,8 +6,10 @@
  *   so the check reveals nothing about other tenants.
  * - Carrier: global (not org-scoped); it only has to exist.
  *
- * Both run on the write transaction's client, so the check and the write see
- * the same data. Any failure is a ShipmentLinkError (a 400).
+ * Both run on the write transaction's client. The read takes no lock, so a
+ * link deleted concurrently between the check and the write surfaces as a
+ * Prisma P2025/P2003 from the write; the shipment routes map those to a 400
+ * too. Any failure here is a ShipmentLinkError (a 400).
  */
 import type { Prisma } from '@prisma/client';
 import { z } from 'zod';

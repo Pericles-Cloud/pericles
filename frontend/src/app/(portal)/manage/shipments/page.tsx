@@ -33,6 +33,8 @@ export default function ShipmentsPage() {
 
   const [shipments, setShipments] = useState<Shipment[]>([]);
   const [suppliers, setSuppliers] = useState<Supplier[]>([]);
+  /** The supplier list loaded successfully (only then can a link be called cross-org). */
+  const [suppliersLoaded, setSuppliersLoaded] = useState(false);
   const [carriers, setCarriers] = useState<Carrier[]>([]);
   const [organizations, setOrganizations] = useState<OrganizationDetails[]>([]);
   const [selectedShipment, setSelectedShipment] = useState<Shipment | null>(null);
@@ -149,6 +151,7 @@ export default function ShipmentsPage() {
         // own-org-only filter emptied the list (and the supplier dropdowns)
         // for any parent/root view, which owns no rows of its own.
         setSuppliers(suppliersRes.data);
+        setSuppliersLoaded(true);
       }
       if (carriersRes.success && carriersRes.data) {
         setCarriers(carriersRes.data);
@@ -639,6 +642,12 @@ export default function ShipmentsPage() {
                         <option key={s.id} value={s.id}>{s.name}</option>
                       ))}
                     </select>
+                    {suppliersLoaded && suppliersOf(currentOrganization.id).length === 0 && (
+                      <p className="text-xs text-muted-foreground">
+                        {currentOrganization.name} has no suppliers of its own. A shipment can only use its own
+                        organization&apos;s suppliers; to use a subsidiary&apos;s, switch to that organization.
+                      </p>
+                    )}
                   </div>
                   <div className="space-y-2">
                     <Label htmlFor="createCarrier">Carrier</Label>
@@ -789,10 +798,13 @@ export default function ShipmentsPage() {
                       <option value="">No supplier</option>
                       {/* A legacy link to another org's supplier (#95): show it, so
                           it isn't mistaken for "no supplier" and can be cleared. */}
-                      {editShipment.supplierId &&
-                        !suppliersOf(selectedShipment?.organizationId).some((s) => s.id === editShipment.supplierId) && (
-                          <option value={editShipment.supplierId}>
-                            {selectedShipment?.supplier?.name ?? 'Unknown supplier'} (another organization; choose another or none)
+                      {/* Keyed on the shipment's ORIGINAL supplier, so the option stays
+                          available after the user picks something else. */}
+                      {selectedShipment?.supplierId &&
+                        !suppliersOf(selectedShipment.organizationId).some((s) => s.id === selectedShipment.supplierId) && (
+                          <option value={selectedShipment.supplierId}>
+                            {selectedShipment.supplier?.name ?? 'Unknown supplier'}
+                            {suppliersLoaded ? ' (another organization; choose another or none)' : ''}
                           </option>
                         )}
                       {suppliersOf(selectedShipment?.organizationId).map((s) => (

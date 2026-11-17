@@ -11,7 +11,7 @@ import {
   ShipmentLinkError,
   resolveShipmentCarrierId,
   resolveShipmentSupplierId,
-} from './shipment-supplier.js';
+} from './shipment-links.js';
 
 const SUPPLIERS = [
   { id: 'sup-a', organization_id: 'org-a' },
