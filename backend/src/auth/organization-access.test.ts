@@ -8,7 +8,7 @@
  */
 import { describe, it, expect } from 'vitest';
 import type { PrismaClient } from '@prisma/client';
-import { checkOrganizationAccess } from './middleware.js';
+import { canWriteOrganizationData, checkOrganizationAccess } from './middleware.js';
 
 // Org tree:
 //   root (is_root)         standex (unrelated parent)
@@ -117,5 +117,54 @@ describe('checkOrganizationAccess', () => {
     };
     const res = await call([active('u', 'unrelated')], 'u', 'a', cyclic);
     expect(res).toEqual({ hasAccess: false, reason: 'not_member' });
+  });
+});
+
+describe('canWriteOrganizationData (#73: shipment/supplier writes)', () => {
+  const can = (memberships: Membership[], orgId: string, userId = 'u') =>
+    canWriteOrganizationData(userId, orgId, makeClient(memberships) as unknown as PrismaClient);
+
+  it('allows a direct OWNER or ADMIN of the org', async () => {
+    expect(await can([active('u', 'sun', 'OWNER')], 'sun')).toBe(true);
+    expect(await can([active('u', 'sun', 'ADMIN')], 'sun')).toBe(true);
+  });
+
+  it('denies a direct MEMBER or GUEST, and an inactive ADMIN', async () => {
+    expect(await can([active('u', 'sun', 'MEMBER')], 'sun')).toBe(false);
+    expect(await can([active('u', 'sun', 'GUEST')], 'sun')).toBe(false);
+    expect(await can([{ user_id: 'u', organization_id: 'sun', role: 'ADMIN', status: 'pending' }], 'sun')).toBe(false);
+  });
+
+  it('allows a root-org OWNER/ADMIN to write to any existing org', async () => {
+    for (const role of ['OWNER', 'ADMIN']) {
+      for (const org of ['helios', 'sun', 'subsub', 'standex']) {
+        expect(await can([active('u', 'root', role)], org)).toBe(true);
+      }
+    }
+  });
+
+  it('denies a root-org OWNER/ADMIN for an org that does not exist', async () => {
+    expect(await can([active('u', 'root', 'ADMIN')], 'nope')).toBe(false);
+  });
+
+  it('denies a root-org MEMBER (read access only)', async () => {
+    expect(await can([active('u', 'root', 'MEMBER')], 'sun')).toBe(false);
+  });
+
+  it('does NOT extend writes down the hierarchy: a parent ADMIN cannot write to its subsidiaries', async () => {
+    const parentAdmin = [active('u', 'helios', 'OWNER')];
+    expect(await can(parentAdmin, 'helios')).toBe(true);
+    expect(await can(parentAdmin, 'sun')).toBe(false);
+    expect(await can(parentAdmin, 'subsub')).toBe(false);
+    expect(await can(parentAdmin, 'faster')).toBe(false);
+  });
+
+  it('allows a root MEMBER who is also a direct ADMIN of the org', async () => {
+    expect(await can([active('u', 'root', 'MEMBER'), active('u', 'sun', 'ADMIN')], 'sun')).toBe(true);
+    expect(await can([active('u', 'root', 'MEMBER'), active('u', 'sun', 'ADMIN')], 'faster')).toBe(false);
+  });
+
+  it("never grants on another user's membership", async () => {
+    expect(await can([active('other', 'root', 'OWNER'), active('other', 'sun', 'ADMIN')], 'sun')).toBe(false);
   });
 });

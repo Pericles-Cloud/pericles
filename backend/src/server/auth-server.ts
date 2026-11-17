@@ -37,6 +37,7 @@ import {
   logAuthEvent,
   authenticateRequest,
   checkOrganizationAccess,
+  canWriteOrganizationData,
 } from '../auth/index.js';
 import { getPositionFeed, getOrganizationPositions } from '../integrations/tracking/index.js';
 import {
@@ -1541,11 +1542,22 @@ function getQueryArray(param: unknown): string[] {
   return [];
 }
 
-function formatOrganization(org: OrgWithCount, role: 'OWNER' | 'ADMIN' | 'MEMBER' | 'GUEST') {
+/**
+ * `role` is the caller's effective role (inherited roles included, as for
+ * reads). `canManageData` says whether the caller may create/edit/delete this
+ * org's shipments and suppliers; it mirrors canWriteOrganizationData (#73), so
+ * the UI shows write actions only where the API will allow them.
+ */
+function formatOrganization(
+  org: OrgWithCount,
+  role: 'OWNER' | 'ADMIN' | 'MEMBER' | 'GUEST',
+  canManageData: boolean
+) {
   return {
     id: org.id,
     name: org.name,
     role,
+    canManageData,
     emailDomains: org.email_domains,
     isRoot: org.is_root,
     parentOrganizationId: org.parent_organization_id,
@@ -1587,8 +1599,23 @@ app.get('/api/organizations', async (req: Request, res: Response) => {
         orderBy: [{ is_root: 'desc' }, { name: 'asc' }],
       });
 
+      // Writes: a root OWNER/ADMIN may write anywhere; otherwise only orgs
+      // where the caller is a direct OWNER/ADMIN (canWriteOrganizationData).
+      const rootCanWrite = ['OWNER', 'ADMIN'].includes(rootMembership.role);
+      const directWriteOrgIds = new Set(
+        (
+          await prisma.userOrganization.findMany({
+            where: { user_id: tokenPayload.userId, status: 'active', role: { in: ['OWNER', 'ADMIN'] } },
+            select: { organization_id: true },
+          })
+        ).map((m) => m.organization_id)
+      );
       const organizations = allOrganizations.map((org) =>
-        formatOrganization(org, rootMembership.role as 'OWNER' | 'ADMIN' | 'MEMBER' | 'GUEST')
+        formatOrganization(
+          org,
+          rootMembership.role as 'OWNER' | 'ADMIN' | 'MEMBER' | 'GUEST',
+          rootCanWrite || directWriteOrgIds.has(org.id)
+        )
       );
 
       res.status(200).json({ success: true, data: organizations });
@@ -1611,10 +1638,15 @@ app.get('/api/organizations', async (req: Request, res: Response) => {
       },
     });
 
-    const visible = new Map<string, { organization: (typeof memberships)[number]['organization']; role: string }>();
+    // `direct`: the caller is a member of this org itself. Only a direct
+    // OWNER/ADMIN may write its data; a parent's role is read-only here (#73).
+    const visible = new Map<
+      string,
+      { organization: (typeof memberships)[number]['organization']; role: string; direct: boolean }
+    >();
     for (const m of memberships) {
       if (!visible.has(m.organization.id)) {
-        visible.set(m.organization.id, { organization: m.organization, role: m.role });
+        visible.set(m.organization.id, { organization: m.organization, role: m.role, direct: true });
       }
     }
 
@@ -1631,15 +1663,19 @@ app.get('/api/organizations', async (req: Request, res: Response) => {
         if (seen.has(child.id)) continue;
         seen.add(child.id);
         const role = roleByParent.get(child.parent_organization_id ?? '') ?? 'MEMBER';
-        visible.set(child.id, { organization: child, role });
+        visible.set(child.id, { organization: child, role, direct: false });
         next.push({ id: child.id, role });
       }
       frontier = next;
     }
 
     const organizations = [...visible.values()]
-      .map(({ organization, role }) =>
-        formatOrganization(organization, role as 'OWNER' | 'ADMIN' | 'MEMBER' | 'GUEST')
+      .map(({ organization, role, direct }) =>
+        formatOrganization(
+          organization,
+          role as 'OWNER' | 'ADMIN' | 'MEMBER' | 'GUEST',
+          direct && ['OWNER', 'ADMIN'].includes(role)
+        )
       )
       .sort((a, b) => Number(b.isRoot) - Number(a.isRoot) || a.name.localeCompare(b.name));
 
@@ -1739,7 +1775,7 @@ app.post('/api/organizations', async (req: Request, res: Response) => {
       include: { _count: { select: { users: { where: { status: 'active' } } } } },
     });
 
-    res.status(201).json({ success: true, data: formatOrganization(organization, 'OWNER') });
+    res.status(201).json({ success: true, data: formatOrganization(organization, 'OWNER', true) });
   } catch (error) {
     console.error('Create organization error:', error);
     res.status(500).json({ success: false, error: { code: 'INTERNAL_ERROR', message: 'An unexpected error occurred' } });
@@ -1775,7 +1811,12 @@ app.get('/api/organizations/:id', async (req: Request, res: Response) => {
       return;
     }
 
-    res.status(200).json({ success: true, data: formatOrganization(organization, access.membership.role) });
+    res.status(200).json({ success: true, data: formatOrganization(
+        organization,
+        access.membership.role,
+        await canWriteOrganizationData(tokenPayload.userId, organization.id)
+      ),
+    });
   } catch (error) {
     console.error('Get organization error:', error);
     res.status(500).json({ success: false, error: { code: 'INTERNAL_ERROR', message: 'An unexpected error occurred' } });
@@ -1846,7 +1887,12 @@ app.patch('/api/organizations/:id', async (req: Request, res: Response) => {
       include: { _count: { select: { users: { where: { status: 'active' } } } } },
     });
 
-    res.status(200).json({ success: true, data: formatOrganization(organization, membership.role as 'OWNER' | 'ADMIN' | 'MEMBER' | 'GUEST') });
+    res.status(200).json({ success: true, data: formatOrganization(
+        organization,
+        membership.role as 'OWNER' | 'ADMIN' | 'MEMBER' | 'GUEST',
+        await canWriteOrganizationData(tokenPayload.userId, organization.id)
+      ),
+    });
   } catch (error) {
     console.error('Update organization error:', error);
     res.status(500).json({ success: false, error: { code: 'INTERNAL_ERROR', message: 'An unexpected error occurred' } });
@@ -2348,12 +2394,8 @@ app.post('/api/suppliers', async (req: Request, res: Response) => {
       return;
     }
 
-    // Verify user has access to this organization
-    const membership = await prisma.userOrganization.findUnique({
-      where: { user_id_organization_id: { user_id: tokenPayload.userId, organization_id: organizationId } },
-    });
-
-    if (membership?.status !== 'active' || !['OWNER', 'ADMIN'].includes(membership.role)) {
+    // OWNER/ADMIN of this org, or a Pericles root-org OWNER/ADMIN (#73).
+    if (!(await canWriteOrganizationData(tokenPayload.userId, organizationId))) {
       res.status(403).json({ success: false, error: { code: 'FORBIDDEN', message: 'Insufficient permissions' } });
       return;
     }
@@ -2479,12 +2521,8 @@ app.patch('/api/suppliers/:id', async (req: Request, res: Response) => {
       return;
     }
 
-    // Verify user has write access
-    const membership = await prisma.userOrganization.findUnique({
-      where: { user_id_organization_id: { user_id: tokenPayload.userId, organization_id: supplier.organization_id } },
-    });
-
-    if (membership?.status !== 'active' || !['OWNER', 'ADMIN'].includes(membership.role)) {
+    // OWNER/ADMIN of this org, or a Pericles root-org OWNER/ADMIN (#73).
+    if (!(await canWriteOrganizationData(tokenPayload.userId, supplier.organization_id))) {
       res.status(403).json({ success: false, error: { code: 'FORBIDDEN', message: 'Insufficient permissions' } });
       return;
     }
@@ -2554,12 +2592,8 @@ app.delete('/api/suppliers/:id', async (req: Request, res: Response) => {
       return;
     }
 
-    // Verify user has write access
-    const membership = await prisma.userOrganization.findUnique({
-      where: { user_id_organization_id: { user_id: tokenPayload.userId, organization_id: supplier.organization_id } },
-    });
-
-    if (membership?.status !== 'active' || !['OWNER', 'ADMIN'].includes(membership.role)) {
+    // OWNER/ADMIN of this org, or a Pericles root-org OWNER/ADMIN (#73).
+    if (!(await canWriteOrganizationData(tokenPayload.userId, supplier.organization_id))) {
       res.status(403).json({ success: false, error: { code: 'FORBIDDEN', message: 'Insufficient permissions' } });
       return;
     }
@@ -3122,12 +3156,8 @@ app.post('/api/shipments', async (req: Request, res: Response) => {
       return;
     }
 
-    // Verify user has write access
-    const membership = await prisma.userOrganization.findUnique({
-      where: { user_id_organization_id: { user_id: tokenPayload.userId, organization_id: organizationId } },
-    });
-
-    if (membership?.status !== 'active' || !['OWNER', 'ADMIN'].includes(membership.role)) {
+    // OWNER/ADMIN of this org, or a Pericles root-org OWNER/ADMIN (#73).
+    if (!(await canWriteOrganizationData(tokenPayload.userId, organizationId))) {
       res.status(403).json({ success: false, error: { code: 'FORBIDDEN', message: 'Insufficient permissions' } });
       return;
     }
@@ -3243,12 +3273,8 @@ app.patch('/api/shipments/:id', async (req: Request, res: Response) => {
       return;
     }
 
-    // Verify user has write access
-    const membership = await prisma.userOrganization.findUnique({
-      where: { user_id_organization_id: { user_id: tokenPayload.userId, organization_id: existingShipment.organization_id } },
-    });
-
-    if (membership?.status !== 'active' || !['OWNER', 'ADMIN'].includes(membership.role)) {
+    // OWNER/ADMIN of this org, or a Pericles root-org OWNER/ADMIN (#73).
+    if (!(await canWriteOrganizationData(tokenPayload.userId, existingShipment.organization_id))) {
       res.status(403).json({ success: false, error: { code: 'FORBIDDEN', message: 'Insufficient permissions' } });
       return;
     }
@@ -3365,12 +3391,8 @@ app.delete('/api/shipments/:id', async (req: Request, res: Response) => {
       return;
     }
 
-    // Verify user has write access
-    const membership = await prisma.userOrganization.findUnique({
-      where: { user_id_organization_id: { user_id: tokenPayload.userId, organization_id: shipment.organization_id } },
-    });
-
-    if (membership?.status !== 'active' || !['OWNER', 'ADMIN'].includes(membership.role)) {
+    // OWNER/ADMIN of this org, or a Pericles root-org OWNER/ADMIN (#73).
+    if (!(await canWriteOrganizationData(tokenPayload.userId, shipment.organization_id))) {
       res.status(403).json({ success: false, error: { code: 'FORBIDDEN', message: 'Insufficient permissions' } });
       return;
     }

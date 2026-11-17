@@ -10,8 +10,10 @@ import {
   deleteShipment,
   getSuppliers,
   getCarriers,
+  getOrganizations,
   Supplier,
   Carrier,
+  OrganizationDetails,
 } from '@/lib/api-client';
 import { formatCurrencyUsd, formatShortDate } from '@/lib/format';
 import { Button } from '@/components/ui/button';
@@ -32,6 +34,7 @@ export default function ShipmentsPage() {
   const [shipments, setShipments] = useState<Shipment[]>([]);
   const [suppliers, setSuppliers] = useState<Supplier[]>([]);
   const [carriers, setCarriers] = useState<Carrier[]>([]);
+  const [organizations, setOrganizations] = useState<OrganizationDetails[]>([]);
   const [selectedShipment, setSelectedShipment] = useState<Shipment | null>(null);
   const [isLoading, setIsLoading] = useState(true);
   const [searchQuery, setSearchQuery] = useState('');
@@ -81,6 +84,10 @@ export default function ShipmentsPage() {
   // Messages
   const [message, setMessage] = useState<{ type: 'success' | 'error'; text: string } | null>(null);
 
+  /** May the caller create/edit/delete this org's shipments? (#73) */
+  const canManageOrg = (orgId: string): boolean =>
+    organizations.find((o) => o.id === orgId)?.canManageData === true;
+
   useEffect(() => {
     if (!currentOrganization?.id) {
       return;
@@ -89,10 +96,11 @@ export default function ShipmentsPage() {
     let isMounted = true;
 
     const fetchData = async () => {
-      const [shipmentsRes, suppliersRes, carriersRes] = await Promise.all([
+      const [shipmentsRes, suppliersRes, carriersRes, orgsRes] = await Promise.all([
         getShipments(currentOrganization.id, { includeSubsidiaries: true }),
         getSuppliers({ organizationId: currentOrganization.id, includeSubsidiaries: true }),
         getCarriers(),
+        getOrganizations(),
       ]);
 
       if (!isMounted) return;
@@ -108,6 +116,9 @@ export default function ShipmentsPage() {
       }
       if (carriersRes.success && carriersRes.data) {
         setCarriers(carriersRes.data);
+      }
+      if (orgsRes.success && orgsRes.data) {
+        setOrganizations(orgsRes.data);
       }
       setIsLoading(false);
     };
@@ -284,12 +295,14 @@ export default function ShipmentsPage() {
             Manage shipments for {currentOrganization.name}
           </p>
         </div>
-        <Button onClick={() => setShowCreateModal(true)}>
-          <svg className="size-4 mr-2" fill="none" viewBox="0 0 24 24" strokeWidth="1.5" stroke="currentColor">
-            <path strokeLinecap="round" strokeLinejoin="round" d="M12 4.5v15m7.5-7.5h-15" />
-          </svg>
-          Add Shipment
-        </Button>
+        {canManageOrg(currentOrganization.id) && (
+          <Button onClick={() => setShowCreateModal(true)}>
+            <svg className="size-4 mr-2" fill="none" viewBox="0 0 24 24" strokeWidth="1.5" stroke="currentColor">
+              <path strokeLinecap="round" strokeLinejoin="round" d="M12 4.5v15m7.5-7.5h-15" />
+            </svg>
+            Add Shipment
+          </Button>
+        )}
       </div>
 
       {message && (
@@ -395,10 +408,12 @@ export default function ShipmentsPage() {
                       )}
                     </CardDescription>
                   </div>
-                  <div className="flex gap-2">
-                    <Button variant="outline" onClick={openEditModal}>Edit</Button>
-                    <Button variant="destructive" onClick={() => setShowDeleteConfirm(true)}>Delete</Button>
-                  </div>
+                  {canManageOrg(selectedShipment.organizationId) && (
+                    <div className="flex gap-2">
+                      <Button variant="outline" onClick={openEditModal}>Edit</Button>
+                      <Button variant="destructive" onClick={() => setShowDeleteConfirm(true)}>Delete</Button>
+                    </div>
+                  )}
                 </CardHeader>
                 <CardContent>
                   <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">

@@ -178,3 +178,40 @@ export async function checkOrganizationAccess(
 
   return { hasAccess: false, reason: 'not_member' };
 }
+
+const WRITE_ROLES = new Set(['OWNER', 'ADMIN']);
+
+/**
+ * May this user create, edit or delete an organization's operational data
+ * (shipments, suppliers)? (#73)
+ *
+ * - An active OWNER/ADMIN membership in the organization itself, OR
+ * - an active OWNER/ADMIN membership in the Pericles ROOT organization (staff
+ *   who already read every tenant), provided the organization exists.
+ *
+ * Deliberately NOT the ancestor rollup that checkOrganizationAccess grants
+ * for reads: a parent company's admin may read its subsidiaries' rows but not
+ * modify them. Keep this in step with `canManageData` in GET
+ * /api/organizations, which tells the UI where to show write actions.
+ */
+export async function canWriteOrganizationData(
+  userId: string,
+  organizationId: string,
+  client: PrismaClient = prisma
+): Promise<boolean> {
+  const direct = await client.userOrganization.findUnique({
+    where: { user_id_organization_id: { user_id: userId, organization_id: organizationId } },
+  });
+  if (direct?.status === 'active' && WRITE_ROLES.has(direct.role)) return true;
+
+  const root = await client.userOrganization.findFirst({
+    where: { user_id: userId, status: 'active', organization: { is_root: true } },
+  });
+  if (!root || !WRITE_ROLES.has(root.role)) return false;
+
+  const target = await client.organization.findUnique({
+    where: { id: organizationId },
+    select: { id: true },
+  });
+  return target !== null;
+}
