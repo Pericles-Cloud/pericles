@@ -10,6 +10,7 @@
 import dotenv from 'dotenv';
 import path from 'path';
 import { fileURLToPath } from 'url';
+import { disablePrismaSignalHandlers } from '../monitoring/db-client.js';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -7817,6 +7818,11 @@ app.delete('/api/organizations/:id/secrets/:name', async (req: Request, res: Res
 // Create HTTP server and initialize WebSocket
 const httpServer = createServer(app);
 const io = initializeWorkflowSocket(httpServer);
+
+// As PID 1 in the container, keep serving on SIGTERM until the stop timeout
+// (the pre-existing behavior): the Prisma singleton's own handler would
+// otherwise exit at once and drop in-flight requests and sockets mid-deploy.
+disablePrismaSignalHandlers();
 
 // Start server
 httpServer.listen(PORT, () => {

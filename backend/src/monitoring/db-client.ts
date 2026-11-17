@@ -13,6 +13,27 @@ let postgresStore: PostgresStore | null = null;
 let postgresStoreInitFailed = false;
 
 /**
+ * Whether getPrismaClient's own SIGTERM handler acts (disconnect, then exit
+ * 0). A process that manages its own shutdown turns it off with
+ * disablePrismaSignalHandlers(); the check runs when the signal arrives, so it
+ * does not matter whether the client was created before or after. SIGINT
+ * (Ctrl-C in local development) is unaffected.
+ */
+let prismaSigtermHandlerEnabled = true;
+
+/**
+ * Turn the Prisma client's built-in SIGTERM handler into a no-op (SIGINT still
+ * disconnects and exits, so Ctrl-C keeps working locally). Used by
+ * long-running services that drain on SIGTERM themselves (the global worker),
+ * and by the API server, which as PID 1 must keep serving until the
+ * container's stop timeout as before (an exit here would drop in-flight
+ * requests and sockets during a rolling deploy).
+ */
+export function disablePrismaSignalHandlers(): void {
+  prismaSigtermHandlerEnabled = false;
+}
+
+/**
  * Get or create Prisma client singleton
  */
 export function getPrismaClient(): PrismaClient {
@@ -28,7 +49,9 @@ export function getPrismaClient(): PrismaClient {
     };
 
     process.on('SIGINT', () => void disconnect());
-    process.on('SIGTERM', () => void disconnect());
+    process.on('SIGTERM', () => {
+      if (prismaSigtermHandlerEnabled) void disconnect();
+    });
   }
 
   return prisma;

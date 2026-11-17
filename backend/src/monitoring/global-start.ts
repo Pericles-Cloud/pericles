@@ -4,12 +4,15 @@
  * Global Monitoring Agent - Standalone Process Entry Point
  *
  * Usage:
- *   node dist/monitoring/global-start.js
- *   npm run monitoring:global:start
+ *   Deployed: the backend image with APP_ENTRY=src/monitoring/global-start.ts
+ *             (docker-entrypoint.sh runs `node --import tsx` on it; DEPLOYMENT.md)
+ *   Local:    npm run monitoring:global:dev
  *
  * Environment Variables:
  *   DATABASE_URL - PostgreSQL connection string (required)
  *   GLOBAL_MONITORING_INTERVAL_MS - Polling interval (default: 300000 = 5 minutes)
+ *   PROFILE_REFRESH_INTERVAL_MS - Periodic profile refresh (default: 3600000 = 1 hour)
+ *   SHUTDOWN_GRACE_MS - Drain time on SIGTERM (default: 8000)
  *   LOG_LEVEL - Logging level: debug|info|warn|error (default: info)
  *
  * This process runs the Global Monitoring Agent continuously, monitoring
@@ -21,6 +24,7 @@
 
 import { startGlobalMonitoring, stopGlobalMonitoring } from './global-index.js';
 import { logger } from './logger.js';
+import { disablePrismaSignalHandlers } from './db-client.js';
 import { refreshClientExposureProfile } from './client-exposure-profile.js';
 import { startDispatchWorker } from '../workflow/dispatch/dispatch-worker.js';
 import { resolveOrganizationIds } from './run-once.js';
@@ -102,6 +106,11 @@ async function refreshAllProfiles(): Promise<void> {
 // ============================================================================
 
 async function main() {
+  // This process drains on SIGTERM itself (below). db-client's own handler
+  // would otherwise disconnect and exit 0 at once, killing the in-flight
+  // evaluation the drain exists to finish.
+  disablePrismaSignalHandlers();
+
   logger.info('[GlobalStart] Global Monitoring Agent starting...');
 
   // Validate environment

@@ -19,8 +19,9 @@ use the `coolify-deploy` skill (`.claude/skills/coolify-deploy/`).
 
 ## Backend → Coolify (Docker)
 
-The repo ships a verified `backend/Dockerfile` (builds, runs
-`prisma migrate deploy`, then starts the server on port **4112**, serving both
+The repo ships a verified `backend/Dockerfile` (builds; its entry point
+`docker-entrypoint.sh` runs `prisma migrate deploy` for the API server, then
+starts it on port **4112**, serving both
 `/api/*` and the `/ws/workflow` WebSocket). A `backend/.dockerignore` keeps any
 local `.env*` out of the image (the server self-loads `.env.local` with
 `override:true`, so a stray copy would clobber the real container env).
@@ -56,7 +57,10 @@ Set these as container env vars (never commit them; see `.claude/rules/14-env-fi
 Full list: `.env.example`.
 
 ### 4. Deploy
-Deploy. The container `CMD` runs `prisma migrate deploy` then starts the server.
+Deploy. The container entry point (`backend/docker-entrypoint.sh`) runs
+`prisma migrate deploy` then starts the API server. Other services from the
+same image (`APP_ENTRY` set) do not migrate; they wait until the schema is up
+to date.
 Seed once if you want demo data: run `npm run prisma:seed` locally against the
 prod `DATABASE_URL`, or a one-off in the container.
 
