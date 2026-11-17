@@ -19,8 +19,9 @@ use the `coolify-deploy` skill (`.claude/skills/coolify-deploy/`).
 
 ## Backend → Coolify (Docker)
 
-The repo ships a verified `backend/Dockerfile` (builds, runs
-`prisma migrate deploy`, then starts the server on port **4112**, serving both
+The repo ships a verified `backend/Dockerfile` (builds; its entry point
+`docker-entrypoint.sh` runs `prisma migrate deploy` for the API server, then
+starts it on port **4112**, serving both
 `/api/*` and the `/ws/workflow` WebSocket). A `backend/.dockerignore` keeps any
 local `.env*` out of the image (the server self-loads `.env.local` with
 `override:true`, so a stray copy would clobber the real container env).
@@ -56,7 +57,10 @@ Set these as container env vars (never commit them; see `.claude/rules/14-env-fi
 Full list: `.env.example`.
 
 ### 4. Deploy
-Deploy. The container `CMD` runs `prisma migrate deploy` then starts the server.
+Deploy. The container entry point (`backend/docker-entrypoint.sh`) runs
+`prisma migrate deploy` then starts the API server. Other services from the
+same image (`APP_ENTRY` set) do not migrate; they wait until the schema is up
+to date.
 Seed once if you want demo data: run `npm run prisma:seed` locally against the
 prod `DATABASE_URL`, or a one-off in the container.
 
@@ -124,9 +128,10 @@ observed duration, or add a lock first.
 
 **B. Persistent worker.** For the full 15-second cadence
 (`MONITORING_DEFAULT_INTERVAL_MS`), which no cron can reach, add a **second
-Coolify service** from the same repo with start command
-`npx tsx src/monitoring/start.ts --organization-id=<uuid>` and disable the
-scheduled task above.
+Coolify service** from the same repo and image, with env
+`APP_ENTRY=src/monitoring/start.ts` and `APP_ARGS=--organization-id=<uuid>`
+(no custom start command, so it goes through `docker-entrypoint.sh` and waits
+for migrations), and disable the scheduled task above.
 
 ### Global + Client Monitoring worker (#76)
 The Global Monitoring Agent, the change-record dispatch worker (which runs the
@@ -137,9 +142,22 @@ all run in **one persistent process**. It is separate from the per-org
 | | |
 |---|---|
 | Service | second Coolify application from this repo, same image as the backend |
-| Start command | `npx tsx src/monitoring/global-start.ts` |
+| Start | same Dockerfile as the backend, with env `APP_ENTRY=src/monitoring/global-start.ts`. `docker-entrypoint.sh` runs `$APP_ENTRY` (unset = the API server); only the API server runs migrations, so the two services never migrate concurrently. |
 | Replicas | **1**. The global loop is not locked, so two instances would detect the same events twice. |
-| Env | same as the backend (`DATABASE_URL`, `SECRETS_KEK`, …). Optional: `GLOBAL_MONITORING_INTERVAL_MS` (default 300000) and `PROFILE_REFRESH_INTERVAL_MS` (default 3600000). |
+| Env | `APP_ENTRY` (above), `DATABASE_URL`, `MASTRA_DATABASE_URL`, `SECRETS_KEK`, `NODE_ENV`, `LOG_LEVEL`, `ENABLE_TRACING`, and the monitoring data-source keys (`FRED_API_KEY`, `NVD_API_KEY`, `THENEWSAPI_API_KEY`, `TWITTERAPIIO_API_KEY`). **No** `OPENAI_API_KEY`/`OPENROUTER_API_KEY`: the worker must hold no platform LLM key. Optional: `GLOBAL_MONITORING_INTERVAL_MS` (default 300000), `PROFILE_REFRESH_INTERVAL_MS` (default 3600000), `MIGRATION_WAIT_SECONDS` (default 900: how long the worker waits for the API service's migrations before exiting 1 so it is restarted; a configuration error such as a missing or wrong `DATABASE_URL` fails at once), `SHUTDOWN_GRACE_MS` (default 7000; worst case the worker exits 1s after it, below Docker's default 10s stop timeout; to drain longer LLM evaluations, raise it and keep the service's stop timeout at least 2s above it). |
+| Domain / health check | none: the worker serves no HTTP |
+
+Known trade-offs:
+- **Overlap during a deploy.** Coolify may start the new worker before the old
+  one has stopped, so for up to one cycle two global loops can run. Events are
+  deduplicated by `event_hash`, so the cost is one doubled LLM cycle, not
+  duplicate events.
+- **Two builds per push.** The backend and the worker each build the same
+  image. Reusing one image (registry tag or a Docker Image source) would
+  remove the duplicate build.
+- **Do not set a custom start command** on any service from this image: it
+  replaces `CMD` (`docker-entrypoint.sh`; there is no `ENTRYPOINT`) and skips
+  the APP_ENTRY checks and the migration wait. Use `APP_ENTRY` / `APP_ARGS`.
 
 **Keys: no platform key.**
 - **Global Monitoring** is billed to the **Pericles root organization**, using

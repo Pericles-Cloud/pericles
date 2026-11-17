@@ -5,7 +5,9 @@ import { PostgresStore } from '@mastra/pg';
  * Prisma Database Client Singleton
  *
  * Ensures only one Prisma client instance exists throughout the application.
- * Implements graceful disconnect on process termination.
+ * It installs no process signal handlers: every long-running entry point
+ * (auth-server, global-start, start.ts, run-once) owns its shutdown. A new
+ * entry point must decide what SIGTERM/SIGINT do; nothing does it for it.
  */
 
 let prisma: PrismaClient;
@@ -21,14 +23,10 @@ export function getPrismaClient(): PrismaClient {
       log: process.env.LOG_LEVEL === 'debug' ? ['query', 'info', 'warn', 'error'] : ['error'],
     });
 
-    // Graceful shutdown handlers
-    const disconnect = async () => {
-      await prisma.$disconnect();
-      process.exit(0);
-    };
-
-    process.on('SIGINT', () => void disconnect());
-    process.on('SIGTERM', () => void disconnect());
+    // No process signal handlers here: shutdown belongs to each entry point
+    // (global-start and start.ts drain, run-once reports failure). A shared
+    // client that exits the process on SIGTERM would cut their drains short,
+    // and as PID 1 in a container would end the API server mid-request.
   }
 
   return prisma;

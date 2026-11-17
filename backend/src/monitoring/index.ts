@@ -39,6 +39,7 @@ import {
   DEFAULT_FUZZY_DEDUP_CALL_BUDGET,
   type FuzzyDedupBudget,
 } from './incident-similarity.js';
+import { createInterruptibleSleep } from './interruptible-sleep.js';
 
 // ============================================================================
 // Global State
@@ -46,6 +47,13 @@ import {
 
 let isRunning = false;
 let consecutiveErrors = 0;
+/** Why the loop last stopped on its own: 'fatal' is permanent (a restart repeats it). */
+let stopReason: 'fatal' | 'errors' | null = null;
+
+/** Why the loop last stopped on its own, or null if it was stopped (or is running). */
+export function monitoringStopReason(): 'fatal' | 'errors' | null {
+  return stopReason;
+}
 
 // ============================================================================
 // Main Monitoring Loop
@@ -68,6 +76,8 @@ export async function startMonitoring(config: MonitoringConfig): Promise<void> {
   );
 
   isRunning = true;
+  stopReason = null;
+  loopSleep.reset();
 
   while (isRunning) {
     try {
@@ -102,6 +112,7 @@ export async function startMonitoring(config: MonitoringConfig): Promise<void> {
       // Fatal errors stop monitoring
       if (classified.severity === ErrorSeverity.FATAL) {
         cycleLogger.fatal('[Monitoring] Fatal error encountered, stopping monitoring');
+        stopReason = 'fatal';
         stopMonitoring();
         break;
       }
@@ -119,6 +130,7 @@ export async function startMonitoring(config: MonitoringConfig): Promise<void> {
           { consecutiveErrors },
           '[Monitoring] Too many consecutive errors, stopping monitoring'
         );
+        stopReason = 'errors';
         stopMonitoring();
         break;
       }
@@ -133,6 +145,7 @@ export async function startMonitoring(config: MonitoringConfig): Promise<void> {
  */
 export function stopMonitoring(): void {
   isRunning = false;
+  loopSleep.stop();
   logger.info('[Monitoring] Stopping monitoring loop...');
 }
 
@@ -1262,12 +1275,9 @@ Return ONLY a JSON object with "detected_events" array and "total_events_detecte
 }`;
 }
 
-/**
- * Sleep for specified milliseconds
- */
-function sleep(ms: number): Promise<void> {
-  return new Promise((resolve) => setTimeout(resolve, ms));
-}
+/** The loop's sleep: ended early, and skipped, once the loop is stopped. */
+const loopSleep = createInterruptibleSleep();
+const sleep = loopSleep.sleep;
 
 /**
  * Format tool name for display

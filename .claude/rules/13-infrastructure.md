@@ -43,8 +43,10 @@ committed provider config file:
 - **Domain:** e.g. `api.yourdomain.com` — Coolify/Traefik terminates TLS and
   upgrades WebSockets, giving `https://` and `wss://` without extra config.
 
-The container `CMD` runs `prisma migrate deploy` before starting the server, so
-migrations ship with the deploy. `backend/.dockerignore` keeps local `.env*`
+The container entry point (`backend/docker-entrypoint.sh`) runs `prisma migrate
+deploy` before starting the API server, so migrations ship with the deploy.
+Other services built from the image (`APP_ENTRY` set, e.g. the global worker)
+do not migrate; they wait for the schema to be up to date. `backend/.dockerignore` keeps local `.env*`
 files out of the image — the server self-loads `.env.local` with
 `override: true`, so a stray copy would clobber the real container env.
 
