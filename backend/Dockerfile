@@ -43,12 +43,11 @@ COPY --from=builder /app/node_modules ./node_modules
 COPY --from=builder /app/package.json ./package.json
 COPY --from=builder /app/prisma ./prisma
 COPY --from=builder /app/src ./src
+COPY docker-entrypoint.sh ./docker-entrypoint.sh
 
 ENV NODE_ENV=production
 EXPOSE 4112
 
-# Run migrations, then start the entry point. APP_ENTRY selects it: unset (the
-# backend) runs the API server; the global monitoring worker service sets
-# APP_ENTRY=src/monitoring/global-start.ts (see DEPLOYMENT.md). `exec` replaces
-# the shell so the process receives SIGTERM directly (graceful shutdown).
-CMD ["sh", "-c", "npx prisma migrate deploy && exec npx tsx ${APP_ENTRY:-src/server/auth-server.ts}"]
+# Entry point: migrations (API server only) and the program selected by
+# APP_ENTRY, exec'd so Node is PID 1. See docker-entrypoint.sh.
+CMD ["sh", "./docker-entrypoint.sh"]

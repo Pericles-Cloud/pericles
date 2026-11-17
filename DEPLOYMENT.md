@@ -137,10 +137,22 @@ all run in **one persistent process**. It is separate from the per-org
 | | |
 |---|---|
 | Service | second Coolify application from this repo, same image as the backend |
-| Start | same Dockerfile as the backend, with env `APP_ENTRY=src/monitoring/global-start.ts` (the image's CMD runs `$APP_ENTRY`; unset = the API server) |
+| Start | same Dockerfile as the backend, with env `APP_ENTRY=src/monitoring/global-start.ts`. `docker-entrypoint.sh` runs `$APP_ENTRY` (unset = the API server); only the API server runs migrations, so the two services never migrate concurrently. |
 | Replicas | **1**. The global loop is not locked, so two instances would detect the same events twice. |
-| Env | `APP_ENTRY` (above), `DATABASE_URL`, `MASTRA_DATABASE_URL`, `SECRETS_KEK`, `NODE_ENV`, `LOG_LEVEL`, `ENABLE_TRACING`, and the monitoring data-source keys (`FRED_API_KEY`, `NVD_API_KEY`, `THENEWSAPI_API_KEY`, `TWITTERAPIIO_API_KEY`). **No** `OPENAI_API_KEY`/`OPENROUTER_API_KEY`: the worker must hold no platform LLM key. Optional: `GLOBAL_MONITORING_INTERVAL_MS` (default 300000), `PROFILE_REFRESH_INTERVAL_MS` (default 3600000), `SHUTDOWN_GRACE_MS` (default 25000; keep below the container's stop grace period). |
+| Env | `APP_ENTRY` (above), `DATABASE_URL`, `MASTRA_DATABASE_URL`, `SECRETS_KEK`, `NODE_ENV`, `LOG_LEVEL`, `ENABLE_TRACING`, and the monitoring data-source keys (`FRED_API_KEY`, `NVD_API_KEY`, `THENEWSAPI_API_KEY`, `TWITTERAPIIO_API_KEY`). **No** `OPENAI_API_KEY`/`OPENROUTER_API_KEY`: the worker must hold no platform LLM key. Optional: `GLOBAL_MONITORING_INTERVAL_MS` (default 300000), `PROFILE_REFRESH_INTERVAL_MS` (default 3600000), `SHUTDOWN_GRACE_MS` (default 8000: below Docker's default 10s stop timeout; to drain longer LLM evaluations, raise it together with the service's stop timeout). |
 | Domain / health check | none: the worker serves no HTTP |
+
+Known trade-offs:
+- **Overlap during a deploy.** Coolify may start the new worker before the old
+  one has stopped, so for up to one cycle two global loops can run. Events are
+  deduplicated by `event_hash`, so the cost is one doubled LLM cycle, not
+  duplicate events.
+- **Two builds per push.** The backend and the worker each build the same
+  image. Reusing one image (registry tag or a Docker Image source) would
+  remove the duplicate build.
+- **The per-org worker (option B above)** keeps its custom start command,
+  because it needs `--organization-id`. That replaces the image's entry point,
+  so it skips migrations, which is correct for a second service.
 
 **Keys: no platform key.**
 - **Global Monitoring** is billed to the **Pericles root organization**, using

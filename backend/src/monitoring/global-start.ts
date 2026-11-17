@@ -138,10 +138,11 @@ async function main() {
 
   // A requested stop (every redeploy sends SIGTERM) exits 0, not as a crash.
   // It first lets the record in flight finish, bounded by SHUTDOWN_GRACE_MS
-  // (keep it below the platform's stop grace period): killing a Client
+  // (default 8s, below Docker's default 10s stop timeout; raise both together
+  // to drain longer evaluations): killing a Client
   // Monitoring evaluation mid-call wastes a paid LLM call that the retry then
   // pays for again. The global loop's sleep is not waited for.
-  const graceMs = positiveIntervalMs('SHUTDOWN_GRACE_MS', 25_000);
+  const graceMs = positiveIntervalMs('SHUTDOWN_GRACE_MS', 8_000);
   let shuttingDown = false;
   const shutdown = (signal: string) => {
     if (shuttingDown) return;
