@@ -52,6 +52,7 @@ import {
   resolveShipmentCarrierId,
   resolveShipmentSupplierId,
 } from './shipment-links.js';
+import { cycleSkipCode, cycleTerminalEvent } from '../monitoring/cycle-outcome.js';
 import { getPositionFeed, getOrganizationPositions } from '../integrations/tracking/index.js';
 import {
   resolveSettingsOwnership,
@@ -4992,9 +4993,10 @@ app.post('/api/monitoring/trigger', async (req: Request, res: Response) => {
       },
     });
   } catch (error) {
-    // Excluded orgs (root) are a policy refusal — 403, not 500. The class
-    // arrives via dynamic import, so match on the error name.
-    if ((error as Error)?.name === 'MonitoringExcludedError') {
+    // Policy outcomes, not failures (same mapping as the stream, via
+    // cycleSkipCode). Excluded orgs (root): 403.
+    const skipCode = cycleSkipCode(error);
+    if (skipCode === 'ORGANIZATION_EXCLUDED') {
       console.warn('[Trigger] Excluded org refused:', (error as Error).message);
       res.status(403).json({
         success: false,
@@ -5005,7 +5007,7 @@ app.post('/api/monitoring/trigger', async (req: Request, res: Response) => {
     // Org without an API key for its provider: the cycle is skipped by
     // policy (org-scoped keys only, no platform fallback). 409 — the request
     // is fine, the org's configuration is what blocks the run.
-    if ((error as Error)?.name === 'MissingApiKeyError') {
+    if (skipCode === 'ORGANIZATION_SKIPPED') {
       console.warn('[Trigger] Skipped — no API key configured for org:', (error as Error).message);
       res.status(409).json({
         success: false,
@@ -5103,21 +5105,13 @@ app.get('/api/monitoring/trigger-stream', async (req: Request, res: Response) =>
       // Same name-matched codes as the non-streaming trigger: root orgs are
       // excluded (403 semantics), orgs without a provider key are skipped —
       // both are policy outcomes logged at WARN, not cycle failures.
-      const errName = (error as Error)?.name;
-      if (errName === 'MonitoringExcludedError' || errName === 'MissingApiKeyError') {
-        console.warn(`[Trigger-stream] ${errName}:`, (error as Error).message);
+      if (cycleSkipCode(error)) {
+        console.warn(`[Trigger-stream] ${(error as Error).name}:`, (error as Error).message);
       } else {
         console.error('Monitoring cycle error:', error);
       }
-      res.write(`data: ${JSON.stringify({
-        type: 'error',
-        code:
-          errName === 'MonitoringExcludedError' ? 'ORGANIZATION_EXCLUDED'
-          : errName === 'MissingApiKeyError' ? 'ORGANIZATION_SKIPPED'
-          : 'CYCLE_ERROR',
-        message: (error as Error).message || 'Monitoring cycle failed',
-        timestamp: new Date().toISOString(),
-      })}\n\n`);
+      // outcome 'skipped' for a policy skip, 'failed' otherwise (#72; type stays 'error', see cycle-outcome.ts).
+      res.write(`data: ${JSON.stringify({ ...cycleTerminalEvent(error), timestamp: new Date().toISOString() })}\n\n`);
     }
 
     // Close the stream

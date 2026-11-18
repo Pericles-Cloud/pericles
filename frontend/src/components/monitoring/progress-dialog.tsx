@@ -1,6 +1,7 @@
 'use client';
 
-import { useState, useEffect, useCallback, useRef } from 'react';
+import { useState, useEffect, useCallback, useMemo, useRef } from 'react';
+import { Info } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { getAccessToken } from '@/lib/api-client';
 
@@ -40,11 +41,37 @@ function formatElapsedTime(ms: number): string {
 }
 
 // Progress update types matching backend
-type ProgressPhase = 'starting' | 'loading_context' | 'executing_tools' | 'processing_events' | 'complete' | 'error' | 'stopped';
+// `skipped` (dialog-only): not run by policy (no provider key, or the root
+// org, which is never monitored). Neutral, not a failure (#72).
+type ProgressPhase =
+  | 'starting'
+  | 'loading_context'
+  | 'executing_tools'
+  | 'processing_events'
+  | 'complete'
+  | 'skipped'
+  | 'error'
+  | 'stopped';
+
+/**
+ * Codes on the terminal event that mean "not run by policy". The stream ends
+ * a skip with `type: 'error'` plus `outcome: 'skipped'` and one of these
+ * codes (type stays 'error' so dialogs from before #72 still see the end of
+ * the stream). Older backends send the code without `outcome`.
+ */
+const SKIP_CODES = new Set(['ORGANIZATION_SKIPPED', 'ORGANIZATION_EXCLUDED']);
+
+/** Phases after which the run is over (Close instead of Stop). */
+const TERMINAL_PHASES = new Set<ProgressPhase>(['complete', 'skipped', 'error', 'stopped']);
+
 
 interface ProgressUpdate {
   type: 'connected' | 'progress' | 'complete' | 'error';
   phase?: ProgressPhase;
+  /** On the terminal error event: ORGANIZATION_SKIPPED / ORGANIZATION_EXCLUDED / CYCLE_ERROR. */
+  code?: string;
+  /** On the terminal error event (#72): 'skipped' = not run by policy. */
+  outcome?: 'skipped' | 'failed';
   message?: string;
   tool?: string;
   toolIndex?: number;
@@ -89,6 +116,8 @@ export function MonitoringProgressDialog({
   const [progress, setProgress] = useState(0);
   const [isRunning, setIsRunning] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  /** Why the cycle was skipped (shown as a neutral notice, not an error). */
+  const [skipReason, setSkipReason] = useState<string | null>(null);
   const [finalMetrics, setFinalMetrics] = useState<ProgressUpdate['metrics'] | null>(null);
   const [enabledTools, setEnabledTools] = useState<string[]>([]);
   const [, setDisabledTools] = useState<string[]>([]);
@@ -98,6 +127,11 @@ export function MonitoringProgressDialog({
   const scrollRef = useRef<HTMLDivElement>(null);
   const hasStartedRef = useRef(false);
   const isRunningRef = useRef(false);
+  // Track if we've completed to prevent restarts.
+  const hasCompletedRef = useRef(false);
+  // The terminal event said "skipped" (declared before handleProgressUpdate,
+  // which sets it): connection errors after that don't override it.
+  const skippedRef = useRef(false);
 
   // Update elapsed time every second while running
   // Also handle visibility changes to catch up when tab regains focus
@@ -142,7 +176,24 @@ export function MonitoringProgressDialog({
       setDisabledTools(update.disabledTools);
     }
 
-    if (update.type === 'progress' && update.phase) {
+    // `outcome` decides when present; the code alone only for an older
+    // backend that doesn't send `outcome`.
+    const isSkip =
+      update.type === 'error' &&
+      (update.outcome !== undefined ? update.outcome === 'skipped' : !!update.code && SKIP_CODES.has(update.code));
+    if (isSkip) {
+      // Not run by policy: a finished, neutral state, not a failure. Final:
+      // a later connection error must not turn it red.
+      setSkipReason(update.message || 'This monitoring cycle was skipped');
+      setProgress(100);
+      setCurrentPhase('skipped');
+      // Like 'complete', the worker's 'done' message ends the run (and
+      // terminates the worker). Until then, a late connection error must not
+      // turn the skip red: skippedRef tells the error handlers.
+      skippedRef.current = true;
+      // The run is over: let the parent refresh (no metrics for a skip).
+      onComplete(undefined);
+    } else if (update.type === 'progress' && update.phase) {
       setCurrentPhase(update.phase);
 
       // Calculate progress percentage
@@ -169,8 +220,6 @@ export function MonitoringProgressDialog({
     }
   }, [onComplete]);
 
-  // Track if we've completed to prevent restarts
-  const hasCompletedRef = useRef(false);
 
   const startMonitoring = useCallback(() => {
     // Multiple guards to prevent restarts:
@@ -189,6 +238,8 @@ export function MonitoringProgressDialog({
     setProgress(0);
     setCurrentPhase('starting');
     setError(null);
+    setSkipReason(null);
+    skippedRef.current = false;
     setFinalMetrics(null);
     setEnabledTools([]);
     setDisabledTools([]);
@@ -304,8 +355,10 @@ export function MonitoringProgressDialog({
         }
       } else if (message.type === 'error') {
         if (!hasCompletedRef.current) {
-          setError(message.message || 'Connection failed');
-          setCurrentPhase('error');
+          if (!skippedRef.current) {
+            setError(message.message || 'Connection failed');
+            setCurrentPhase('error');
+          }
           hasCompletedRef.current = true;
           isRunningRef.current = false;
           setIsRunning(false);
@@ -330,8 +383,10 @@ export function MonitoringProgressDialog({
 
     worker.onerror = (err) => {
       console.error('Worker error:', err);
-      setError('Worker error - monitoring failed');
-      setCurrentPhase('error');
+      if (!skippedRef.current) {
+        setError('Worker error - monitoring failed');
+        setCurrentPhase('error');
+      }
       hasCompletedRef.current = true;
       isRunningRef.current = false;
       setIsRunning(false);
@@ -440,6 +495,17 @@ export function MonitoringProgressDialog({
     }]);
   };
 
+  // Activity-log rows. The final message (skip reason or error) is shown
+  // once, as the notice under the log: only the LAST row, when it is a
+  // progress 'error' with that same text (a failure, or an older backend's
+  // skip), is left out. Earlier rows are history and always kept.
+  const logRows = useMemo(() => {
+    const rows = updates.filter((u) => u.type === 'progress' && u.message && !u.isHeartbeat);
+    const last = rows[rows.length - 1];
+    const finalText = skipReason ?? error;
+    return last && finalText && last.phase === 'error' && last.message === finalText ? rows.slice(0, -1) : rows;
+  }, [updates, skipReason, error]);
+
   const getPhaseLabel = (phase: ProgressPhase): string => {
     const labels: Record<ProgressPhase, string> = {
       starting: 'Starting',
@@ -447,6 +513,7 @@ export function MonitoringProgressDialog({
       executing_tools: 'Executing Tools',
       processing_events: 'Processing Events',
       complete: 'Complete',
+      skipped: 'Skipped',
       error: 'Error',
       stopped: 'Stopped',
     };
@@ -489,6 +556,7 @@ export function MonitoringProgressDialog({
             <div className="flex items-center gap-3">
               <div className={`size-10 rounded-full flex items-center justify-center ${
                 currentPhase === 'error' ? 'bg-risk-critical' :
+                currentPhase === 'skipped' ? 'bg-muted' :
                 currentPhase === 'stopped' ? 'bg-risk-elevated' :
                 currentPhase === 'complete' ? 'bg-risk-low' :
                 'bg-risk-monitoring'
@@ -497,6 +565,8 @@ export function MonitoringProgressDialog({
                   <svg className="size-5 text-risk-critical-fg" fill="none" viewBox="0 0 24 24" strokeWidth="1.5" stroke="currentColor">
                     <path strokeLinecap="round" strokeLinejoin="round" d="M12 9v3.75m9-.75a9 9 0 1 1-18 0 9 9 0 0 1 18 0Zm-9 3.75h.008v.008H12v-.008Z" />
                   </svg>
+                ) : currentPhase === 'skipped' ? (
+                  <Info className="size-5 text-muted-foreground" />
                 ) : currentPhase === 'stopped' ? (
                   <svg className="size-5 text-risk-elevated-fg" fill="none" viewBox="0 0 24 24" strokeWidth="1.5" stroke="currentColor">
                     <path strokeLinecap="round" strokeLinejoin="round" d="M5.25 7.5A2.25 2.25 0 0 1 7.5 5.25h9a2.25 2.25 0 0 1 2.25 2.25v9a2.25 2.25 0 0 1-2.25 2.25h-9a2.25 2.25 0 0 1-2.25-2.25v-9Z" />
@@ -518,6 +588,7 @@ export function MonitoringProgressDialog({
                 </h3>
                 <p className={`text-sm ${
                   currentPhase === 'error' ? 'text-risk-critical-text' :
+                  currentPhase === 'skipped' ? 'text-muted-foreground' :
                   currentPhase === 'stopped' ? 'text-risk-elevated-text' :
                   currentPhase === 'complete' ? 'text-risk-low-text' :
                   'text-muted-foreground'
@@ -538,7 +609,7 @@ export function MonitoringProgressDialog({
                   }
                 </span>
               </div>
-              {(currentPhase === 'complete' || currentPhase === 'error' || currentPhase === 'stopped') && (
+              {(TERMINAL_PHASES.has(currentPhase)) && (
                 <button
                   onClick={handleClose}
                   className="p-1 rounded-full text-muted-foreground hover:text-foreground hover:bg-accent transition-colors"
@@ -557,6 +628,7 @@ export function MonitoringProgressDialog({
               <div
                 className={`h-full transition-all duration-300 ease-out ${
                   currentPhase === 'error' ? 'bg-risk-critical-accent' :
+                  currentPhase === 'skipped' ? 'bg-muted-foreground/60' :
                   currentPhase === 'stopped' ? 'bg-risk-elevated-accent' :
                   currentPhase === 'complete' ? 'bg-risk-low-accent' :
                   'bg-primary'
@@ -601,7 +673,7 @@ export function MonitoringProgressDialog({
             ref={scrollRef}
             className="h-56 overflow-y-auto bg-muted rounded-lg p-3 mb-4 font-mono text-xs"
           >
-            {updates.filter(u => u.type === 'progress' && u.message && !u.isHeartbeat).map((update, idx) => {
+            {logRows.map((update, idx) => {
               const cleanMessage = getCleanMessage(update);
               return (
                 <div
@@ -637,6 +709,12 @@ export function MonitoringProgressDialog({
                 </div>
               );
             })}
+            {skipReason && (
+              <div className="flex items-center gap-2 py-1 text-foreground">
+                <Info className="size-4 shrink-0 text-muted-foreground" />
+                <span>{skipReason}</span>
+              </div>
+            )}
             {error && (
               <div className="flex items-center gap-2 py-1 text-risk-critical-text">
                 <svg className="size-4 shrink-0" fill="none" viewBox="0 0 24 24" strokeWidth="1.5" stroke="currentColor">
@@ -681,7 +759,7 @@ export function MonitoringProgressDialog({
 
           {/* Actions */}
           <div className="flex justify-end gap-2">
-            {currentPhase === 'complete' || currentPhase === 'error' || currentPhase === 'stopped' ? (
+            {TERMINAL_PHASES.has(currentPhase) ? (
               <Button onClick={handleClose}>
                 Close
               </Button>

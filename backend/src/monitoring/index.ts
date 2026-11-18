@@ -40,6 +40,7 @@ import {
   type FuzzyDedupBudget,
 } from './incident-similarity.js';
 import { createInterruptibleSleep } from './interruptible-sleep.js';
+import { cycleSkipCode } from './cycle-outcome.js';
 
 // ============================================================================
 // Global State
@@ -90,11 +91,25 @@ export async function startMonitoring(config: MonitoringConfig): Promise<void> {
       // Sleep for polling interval
       await sleep(config.pollingIntervalMs);
     } catch (error) {
+      // The root org is never monitored: a permanent refusal, not a fault to
+      // retry. Stop as a permanent fault (start.ts then stays up idle rather
+      // than restart-looping).
+      if (cycleSkipCode(error) === 'ORGANIZATION_EXCLUDED') {
+        // ERROR, not WARN: a loop for the root org means start.ts was given
+        // the wrong --organization-id, and the service then sits idle.
+        cycleLogger.error(
+          { reason: (error as Error).message },
+          '[Monitoring] Org is excluded from monitoring (root org); stopping. Check --organization-id'
+        );
+        stopReason = 'fatal';
+        stopMonitoring();
+        break;
+      }
       // No API key for this org: a configuration state, not a fault. Log the
       // skip explicitly and keep polling at the normal interval — the loop
       // must not busy-retry waiting for a key only an admin can add, and must
       // not be silenced either (the same skip run-once logs per cycle).
-      if ((error as Error)?.name === 'MissingApiKeyError') {
+      if (cycleSkipCode(error) === 'ORGANIZATION_SKIPPED') {
         cycleLogger.warn(
           { reason: (error as Error).message },
           '[Monitoring] Skipped cycle — no API key configured for org'
@@ -160,6 +175,10 @@ export function isMonitoringRunning(): boolean {
 // Progress Callback Types
 // ============================================================================
 
+/**
+ * A skipped cycle (root org, or no provider key) emits no phase of its own:
+ * it is reported by the stream's terminal event (cycle-outcome.ts, #72).
+ */
 export type ProgressPhase = 'starting' | 'loading_context' | 'executing_tools' | 'processing_events' | 'complete' | 'error';
 
 export interface ProgressUpdate {
@@ -269,6 +288,9 @@ export async function runMonitoringCycle(
   // Heartbeat interval for progress feedback (declared outside try for cleanup in finally)
   let heartbeatInterval: NodeJS.Timeout | null = null;
   let agentTimeout: NodeJS.Timeout | null = null;
+
+  // A policy skip still runs the finally block: don't log it as "complete".
+  let skippedCycle = false;
 
   try {
     // Get monitoring agent from Mastra
@@ -782,8 +804,12 @@ export async function runMonitoringCycle(
     // A missing org key is a configuration skip, not a cycle failure — log it
     // at WARN with the skip wording so run-once/Coolify logs never show an
     // ERROR for an org that was deliberately not run.
-    if ((error as Error)?.name === 'MissingApiKeyError') {
-      emitProgress({ phase: 'error', message: (error as Error).message });
+    if (cycleSkipCode(error) === 'ORGANIZATION_SKIPPED') {
+      skippedCycle = true;
+      // No progress event for a skip: the stream's terminal event carries it
+      // (outcome 'skipped', see cycle-outcome.ts). A progress 'error' here
+      // would show the dialog's red Error state until that event replaced it
+      // (#72).
       cycleLogger.warn({ reason: (error as Error).message }, '[Cycle] Skipped — no API key configured for org');
       throw error;
     }
@@ -806,7 +832,9 @@ export async function runMonitoringCycle(
       agentTimeout = null;
     }
     finalizeCycleMetrics(metrics);
-    cycleLogger.info({ metrics: getMetricsSummary(metrics) }, '[Cycle] Cycle complete');
+    if (!skippedCycle) {
+      cycleLogger.info({ metrics: getMetricsSummary(metrics) }, '[Cycle] Cycle complete');
+    }
   }
 
   return metrics;

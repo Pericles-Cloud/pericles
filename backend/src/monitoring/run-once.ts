@@ -38,6 +38,7 @@ import { runMonitoringCycle } from './index.js';
 import type { CycleMetrics } from './metrics.js';
 import { getPrismaClient, disconnectPrisma } from './db-client.js';
 import { logger } from './logger.js';
+import { cycleSkipCode } from './cycle-outcome.js';
 
 export interface Args {
   organizationIds: string[];
@@ -200,10 +201,12 @@ export interface CycleSummary {
  * Sequential on purpose: cycles fan out to the same rate-limited external
  * feeds, so running every tenant concurrently would trip upstream limits.
  *
- * MissingApiKeyError is a skip, not a failure: a tenant that has not brought
- * a key yet is a known configuration state. It is logged per org (WARN) so
- * the run never goes silently green, and counted separately from cycles that
- * actually ran and broke.
+ * Policy refusals are skips, not failures (cycleSkipCode): a tenant that has
+ * not brought a key yet (MissingApiKeyError), and the root org, which is
+ * never monitored (MonitoringExcludedError; reachable via an explicit
+ * --organization-id). Each is logged per org (WARN) so the run never goes
+ * silently green, and counted separately from cycles that actually ran and
+ * broke.
  *
  * `deps` is injectable for tests — the real ones reach OpenAI and every
  * monitoring feed.
@@ -256,14 +259,18 @@ export async function runCycles(
         '[RunOnce] Cycle complete'
       );
     } catch (error) {
-      // Skip (not fail) orgs that have no key for their provider — the fix
-      // is configuration, not code. Keep going either way: one tenant's bad
-      // config must not starve the others.
-      if ((error as Error)?.name === 'MissingApiKeyError') {
+      // Skip (not fail) a policy refusal: an org with no key for its
+      // provider (the fix is configuration, not code) or the root org (never
+      // monitored; reachable via an explicit --organization-id). Keep going
+      // either way: one tenant's config must not starve the others.
+      const skipCode = cycleSkipCode(error);
+      if (skipCode) {
         skipped++;
         logger.warn(
-          { organizationId, reason: (error as Error).message },
-          '[RunOnce] Skipped cycle — no API key configured for org'
+          { organizationId, reason: (error as Error).message, code: skipCode },
+          skipCode === 'ORGANIZATION_EXCLUDED'
+            ? '[RunOnce] Skipped cycle — org is excluded from monitoring'
+            : '[RunOnce] Skipped cycle — no API key configured for org'
         );
         continue;
       }

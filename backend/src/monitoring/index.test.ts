@@ -23,7 +23,13 @@ vi.mock('./db-client.js', () => ({
   getPostgresStore: () => undefined,
 }));
 
-import { runMonitoringCycle, MonitoringExcludedError, exactMatchWhere } from './index.js';
+import {
+  runMonitoringCycle,
+  MonitoringExcludedError,
+  exactMatchWhere,
+  startMonitoring,
+  monitoringStopReason,
+} from './index.js';
 
 const ROOT_ID = '00000000-0000-0000-0000-000000000001';
 const CUSTOMER_ID = '11111111-1111-1111-1111-111111111111';
@@ -52,6 +58,16 @@ describe('runMonitoringCycle — root-org guard', () => {
     );
   });
 
+  it('emits no progress before refusing: the terminal event reports the skip (#72)', async () => {
+    findUnique.mockResolvedValue({ is_root: true });
+    const phases: string[] = [];
+
+    await expect(runMonitoringCycle(configFor(ROOT_ID), (u) => phases.push(u.phase))).rejects.toBeInstanceOf(
+      MonitoringExcludedError
+    );
+    expect(phases).toEqual([]);
+  });
+
   it('throws the exported sentinel class API layers map to 403', async () => {
     findUnique.mockResolvedValue({ is_root: true });
 
@@ -73,6 +89,34 @@ describe('runMonitoringCycle — root-org guard', () => {
     // this ever becomes a different failure, the cycle got further — update
     // this fixture deliberately rather than letting it reach live code.
     expect(outcome).toBeInstanceOf(TypeError);
+  });
+});
+
+describe('startMonitoring — root org (#72)', () => {
+  it('stops at once as a permanent fault instead of retrying it as an error', async () => {
+    findUnique.mockResolvedValue({ is_root: true });
+    const config = {
+      organizationId: ROOT_ID,
+      pollingIntervalMs: 60_000,
+      enabledSources: {},
+      errorHandling: { maxRetries: 3, stopOnFatalError: true },
+    } as unknown as MonitoringConfig;
+
+    // Bounded: if the excluded branch regresses, the loop would back off and
+    // retry; fail with a clear message instead of a test timeout.
+    let timer: ReturnType<typeof setTimeout> | undefined;
+    const stalled = new Promise<never>((_, reject) => {
+      timer = setTimeout(() => {
+        reject(new Error('startMonitoring did not stop for the root org (excluded branch regressed?)'));
+      }, 2000);
+    });
+    try {
+      await Promise.race([startMonitoring(config), stalled]);
+    } finally {
+      clearTimeout(timer);
+    }
+    expect(monitoringStopReason()).toBe('fatal');
+    expect(findUnique).toHaveBeenCalledTimes(1); // no retries
   });
 });
 
