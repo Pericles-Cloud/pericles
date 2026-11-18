@@ -63,7 +63,7 @@ export const economicFinancialMonitorTool = createTool({
 
   inputSchema: z.object({
     countries: z.array(CountryInputSchema).min(1).describe('Countries to monitor for economic events'),
-    indicators: z.array(z.string()).nullable().optional().describe('Specific FRED series IDs to monitor (e.g., CPIAUCSL, DEXUSEU). Pass null or omit for default indicators.'),
+    indicators: z.array(z.string().min(1).max(64)).max(30).nullable().optional().describe('Specific FRED series IDs to monitor (e.g., CPIAUCSL, DEXUSEU). Pass null or omit for default indicators.'),
     severity_threshold: z.enum(['low', 'medium', 'high']).default('medium').describe('Minimum severity to report'),
     lookback_days: z.number().int().min(1).max(365).default(30).describe('Report a series only if FRED published new data for it within this many days. The default of 30 covers one release of a monthly series.'),
     organization_id: z.string().uuid().describe('Organization identifier (required)')
@@ -73,7 +73,7 @@ export const economicFinancialMonitorTool = createTool({
     economic_events: z.array(EconomicEventSchema).describe('Detected economic risk events'),
     monitored_countries_count: z.number().int().describe('Number of countries checked'),
     indicators_checked: z.number().int().describe('Number of economic indicators checked'),
-    api_calls_made: z.number().int().describe('Number of API calls made to FRED'),
+    api_calls_made: z.number().int().describe('Requests this run sent to FRED. Data served from the shared cache, or from a request another run already had in flight, is not counted.'),
     unavailable_series: z.array(UnavailableSeriesSchema)
       .describe('FRED series that returned an error or have stopped updating')
   }),
@@ -194,7 +194,7 @@ const DEFAULT_STALE_AFTER_DAYS = 270;
 const FRED_REQUEST_INTERVAL_MS = 500;
 const FRED_RATE_LIMIT_RETRY_MS = 2000;
 /** A request that would wait longer than this for its slot fails instead. */
-const FRED_MAX_QUEUE_WAIT_MS = 60_000;
+const FRED_MAX_QUEUE_WAIT_MS = 180_000;
 let nextFredSlot = 0;
 
 class FredQueueFullError extends Error {
@@ -316,7 +316,7 @@ async function fetchFREDIndicators(
 
   // Reads run concurrently; the shared client queue paces the FRED requests,
   // so cached series don't wait behind uncached ones.
-  const plan = [...seriesCountries];
+  const plan = Array.from(seriesCountries);
   const readings = await Promise.all(plan.map(([seriesId]) => readSeries(client, seriesId, lookbackDays)));
 
   plan.forEach(([seriesId, seriesFor], index) => {
@@ -341,6 +341,9 @@ async function fetchFREDIndicators(
  *   US set as the global benchmark (Fed rate, US CPI, oil, USD FX), reported
  *   for those countries alongside any that list the series themselves.
  * - Global commodities apply to every country.
+ * A country that lists a series in its own defaults comes first, so the event
+ * is attributed to it (a Fed move to the US, not to a country borrowing the US
+ * set).
  */
 function planSeries(countries: Country[], customIndicators: string[] | undefined): Map<string, Country[]> {
   const plan = new Map<string, Country[]>();
@@ -360,9 +363,19 @@ function planSeries(countries: Country[], customIndicators: string[] | undefined
     return plan;
   }
 
+  const borrowing: Country[] = [];
   for (const country of normalized) {
-    const defaults = DEFAULT_FRED_INDICATORS[country.country_code] ?? DEFAULT_FRED_INDICATORS.US;
-    for (const seriesId of Object.values(defaults)) add(seriesId, country);
+    const own = DEFAULT_FRED_INDICATORS[country.country_code];
+    if (!own) {
+      borrowing.push(country);
+      continue;
+    }
+    for (const seriesId of Object.values(own)) add(seriesId, country);
+  }
+  for (const country of borrowing) {
+    for (const seriesId of Object.values(DEFAULT_FRED_INDICATORS.US)) add(seriesId, country);
+  }
+  for (const country of normalized) {
     for (const seriesId of Object.values(DEFAULT_FRED_INDICATORS.GLOBAL || {})) add(seriesId, country);
   }
 
@@ -410,9 +423,30 @@ function createFredClient(apiKey: string) {
 
 type FredClient = ReturnType<typeof createFredClient>;
 
+/**
+ * Turn a non-ok FRED response into an unavailable reading. FRED answers both
+ * an unknown series and a bad API key with HTTP 400; its error_message tells
+ * them apart.
+ */
 async function unavailableForStatus(seriesId: string, response: Response): Promise<SeriesReading> {
   const { status } = response;
-  await response.body?.cancel();
+  let message = '';
+  try {
+    const body = await response.json() as { error_message?: unknown };
+    if (typeof body.error_message === 'string') message = body.error_message;
+  } catch {
+    await response.body?.cancel().catch(() => undefined);
+  }
+
+  if (status === 400 && /api_key/i.test(message)) {
+    logger.error({ statusCode: status, seriesId }, 'FRED rejected FRED_API_KEY');
+    return { status: 'unavailable', reason: 'FRED rejected FRED_API_KEY (HTTP 400)' };
+  }
+  if (status === 400 && /does not exist/i.test(message)) {
+    logger.warn({ seriesId }, 'Unknown FRED series ID');
+    return { status: 'unavailable', reason: 'unknown series ID (FRED HTTP 400)' };
+  }
+
   logger.error({ statusCode: status, seriesId }, 'FRED API error');
   return {
     status: 'unavailable',
@@ -465,12 +499,6 @@ async function cached<T extends object>(
 async function getSeriesMeta(client: FredClient, seriesId: string): Promise<FREDSeriesMeta | SeriesReading> {
   return cached(seriesMetaCache, SERIES_META_TTL_MS, seriesId, async () => {
     const response = await client.get('series', { series_id: seriesId });
-    if (response.status === 400) {
-      // FRED answers an unknown series ID with 400.
-      await response.body?.cancel();
-      logger.warn({ seriesId }, 'Unknown FRED series ID');
-      return { status: 'unavailable', reason: 'unknown series ID (FRED HTTP 400)' };
-    }
     if (!response.ok) return unavailableForStatus(seriesId, response);
     const meta = (await response.json() as FREDSeriesResponse).seriess?.[0];
     return meta ?? { status: 'unavailable', reason: 'series not found' };
@@ -525,13 +553,13 @@ async function readSeries(client: FredClient, seriesId: string, lookbackDays: nu
       return { status: 'unavailable', reason: `stopped updating (last observation ${meta.observation_end})` };
     }
 
-    // last_updated is when FRED last published data for the series ("2026-11-13 07:46:02-06").
-    if (daysSince(meta.last_updated.slice(0, 10)) > lookbackDays) {
+    if (daysSince(parseFredTimestamp(meta.last_updated)) > lookbackDays) {
       return { status: 'quiet' };
     }
 
-    // Rates, yields, unemployment, growth rates: FRED's units say "Percent".
-    const isPercent = /^percent/i.test(meta.units);
+    // Rates, yields, unemployment, growth rates: FRED's units say "Percent"
+    // (or, for OECD series, "Growth rate ...").
+    const isPercent = /^(percent|growth rate)/i.test(meta.units);
     const baseType = classifyIndicatorType(seriesId, meta.title);
     const indicatorType = baseType === 'general' && isPercent ? 'percent' : baseType;
 
@@ -573,8 +601,7 @@ function buildEvent(
   seriesFor: Country[],
   severityThreshold: string
 ): EconomicEvent | null {
-  const { indicatorType } = reading;
-  const { inPoints } = reading;
+  const { indicatorType, inPoints } = reading;
   const change = inPoints
     ? reading.current - reading.previous
     : relativeChange(reading.current, reading.previous);
@@ -589,7 +616,7 @@ function buildEvent(
   return {
     event_id: `fred-${seriesId}-${reading.date}`,
     event_type: classifyEconomicEventType(seriesId, change, indicatorType),
-    title: `${reading.title || seriesId}: ${change > 0 ? '+' : ''}${change.toFixed(2)}${unit} change`,
+    title: `${displayName(seriesId, reading)}: ${change > 0 ? '+' : ''}${change.toFixed(2)}${unit} change`,
     description: generateEconomicDescription(seriesId, reading, change, unit, indicatorType),
     severity: calculateEconomicSeverity(indicatorType, change, reading),
     country: country.country_name,
@@ -613,6 +640,15 @@ function buildEvent(
 function relativeChange(current: number, previous: number): number | null {
   if (previous === 0) return null;
   return ((current - previous) / Math.abs(previous)) * 100;
+}
+
+/**
+ * FRED's last_updated ("2026-11-13 07:46:02-06") as ISO 8601
+ * ("2026-11-13T07:46:02-06:00"), keeping the time and offset.
+ */
+function parseFredTimestamp(value: string): string {
+  const match = /^(\d{4}-\d{2}-\d{2}) (\d{2}:\d{2}:\d{2})([+-]\d{2})$/.exec(value);
+  return match ? `${match[1]}T${match[2]}${match[3]}:00` : value;
 }
 
 function daysSince(isoDate: string): number {
@@ -639,7 +675,7 @@ function classifyIndicatorType(seriesId: string, title = ''): string {
 
   const name = title.toLowerCase();
   if (name.includes('producer price')) return 'ppi';
-  if (name.includes('consumer price') || name.includes('price index')) return 'inflation';
+  if (name.includes('consumer price') || name.includes('personal consumption expenditures')) return 'inflation';
   if (name.includes('unemployment')) return 'unemployment';
   if (name.includes('interest rate') || name.includes('yield') || name.includes('policy rate')) return 'interest_rate';
   if (name.includes('exchange rate')) return 'currency';
@@ -742,6 +778,12 @@ function describeCurrencyMove(seriesId: string, change: number): string {
     : 'The currency weakened against the US dollar, so goods priced in it cost less for dollar buyers and dollar-priced imports cost more locally.';
 }
 
+/** Series name for titles; marks values that are year-on-year rates. */
+function displayName(seriesId: string, reading: OkReading): string {
+  const name = reading.title || seriesId;
+  return reading.yearOnYear ? `${name} (year-on-year %)` : name;
+}
+
 /**
  * Generate human-readable description of economic event
  */
@@ -752,9 +794,7 @@ function generateEconomicDescription(
   unit: string,
   indicatorType: string
 ): string {
-  const name = reading.yearOnYear
-    ? `${reading.title || seriesId} (year-on-year %)`
-    : reading.title || seriesId;
+  const name = displayName(seriesId, reading);
   const direction = change > 0 ? 'increased' : 'decreased';
 
   let context = '';
