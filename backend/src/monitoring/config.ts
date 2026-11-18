@@ -332,27 +332,44 @@ export class MissingApiKeyError extends Error {
   }
 }
 
+/** The org's key secret exists but could not be read: a fault, not "no key" (#72). */
+export class ApiKeyUnreadableError extends Error {
+  constructor(organizationId: string, secretName: string) {
+    super(`Organization ${organizationId}: ${secretName} is configured but could not be read`);
+    this.name = 'ApiKeyUnreadableError';
+  }
+}
+
 /**
  * Resolve the API key for an organization's AI provider.
  *
  * Org-scoped Secrets Manager entry only (`org.<provider>_api_key`), with no
  * environment fallback: an LLM call must never bill a platform key that
- * Pericles holds for itself. Mirrors the Event Q&A resolution in
- * auth-server.ts so the monitoring cron and the chat surface agree.
+ * Pericles holds for itself.
  *
- * @returns the key, or null when the org has none
+ * "No key" and "can't read the key" are different outcomes (as in
+ * agent-models.ts resolveClientMonitoringModel):
+ * - no OrganizationSecret row: MissingApiKeyError, a policy skip;
+ * - a row that can't be read (KEK, decryption, secrets backend down) or a
+ *   failing DB: a real error, so it shows as a failure, not as a calm
+ *   "Skipped" telling the admin to add a key they already have.
  */
-export async function resolveAiApiKey(organizationId: string, provider: string): Promise<string | null> {
+export async function resolveAiApiKey(organizationId: string, provider: string): Promise<string> {
   const secretName = `${provider}_api_key`;
+  const configured = await getPrismaClient().organizationSecret.findFirst({
+    where: { organization_id: organizationId, name: secretName, scope: 'ORGANIZATION' },
+    select: { id: true },
+  });
+  if (!configured) throw new MissingApiKeyError(organizationId, provider);
+  const { getOrgSecret } = await import('../secrets/index.js');
+  let key: string | null;
   try {
-    const { getOrgSecret } = await import('../secrets/index.js');
-    const secretKey = await getOrgSecret(organizationId, secretName, false);
-    if (secretKey) return secretKey;
+    key = await getOrgSecret(organizationId, secretName, false);
   } catch {
-    // Secrets backend unavailable/unconfigured — treated as "no key" so the
-    // cycle is skipped rather than silently re-billed to the platform env.
+    key = null;
   }
-  return null;
+  if (!key) throw new ApiKeyUnreadableError(organizationId, secretName);
+  return key;
 }
 
 /**
@@ -364,7 +381,8 @@ export async function resolveAiApiKey(organizationId: string, provider: string):
  * The org's API key is attached as a config object, so a tenant bringing its
  * own OpenRouter/OpenAI key (Settings → Secrets) is billed to their account.
  * There is no platform/env key fallback: without an org key this throws
- * MissingApiKeyError, which callers treat as a skip.
+ * MissingApiKeyError, which callers treat as a skip. A key that exists but
+ * can't be read throws ApiKeyUnreadableError, a real failure.
  *
  * @returns ResolvedModel usable as Mastra's model (config object with apiKey)
  * @throws MissingApiKeyError when the org's credentials owner has no key for the selected provider
@@ -384,9 +402,14 @@ export async function resolveModel(config: MonitoringConfig): Promise<ResolvedMo
   } catch (error) {
     console.warn(`[Config] Could not resolve credentials owner for ${config.organizationId}; using the org itself:`, error);
   }
-  const apiKey = await resolveAiApiKey(keysOrgId, provider);
-  if (!apiKey) {
-    throw new MissingApiKeyError(config.organizationId, provider);
+  let apiKey: string;
+  try {
+    apiKey = await resolveAiApiKey(keysOrgId, provider);
+  } catch (error) {
+    // Report a missing key against the org being run (keysOrgId may be its
+    // parent); anything else (unreadable key, DB down) propagates as is.
+    if (error instanceof MissingApiKeyError) throw new MissingApiKeyError(config.organizationId, provider);
+    throw error;
   }
 
   const id: `${string}/${string}` =

@@ -65,7 +65,7 @@ export default function AgentsPage() {
   const [logs, setLogs] = useState<MonitoringAuditLog[]>([]);
   const [isLoading, setIsLoading] = useState(true);
   const [isSaving, setIsSaving] = useState(false);
-  const [message, setMessage] = useState<{ type: 'success' | 'error'; text: string } | null>(null);
+  const [message, setMessage] = useState<{ type: 'success' | 'error' | 'info'; text: string } | null>(null);
 
   // Local config state for editing
   const [radiusKm, setRadiusKm] = useState(100);
@@ -145,8 +145,11 @@ export default function AgentsPage() {
     durationMs: number;
     eventsDetected: number;
     eventsPublished: number;
-  } | undefined) => {
-    if (metrics) {
+  } | undefined, skipReason?: string) => {
+    if (skipReason) {
+      // A skipped run (#72): keep the reason on the page after the dialog closes.
+      setMessage({ type: 'info', text: `Monitoring cycle skipped: ${skipReason}` });
+    } else if (metrics) {
       setMessage({
         type: 'success',
         text: `Monitoring cycle completed. Detected ${metrics.eventsDetected} events, published ${metrics.eventsPublished}.`,
@@ -313,7 +316,9 @@ export default function AgentsPage() {
           className={`p-3 rounded-md text-sm ${
             message.type === 'success'
               ? 'bg-risk-low text-risk-low-fg'
-              : 'bg-risk-critical text-risk-critical-fg'
+              : message.type === 'info'
+                ? 'bg-muted text-foreground'
+                : 'bg-risk-critical text-risk-critical-fg'
           }`}
         >
           {message.text}

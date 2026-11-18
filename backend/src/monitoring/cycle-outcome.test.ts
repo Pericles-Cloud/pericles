@@ -28,6 +28,13 @@ describe('cycleTerminalEvent (#72)', () => {
     }
   });
 
+  it('a configured key that cannot be read is a failure, not a skip', () => {
+    expect(cycleTerminalEvent(named('ApiKeyUnreadableError', 'configured but could not be read'))).toMatchObject({
+      outcome: 'failed',
+      code: 'CYCLE_ERROR',
+    });
+  });
+
   it('anything else is a real failure', () => {
     expect(cycleTerminalEvent(new Error('boom'))).toEqual({
       type: 'error',
