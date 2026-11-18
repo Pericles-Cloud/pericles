@@ -102,7 +102,8 @@ interface MonitoringProgressDialogProps {
   isOpen: boolean;
   organizationId: string;
   onClose: () => void;
-  onComplete: (metrics: ProgressUpdate['metrics']) => void;
+  /** Called when a run ends with a result; `skipReason` is set for a skipped run (#72). */
+  onComplete: (metrics: ProgressUpdate['metrics'], skipReason?: string) => void;
 }
 
 export function MonitoringProgressDialog({
@@ -191,8 +192,9 @@ export function MonitoringProgressDialog({
       // terminates the worker). Until then, a late connection error must not
       // turn the skip red: skippedRef tells the error handlers.
       skippedRef.current = true;
-      // The run is over: let the parent refresh (no metrics for a skip).
-      onComplete(undefined);
+      // The run is over: let the parent refresh and keep the reason visible
+      // after the dialog closes (no metrics for a skip).
+      onComplete(undefined, update.message || 'This monitoring cycle was skipped');
     } else if (update.type === 'progress' && update.phase) {
       setCurrentPhase(update.phase);
 

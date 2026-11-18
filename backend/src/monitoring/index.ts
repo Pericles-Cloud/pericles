@@ -289,9 +289,6 @@ export async function runMonitoringCycle(
   let heartbeatInterval: NodeJS.Timeout | null = null;
   let agentTimeout: NodeJS.Timeout | null = null;
 
-  // A policy skip still runs the finally block: don't log it as "complete".
-  let skippedCycle = false;
-
   try {
     // Get monitoring agent from Mastra
     const agent = mastra.getAgent('monitoringAgent');
@@ -800,12 +797,14 @@ export async function runMonitoringCycle(
       eventsDetected: metrics.eventsDetected,
       eventsPublished: metrics.eventsPublished,
     });
+    // Logged on success only (not after a skip or a failure).
+    finalizeCycleMetrics(metrics);
+    cycleLogger.info({ metrics: getMetricsSummary(metrics) }, '[Cycle] Cycle complete');
   } catch (error) {
     // A missing org key is a configuration skip, not a cycle failure — log it
     // at WARN with the skip wording so run-once/Coolify logs never show an
     // ERROR for an org that was deliberately not run.
     if (cycleSkipCode(error) === 'ORGANIZATION_SKIPPED') {
-      skippedCycle = true;
       // No progress event for a skip: the stream's terminal event carries it
       // (outcome 'skipped', see cycle-outcome.ts). A progress 'error' here
       // would show the dialog's red Error state until that event replaced it
@@ -831,10 +830,9 @@ export async function runMonitoringCycle(
       clearTimeout(agentTimeout);
       agentTimeout = null;
     }
+    // Also stamps the end time for a skip or a failure (on success it ran
+    // already, above; calling it again only moves cycleEndTime by a few ms).
     finalizeCycleMetrics(metrics);
-    if (!skippedCycle) {
-      cycleLogger.info({ metrics: getMetricsSummary(metrics) }, '[Cycle] Cycle complete');
-    }
   }
 
   return metrics;
