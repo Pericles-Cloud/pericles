@@ -132,7 +132,8 @@ const DEFAULT_FRED_INDICATORS: Record<string, Record<string, string>> = {
     interest_rate: 'DFF',         // Federal Funds Rate
     unemployment: 'UNRATE',       // Unemployment Rate
     oil_price: 'DCOILWTICO',      // Crude Oil WTI
-    usd_per_eur: 'DEXUSEU'       // US dollars per euro (CNY is under CN)
+    usd_per_eur: 'DEXUSEU',      // US dollars per euro
+    cny_per_usd: 'DEXCHUS'       // Chinese yuan per US dollar (also CN's default)
     // GSCPI (NY Fed Global Supply Chain Pressure Index) is not published on FRED.
   },
   // EU countries: national HICP + the ECB deposit facility rate
@@ -203,8 +204,15 @@ class FredQueueFullError extends Error {
   }
 }
 
-/** Series metadata changes at most once per release; cache it across runs. */
-const SERIES_META_TTL_MS = 6 * 60 * 60 * 1000;
+/**
+ * Series metadata (last_updated) is cached briefly so a new release is seen
+ * within this time. Observations are keyed by last_updated, so they only need
+ * to expire to free memory.
+ */
+const SERIES_META_TTL_MS = 30 * 60 * 1000;
+const OBSERVATIONS_TTL_MS = 6 * 60 * 60 * 1000;
+/** Upper bound on each cache; the oldest entries are dropped beyond it. */
+const MAX_CACHE_ENTRIES = 500;
 interface CacheEntry<T> {
   promise: Promise<T | SeriesReading>;
   fetchedAt: number;
@@ -260,6 +268,8 @@ type SeriesReading =
       date: string;
       current: number;
       previous: number;
+      /** Picks thresholds and event types (from the ID, else FRED's title). */
+      indicatorType: string;
       /** Values are year-on-year percent changes (FRED units=pc1), not levels. */
       yearOnYear: boolean;
       /** Values are percentages (rates, YoY): changes are in percentage points. */
@@ -304,17 +314,22 @@ async function fetchFREDIndicators(
   // affected_country_codes. (ECBDFR is listed by DE, FR, IT and ES.)
   const seriesCountries = planSeries(countries, customIndicators);
 
-  for (const [seriesId, seriesFor] of seriesCountries) {
-    const reading = await readSeries(client, seriesId, lookbackDays);
+  // Reads run concurrently; the shared client queue paces the FRED requests,
+  // so cached series don't wait behind uncached ones.
+  const plan = [...seriesCountries];
+  const readings = await Promise.all(plan.map(([seriesId]) => readSeries(client, seriesId, lookbackDays)));
+
+  plan.forEach(([seriesId, seriesFor], index) => {
+    const reading = readings[index];
     if (reading.status === 'unavailable') {
       unavailableSeries.push({ series_id: seriesId, reason: reading.reason });
-      continue;
+      return;
     }
-    if (reading.status !== 'ok') continue;
+    if (reading.status !== 'ok') return;
 
     const event = buildEvent(seriesId, reading, seriesFor, severityThreshold);
     if (event) events.push(event);
-  }
+  });
 
   return { events, apiCallsMade: client.calls(), indicatorsChecked: seriesCountries.size, unavailableSeries };
 }
@@ -322,10 +337,10 @@ async function fetchFREDIndicators(
 /**
  * Which series to read, and the countries each one is reported for.
  * - Custom indicators apply to every country.
- * - Otherwise each country gets its own defaults. A country with no defaults
- *   adds nothing; if no country has defaults, the US set is read and reported
- *   as the US (not relabelled as the org's countries).
- * - Global commodities are reported for the first country.
+ * - Otherwise each country gets its own defaults. Countries with none get the
+ *   US set as the global benchmark (Fed rate, US CPI, oil, USD FX), reported
+ *   for those countries alongside any that list the series themselves.
+ * - Global commodities apply to every country.
  */
 function planSeries(countries: Country[], customIndicators: string[] | undefined): Map<string, Country[]> {
   const plan = new Map<string, Country[]>();
@@ -346,18 +361,10 @@ function planSeries(countries: Country[], customIndicators: string[] | undefined
   }
 
   for (const country of normalized) {
-    const defaults = DEFAULT_FRED_INDICATORS[country.country_code];
-    if (!defaults) continue;
+    const defaults = DEFAULT_FRED_INDICATORS[country.country_code] ?? DEFAULT_FRED_INDICATORS.US;
     for (const seriesId of Object.values(defaults)) add(seriesId, country);
+    for (const seriesId of Object.values(DEFAULT_FRED_INDICATORS.GLOBAL || {})) add(seriesId, country);
   }
-
-  if (plan.size === 0) {
-    const us = { country_code: 'US', country_name: 'United States' };
-    for (const seriesId of Object.values(DEFAULT_FRED_INDICATORS.US)) add(seriesId, us);
-  }
-
-  const first = normalized[0];
-  for (const seriesId of Object.values(DEFAULT_FRED_INDICATORS.GLOBAL || {})) add(seriesId, first);
 
   return plan;
 }
@@ -423,22 +430,47 @@ function isReading(value: object): value is SeriesReading {
  */
 async function cached<T extends object>(
   cache: Map<string, CacheEntry<T>>,
+  ttlMs: number,
   key: string,
   load: () => Promise<T | SeriesReading>
 ): Promise<T | SeriesReading> {
+  const now = Date.now();
   const hit = cache.get(key);
-  if (hit && Date.now() - hit.fetchedAt < SERIES_META_TTL_MS) return hit.promise;
+  if (hit && now - hit.fetchedAt < ttlMs) return hit.promise;
+
+  // Expired and superseded entries go; Maps iterate oldest first.
+  for (const [k, entry] of cache) {
+    if (now - entry.fetchedAt >= ttlMs || cache.size >= MAX_CACHE_ENTRIES) cache.delete(k);
+    else break;
+  }
 
   const promise = load();
-  cache.set(key, { promise, fetchedAt: Date.now() });
-  const result = await promise;
-  if (isReading(result)) cache.delete(key);
-  return result;
+  const entry = { promise, fetchedAt: now };
+  cache.set(key, entry);
+  const forget = () => {
+    if (cache.get(key) === entry) cache.delete(key);
+  };
+  try {
+    const result = await promise;
+    if (isReading(result)) forget();
+    return result;
+  } catch (err) {
+    // A thrown request (timeout, network, queue full) must not be replayed
+    // from the cache to later runs.
+    forget();
+    throw err;
+  }
 }
 
 async function getSeriesMeta(client: FredClient, seriesId: string): Promise<FREDSeriesMeta | SeriesReading> {
-  return cached(seriesMetaCache, seriesId, async () => {
+  return cached(seriesMetaCache, SERIES_META_TTL_MS, seriesId, async () => {
     const response = await client.get('series', { series_id: seriesId });
+    if (response.status === 400) {
+      // FRED answers an unknown series ID with 400.
+      await response.body?.cancel();
+      logger.warn({ seriesId }, 'Unknown FRED series ID');
+      return { status: 'unavailable', reason: 'unknown series ID (FRED HTTP 400)' };
+    }
     if (!response.ok) return unavailableForStatus(seriesId, response);
     const meta = (await response.json() as FREDSeriesResponse).seriess?.[0];
     return meta ?? { status: 'unavailable', reason: 'series not found' };
@@ -452,7 +484,7 @@ async function getObservations(
   yearOnYear: boolean
 ): Promise<ObservationValues | SeriesReading> {
   const key = `${seriesId}|${yearOnYear ? 'pc1' : 'lin'}|${meta.last_updated}`;
-  return cached(observationCache, key, async () => {
+  return cached(observationCache, OBSERVATIONS_TTL_MS, key, async () => {
     const params: Record<string, string> = {
       series_id: seriesId,
       sort_order: 'desc',
@@ -498,9 +530,16 @@ async function readSeries(client: FredClient, seriesId: string, lookbackDays: nu
       return { status: 'quiet' };
     }
 
+    // Rates, yields, unemployment, growth rates: FRED's units say "Percent".
+    const isPercent = /^percent/i.test(meta.units);
+    const baseType = classifyIndicatorType(seriesId, meta.title);
+    const indicatorType = baseType === 'general' && isPercent ? 'percent' : baseType;
+
     // A non-seasonally-adjusted price index swings month to month with the
     // season (January sales); compare its year-on-year rate instead.
-    const yearOnYear = classifyIndicatorType(seriesId) === 'inflation' && meta.seasonal_adjustment_short === 'NSA';
+    const yearOnYear = (indicatorType === 'inflation' || indicatorType === 'ppi')
+      && meta.seasonal_adjustment_short === 'NSA'
+      && /^index/i.test(meta.units);
 
     const observations = await getObservations(client, seriesId, meta, yearOnYear);
     if (isReading(observations)) return observations;
@@ -513,9 +552,9 @@ async function readSeries(client: FredClient, seriesId: string, lookbackDays: nu
       date: latest.date,
       current: latest.value,
       previous: previous.value,
+      indicatorType,
       yearOnYear,
-      // Rates, yields, unemployment, growth rates: FRED's units say "Percent".
-      inPoints: yearOnYear || /^percent/i.test(meta.units)
+      inPoints: yearOnYear || isPercent
     };
   } catch (err) {
     if (err instanceof FredQueueFullError) {
@@ -534,7 +573,7 @@ function buildEvent(
   seriesFor: Country[],
   severityThreshold: string
 ): EconomicEvent | null {
-  const indicatorType = thresholdType(seriesId, reading);
+  const { indicatorType } = reading;
   const { inPoints } = reading;
   const change = inPoints
     ? reading.current - reading.previous
@@ -583,19 +622,11 @@ function daysSince(isoDate: string): number {
 }
 
 /**
- * The indicator type that picks thresholds and event types. A percentage
- * series the ID rules don't recognise uses the 'percent' (points) thresholds,
- * not the relative-change fallback.
+ * Classify indicator type from the series ID, falling back to FRED's title for
+ * IDs the rules don't know. An unrecognised percentage series becomes
+ * 'percent' in readSeries (points thresholds, not relative change).
  */
-function thresholdType(seriesId: string, reading: OkReading): string {
-  const type = classifyIndicatorType(seriesId);
-  return type === 'general' && reading.inPoints ? 'percent' : type;
-}
-
-/**
- * Classify indicator type from series ID
- */
-function classifyIndicatorType(seriesId: string): string {
+function classifyIndicatorType(seriesId: string, title = ''): string {
   const id = seriesId.toUpperCase();
 
   // CP0000xxM086NEST is Eurostat's HICP (all items) on FRED.
@@ -605,6 +636,14 @@ function classifyIndicatorType(seriesId: string): string {
   if (id.includes('UNRATE') || id.includes('UNEMP')) return 'unemployment';
   if (id.includes('DEX') || id.includes('EXR')) return 'currency';
   if (id.includes('OIL') || id.includes('GOLD') || id.includes('COPPER') || id.includes('PCOPP') || id.includes('BRENT')) return 'commodity';
+
+  const name = title.toLowerCase();
+  if (name.includes('producer price')) return 'ppi';
+  if (name.includes('consumer price') || name.includes('price index')) return 'inflation';
+  if (name.includes('unemployment')) return 'unemployment';
+  if (name.includes('interest rate') || name.includes('yield') || name.includes('policy rate')) return 'interest_rate';
+  if (name.includes('exchange rate')) return 'currency';
+  if (name.includes('price of') || name.includes('global price')) return 'commodity';
 
   return 'general';
 }
