@@ -1,6 +1,6 @@
 'use client';
 
-import { useState, useEffect, useRef } from 'react';
+import { useState, useEffect, useMemo, useRef } from 'react';
 import { useAuth } from '@/providers/auth-provider';
 import {
   Shipment,
@@ -33,6 +33,12 @@ export default function ShipmentsPage() {
 
   const [shipments, setShipments] = useState<Shipment[]>([]);
   const [suppliers, setSuppliers] = useState<Supplier[]>([]);
+  /** Bumped to reload the page's data (after a 409/404 on save). */
+  const [dataVersion, setDataVersion] = useState(0);
+  /** The supplier list for the current org loaded successfully. */
+  const [suppliersLoaded, setSuppliersLoaded] = useState(false);
+  /** The supplier list failed to load (shown, so empty dropdowns aren't a mystery). */
+  const [suppliersFailed, setSuppliersFailed] = useState(false);
   const [carriers, setCarriers] = useState<Carrier[]>([]);
   const [organizations, setOrganizations] = useState<OrganizationDetails[]>([]);
   const [selectedShipment, setSelectedShipment] = useState<Shipment | null>(null);
@@ -105,6 +111,92 @@ export default function ShipmentsPage() {
     };
   }, [currentOrganization?.id]);
 
+  /**
+   * A shipment's supplier must belong to the shipment's own org (#95). The
+   * list is rolled up across subsidiaries, so filter it for the form.
+   */
+  const suppliersByOrg = useMemo(() => {
+    const byOrg = new Map<string, Supplier[]>();
+    for (const s of suppliers) {
+      const list = byOrg.get(s.organizationId);
+      if (list) list.push(s);
+      else byOrg.set(s.organizationId, [s]);
+    }
+    return byOrg;
+  }, [suppliers]);
+  const suppliersOf = (orgId: string | undefined): Supplier[] =>
+    orgId ? (suppliersByOrg.get(orgId) ?? []) : [];
+  // Each dialog's choices, computed once per render.
+  const createSuppliers = suppliersOf(currentOrganization?.id);
+  const editSuppliers = suppliersOf(selectedShipment?.organizationId);
+  /**
+   * The shipment's original supplier when it isn't in the dropdown, so it is
+   * still shown and selectable. It is labelled "another organization" only
+   * when the server says so (supplier.sameOrganization === false; the API
+   * never returns the other tenant's org id), never because the client-side
+   * list is stale or missing it.
+   */
+  const unlistedSupplierId =
+    selectedShipment?.supplierId && !editSuppliers.some((s) => s.id === selectedShipment.supplierId)
+      ? selectedShipment.supplierId
+      : null;
+  const unlistedIsCrossOrg = selectedShipment?.supplier?.sameOrganization === false;
+
+  // The org whose suppliers are on screen, so a late reload for a previous
+  // org can't overwrite the current one's list.
+  const shownOrgId = useRef<string | undefined>(undefined);
+  useEffect(() => {
+    shownOrgId.current = currentOrganization?.id;
+  }, [currentOrganization?.id]);
+
+  // Only the newest reload may apply (two rejections in a row start two).
+  const reloadSeq = useRef(0);
+
+  /**
+   * After a save rejected a supplier or carrier (INVALID_LINK, e.g. deleted
+   * meanwhile): reload both lists and drop a selection that no longer exists,
+   * so the form doesn't silently resubmit it. An edit keeps the shipment's
+   * own original supplier (a legacy link stays selectable).
+   */
+  const reloadLinks = async (): Promise<void> => {
+    const orgId = currentOrganization?.id;
+    if (!orgId) return;
+    const seq = ++reloadSeq.current;
+    const [suppliersRes, carriersRes] = await Promise.all([
+      getSuppliers({ organizationId: orgId, includeSubsidiaries: true }),
+      getCarriers(),
+    ]);
+    // Switched orgs, or a newer reload started, meanwhile.
+    if (shownOrgId.current !== orgId || seq !== reloadSeq.current) return;
+    if (suppliersRes.success && suppliersRes.data) {
+      const supplierIds = new Set(suppliersRes.data.map((x) => x.id));
+      setSuppliers(suppliersRes.data);
+      setSuppliersLoaded(true);
+      setSuppliersFailed(false);
+      setNewShipment((f) => (f.supplierId && !supplierIds.has(f.supplierId) ? { ...f, supplierId: '' } : f));
+      // Keep the shipment's original supplier only if it is a legacy
+      // cross-org link (never in this list by design). A same-org original
+      // missing from the reloaded list was deleted: clear it, or every save
+      // would resend it and be rejected again.
+      const keepOriginal = selectedShipment?.supplier?.sameOrganization === false;
+      setEditShipment((f) =>
+        f.supplierId &&
+        !supplierIds.has(f.supplierId) &&
+        !(keepOriginal && f.supplierId === selectedShipment.supplierId)
+          ? { ...f, supplierId: '' }
+          : f
+      );
+    } else {
+      setSuppliersFailed(true);
+    }
+    if (carriersRes.success && carriersRes.data) {
+      const carrierIds = new Set(carriersRes.data.map((x) => x.id));
+      setCarriers(carriersRes.data);
+      setNewShipment((f) => (f.carrierId && !carrierIds.has(f.carrierId) ? { ...f, carrierId: '' } : f));
+      setEditShipment((f) => (f.carrierId && !carrierIds.has(f.carrierId) ? { ...f, carrierId: '' } : f));
+    }
+  };
+
   /** May the caller create/edit/delete this org's shipments? (#73) */
   const canManageOrg = (orgId: string): boolean =>
     organizations.find((o) => o.id === orgId)?.canManageData === true;
@@ -117,6 +209,11 @@ export default function ShipmentsPage() {
     let isMounted = true;
 
     const fetchData = async () => {
+      // Until this org's suppliers arrive, the list still holds the previous
+      // org's: don't call a link cross-org or a list empty on that basis.
+      setSuppliersLoaded(false);
+      setSuppliersFailed(false);
+      const seq = ++reloadSeq.current;
       const [shipmentsRes, suppliersRes, carriersRes] = await Promise.all([
         getShipments(currentOrganization.id, { includeSubsidiaries: true }),
         getSuppliers({ organizationId: currentOrganization.id, includeSubsidiaries: true }),
@@ -124,17 +221,26 @@ export default function ShipmentsPage() {
       ]);
 
       if (!isMounted) return;
+      // A newer load (this effect or reloadLinks) has started: it decides the lists.
+      const newest = seq === reloadSeq.current;
 
       if (shipmentsRes.success && shipmentsRes.data) {
         setShipments(shipmentsRes.data);
       }
-      if (suppliersRes.success && suppliersRes.data) {
+      if (!newest) {
+        // Leave suppliers/carriers to the newer load.
+      } else if (suppliersRes.success && suppliersRes.data) {
         // Already scoped to the org's subtree by the server — the previous
         // own-org-only filter emptied the list (and the supplier dropdowns)
         // for any parent/root view, which owns no rows of its own.
         setSuppliers(suppliersRes.data);
+        setSuppliersLoaded(true);
+      } else {
+        // Don't keep filtering the previous org's list.
+        setSuppliers([]);
+        setSuppliersFailed(true);
       }
-      if (carriersRes.success && carriersRes.data) {
+      if (newest && carriersRes.success && carriersRes.data) {
         setCarriers(carriersRes.data);
       }
       setIsLoading(false);
@@ -145,7 +251,7 @@ export default function ShipmentsPage() {
     return () => {
       isMounted = false;
     };
-  }, [currentOrganization?.id]);
+  }, [currentOrganization?.id, dataVersion]);
 
   // Handle case when organization is not yet loaded
   const isLoadingOrNoOrg = isLoading || !currentOrganization?.id;
@@ -189,6 +295,8 @@ export default function ShipmentsPage() {
       setMessage({ type: 'success', text: 'Shipment created successfully' });
     } else {
       setMessage({ type: 'error', text: response.error?.message || 'Failed to create shipment' });
+      // The supplier/carrier was rejected (e.g. deleted meanwhile): refresh the choices.
+      if (response.error?.code === 'INVALID_LINK') void reloadLinks();
     }
     setCreateSubmitting(false);
   };
@@ -241,6 +349,14 @@ export default function ShipmentsPage() {
       setMessage({ type: 'success', text: 'Shipment updated successfully' });
     } else {
       setMessage({ type: 'error', text: response.error?.message || 'Failed to update shipment' });
+      if (response.error?.code === 'INVALID_LINK') void reloadLinks();
+      // Changed or deleted by someone else: close the stale form and reload,
+      // so a retry starts from the current shipment.
+      if (response.error?.code === 'CONFLICT' || response.error?.code === 'NOT_FOUND') {
+        setShowEditModal(false);
+        setSelectedShipment(null);
+        setDataVersion((v) => v + 1);
+      }
     }
     setEditSubmitting(false);
   };
@@ -619,10 +735,19 @@ export default function ShipmentsPage() {
                       className="w-full h-9 rounded-md border border-input bg-transparent px-3 py-1 text-sm"
                     >
                       <option value="">Select supplier...</option>
-                      {suppliers.map((s) => (
+                      {createSuppliers.map((s) => (
                         <option key={s.id} value={s.id}>{s.name}</option>
                       ))}
                     </select>
+                    {suppliersFailed && (
+                      <p className="text-xs text-destructive">Couldn&apos;t load suppliers. Reload the page to try again.</p>
+                    )}
+                    {suppliersLoaded && createSuppliers.length === 0 && (
+                      <p className="text-xs text-muted-foreground">
+                        {currentOrganization.name} has no suppliers of its own. A shipment can only use its own
+                        organization&apos;s suppliers; to use a subsidiary&apos;s, switch to that organization.
+                      </p>
+                    )}
                   </div>
                   <div className="space-y-2">
                     <Label htmlFor="createCarrier">Carrier</Label>
@@ -770,11 +895,30 @@ export default function ShipmentsPage() {
                       onChange={(e) => setEditShipment({ ...editShipment, supplierId: e.target.value })}
                       className="w-full h-9 rounded-md border border-input bg-transparent px-3 py-1 text-sm"
                     >
-                      <option value="">Select supplier...</option>
-                      {suppliers.map((s) => (
+                      <option value="">No supplier</option>
+                      {/* A legacy link to another org's supplier (#95): show it, so
+                          it isn't mistaken for "no supplier" and can be cleared. */}
+                      {/* Keyed on the shipment's ORIGINAL supplier, so the option stays
+                          available after the user picks something else. */}
+                      {unlistedSupplierId && (
+                        <option value={unlistedSupplierId}>
+                          {selectedShipment?.supplier?.name ?? 'Unknown supplier'}
+                          {unlistedIsCrossOrg ? ' (another organization; choose another or none)' : ''}
+                        </option>
+                      )}
+                      {editSuppliers.map((s) => (
                         <option key={s.id} value={s.id}>{s.name}</option>
                       ))}
                     </select>
+                    {suppliersFailed && (
+                      <p className="text-xs text-destructive">Couldn&apos;t load suppliers. Reload the page to try again.</p>
+                    )}
+                    {suppliersLoaded && editSuppliers.length === 0 && (
+                      <p className="text-xs text-muted-foreground">
+                        This shipment&apos;s organization has no suppliers of its own. A shipment can only use its own
+                        organization&apos;s suppliers.
+                      </p>
+                    )}
                   </div>
                   <div className="space-y-2">
                     <Label htmlFor="editCarrier">Carrier</Label>

@@ -716,6 +716,8 @@ export async function deleteCarrier(id: string): Promise<ApiResponse<{ message: 
 
 export interface ShipmentSupplier {
   id: string;
+  /** False for a legacy link to another organization's supplier (#95). */
+  sameOrganization?: boolean;
   name: string;
   country: string | null;
   address?: string | null;

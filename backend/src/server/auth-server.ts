@@ -42,6 +42,16 @@ import {
   writeScope,
   type OrganizationWriteGrant,
 } from '../auth/index.js';
+import {
+  SHIPMENT_SUPPLIER_SELECT,
+  ShipmentRequestError,
+  isRetryableConflict,
+  toShipmentSupplier,
+  lockOrganization,
+  lockShipment,
+  resolveShipmentCarrierId,
+  resolveShipmentSupplierId,
+} from './shipment-links.js';
 import { getPositionFeed, getOrganizationPositions } from '../integrations/tracking/index.js';
 import {
   resolveSettingsOwnership,
@@ -243,6 +253,24 @@ async function auditDataWrite(
       metadata: { entity, entity_id: entityId, access: grant },
     },
   });
+}
+
+/**
+ * Send a ShipmentRequestError's response, or a 409 for a retryable conflict
+ * (deadlock, transaction timeout); false for any other error (a 500).
+ */
+function sendShipmentRequestError(error: unknown, res: Response, op: 'create' | 'update'): boolean {
+  if (isRetryableConflict(error)) {
+    const message =
+      op === 'create'
+        ? 'The shipment could not be created because related data was being changed at the same time; try again'
+        : 'The shipment was being changed at the same time; try again';
+    res.status(409).json({ success: false, error: { code: 'CONFLICT', message } });
+    return true;
+  }
+  if (!(error instanceof ShipmentRequestError)) return false;
+  res.status(error.status).json({ success: false, error: { code: error.code, message: error.message } });
+  return true;
 }
 
 /**
@@ -2947,7 +2975,7 @@ app.get('/api/shipments', async (req: Request, res: Response) => {
     const shipments = await prisma.shipment.findMany({
       where: { organization_id: { in: orgIds } },
       include: {
-        supplier: { select: { id: true, name: true, country: true } },
+        supplier: { select: SHIPMENT_SUPPLIER_SELECT },
         carrier: { select: { id: true, name: true, scac_code: true } },
       },
       orderBy: { arrival_date: 'desc' },
@@ -2960,7 +2988,7 @@ app.get('/api/shipments', async (req: Request, res: Response) => {
         organizationId: s.organization_id,
         supplierId: s.supplier_id,
         carrierId: s.carrier_id,
-        supplier: s.supplier ? { id: s.supplier.id, name: s.supplier.name, country: s.supplier.country } : null,
+        supplier: toShipmentSupplier(s.organization_id, s.supplier),
         carrier: s.carrier ? { id: s.carrier.id, name: s.carrier.name, scacCode: s.carrier.scac_code } : null,
         bolNumber: s.bol_number,
         masterBolNumber: s.master_bol_number,
@@ -3144,7 +3172,7 @@ app.get('/api/shipments/:id', async (req: Request, res: Response) => {
     const shipment = await prisma.shipment.findUnique({
       where: { id: shipmentId },
       include: {
-        supplier: { select: { id: true, name: true, country: true, address: true } },
+        supplier: { select: { ...SHIPMENT_SUPPLIER_SELECT, address: true } },
         carrier: { select: { id: true, name: true, scac_code: true } },
       },
     });
@@ -3169,7 +3197,7 @@ app.get('/api/shipments/:id', async (req: Request, res: Response) => {
         organizationId: s.organization_id,
         supplierId: s.supplier_id,
         carrierId: s.carrier_id,
-        supplier: s.supplier ? { id: s.supplier.id, name: s.supplier.name, country: s.supplier.country, address: s.supplier.address } : null,
+        supplier: toShipmentSupplier(s.organization_id, s.supplier),
         carrier: s.carrier ? { id: s.carrier.id, name: s.carrier.name, scacCode: s.carrier.scac_code } : null,
         bolNumber: s.bol_number,
         masterBolNumber: s.master_bol_number,
@@ -3248,14 +3276,18 @@ app.post('/api/shipments', async (req: Request, res: Response) => {
     }
 
     const shipment = await prisma.$transaction(async (tx) => {
+      // Locks: the org, supplier and carrier can't be deleted until this commits.
+      await lockOrganization(tx, organizationId);
+      const supplierId = await resolveShipmentSupplierId(tx, shipmentData.supplierId, organizationId);
+      const carrierId = await resolveShipmentCarrierId(tx, shipmentData.carrierId);
       const row = await tx.shipment.create({
         data: {
           id: crypto.randomUUID(),
           organization: { connect: { id: organizationId } },
           bol_number: bolNumber,
           master_bol_number: shipmentData.masterBolNumber,
-          supplier: shipmentData.supplierId ? { connect: { id: shipmentData.supplierId } } : undefined,
-          carrier: shipmentData.carrierId ? { connect: { id: shipmentData.carrierId } } : undefined,
+          supplier: supplierId ? { connect: { id: supplierId } } : undefined,
+          carrier: carrierId ? { connect: { id: carrierId } } : undefined,
           containers_count: shipmentData.containersCount,
           shipping_route: shipmentData.shippingRoute,
           mode_of_transport: shipmentData.modeOfTransport,
@@ -3284,7 +3316,7 @@ app.post('/api/shipments', async (req: Request, res: Response) => {
           notify_party_country_code: shipmentData.notifyPartyCountryCode,
         },
         include: {
-          supplier: { select: { id: true, name: true, country: true } },
+          supplier: { select: SHIPMENT_SUPPLIER_SELECT },
           carrier: { select: { id: true, name: true, scac_code: true } },
         },
       });
@@ -3300,7 +3332,7 @@ app.post('/api/shipments', async (req: Request, res: Response) => {
         organizationId: s.organization_id,
         supplierId: s.supplier_id,
         carrierId: s.carrier_id,
-        supplier: s.supplier ? { id: s.supplier.id, name: s.supplier.name, country: s.supplier.country } : null,
+        supplier: toShipmentSupplier(s.organization_id, s.supplier),
         carrier: s.carrier ? { id: s.carrier.id, name: s.carrier.name, scacCode: s.carrier.scac_code } : null,
         bolNumber: s.bol_number,
         masterBolNumber: s.master_bol_number,
@@ -3339,6 +3371,7 @@ app.post('/api/shipments', async (req: Request, res: Response) => {
       },
     });
   } catch (error) {
+    if (sendShipmentRequestError(error, res, 'create')) return;
     console.error('Create shipment error:', error);
     res.status(500).json({ success: false, error: { code: 'INTERNAL_ERROR', message: 'An unexpected error occurred' } });
   }
@@ -3373,13 +3406,28 @@ app.patch('/api/shipments/:id', async (req: Request, res: Response) => {
     const data = req.body;
 
     const shipment = await prisma.$transaction(async (tx) => {
+      // Lock order (see shipment-links.ts): the links first, then the shipment.
+      // "Re-sent unchanged" is decided on the handler's snapshot, which
+      // lockShipment then confirms (409 if it changed meanwhile).
+      const snapshot = { supplierId: existingShipment.supplier_id, carrierId: existingShipment.carrier_id };
+      const supplierId = await resolveShipmentSupplierId(
+        tx,
+        data.supplierId,
+        existingShipment.organization_id,
+        snapshot.supplierId
+      );
+      const carrierId = await resolveShipmentCarrierId(tx, data.carrierId, snapshot.carrierId);
+      await lockShipment(tx, shipmentId, existingShipment.organization_id, snapshot, {
+        supplier: data.supplierId !== undefined,
+        carrier: data.carrierId !== undefined,
+      });
       const row = await tx.shipment.update({
         where: { id: shipmentId, organization_id: existingShipment.organization_id },
         data: {
           ...(data.bolNumber !== undefined && { bol_number: data.bolNumber }),
           ...(data.masterBolNumber !== undefined && { master_bol_number: data.masterBolNumber }),
-          ...(data.supplierId !== undefined && { supplier_id: data.supplierId }),
-          ...(data.carrierId !== undefined && { carrier_id: data.carrierId }),
+          ...(supplierId !== undefined && { supplier_id: supplierId }),
+          ...(carrierId !== undefined && { carrier_id: carrierId }),
           ...(data.containersCount !== undefined && { containers_count: data.containersCount }),
           ...(data.shippingRoute !== undefined && { shipping_route: data.shippingRoute }),
           ...(data.modeOfTransport !== undefined && { mode_of_transport: data.modeOfTransport }),
@@ -3408,7 +3456,7 @@ app.patch('/api/shipments/:id', async (req: Request, res: Response) => {
           ...(data.notifyPartyCountryCode !== undefined && { notify_party_country_code: data.notifyPartyCountryCode }),
         },
         include: {
-          supplier: { select: { id: true, name: true, country: true } },
+          supplier: { select: SHIPMENT_SUPPLIER_SELECT },
           carrier: { select: { id: true, name: true, scac_code: true } },
         },
       });
@@ -3424,7 +3472,7 @@ app.patch('/api/shipments/:id', async (req: Request, res: Response) => {
         organizationId: s.organization_id,
         supplierId: s.supplier_id,
         carrierId: s.carrier_id,
-        supplier: s.supplier ? { id: s.supplier.id, name: s.supplier.name, country: s.supplier.country } : null,
+        supplier: toShipmentSupplier(s.organization_id, s.supplier),
         carrier: s.carrier ? { id: s.carrier.id, name: s.carrier.name, scacCode: s.carrier.scac_code } : null,
         bolNumber: s.bol_number,
         masterBolNumber: s.master_bol_number,
@@ -3463,6 +3511,7 @@ app.patch('/api/shipments/:id', async (req: Request, res: Response) => {
       },
     });
   } catch (error) {
+    if (sendShipmentRequestError(error, res, 'update')) return;
     console.error('Update shipment error:', error);
     res.status(500).json({ success: false, error: { code: 'INTERNAL_ERROR', message: 'An unexpected error occurred' } });
   }
