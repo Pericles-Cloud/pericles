@@ -45,7 +45,7 @@ import {
 import {
   SHIPMENT_SUPPLIER_SELECT,
   ShipmentRequestError,
-  isDeadlock,
+  isRetryableConflict,
   toShipmentSupplier,
   lockOrganization,
   lockShipment,
@@ -255,10 +255,17 @@ async function auditDataWrite(
   });
 }
 
-/** Send a ShipmentRequestError's (or a deadlock's) response; false for any other error (a 500). */
-function sendShipmentRequestError(error: unknown, res: Response): boolean {
-  if (isDeadlock(error)) {
-    res.status(409).json({ success: false, error: { code: 'CONFLICT', message: 'The shipment was being changed at the same time; try again' } });
+/**
+ * Send a ShipmentRequestError's response, or a 409 for a retryable conflict
+ * (deadlock, transaction timeout); false for any other error (a 500).
+ */
+function sendShipmentRequestError(error: unknown, res: Response, op: 'create' | 'update'): boolean {
+  if (isRetryableConflict(error)) {
+    const message =
+      op === 'create'
+        ? 'The shipment could not be created because related data was being changed at the same time; try again'
+        : 'The shipment was being changed at the same time; try again';
+    res.status(409).json({ success: false, error: { code: 'CONFLICT', message } });
     return true;
   }
   if (!(error instanceof ShipmentRequestError)) return false;
@@ -3364,7 +3371,7 @@ app.post('/api/shipments', async (req: Request, res: Response) => {
       },
     });
   } catch (error) {
-    if (sendShipmentRequestError(error, res)) return;
+    if (sendShipmentRequestError(error, res, 'create')) return;
     console.error('Create shipment error:', error);
     res.status(500).json({ success: false, error: { code: 'INTERNAL_ERROR', message: 'An unexpected error occurred' } });
   }
@@ -3504,7 +3511,7 @@ app.patch('/api/shipments/:id', async (req: Request, res: Response) => {
       },
     });
   } catch (error) {
-    if (sendShipmentRequestError(error, res)) return;
+    if (sendShipmentRequestError(error, res, 'update')) return;
     console.error('Update shipment error:', error);
     res.status(500).json({ success: false, error: { code: 'INTERNAL_ERROR', message: 'An unexpected error occurred' } });
   }

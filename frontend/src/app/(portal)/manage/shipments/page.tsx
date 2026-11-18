@@ -132,8 +132,9 @@ export default function ShipmentsPage() {
   /**
    * The shipment's original supplier when it isn't in the dropdown, so it is
    * still shown and selectable. It is labelled "another organization" only
-   * when the server says so (supplier.organizationId), never because the
-   * client-side list is stale or missing it.
+   * when the server says so (supplier.sameOrganization === false; the API
+   * never returns the other tenant's org id), never because the client-side
+   * list is stale or missing it.
    */
   const unlistedSupplierId =
     selectedShipment?.supplierId && !editSuppliers.some((s) => s.id === selectedShipment.supplierId)

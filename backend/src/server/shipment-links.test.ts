@@ -1,7 +1,7 @@
 /**
  * Shipment write checks (#95). A fake $queryRaw over small in-memory tables
  * stands in for Postgres; it records each query so the tests can also check
- * that every lookup locks (FOR SHARE / FOR UPDATE) and is org-scoped.
+ * that every lookup locks (FOR KEY SHARE / FOR UPDATE) and is org-scoped.
  */
 import { describe, it, expect } from 'vitest';
 import { Prisma } from '@prisma/client';
@@ -13,7 +13,7 @@ import {
   lockShipment,
   resolveShipmentCarrierId,
   resolveShipmentSupplierId,
-  isDeadlock,
+  isRetryableConflict,
   toShipmentSupplier,
   type LockClient,
 } from './shipment-links.js';
@@ -57,7 +57,7 @@ const rejection = (p: Promise<unknown>) => p.then(() => null, (e: unknown) => e 
 describe('resolveShipmentSupplierId', () => {
   const supplier = (id: unknown, current?: string | null) => resolveShipmentSupplierId(fakeTx().tx, id, 'org-a', current);
 
-  it('accepts a supplier of the same organization, scoped by org and locked FOR SHARE', async () => {
+  it('accepts a supplier of the same organization, scoped by org and locked FOR KEY SHARE', async () => {
     const { tx, queries } = fakeTx();
     expect(await resolveShipmentSupplierId(tx, 'sup-a', 'org-a')).toBe('sup-a');
     expect(queries[0]).toMatch(/organization_id = \?/);
@@ -105,7 +105,7 @@ describe('resolveShipmentSupplierId', () => {
 describe('resolveShipmentCarrierId', () => {
   const carrier = (id: unknown) => resolveShipmentCarrierId(fakeTx().tx, id);
 
-  it('accepts an existing carrier (locked FOR SHARE); undefined unchanged; null or empty clears', async () => {
+  it('accepts an existing carrier (locked FOR KEY SHARE); undefined unchanged; null or empty clears', async () => {
     const { tx, queries } = fakeTx();
     expect(await resolveShipmentCarrierId(tx, 'car-1')).toBe('car-1');
     expect(queries[0]).toMatch(/FOR KEY SHARE/);
@@ -129,7 +129,7 @@ describe('resolveShipmentCarrierId', () => {
 });
 
 describe('lockOrganization / lockShipment', () => {
-  it('lockOrganization: passes for an existing org (FOR SHARE), 404 otherwise', async () => {
+  it('lockOrganization: passes for an existing org (FOR KEY SHARE), 404 otherwise', async () => {
     const { tx, queries } = fakeTx();
     await expect(lockOrganization(tx, 'org-a')).resolves.toBeUndefined();
     expect(queries[0]).toMatch(/FOR KEY SHARE/);
@@ -183,18 +183,19 @@ describe('toShipmentSupplier', () => {
   });
 });
 
-describe('isDeadlock', () => {
+describe('isRetryableConflict', () => {
   const err = (code: string, meta: Record<string, unknown> = {}) =>
     new Prisma.PrismaClientKnownRequestError('test', { code, clientVersion: 'test', meta });
 
-  it('recognises a deadlock from a raw query (P2010 + SQLSTATE 40P01) or an ORM write (P2034)', () => {
-    expect(isDeadlock(err('P2010', { code: '40P01' }))).toBe(true);
-    expect(isDeadlock(err('P2034'))).toBe(true);
+  it('a deadlock (P2010 + SQLSTATE 40P01, or P2034) or a transaction timeout (P2028)', () => {
+    expect(isRetryableConflict(err('P2010', { code: '40P01' }))).toBe(true);
+    expect(isRetryableConflict(err('P2034'))).toBe(true);
+    expect(isRetryableConflict(err('P2028'))).toBe(true);
   });
 
   it('nothing else', () => {
-    expect(isDeadlock(err('P2010', { code: '23503' }))).toBe(false);
-    expect(isDeadlock(err('P2003'))).toBe(false);
-    expect(isDeadlock(new Error('40P01'))).toBe(false);
+    expect(isRetryableConflict(err('P2010', { code: '23503' }))).toBe(false);
+    expect(isRetryableConflict(err('P2003'))).toBe(false);
+    expect(isRetryableConflict(new Error('40P01'))).toBe(false);
   });
 });

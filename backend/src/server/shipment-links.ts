@@ -13,7 +13,7 @@
  * cascade locks in, so those wait instead of deadlocking. An organization
  * delete cascades to suppliers and shipments in an order Postgres chooses
  * (by trigger name), so a deadlock with it is still possible; Postgres then
- * aborts one side, and isDeadlock lets the route answer 409 "retry". A link
+ * aborts one side, and isRetryableConflict lets the route answer 409 "retry". A link
  * the request re-sends unchanged is not locked at all.
  *
  * So there is no window between check and write, and no Prisma error to
@@ -163,14 +163,17 @@ export function toShipmentSupplier(
 }
 
 /**
- * Postgres aborted the write as a deadlock victim (SQLSTATE 40P01), e.g. with
- * a concurrent organization delete. Stable across Prisma versions: raw
- * queries report it as P2010 with the SQLSTATE in meta.code, ORM writes as
- * P2034. The route answers 409 so the client retries.
+ * The write lost to concurrent work and is worth retrying, so the route
+ * answers 409 rather than 500:
+ * - a deadlock (SQLSTATE 40P01), e.g. with a concurrent organization delete:
+ *   P2010 with the SQLSTATE in meta.code from raw queries, P2034 from ORM
+ *   writes (confirmed against a real Prisma/Postgres deadlock);
+ * - P2028, the interactive transaction timing out, e.g. while a lock waits
+ *   behind a large delete cascade.
  */
-export function isDeadlock(error: unknown): boolean {
+export function isRetryableConflict(error: unknown): boolean {
   if (!(error instanceof Prisma.PrismaClientKnownRequestError)) return false;
-  if (error.code === 'P2034') return true;
+  if (error.code === 'P2034' || error.code === 'P2028') return true;
   const meta = (error.meta ?? {}) as { code?: unknown };
   return error.code === 'P2010' && meta.code === '40P01';
 }
