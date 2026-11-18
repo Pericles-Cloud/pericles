@@ -40,11 +40,26 @@ function formatElapsedTime(ms: number): string {
 }
 
 // Progress update types matching backend
-type ProgressPhase = 'starting' | 'loading_context' | 'executing_tools' | 'processing_events' | 'complete' | 'error' | 'stopped';
+// `skipped`: not run for a configuration reason (no provider key, or the
+// root org, which is never monitored). Neutral, not a failure (#72).
+type ProgressPhase =
+  | 'starting'
+  | 'loading_context'
+  | 'executing_tools'
+  | 'processing_events'
+  | 'complete'
+  | 'skipped'
+  | 'error'
+  | 'stopped';
+
+/** Terminal SSE error codes that mean "not run by policy", not "failed". */
+const SKIP_CODES = new Set(['ORGANIZATION_SKIPPED', 'ORGANIZATION_EXCLUDED']);
 
 interface ProgressUpdate {
   type: 'connected' | 'progress' | 'complete' | 'error';
   phase?: ProgressPhase;
+  /** On a terminal error: ORGANIZATION_SKIPPED / ORGANIZATION_EXCLUDED / CYCLE_ERROR. */
+  code?: string;
   message?: string;
   tool?: string;
   toolIndex?: number;
@@ -89,6 +104,8 @@ export function MonitoringProgressDialog({
   const [progress, setProgress] = useState(0);
   const [isRunning, setIsRunning] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  /** Why the cycle was skipped (shown as a neutral notice, not an error). */
+  const [skipReason, setSkipReason] = useState<string | null>(null);
   const [finalMetrics, setFinalMetrics] = useState<ProgressUpdate['metrics'] | null>(null);
   const [enabledTools, setEnabledTools] = useState<string[]>([]);
   const [, setDisabledTools] = useState<string[]>([]);
@@ -142,7 +159,10 @@ export function MonitoringProgressDialog({
       setDisabledTools(update.disabledTools);
     }
 
-    if (update.type === 'progress' && update.phase) {
+    if (update.type === 'progress' && update.phase === 'skipped') {
+      setSkipReason(update.message || 'This monitoring cycle was skipped');
+      setCurrentPhase('skipped');
+    } else if (update.type === 'progress' && update.phase) {
       setCurrentPhase(update.phase);
 
       // Calculate progress percentage
@@ -163,6 +183,11 @@ export function MonitoringProgressDialog({
       if (update.metrics) {
         onComplete(update.metrics);
       }
+    } else if (update.type === 'error' && update.code && SKIP_CODES.has(update.code)) {
+      // A policy skip ends the stream as an error event with a code: show it
+      // as skipped, not as a failure.
+      setSkipReason(update.message || 'This monitoring cycle was skipped');
+      setCurrentPhase('skipped');
     } else if (update.type === 'error') {
       setError(update.message || 'An error occurred');
       setCurrentPhase('error');
@@ -189,6 +214,7 @@ export function MonitoringProgressDialog({
     setProgress(0);
     setCurrentPhase('starting');
     setError(null);
+    setSkipReason(null);
     setFinalMetrics(null);
     setEnabledTools([]);
     setDisabledTools([]);
@@ -447,6 +473,7 @@ export function MonitoringProgressDialog({
       executing_tools: 'Executing Tools',
       processing_events: 'Processing Events',
       complete: 'Complete',
+      skipped: 'Skipped',
       error: 'Error',
       stopped: 'Stopped',
     };
@@ -489,13 +516,17 @@ export function MonitoringProgressDialog({
             <div className="flex items-center gap-3">
               <div className={`size-10 rounded-full flex items-center justify-center ${
                 currentPhase === 'error' ? 'bg-risk-critical' :
-                currentPhase === 'stopped' ? 'bg-risk-elevated' :
+                currentPhase === 'stopped' || currentPhase === 'skipped' ? 'bg-risk-elevated' :
                 currentPhase === 'complete' ? 'bg-risk-low' :
                 'bg-risk-monitoring'
               }`}>
                 {currentPhase === 'error' ? (
                   <svg className="size-5 text-risk-critical-fg" fill="none" viewBox="0 0 24 24" strokeWidth="1.5" stroke="currentColor">
                     <path strokeLinecap="round" strokeLinejoin="round" d="M12 9v3.75m9-.75a9 9 0 1 1-18 0 9 9 0 0 1 18 0Zm-9 3.75h.008v.008H12v-.008Z" />
+                  </svg>
+                ) : currentPhase === 'skipped' ? (
+                  <svg className="size-5 text-risk-elevated-fg" fill="none" viewBox="0 0 24 24" strokeWidth="1.5" stroke="currentColor">
+                    <path strokeLinecap="round" strokeLinejoin="round" d="m11.25 11.25.041-.02a.75.75 0 0 1 1.063.852l-.708 2.836a.75.75 0 0 0 1.063.853l.041-.021M21 12a9 9 0 1 1-18 0 9 9 0 0 1 18 0Zm-9-3.75h.008v.008H12V8.25Z" />
                   </svg>
                 ) : currentPhase === 'stopped' ? (
                   <svg className="size-5 text-risk-elevated-fg" fill="none" viewBox="0 0 24 24" strokeWidth="1.5" stroke="currentColor">
@@ -518,7 +549,7 @@ export function MonitoringProgressDialog({
                 </h3>
                 <p className={`text-sm ${
                   currentPhase === 'error' ? 'text-risk-critical-text' :
-                  currentPhase === 'stopped' ? 'text-risk-elevated-text' :
+                  currentPhase === 'stopped' || currentPhase === 'skipped' ? 'text-risk-elevated-text' :
                   currentPhase === 'complete' ? 'text-risk-low-text' :
                   'text-muted-foreground'
                 }`}>
@@ -538,7 +569,7 @@ export function MonitoringProgressDialog({
                   }
                 </span>
               </div>
-              {(currentPhase === 'complete' || currentPhase === 'error' || currentPhase === 'stopped') && (
+              {(currentPhase === 'complete' || currentPhase === 'skipped' || currentPhase === 'error' || currentPhase === 'stopped') && (
                 <button
                   onClick={handleClose}
                   className="p-1 rounded-full text-muted-foreground hover:text-foreground hover:bg-accent transition-colors"
@@ -557,7 +588,7 @@ export function MonitoringProgressDialog({
               <div
                 className={`h-full transition-all duration-300 ease-out ${
                   currentPhase === 'error' ? 'bg-risk-critical-accent' :
-                  currentPhase === 'stopped' ? 'bg-risk-elevated-accent' :
+                  currentPhase === 'stopped' || currentPhase === 'skipped' ? 'bg-risk-elevated-accent' :
                   currentPhase === 'complete' ? 'bg-risk-low-accent' :
                   'bg-primary'
                 }`}
@@ -637,6 +668,14 @@ export function MonitoringProgressDialog({
                 </div>
               );
             })}
+            {skipReason && (
+              <div className="flex items-center gap-2 py-1 text-risk-elevated-text">
+                <svg className="size-4 shrink-0" fill="none" viewBox="0 0 24 24" strokeWidth="1.5" stroke="currentColor">
+                  <path strokeLinecap="round" strokeLinejoin="round" d="m11.25 11.25.041-.02a.75.75 0 0 1 1.063.852l-.708 2.836a.75.75 0 0 0 1.063.853l.041-.021M21 12a9 9 0 1 1-18 0 9 9 0 0 1 18 0Zm-9-3.75h.008v.008H12V8.25Z" />
+                </svg>
+                <span>{skipReason}</span>
+              </div>
+            )}
             {error && (
               <div className="flex items-center gap-2 py-1 text-risk-critical-text">
                 <svg className="size-4 shrink-0" fill="none" viewBox="0 0 24 24" strokeWidth="1.5" stroke="currentColor">
@@ -681,7 +720,7 @@ export function MonitoringProgressDialog({
 
           {/* Actions */}
           <div className="flex justify-end gap-2">
-            {currentPhase === 'complete' || currentPhase === 'error' || currentPhase === 'stopped' ? (
+            {currentPhase === 'complete' || currentPhase === 'skipped' || currentPhase === 'error' || currentPhase === 'stopped' ? (
               <Button onClick={handleClose}>
                 Close
               </Button>

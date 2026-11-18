@@ -160,7 +160,18 @@ export function isMonitoringRunning(): boolean {
 // Progress Callback Types
 // ============================================================================
 
-export type ProgressPhase = 'starting' | 'loading_context' | 'executing_tools' | 'processing_events' | 'complete' | 'error';
+/**
+ * `skipped`: the cycle was not run for a configuration reason (no provider
+ * key for the org), not a failure; the UI shows it as a neutral state (#72).
+ */
+export type ProgressPhase =
+  | 'starting'
+  | 'loading_context'
+  | 'executing_tools'
+  | 'processing_events'
+  | 'complete'
+  | 'skipped'
+  | 'error';
 
 export interface ProgressUpdate {
   phase: ProgressPhase;
@@ -783,7 +794,7 @@ export async function runMonitoringCycle(
     // at WARN with the skip wording so run-once/Coolify logs never show an
     // ERROR for an org that was deliberately not run.
     if ((error as Error)?.name === 'MissingApiKeyError') {
-      emitProgress({ phase: 'error', message: (error as Error).message });
+      emitProgress({ phase: 'skipped', message: (error as Error).message });
       cycleLogger.warn({ reason: (error as Error).message }, '[Cycle] Skipped — no API key configured for org');
       throw error;
     }
