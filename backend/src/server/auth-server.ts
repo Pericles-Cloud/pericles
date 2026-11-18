@@ -52,6 +52,7 @@ import {
   resolveShipmentCarrierId,
   resolveShipmentSupplierId,
 } from './shipment-links.js';
+import { cycleSkipCode, cycleTerminalEvent } from '../monitoring/cycle-outcome.js';
 import { getPositionFeed, getOrganizationPositions } from '../integrations/tracking/index.js';
 import {
   resolveSettingsOwnership,
@@ -5103,21 +5104,13 @@ app.get('/api/monitoring/trigger-stream', async (req: Request, res: Response) =>
       // Same name-matched codes as the non-streaming trigger: root orgs are
       // excluded (403 semantics), orgs without a provider key are skipped —
       // both are policy outcomes logged at WARN, not cycle failures.
-      const errName = (error as Error)?.name;
-      if (errName === 'MonitoringExcludedError' || errName === 'MissingApiKeyError') {
-        console.warn(`[Trigger-stream] ${errName}:`, (error as Error).message);
+      if (cycleSkipCode(error)) {
+        console.warn(`[Trigger-stream] ${(error as Error).name}:`, (error as Error).message);
       } else {
         console.error('Monitoring cycle error:', error);
       }
-      res.write(`data: ${JSON.stringify({
-        type: 'error',
-        code:
-          errName === 'MonitoringExcludedError' ? 'ORGANIZATION_EXCLUDED'
-          : errName === 'MissingApiKeyError' ? 'ORGANIZATION_SKIPPED'
-          : 'CYCLE_ERROR',
-        message: (error as Error).message || 'Monitoring cycle failed',
-        timestamp: new Date().toISOString(),
-      })}\n\n`);
+      // A policy skip ends the stream as type 'skipped', not 'error' (#72).
+      res.write(`data: ${JSON.stringify({ ...cycleTerminalEvent(error), timestamp: new Date().toISOString() })}\n\n`);
     }
 
     // Close the stream

@@ -52,13 +52,33 @@ type ProgressPhase =
   | 'error'
   | 'stopped';
 
-/** Terminal SSE error codes that mean "not run by policy", not "failed". */
+/**
+ * Error codes that mean "not run by policy". The backend now ends a skip with
+ * `type: 'skipped'`; older backends sent `type: 'error'` with one of these
+ * codes, and frontend and backend deploy separately, so both are accepted.
+ */
 const SKIP_CODES = new Set(['ORGANIZATION_SKIPPED', 'ORGANIZATION_EXCLUDED']);
 
+/** Phases after which the run is over (Close instead of Stop). */
+const TERMINAL_PHASES = new Set<ProgressPhase>(['complete', 'skipped', 'error', 'stopped']);
+
+/** Heroicons information-circle (outline), used for the skipped state. */
+function InfoIcon({ className }: { className?: string }) {
+  return (
+    <svg className={className} fill="none" viewBox="0 0 24 24" strokeWidth="1.5" stroke="currentColor" aria-hidden="true">
+      <path
+        strokeLinecap="round"
+        strokeLinejoin="round"
+        d="m11.25 11.25.041-.02a.75.75 0 0 1 1.063.852l-.708 2.836a.75.75 0 0 0 1.063.853l.041-.021M21 12a9 9 0 1 1-18 0 9 9 0 0 1 18 0Zm-9-3.75h.008v.008H12V8.25Z"
+      />
+    </svg>
+  );
+}
+
 interface ProgressUpdate {
-  type: 'connected' | 'progress' | 'complete' | 'error';
+  type: 'connected' | 'progress' | 'complete' | 'skipped' | 'error';
   phase?: ProgressPhase;
-  /** On a terminal error: ORGANIZATION_SKIPPED / ORGANIZATION_EXCLUDED / CYCLE_ERROR. */
+  /** On a terminal event: ORGANIZATION_SKIPPED / ORGANIZATION_EXCLUDED / CYCLE_ERROR. */
   code?: string;
   message?: string;
   tool?: string;
@@ -159,8 +179,14 @@ export function MonitoringProgressDialog({
       setDisabledTools(update.disabledTools);
     }
 
-    if (update.type === 'progress' && update.phase === 'skipped') {
+    const isSkip =
+      (update.type === 'progress' && update.phase === 'skipped') ||
+      update.type === 'skipped' ||
+      (update.type === 'error' && !!update.code && SKIP_CODES.has(update.code));
+    if (isSkip) {
+      // Not run by policy: a finished, neutral state, not a failure.
       setSkipReason(update.message || 'This monitoring cycle was skipped');
+      setProgress(100);
       setCurrentPhase('skipped');
     } else if (update.type === 'progress' && update.phase) {
       setCurrentPhase(update.phase);
@@ -183,11 +209,6 @@ export function MonitoringProgressDialog({
       if (update.metrics) {
         onComplete(update.metrics);
       }
-    } else if (update.type === 'error' && update.code && SKIP_CODES.has(update.code)) {
-      // A policy skip ends the stream as an error event with a code: show it
-      // as skipped, not as a failure.
-      setSkipReason(update.message || 'This monitoring cycle was skipped');
-      setCurrentPhase('skipped');
     } else if (update.type === 'error') {
       setError(update.message || 'An error occurred');
       setCurrentPhase('error');
@@ -290,7 +311,7 @@ export function MonitoringProgressDialog({
                   try {
                     const data = JSON.parse(line.slice(6));
                     self.postMessage({ type: 'progress', data });
-                    if (data.type === 'complete' || data.type === 'error') {
+                    if (data.type === 'complete' || data.type === 'skipped' || data.type === 'error') {
                       receivedCompletion = true;
                     }
                   } catch {}
@@ -516,7 +537,8 @@ export function MonitoringProgressDialog({
             <div className="flex items-center gap-3">
               <div className={`size-10 rounded-full flex items-center justify-center ${
                 currentPhase === 'error' ? 'bg-risk-critical' :
-                currentPhase === 'stopped' || currentPhase === 'skipped' ? 'bg-risk-elevated' :
+                currentPhase === 'skipped' ? 'bg-muted' :
+                currentPhase === 'stopped' ? 'bg-risk-elevated' :
                 currentPhase === 'complete' ? 'bg-risk-low' :
                 'bg-risk-monitoring'
               }`}>
@@ -525,9 +547,7 @@ export function MonitoringProgressDialog({
                     <path strokeLinecap="round" strokeLinejoin="round" d="M12 9v3.75m9-.75a9 9 0 1 1-18 0 9 9 0 0 1 18 0Zm-9 3.75h.008v.008H12v-.008Z" />
                   </svg>
                 ) : currentPhase === 'skipped' ? (
-                  <svg className="size-5 text-risk-elevated-fg" fill="none" viewBox="0 0 24 24" strokeWidth="1.5" stroke="currentColor">
-                    <path strokeLinecap="round" strokeLinejoin="round" d="m11.25 11.25.041-.02a.75.75 0 0 1 1.063.852l-.708 2.836a.75.75 0 0 0 1.063.853l.041-.021M21 12a9 9 0 1 1-18 0 9 9 0 0 1 18 0Zm-9-3.75h.008v.008H12V8.25Z" />
-                  </svg>
+                  <InfoIcon className="size-5 text-muted-foreground" />
                 ) : currentPhase === 'stopped' ? (
                   <svg className="size-5 text-risk-elevated-fg" fill="none" viewBox="0 0 24 24" strokeWidth="1.5" stroke="currentColor">
                     <path strokeLinecap="round" strokeLinejoin="round" d="M5.25 7.5A2.25 2.25 0 0 1 7.5 5.25h9a2.25 2.25 0 0 1 2.25 2.25v9a2.25 2.25 0 0 1-2.25 2.25h-9a2.25 2.25 0 0 1-2.25-2.25v-9Z" />
@@ -549,7 +569,8 @@ export function MonitoringProgressDialog({
                 </h3>
                 <p className={`text-sm ${
                   currentPhase === 'error' ? 'text-risk-critical-text' :
-                  currentPhase === 'stopped' || currentPhase === 'skipped' ? 'text-risk-elevated-text' :
+                  currentPhase === 'skipped' ? 'text-muted-foreground' :
+                  currentPhase === 'stopped' ? 'text-risk-elevated-text' :
                   currentPhase === 'complete' ? 'text-risk-low-text' :
                   'text-muted-foreground'
                 }`}>
@@ -569,7 +590,7 @@ export function MonitoringProgressDialog({
                   }
                 </span>
               </div>
-              {(currentPhase === 'complete' || currentPhase === 'skipped' || currentPhase === 'error' || currentPhase === 'stopped') && (
+              {(TERMINAL_PHASES.has(currentPhase)) && (
                 <button
                   onClick={handleClose}
                   className="p-1 rounded-full text-muted-foreground hover:text-foreground hover:bg-accent transition-colors"
@@ -588,7 +609,8 @@ export function MonitoringProgressDialog({
               <div
                 className={`h-full transition-all duration-300 ease-out ${
                   currentPhase === 'error' ? 'bg-risk-critical-accent' :
-                  currentPhase === 'stopped' || currentPhase === 'skipped' ? 'bg-risk-elevated-accent' :
+                  currentPhase === 'skipped' ? 'bg-muted-foreground/60' :
+                  currentPhase === 'stopped' ? 'bg-risk-elevated-accent' :
                   currentPhase === 'complete' ? 'bg-risk-low-accent' :
                   'bg-primary'
                 }`}
@@ -632,7 +654,8 @@ export function MonitoringProgressDialog({
             ref={scrollRef}
             className="h-56 overflow-y-auto bg-muted rounded-lg p-3 mb-4 font-mono text-xs"
           >
-            {updates.filter(u => u.type === 'progress' && u.message && !u.isHeartbeat).map((update, idx) => {
+            {/* The skip reason is shown once, as the notice below, not also as a log row. */}
+            {updates.filter(u => u.type === 'progress' && u.message && !u.isHeartbeat && u.phase !== 'skipped').map((update, idx) => {
               const cleanMessage = getCleanMessage(update);
               return (
                 <div
@@ -669,10 +692,8 @@ export function MonitoringProgressDialog({
               );
             })}
             {skipReason && (
-              <div className="flex items-center gap-2 py-1 text-risk-elevated-text">
-                <svg className="size-4 shrink-0" fill="none" viewBox="0 0 24 24" strokeWidth="1.5" stroke="currentColor">
-                  <path strokeLinecap="round" strokeLinejoin="round" d="m11.25 11.25.041-.02a.75.75 0 0 1 1.063.852l-.708 2.836a.75.75 0 0 0 1.063.853l.041-.021M21 12a9 9 0 1 1-18 0 9 9 0 0 1 18 0Zm-9-3.75h.008v.008H12V8.25Z" />
-                </svg>
+              <div className="flex items-center gap-2 py-1 text-foreground">
+                <InfoIcon className="size-4 shrink-0 text-muted-foreground" />
                 <span>{skipReason}</span>
               </div>
             )}
@@ -720,7 +741,7 @@ export function MonitoringProgressDialog({
 
           {/* Actions */}
           <div className="flex justify-end gap-2">
-            {currentPhase === 'complete' || currentPhase === 'skipped' || currentPhase === 'error' || currentPhase === 'stopped' ? (
+            {TERMINAL_PHASES.has(currentPhase) ? (
               <Button onClick={handleClose}>
                 Close
               </Button>

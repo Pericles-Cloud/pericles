@@ -161,8 +161,9 @@ export function isMonitoringRunning(): boolean {
 // ============================================================================
 
 /**
- * `skipped`: the cycle was not run for a configuration reason (no provider
- * key for the org), not a failure; the UI shows it as a neutral state (#72).
+ * `skipped`: the cycle was not run by policy (the root org, which is never
+ * monitored, or an org with no provider key), not a failure; the UI shows it
+ * as a neutral state (#72).
  */
 export type ProgressPhase =
   | 'starting'
@@ -226,19 +227,21 @@ export async function runMonitoringCycle(
   // Pericles (root org) is the platform manager, never a monitored tenant.
   // Every cycle path — scheduled run-once, manual trigger, SSE trigger,
   // start.ts — funnels through here, so one check keeps it out of monitoring.
-  const orgRow = await getPrismaClient().organization.findUnique({
-    where: { id: config.organizationId },
-    select: { is_root: true },
-  });
-  if (orgRow?.is_root) {
-    throw new MonitoringExcludedError(config.organizationId);
-  }
-
   const emitProgress = (update: Omit<ProgressUpdate, 'timestamp'>) => {
     if (onProgress) {
       onProgress({ ...update, timestamp: new Date().toISOString() });
     }
   };
+
+  const orgRow = await getPrismaClient().organization.findUnique({
+    where: { id: config.organizationId },
+    select: { is_root: true },
+  });
+  if (orgRow?.is_root) {
+    const excluded = new MonitoringExcludedError(config.organizationId);
+    emitProgress({ phase: 'skipped', message: excluded.message });
+    throw excluded;
+  }
 
   // Map source names to tool IDs for display
   const sourceToToolId: Record<string, string> = {
