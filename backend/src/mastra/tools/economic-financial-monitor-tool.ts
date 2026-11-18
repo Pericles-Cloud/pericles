@@ -44,7 +44,8 @@ const EconomicEventSchema = z.object({
   indicator_name: z.string().describe('FRED series name (e.g., CPIAUCSL, DEXUSEU)'),
   current_value: z.number(),
   previous_value: z.number().optional(),
-  percent_change: z.number().optional(),
+  percent_change: z.number().optional().describe('Relative change, for level series (indices, prices, FX)'),
+  change_points: z.number().optional().describe('Change in percentage points, for percentage series (rates, YoY inflation)'),
   threshold_exceeded: z.boolean().optional(),
   observation_date: z.string().describe('Date of the economic data point'),
   source_url: z.string().url().optional(),
@@ -165,22 +166,25 @@ const CHANGE_THRESHOLDS: Record<string, { low: number; medium: number; high: num
   interest_rate: { low: 0.1, medium: 0.25, high: 0.5 },   // Rate change, percentage points
   unemployment: { low: 0.2, medium: 0.3, high: 0.5 },     // Unemployment change, percentage points
   currency: { low: 1.0, medium: 2.0, high: 5.0 },         // Currency % change
-  commodity: { low: 3.0, medium: 5.0, high: 10.0 }        // Commodity % change
+  commodity: { low: 3.0, medium: 5.0, high: 10.0 },      // Commodity % change
+  percent: { low: 0.25, medium: 0.5, high: 1.0 }          // Any other series measured in percent, pp
 };
-
-/** Indicator types whose values are already percentages: compare them in points. */
-const POINT_CHANGE_TYPES = new Set(['interest_rate', 'unemployment']);
 
 /**
  * A series whose latest observation is older than this (by FRED frequency code)
- * is more than a period overdue: it has stopped updating and is reported as
- * unavailable. This also stops a revision of old data (which bumps
- * last_updated) from being reported as a new move.
+ * has stopped updating and is reported as unavailable. FRED dates an
+ * observation at the start of its period, so each limit is one period plus the
+ * longest normal publication lag: daily series (EIA oil, H.10 FX) can trail by
+ * two weeks over holidays; quarterly and annual data can arrive 6-18 months
+ * after the period starts.
+ *
+ * The limit also bounds how old an observation can be when a revision bumps
+ * last_updated and the series is read again: it is never older than this.
  */
 const STALE_AFTER_DAYS: Record<string, number> = {
-  D: 14, W: 30, BW: 45, M: 120, Q: 220, SA: 400, A: 500
+  D: 30, W: 45, BW: 60, M: 120, Q: 270, SA: 450, A: 913
 };
-const DEFAULT_STALE_AFTER_DAYS = 220;
+const DEFAULT_STALE_AFTER_DAYS = 270;
 
 /**
  * FRED allows 120 requests per minute per key. Requests from every invocation
@@ -188,11 +192,36 @@ const DEFAULT_STALE_AFTER_DAYS = 220;
  */
 const FRED_REQUEST_INTERVAL_MS = 500;
 const FRED_RATE_LIMIT_RETRY_MS = 2000;
+/** A request that would wait longer than this for its slot fails instead. */
+const FRED_MAX_QUEUE_WAIT_MS = 60_000;
 let nextFredSlot = 0;
+
+class FredQueueFullError extends Error {
+  constructor() {
+    super('FRED request queue is full');
+    this.name = 'FredQueueFullError';
+  }
+}
 
 /** Series metadata changes at most once per release; cache it across runs. */
 const SERIES_META_TTL_MS = 6 * 60 * 60 * 1000;
-const seriesMetaCache = new Map<string, { meta: FREDSeriesMeta; fetchedAt: number }>();
+interface CacheEntry<T> {
+  promise: Promise<T | SeriesReading>;
+  fetchedAt: number;
+}
+
+const seriesMetaCache = new Map<string, CacheEntry<FREDSeriesMeta>>();
+
+/**
+ * Observations only change when FRED publishes (last_updated), so they are
+ * cached per series, transform and last_updated: concurrent and later runs for
+ * other organizations reuse one fetch.
+ */
+const observationCache = new Map<string, CacheEntry<ObservationValues>>();
+
+interface ObservationValues {
+  values: Array<{ date: string; value: number }>;
+}
 
 const FRED_HEADERS = {
   'Accept': 'application/json',
@@ -233,6 +262,8 @@ type SeriesReading =
       previous: number;
       /** Values are year-on-year percent changes (FRED units=pc1), not levels. */
       yearOnYear: boolean;
+      /** Values are percentages (rates, YoY): changes are in percentage points. */
+      inPoints: boolean;
     }
   | { status: 'quiet' }
   | { status: 'unavailable'; reason: string };
@@ -305,17 +336,18 @@ function planSeries(countries: Country[], customIndicators: string[] | undefined
   };
 
   const normalized = countries.map(c => ({ ...c, country_code: c.country_code.toUpperCase() }));
+  const custom = [...new Set((customIndicators ?? []).map(id => id.trim().toUpperCase()).filter(Boolean))];
 
-  if (customIndicators && customIndicators.length > 0) {
+  if (custom.length > 0) {
     for (const country of normalized) {
-      for (const seriesId of customIndicators) add(seriesId, country);
+      for (const seriesId of custom) add(seriesId, country);
     }
     return plan;
   }
 
   for (const country of normalized) {
     const defaults = DEFAULT_FRED_INDICATORS[country.country_code];
-    if (!defaults || country.country_code === 'GLOBAL') continue;
+    if (!defaults) continue;
     for (const seriesId of Object.values(defaults)) add(seriesId, country);
   }
 
@@ -340,6 +372,7 @@ function createFredClient(apiKey: string) {
   const waitForSlot = async () => {
     const now = Date.now();
     const slot = Math.max(now, nextFredSlot);
+    if (slot - now > FRED_MAX_QUEUE_WAIT_MS) throw new FredQueueFullError();
     nextFredSlot = slot + FRED_REQUEST_INTERVAL_MS;
     if (slot > now) await sleep(slot - now);
   };
@@ -360,6 +393,7 @@ function createFredClient(apiKey: string) {
 
       const response = await send(url.toString());
       if (response.status !== 429) return response;
+      await response.body?.cancel();
       logger.warn({ path }, 'FRED rate limit hit; retrying once');
       await sleep(FRED_RATE_LIMIT_RETRY_MS);
       return send(url.toString());
@@ -369,7 +403,9 @@ function createFredClient(apiKey: string) {
 
 type FredClient = ReturnType<typeof createFredClient>;
 
-function unavailableForStatus(seriesId: string, status: number): SeriesReading {
+async function unavailableForStatus(seriesId: string, response: Response): Promise<SeriesReading> {
+  const { status } = response;
+  await response.body?.cancel();
   logger.error({ statusCode: status, seriesId }, 'FRED API error');
   return {
     status: 'unavailable',
@@ -377,20 +413,68 @@ function unavailableForStatus(seriesId: string, status: number): SeriesReading {
   };
 }
 
-async function getSeriesMeta(
+function isReading(value: object): value is SeriesReading {
+  return 'status' in value;
+}
+
+/**
+ * Get a value through a TTL cache that also shares in-flight requests. Only
+ * successes are kept: an error is dropped so the next run asks again.
+ */
+async function cached<T extends object>(
+  cache: Map<string, CacheEntry<T>>,
+  key: string,
+  load: () => Promise<T | SeriesReading>
+): Promise<T | SeriesReading> {
+  const hit = cache.get(key);
+  if (hit && Date.now() - hit.fetchedAt < SERIES_META_TTL_MS) return hit.promise;
+
+  const promise = load();
+  cache.set(key, { promise, fetchedAt: Date.now() });
+  const result = await promise;
+  if (isReading(result)) cache.delete(key);
+  return result;
+}
+
+async function getSeriesMeta(client: FredClient, seriesId: string): Promise<FREDSeriesMeta | SeriesReading> {
+  return cached(seriesMetaCache, seriesId, async () => {
+    const response = await client.get('series', { series_id: seriesId });
+    if (!response.ok) return unavailableForStatus(seriesId, response);
+    const meta = (await response.json() as FREDSeriesResponse).seriess?.[0];
+    return meta ?? { status: 'unavailable', reason: 'series not found' };
+  });
+}
+
+async function getObservations(
   client: FredClient,
-  seriesId: string
-): Promise<{ meta: FREDSeriesMeta } | { error: SeriesReading }> {
-  const cached = seriesMetaCache.get(seriesId);
-  if (cached && Date.now() - cached.fetchedAt < SERIES_META_TTL_MS) return { meta: cached.meta };
+  seriesId: string,
+  meta: FREDSeriesMeta,
+  yearOnYear: boolean
+): Promise<ObservationValues | SeriesReading> {
+  const key = `${seriesId}|${yearOnYear ? 'pc1' : 'lin'}|${meta.last_updated}`;
+  return cached(observationCache, key, async () => {
+    const params: Record<string, string> = {
+      series_id: seriesId,
+      sort_order: 'desc',
+      // Only the two most recent numeric values are compared; spare rows cover
+      // missing values ('.').
+      limit: '10'
+    };
+    if (yearOnYear) params.units = 'pc1';
 
-  const response = await client.get('series', { series_id: seriesId });
-  if (!response.ok) return { error: unavailableForStatus(seriesId, response.status) };
-  const meta = (await response.json() as FREDSeriesResponse).seriess?.[0];
-  if (!meta) return { error: { status: 'unavailable', reason: 'series not found' } };
+    const response = await client.get('series/observations', params);
+    if (!response.ok) return unavailableForStatus(seriesId, response);
+    const data = await response.json() as FREDObservationsResponse;
 
-  seriesMetaCache.set(seriesId, { meta, fetchedAt: Date.now() });
-  return { meta };
+    const values = (data.observations ?? [])
+      .map(o => ({ date: o.date, value: Number.parseFloat(o.value) }))
+      .filter(o => Number.isFinite(o.value));
+    if (values.length < 2) {
+      logger.warn({ seriesId, numericObservations: values.length }, 'FRED series has too few numeric observations');
+      return { status: 'unavailable', reason: 'fewer than two numeric observations' };
+    }
+    return { values };
+  });
 }
 
 /**
@@ -400,9 +484,8 @@ async function getSeriesMeta(
  */
 async function readSeries(client: FredClient, seriesId: string, lookbackDays: number): Promise<SeriesReading> {
   try {
-    const metaResult = await getSeriesMeta(client, seriesId);
-    if ('error' in metaResult) return metaResult.error;
-    const { meta } = metaResult;
+    const meta = await getSeriesMeta(client, seriesId);
+    if (isReading(meta)) return meta;
 
     const staleAfter = STALE_AFTER_DAYS[meta.frequency_short] ?? DEFAULT_STALE_AFTER_DAYS;
     if (daysSince(meta.observation_end) > staleAfter) {
@@ -419,37 +502,26 @@ async function readSeries(client: FredClient, seriesId: string, lookbackDays: nu
     // season (January sales); compare its year-on-year rate instead.
     const yearOnYear = classifyIndicatorType(seriesId) === 'inflation' && meta.seasonal_adjustment_short === 'NSA';
 
-    const params: Record<string, string> = {
-      series_id: seriesId,
-      sort_order: 'desc',
-      // Only the two most recent numeric values are compared; spare rows cover
-      // missing values ('.').
-      limit: '10'
-    };
-    if (yearOnYear) params.units = 'pc1';
-
-    const obsResponse = await client.get('series/observations', params);
-    if (!obsResponse.ok) return unavailableForStatus(seriesId, obsResponse.status);
-    const obsData = await obsResponse.json() as FREDObservationsResponse;
-
-    const values = (obsData.observations ?? [])
-      .map(o => ({ date: o.date, value: Number.parseFloat(o.value) }))
-      .filter(o => Number.isFinite(o.value));
-    if (values.length < 2) {
-      logger.warn({ seriesId, numericObservations: values.length }, 'FRED series has too few numeric observations');
-      return { status: 'unavailable', reason: 'fewer than two numeric observations' };
-    }
+    const observations = await getObservations(client, seriesId, meta, yearOnYear);
+    if (isReading(observations)) return observations;
+    const [latest, previous] = observations.values;
 
     return {
       status: 'ok',
       title: meta.title,
-      units: yearOnYear ? 'Percent change from year ago' : (obsData.units ?? meta.units),
-      date: values[0].date,
-      current: values[0].value,
-      previous: values[1].value,
-      yearOnYear
+      units: yearOnYear ? 'Percent change from year ago' : meta.units,
+      date: latest.date,
+      current: latest.value,
+      previous: previous.value,
+      yearOnYear,
+      // Rates, yields, unemployment, growth rates: FRED's units say "Percent".
+      inPoints: yearOnYear || /^percent/i.test(meta.units)
     };
   } catch (err) {
+    if (err instanceof FredQueueFullError) {
+      logger.error({ seriesId }, 'FRED request queue is full');
+      return { status: 'unavailable', reason: 'FRED request queue is full; try again later' };
+    }
     logger.error({ err, seriesId }, 'Error fetching FRED series');
     return { status: 'unavailable', reason: 'request failed' };
   }
@@ -462,8 +534,8 @@ function buildEvent(
   seriesFor: Country[],
   severityThreshold: string
 ): EconomicEvent | null {
-  const indicatorType = classifyIndicatorType(seriesId);
-  const inPoints = POINT_CHANGE_TYPES.has(indicatorType) || reading.yearOnYear;
+  const indicatorType = thresholdType(seriesId, reading);
+  const { inPoints } = reading;
   const change = inPoints
     ? reading.current - reading.previous
     : relativeChange(reading.current, reading.previous);
@@ -487,7 +559,10 @@ function buildEvent(
     indicator_name: seriesId,
     current_value: reading.current,
     previous_value: reading.previous,
-    percent_change: relativeChange(reading.current, reading.previous) ?? undefined,
+    // For a percentage series the meaningful change is in points; a relative
+    // change of a rate (0.2% -> 0.8% = +300%) would only mislead.
+    percent_change: inPoints ? undefined : change,
+    change_points: inPoints ? change : undefined,
     threshold_exceeded: true,
     observation_date: reading.date,
     source_url: `https://fred.stlouisfed.org/series/${seriesId}`,
@@ -508,6 +583,16 @@ function daysSince(isoDate: string): number {
 }
 
 /**
+ * The indicator type that picks thresholds and event types. A percentage
+ * series the ID rules don't recognise uses the 'percent' (points) thresholds,
+ * not the relative-change fallback.
+ */
+function thresholdType(seriesId: string, reading: OkReading): string {
+  const type = classifyIndicatorType(seriesId);
+  return type === 'general' && reading.inPoints ? 'percent' : type;
+}
+
+/**
  * Classify indicator type from series ID
  */
 function classifyIndicatorType(seriesId: string): string {
@@ -516,7 +601,7 @@ function classifyIndicatorType(seriesId: string): string {
   // CP0000xxM086NEST is Eurostat's HICP (all items) on FRED.
   if (id.includes('CPI') || id.includes('HICP') || id.includes('M086NEST')) return 'inflation';
   if (id.includes('PPI')) return 'ppi';
-  if (id.includes('DFF') || id.includes('IRST') || id.includes('ECB')) return 'interest_rate';
+  if (id.includes('DFF') || id.includes('FEDFUNDS') || id.includes('IRST') || id.includes('ECB') || id.startsWith('DGS')) return 'interest_rate';
   if (id.includes('UNRATE') || id.includes('UNEMP')) return 'unemployment';
   if (id.includes('DEX') || id.includes('EXR')) return 'currency';
   if (id.includes('OIL') || id.includes('GOLD') || id.includes('COPPER') || id.includes('PCOPP') || id.includes('BRENT')) return 'commodity';
