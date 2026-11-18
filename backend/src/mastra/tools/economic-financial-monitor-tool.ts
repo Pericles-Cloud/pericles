@@ -49,6 +49,11 @@ const EconomicEventSchema = z.object({
   raw_data: z.record(z.string(), z.any()).optional()
 });
 
+const UnavailableSeriesSchema = z.object({
+  series_id: z.string(),
+  reason: z.string()
+});
+
 export const economicFinancialMonitorTool = createTool({
   id: 'economic-financial-monitor',
   description: 'Monitor economic indicators including inflation (CPI/PPI), currency exchange rates, interest rates, GDP growth, commodity prices, and financial instability using FRED (Federal Reserve Economic Data).',
@@ -65,7 +70,9 @@ export const economicFinancialMonitorTool = createTool({
     economic_events: z.array(EconomicEventSchema).describe('Detected economic risk events'),
     monitored_countries_count: z.number().int().describe('Number of countries checked'),
     indicators_checked: z.number().int().describe('Number of economic indicators checked'),
-    api_calls_made: z.number().int().describe('Number of API calls made to FRED')
+    api_calls_made: z.number().int().describe('Number of API calls made to FRED'),
+    unavailable_series: z.array(UnavailableSeriesSchema)
+      .describe('FRED series that returned an error or have stopped updating')
   }),
 
   execute: async ({ context }) => {
@@ -80,7 +87,7 @@ export const economicFinancialMonitorTool = createTool({
     logger.info({ countryCount: countries.length, organizationId: organization_id }, 'Monitoring countries');
 
     try {
-      const { events, apiCallsMade, indicatorsChecked } = await fetchFREDIndicators(
+      const { events, apiCallsMade, indicatorsChecked, unavailableSeries } = await fetchFREDIndicators(
         countries,
         indicators ?? undefined,
         lookback_days,
@@ -96,7 +103,8 @@ export const economicFinancialMonitorTool = createTool({
         economic_events: limitedEvents,
         monitored_countries_count: countries.length,
         indicators_checked: indicatorsChecked,
-        api_calls_made: apiCallsMade
+        api_calls_made: apiCallsMade,
+        unavailable_series: unavailableSeries
       };
 
     } catch (error) {
@@ -131,12 +139,12 @@ const DEFAULT_FRED_INDICATORS: Record<string, Record<string, string>> = {
   IT: { inflation: 'CP0000ITM086NEST', interest_rate: 'ECBDFR' },
   ES: { inflation: 'CP0000ESM086NEST', interest_rate: 'ECBDFR' },
   // China
-  // No current China PPI series on FRED (the OECD series ended in 2022).
-  CN: { cpi: 'CHNCPIALLMINMEI' },
-  // Japan
-  JP: { cpi: 'JPNCPIALLMINMEI', interest_rate: 'IRSTCI01JPM156N' },
-  // UK
-  GB: { cpi: 'GBRCPIALLMINMEI', interest_rate: 'IRSTCI01GBM156N' },
+  // FRED has no current monthly CPI or PPI for China, Japan or the UK: the OECD
+  // MEI series it carried stopped between 2021 and 2025. Their USD exchange
+  // rates are daily and current.
+  CN: { usd_cny: 'DEXCHUS' },
+  JP: { usd_jpy: 'DEXJPUS', interest_rate: 'IRSTCI01JPM156N' },
+  GB: { usd_gbp: 'DEXUSUK', interest_rate: 'IRSTCI01GBM156N' },
   // Global commodities (assigned to US as default source)
   GLOBAL: {
     // LBMA gold (GOLDPMGBD228NLBM) was withdrawn from FRED.
@@ -154,8 +162,21 @@ const CHANGE_THRESHOLDS: Record<string, { low: number; medium: number; high: num
   interest_rate: { low: 0.1, medium: 0.25, high: 0.5 },   // Rate change points
   unemployment: { low: 0.2, medium: 0.3, high: 0.5 },     // Unemployment % point change
   currency: { low: 1.0, medium: 2.0, high: 5.0 },         // Currency % change
-  commodity: { low: 3.0, medium: 5.0, high: 10.0 },       // Commodity % change
-  supply_chain: { low: 0.5, medium: 1.0, high: 2.0 }      // GSCPI change
+  commodity: { low: 3.0, medium: 5.0, high: 10.0 }        // Commodity % change
+};
+
+/**
+ * Minimum observation window. Monthly series are dated the 1st of the month and
+ * published 2-6 weeks later, so a 30-day window holds at most one observation
+ * and the series could never be compared. 400 days covers two observations of
+ * a quarterly series; a series with fewer than two observations in it has
+ * stopped updating and is reported as unavailable.
+ */
+const MIN_OBSERVATION_WINDOW_DAYS = 400;
+
+const FRED_HEADERS = {
+  'Accept': 'application/json',
+  'User-Agent': 'Pericles-SupplyChainMonitor/1.0 (contact@pericles.cloud)'
 };
 
 interface FREDObservation {
@@ -206,19 +227,25 @@ async function fetchFREDIndicators(
   events: Array<z.infer<typeof EconomicEventSchema>>;
   apiCallsMade: number;
   indicatorsChecked: number;
+  unavailableSeries: Array<z.infer<typeof UnavailableSeriesSchema>>;
 }> {
   const events: Array<z.infer<typeof EconomicEventSchema>> = [];
+  const unavailableSeries: Array<z.infer<typeof UnavailableSeriesSchema>> = [];
+  // A series shared by several countries (ECBDFR, custom indicators) is fetched
+  // once; a second fetch would only produce a duplicate event_id.
+  const checkedSeries = new Set<string>();
   let apiCallsMade = 0;
   let indicatorsChecked = 0;
 
   const apiKey = process.env.FRED_API_KEY;
   if (!apiKey) {
     logger.warn('FRED_API_KEY not set, skipping economic monitoring');
-    return { events, apiCallsMade, indicatorsChecked };
+    return { events, apiCallsMade, indicatorsChecked, unavailableSeries };
   }
 
+  const windowDays = Math.max(lookbackDays, MIN_OBSERVATION_WINDOW_DAYS);
   const endDate = new Date();
-  const startDate = new Date(endDate.getTime() - lookbackDays * 24 * 60 * 60 * 1000);
+  const startDate = new Date(endDate.getTime() - windowDays * 24 * 60 * 60 * 1000);
   const startDateStr = startDate.toISOString().split('T')[0];
   const endDateStr = endDate.toISOString().split('T')[0];
 
@@ -242,6 +269,9 @@ async function fetchFREDIndicators(
     }
 
     for (const seriesId of seriesToCheck) {
+      if (checkedSeries.has(seriesId)) continue;
+      checkedSeries.add(seriesId);
+
       try {
         // Fetch series observations
         const obsUrl = new URL('https://api.stlouisfed.org/fred/series/observations');
@@ -251,9 +281,12 @@ async function fetchFREDIndicators(
         obsUrl.searchParams.set('observation_start', startDateStr);
         obsUrl.searchParams.set('observation_end', endDateStr);
         obsUrl.searchParams.set('sort_order', 'desc');
+        // Only the two most recent valid values are compared; a few spare rows
+        // cover missing values ('.').
+        obsUrl.searchParams.set('limit', '10');
 
         const obsResponse = await fetch(obsUrl.toString(), {
-          headers: { 'Accept': 'application/json' },
+          headers: FRED_HEADERS,
           signal: AbortSignal.timeout(15000)
         });
 
@@ -261,19 +294,20 @@ async function fetchFREDIndicators(
         indicatorsChecked++;
 
         if (!obsResponse.ok) {
-          logger.warn({ statusCode: obsResponse.status, seriesId }, 'FRED API error');
+          logger.error({ statusCode: obsResponse.status, seriesId }, 'FRED API error');
+          unavailableSeries.push({ series_id: seriesId, reason: `FRED returned HTTP ${obsResponse.status}` });
           continue;
         }
 
         const obsData = await obsResponse.json() as FREDObservationsResponse;
 
-        if (!obsData.observations || obsData.observations.length < 2) {
+        // Get the two most recent observations
+        const validObs = (obsData.observations ?? []).filter(o => o.value !== '.');
+        if (validObs.length < 2) {
+          logger.warn({ seriesId, windowDays, observations: validObs.length }, 'FRED series has stopped updating');
+          unavailableSeries.push({ series_id: seriesId, reason: `fewer than 2 observations in the last ${windowDays} days` });
           continue;
         }
-
-        // Get the two most recent observations
-        const validObs = obsData.observations.filter(o => o.value !== '.');
-        if (validObs.length < 2) continue;
 
         const latest = validObs[0];
         const previous = validObs[1];
@@ -321,11 +355,12 @@ async function fetchFREDIndicators(
 
       } catch (err) {
         logger.error({ err, seriesId }, 'Error fetching FRED series');
+        unavailableSeries.push({ series_id: seriesId, reason: 'request failed' });
       }
     }
   }
 
-  return { events, apiCallsMade, indicatorsChecked };
+  return { events, apiCallsMade, indicatorsChecked, unavailableSeries };
 }
 
 /**
@@ -339,7 +374,7 @@ async function fetchSeriesTitle(seriesId: string, apiKey: string): Promise<strin
     url.searchParams.set('file_type', 'json');
 
     const response = await fetch(url.toString(), {
-      headers: { 'Accept': 'application/json' },
+      headers: FRED_HEADERS,
       signal: AbortSignal.timeout(10000)
     });
 
@@ -358,13 +393,13 @@ async function fetchSeriesTitle(seriesId: string, apiKey: string): Promise<strin
 function classifyIndicatorType(seriesId: string): string {
   const id = seriesId.toUpperCase();
 
-  if (id.includes('CPI') || id.includes('HICP')) return 'inflation';
+  // CP0000xxM086NEST is Eurostat's HICP (all items) on FRED.
+  if (id.includes('CPI') || id.includes('HICP') || id.includes('M086NEST')) return 'inflation';
   if (id.includes('PPI')) return 'ppi';
   if (id.includes('DFF') || id.includes('IRST') || id.includes('ECB')) return 'interest_rate';
   if (id.includes('UNRATE') || id.includes('UNEMP')) return 'unemployment';
   if (id.includes('DEX') || id.includes('EXR')) return 'currency';
-  if (id.includes('OIL') || id.includes('GOLD') || id.includes('COPPER') || id.includes('BRENT')) return 'commodity';
-  if (id.includes('GSCPI') || id.includes('SUPPLY')) return 'supply_chain';
+  if (id.includes('OIL') || id.includes('GOLD') || id.includes('COPPER') || id.includes('PCOPP') || id.includes('BRENT')) return 'commodity';
 
   return 'general';
 }
@@ -404,9 +439,6 @@ function classifyEconomicEventType(seriesId: string, percentChange: number, indi
     case 'commodity':
       return percentChange > 0 ? 'commodity_shock' : 'commodity_deflation';
 
-    case 'supply_chain':
-      return percentChange > 0 ? 'supply_chain_pressure' : 'supply_chain_easing';
-
     default:
       return 'economic_change';
   }
@@ -434,9 +466,6 @@ function calculateEconomicSeverity(indicatorType: string, percentChange: number,
 
   // Boost severity for critical indicators
   if (indicatorType === 'inflation' && currentValue > 5) {
-    severity = Math.min(0.95, severity + 0.1);
-  }
-  if (indicatorType === 'supply_chain' && currentValue > 2) {
     severity = Math.min(0.95, severity + 0.1);
   }
 
@@ -478,11 +507,6 @@ function generateEconomicDescription(
       context = percentChange > 0
         ? 'Rising commodity prices may increase production and transportation costs.'
         : 'Falling commodity prices may signal weakening demand or oversupply.';
-      break;
-    case 'supply_chain':
-      context = percentChange > 0
-        ? 'Increased supply chain pressure indicates logistics challenges and potential delays.'
-        : 'Easing supply chain pressure suggests improving logistics conditions.';
       break;
     default:
       context = 'Monitor this indicator for potential supply chain impact.';
