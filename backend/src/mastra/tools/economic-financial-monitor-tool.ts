@@ -63,7 +63,7 @@ export const economicFinancialMonitorTool = createTool({
 
   inputSchema: z.object({
     countries: z.array(CountryInputSchema).min(1).describe('Countries to monitor for economic events'),
-    indicators: z.array(z.string().min(1).max(64)).max(30).nullable().optional().describe('Specific FRED series IDs to monitor (e.g., CPIAUCSL, DEXUSEU). Pass null or omit for default indicators.'),
+    indicators: z.array(z.string().min(1).max(64)).nullable().optional().describe('Specific FRED series IDs to monitor (e.g., CPIAUCSL, DEXUSEU). Pass null or omit for default indicators.'),
     severity_threshold: z.enum(['low', 'medium', 'high']).default('medium').describe('Minimum severity to report'),
     lookback_days: z.number().int().min(1).max(365).default(30).describe('Report a series only if FRED published new data for it within this many days. The default of 30 covers one release of a monthly series.'),
     organization_id: z.string().uuid().describe('Organization identifier (required)')
@@ -125,6 +125,9 @@ export const economicFinancialMonitorTool = createTool({
  * Default FRED series to monitor for supply chain economic risk
  * Organized by country code
  */
+/** Custom indicators past this many are reported unavailable, not read. */
+const MAX_CUSTOM_INDICATORS = 30;
+
 const DEFAULT_FRED_INDICATORS: Record<string, Record<string, string>> = {
   US: {
     inflation: 'CPIAUCSL',        // Consumer Price Index
@@ -163,7 +166,7 @@ const DEFAULT_FRED_INDICATORS: Record<string, Record<string, string>> = {
  */
 const CHANGE_THRESHOLDS: Record<string, { low: number; medium: number; high: number }> = {
   inflation: { low: 0.3, medium: 0.5, high: 1.0 },        // Monthly CPI change %, or YoY rate change pp
-  ppi: { low: 0.5, medium: 1.0, high: 2.0 },              // Monthly PPI change %
+  ppi: { low: 0.5, medium: 1.0, high: 2.0 },              // Monthly PPI change % (PPI is never YoY)
   interest_rate: { low: 0.1, medium: 0.25, high: 0.5 },   // Rate change, percentage points
   unemployment: { low: 0.2, medium: 0.3, high: 0.5 },     // Unemployment change, percentage points
   currency: { low: 1.0, medium: 2.0, high: 5.0 },         // Currency % change
@@ -191,8 +194,7 @@ const DEFAULT_STALE_AFTER_DAYS = 270;
  * FRED allows 120 requests per minute per key. Requests from every invocation
  * in this process share one queue, one slot per 500ms.
  */
-const FRED_REQUEST_INTERVAL_MS = 500;
-const FRED_RATE_LIMIT_RETRY_MS = 2000;
+const fredPacing = { intervalMs: 500, retryMs: 2000 };
 /** A request that would wait longer than this for its slot fails instead. */
 const FRED_MAX_QUEUE_WAIT_MS = 180_000;
 let nextFredSlot = 0;
@@ -213,8 +215,11 @@ const SERIES_META_TTL_MS = 30 * 60 * 1000;
 const OBSERVATIONS_TTL_MS = 6 * 60 * 60 * 1000;
 /** Upper bound on each cache; the oldest entries are dropped beyond it. */
 const MAX_CACHE_ENTRIES = 500;
+/** A fetch result: the value, or the reading that explains why there is none. */
+type Fetched<T> = { ok: true; value: T } | { ok: false; reading: SeriesReading };
+
 interface CacheEntry<T> {
-  promise: Promise<T | SeriesReading>;
+  promise: Promise<Fetched<T>>;
   fetchedAt: number;
 }
 
@@ -312,7 +317,10 @@ async function fetchFREDIndicators(
   // Each series is read once and reported as one event. It is attributed to the
   // first country that lists it; every listing country is in
   // affected_country_codes. (ECBDFR is listed by DE, FR, IT and ES.)
-  const seriesCountries = planSeries(countries, customIndicators);
+  const { plan: seriesCountries, overLimit } = planSeries(countries, customIndicators);
+  for (const seriesId of overLimit) {
+    unavailableSeries.push({ series_id: seriesId, reason: `over the ${MAX_CUSTOM_INDICATORS}-indicator limit; not read` });
+  }
 
   // Reads run concurrently; the shared client queue paces the FRED requests,
   // so cached series don't wait behind uncached ones.
@@ -345,7 +353,10 @@ async function fetchFREDIndicators(
  * is attributed to it (a Fed move to the US, not to a country borrowing the US
  * set).
  */
-function planSeries(countries: Country[], customIndicators: string[] | undefined): Map<string, Country[]> {
+function planSeries(
+  countries: Country[],
+  customIndicators: string[] | undefined
+): { plan: Map<string, Country[]>; overLimit: string[] } {
   const plan = new Map<string, Country[]>();
   const add = (seriesId: string, country: Country) => {
     const list = plan.get(seriesId) ?? [];
@@ -358,9 +369,9 @@ function planSeries(countries: Country[], customIndicators: string[] | undefined
 
   if (custom.length > 0) {
     for (const country of normalized) {
-      for (const seriesId of custom) add(seriesId, country);
+      for (const seriesId of custom.slice(0, MAX_CUSTOM_INDICATORS)) add(seriesId, country);
     }
-    return plan;
+    return { plan, overLimit: custom.slice(MAX_CUSTOM_INDICATORS) };
   }
 
   const borrowing: Country[] = [];
@@ -379,7 +390,7 @@ function planSeries(countries: Country[], customIndicators: string[] | undefined
     for (const seriesId of Object.values(DEFAULT_FRED_INDICATORS.GLOBAL || {})) add(seriesId, country);
   }
 
-  return plan;
+  return { plan, overLimit: [] };
 }
 
 /**
@@ -393,7 +404,7 @@ function createFredClient(apiKey: string) {
     const now = Date.now();
     const slot = Math.max(now, nextFredSlot);
     if (slot - now > FRED_MAX_QUEUE_WAIT_MS) throw new FredQueueFullError();
-    nextFredSlot = slot + FRED_REQUEST_INTERVAL_MS;
+    nextFredSlot = slot + fredPacing.intervalMs;
     if (slot > now) await sleep(slot - now);
   };
 
@@ -414,8 +425,10 @@ function createFredClient(apiKey: string) {
       const response = await send(url.toString());
       if (response.status !== 429) return response;
       await response.body?.cancel();
-      logger.warn({ path }, 'FRED rate limit hit; retrying once');
-      await sleep(FRED_RATE_LIMIT_RETRY_MS);
+      logger.warn({ path }, 'FRED rate limit hit; backing off and retrying once');
+      // Back off the whole queue, not just this request (the key may be shared
+      // with another process).
+      nextFredSlot = Math.max(nextFredSlot, Date.now() + fredPacing.retryMs);
       return send(url.toString());
     }
   };
@@ -454,20 +467,16 @@ async function unavailableForStatus(seriesId: string, response: Response): Promi
   };
 }
 
-function isReading(value: object): value is SeriesReading {
-  return 'status' in value;
-}
-
 /**
  * Get a value through a TTL cache that also shares in-flight requests. Only
  * successes are kept: an error is dropped so the next run asks again.
  */
-async function cached<T extends object>(
+async function cached<T>(
   cache: Map<string, CacheEntry<T>>,
   ttlMs: number,
   key: string,
-  load: () => Promise<T | SeriesReading>
-): Promise<T | SeriesReading> {
+  load: () => Promise<Fetched<T>>
+): Promise<Fetched<T>> {
   const now = Date.now();
   const hit = cache.get(key);
   if (hit && now - hit.fetchedAt < ttlMs) return hit.promise;
@@ -486,7 +495,7 @@ async function cached<T extends object>(
   };
   try {
     const result = await promise;
-    if (isReading(result)) forget();
+    if (!result.ok) forget();
     return result;
   } catch (err) {
     // A thrown request (timeout, network, queue full) must not be replayed
@@ -496,12 +505,14 @@ async function cached<T extends object>(
   }
 }
 
-async function getSeriesMeta(client: FredClient, seriesId: string): Promise<FREDSeriesMeta | SeriesReading> {
+async function getSeriesMeta(client: FredClient, seriesId: string): Promise<Fetched<FREDSeriesMeta>> {
   return cached(seriesMetaCache, SERIES_META_TTL_MS, seriesId, async () => {
     const response = await client.get('series', { series_id: seriesId });
-    if (!response.ok) return unavailableForStatus(seriesId, response);
+    if (!response.ok) return { ok: false, reading: await unavailableForStatus(seriesId, response) };
     const meta = (await response.json() as FREDSeriesResponse).seriess?.[0];
-    return meta ?? { status: 'unavailable', reason: 'series not found' };
+    return meta
+      ? { ok: true, value: meta }
+      : { ok: false, reading: { status: 'unavailable', reason: 'series not found' } };
   });
 }
 
@@ -510,7 +521,7 @@ async function getObservations(
   seriesId: string,
   meta: FREDSeriesMeta,
   yearOnYear: boolean
-): Promise<ObservationValues | SeriesReading> {
+): Promise<Fetched<ObservationValues>> {
   const key = `${seriesId}|${yearOnYear ? 'pc1' : 'lin'}|${meta.last_updated}`;
   return cached(observationCache, OBSERVATIONS_TTL_MS, key, async () => {
     const params: Record<string, string> = {
@@ -523,7 +534,7 @@ async function getObservations(
     if (yearOnYear) params.units = 'pc1';
 
     const response = await client.get('series/observations', params);
-    if (!response.ok) return unavailableForStatus(seriesId, response);
+    if (!response.ok) return { ok: false, reading: await unavailableForStatus(seriesId, response) };
     const data = await response.json() as FREDObservationsResponse;
 
     const values = (data.observations ?? [])
@@ -531,9 +542,9 @@ async function getObservations(
       .filter(o => Number.isFinite(o.value));
     if (values.length < 2) {
       logger.warn({ seriesId, numericObservations: values.length }, 'FRED series has too few numeric observations');
-      return { status: 'unavailable', reason: 'fewer than two numeric observations' };
+      return { ok: false, reading: { status: 'unavailable', reason: 'fewer than two numeric observations' } };
     }
-    return { values };
+    return { ok: true, value: { values } };
   });
 }
 
@@ -544,8 +555,9 @@ async function getObservations(
  */
 async function readSeries(client: FredClient, seriesId: string, lookbackDays: number): Promise<SeriesReading> {
   try {
-    const meta = await getSeriesMeta(client, seriesId);
-    if (isReading(meta)) return meta;
+    const metaResult = await getSeriesMeta(client, seriesId);
+    if (!metaResult.ok) return metaResult.reading;
+    const meta = metaResult.value;
 
     const staleAfter = STALE_AFTER_DAYS[meta.frequency_short] ?? DEFAULT_STALE_AFTER_DAYS;
     if (daysSince(meta.observation_end) > staleAfter) {
@@ -553,25 +565,31 @@ async function readSeries(client: FredClient, seriesId: string, lookbackDays: nu
       return { status: 'unavailable', reason: `stopped updating (last observation ${meta.observation_end})` };
     }
 
-    if (daysSince(parseFredTimestamp(meta.last_updated)) > lookbackDays) {
+    const updatedDaysAgo = daysSince(parseFredTimestamp(meta.last_updated));
+    if (!Number.isFinite(updatedDaysAgo)) {
+      logger.error({ seriesId, lastUpdated: meta.last_updated }, 'Unreadable FRED last_updated');
+      return { status: 'unavailable', reason: `unreadable last_updated (${meta.last_updated})` };
+    }
+    if (updatedDaysAgo > lookbackDays) {
       return { status: 'quiet' };
     }
 
     // Rates, yields, unemployment, growth rates: FRED's units say "Percent"
     // (or, for OECD series, "Growth rate ...").
     const isPercent = /^(percent|growth rate)/i.test(meta.units);
-    const baseType = classifyIndicatorType(seriesId, meta.title);
-    const indicatorType = baseType === 'general' && isPercent ? 'percent' : baseType;
+    const indicatorType = resolveIndicatorType(classifyIndicatorType(seriesId, meta.title), isPercent);
 
-    // A non-seasonally-adjusted price index swings month to month with the
-    // season (January sales); compare its year-on-year rate instead.
-    const yearOnYear = (indicatorType === 'inflation' || indicatorType === 'ppi')
+    // A non-seasonally-adjusted consumer price index swings month to month
+    // with the season (January sales); compare its year-on-year rate instead.
+    // Producer prices are not switched: their thresholds are monthly % changes
+    // and the YoY rate of a commodity-driven index moves by whole points.
+    const yearOnYear = indicatorType === 'inflation'
       && meta.seasonal_adjustment_short === 'NSA'
       && /^index/i.test(meta.units);
 
     const observations = await getObservations(client, seriesId, meta, yearOnYear);
-    if (isReading(observations)) return observations;
-    const [latest, previous] = observations.values;
+    if (!observations.ok) return observations.reading;
+    const [latest, previous] = observations.value.values;
 
     return {
       status: 'ok',
@@ -647,14 +665,25 @@ function relativeChange(current: number, previous: number): number | null {
  * ("2026-11-13T07:46:02-06:00"), keeping the time and offset.
  */
 function parseFredTimestamp(value: string): string {
-  const match = /^(\d{4}-\d{2}-\d{2}) (\d{2}:\d{2}:\d{2})([+-]\d{2})$/.exec(value);
-  return match ? `${match[1]}T${match[2]}${match[3]}:00` : value;
+  const match = /^(\d{4}-\d{2}-\d{2}) (\d{2}:\d{2}(?::\d{2})?)([+-]\d{2})(?::?(\d{2}))?$/.exec(value.trim());
+  return match ? `${match[1]}T${match[2]}${match[3]}:${match[4] ?? '00'}` : value;
 }
 
 function daysSince(isoDate: string): number {
   const time = Date.parse(isoDate);
   if (Number.isNaN(time)) return Number.POSITIVE_INFINITY;
   return (Date.now() - time) / (24 * 60 * 60 * 1000);
+}
+
+/**
+ * Point-threshold types (rates, unemployment) only fit percentage series; a
+ * level series that matched by name (UNEMPLOY in thousands, ECB balance-sheet
+ * series) is 'general'. An unrecognised percentage series is 'percent'.
+ */
+function resolveIndicatorType(baseType: string, isPercent: boolean): string {
+  if ((baseType === 'interest_rate' || baseType === 'unemployment') && !isPercent) return 'general';
+  if (baseType === 'general' && isPercent) return 'percent';
+  return baseType;
 }
 
 /**
@@ -827,3 +856,19 @@ function generateEconomicDescription(
 function sleep(ms: number): Promise<void> {
   return new Promise(resolve => setTimeout(resolve, ms));
 }
+
+/** Internals for unit tests; not part of the tool's interface. */
+export const __testing = {
+  planSeries,
+  parseFredTimestamp,
+  resolveIndicatorType,
+  classifyIndicatorType,
+  /** Clear caches and the request queue; set pacing (0 in tests). */
+  reset(pacing: { intervalMs: number; retryMs: number } = { intervalMs: 500, retryMs: 2000 }): void {
+    seriesMetaCache.clear();
+    observationCache.clear();
+    nextFredSlot = 0;
+    fredPacing.intervalMs = pacing.intervalMs;
+    fredPacing.retryMs = pacing.retryMs;
+  }
+};
