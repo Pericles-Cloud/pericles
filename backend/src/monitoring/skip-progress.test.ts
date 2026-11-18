@@ -17,6 +17,12 @@ vi.mock('./db-client.js', () => ({
   getPostgresStore: () => undefined,
 }));
 
+// The cycle looks the agent up before resolving the model: a stub keeps
+// this test independent of the real agent registry.
+vi.mock('../mastra/index.js', () => ({
+  mastra: { getAgent: () => ({ __updateModel: () => undefined }) },
+}));
+
 vi.mock('./config.js', async (importOriginal) => {
   const actual = await importOriginal<typeof ConfigModule>();
   return {

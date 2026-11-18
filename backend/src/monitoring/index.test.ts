@@ -23,7 +23,13 @@ vi.mock('./db-client.js', () => ({
   getPostgresStore: () => undefined,
 }));
 
-import { runMonitoringCycle, MonitoringExcludedError, exactMatchWhere } from './index.js';
+import {
+  runMonitoringCycle,
+  MonitoringExcludedError,
+  exactMatchWhere,
+  startMonitoring,
+  monitoringStopReason,
+} from './index.js';
 
 const ROOT_ID = '00000000-0000-0000-0000-000000000001';
 const CUSTOMER_ID = '11111111-1111-1111-1111-111111111111';
@@ -83,6 +89,22 @@ describe('runMonitoringCycle — root-org guard', () => {
     // this ever becomes a different failure, the cycle got further — update
     // this fixture deliberately rather than letting it reach live code.
     expect(outcome).toBeInstanceOf(TypeError);
+  });
+});
+
+describe('startMonitoring — root org (#72)', () => {
+  it('stops at once as a permanent fault instead of retrying it as an error', async () => {
+    findUnique.mockResolvedValue({ is_root: true });
+    const config = {
+      organizationId: ROOT_ID,
+      pollingIntervalMs: 60_000,
+      enabledSources: {},
+      errorHandling: { maxRetries: 3, stopOnFatalError: true },
+    } as unknown as MonitoringConfig;
+
+    await startMonitoring(config); // returns: the loop stopped by itself
+    expect(monitoringStopReason()).toBe('fatal');
+    expect(findUnique).toHaveBeenCalledTimes(1); // no retries
   });
 });
 

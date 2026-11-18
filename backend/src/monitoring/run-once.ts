@@ -38,6 +38,7 @@ import { runMonitoringCycle } from './index.js';
 import type { CycleMetrics } from './metrics.js';
 import { getPrismaClient, disconnectPrisma } from './db-client.js';
 import { logger } from './logger.js';
+import { cycleSkipCode } from './cycle-outcome.js';
 
 export interface Args {
   organizationIds: string[];
@@ -259,7 +260,7 @@ export async function runCycles(
       // Skip (not fail) orgs that have no key for their provider — the fix
       // is configuration, not code. Keep going either way: one tenant's bad
       // config must not starve the others.
-      if ((error as Error)?.name === 'MissingApiKeyError') {
+      if (cycleSkipCode(error) === 'ORGANIZATION_SKIPPED') {
         skipped++;
         logger.warn(
           { organizationId, reason: (error as Error).message },

@@ -40,6 +40,7 @@ import {
   type FuzzyDedupBudget,
 } from './incident-similarity.js';
 import { createInterruptibleSleep } from './interruptible-sleep.js';
+import { cycleSkipCode } from './cycle-outcome.js';
 
 // ============================================================================
 // Global State
@@ -90,11 +91,20 @@ export async function startMonitoring(config: MonitoringConfig): Promise<void> {
       // Sleep for polling interval
       await sleep(config.pollingIntervalMs);
     } catch (error) {
+      // The root org is never monitored: a permanent refusal, not a fault to
+      // retry. Stop as a permanent fault (start.ts then stays up idle rather
+      // than restart-looping), logged at WARN like the other policy skip.
+      if (cycleSkipCode(error) === 'ORGANIZATION_EXCLUDED') {
+        cycleLogger.warn({ reason: (error as Error).message }, '[Monitoring] Org is excluded from monitoring; stopping');
+        stopReason = 'fatal';
+        stopMonitoring();
+        break;
+      }
       // No API key for this org: a configuration state, not a fault. Log the
       // skip explicitly and keep polling at the normal interval — the loop
       // must not busy-retry waiting for a key only an admin can add, and must
       // not be silenced either (the same skip run-once logs per cycle).
-      if ((error as Error)?.name === 'MissingApiKeyError') {
+      if (cycleSkipCode(error) === 'ORGANIZATION_SKIPPED') {
         cycleLogger.warn(
           { reason: (error as Error).message },
           '[Monitoring] Skipped cycle — no API key configured for org'
@@ -219,12 +229,6 @@ export async function runMonitoringCycle(
   // Pericles (root org) is the platform manager, never a monitored tenant.
   // Every cycle path — scheduled run-once, manual trigger, SSE trigger,
   // start.ts — funnels through here, so one check keeps it out of monitoring.
-  const emitProgress = (update: Omit<ProgressUpdate, 'timestamp'>) => {
-    if (onProgress) {
-      onProgress({ ...update, timestamp: new Date().toISOString() });
-    }
-  };
-
   const orgRow = await getPrismaClient().organization.findUnique({
     where: { id: config.organizationId },
     select: { is_root: true },
@@ -232,6 +236,12 @@ export async function runMonitoringCycle(
   if (orgRow?.is_root) {
     throw new MonitoringExcludedError(config.organizationId);
   }
+
+  const emitProgress = (update: Omit<ProgressUpdate, 'timestamp'>) => {
+    if (onProgress) {
+      onProgress({ ...update, timestamp: new Date().toISOString() });
+    }
+  };
 
   // Map source names to tool IDs for display
   const sourceToToolId: Record<string, string> = {
