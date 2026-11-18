@@ -1,7 +1,8 @@
 /**
  * #72: an org with no provider key is a configuration skip, not a failure.
- * The cycle must report progress phase 'skipped' (the UI renders it neutral),
- * never 'error', and still throw MissingApiKeyError so callers log at WARN.
+ * The cycle must emit no progress 'error' (the stream's terminal event
+ * reports the skip, see cycle-outcome.ts) and still throw MissingApiKeyError
+ * so callers log at WARN and the stream says outcome 'skipped'.
  *
  * Mocks: db-client (customer org, not root) and resolveModel (throws the
  * missing-key error, as config.ts does when the org has no key).
@@ -31,7 +32,7 @@ vi.mock('./config.js', async (importOriginal) => {
 import { runMonitoringCycle } from './index.js';
 
 describe('runMonitoringCycle — missing API key (#72)', () => {
-  it("reports phase 'skipped' (not 'error') and rethrows MissingApiKeyError", async () => {
+  it("emits no 'error' progress and rethrows MissingApiKeyError", async () => {
     const updates: ProgressUpdate[] = [];
     const config = {
       organizationId: '11111111-1111-1111-1111-111111111111',
@@ -43,9 +44,6 @@ describe('runMonitoringCycle — missing API key (#72)', () => {
       name: 'MissingApiKeyError',
     });
 
-    const phases = updates.map((u) => u.phase);
-    expect(phases).toContain('skipped');
-    expect(phases).not.toContain('error');
-    expect(updates.find((u) => u.phase === 'skipped')?.message).toMatch(/No openrouter API key/);
+    expect(updates.map((u) => u.phase)).not.toContain('error');
   });
 });

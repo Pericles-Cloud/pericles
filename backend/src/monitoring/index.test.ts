@@ -52,14 +52,14 @@ describe('runMonitoringCycle — root-org guard', () => {
     );
   });
 
-  it("reports progress phase 'skipped' (not 'error') before refusing (#72)", async () => {
+  it('emits no progress before refusing: the terminal event reports the skip (#72)', async () => {
     findUnique.mockResolvedValue({ is_root: true });
     const phases: string[] = [];
 
     await expect(runMonitoringCycle(configFor(ROOT_ID), (u) => phases.push(u.phase))).rejects.toBeInstanceOf(
       MonitoringExcludedError
     );
-    expect(phases).toEqual(['skipped']);
+    expect(phases).toEqual([]);
   });
 
   it('throws the exported sentinel class API layers map to 403', async () => {

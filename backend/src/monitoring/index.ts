@@ -161,18 +161,10 @@ export function isMonitoringRunning(): boolean {
 // ============================================================================
 
 /**
- * `skipped`: the cycle was not run by policy (the root org, which is never
- * monitored, or an org with no provider key), not a failure; the UI shows it
- * as a neutral state (#72).
+ * A skipped cycle (root org, or no provider key) emits no phase of its own:
+ * it is reported by the stream's terminal event (cycle-outcome.ts, #72).
  */
-export type ProgressPhase =
-  | 'starting'
-  | 'loading_context'
-  | 'executing_tools'
-  | 'processing_events'
-  | 'complete'
-  | 'skipped'
-  | 'error';
+export type ProgressPhase = 'starting' | 'loading_context' | 'executing_tools' | 'processing_events' | 'complete' | 'error';
 
 export interface ProgressUpdate {
   phase: ProgressPhase;
@@ -238,9 +230,7 @@ export async function runMonitoringCycle(
     select: { is_root: true },
   });
   if (orgRow?.is_root) {
-    const excluded = new MonitoringExcludedError(config.organizationId);
-    emitProgress({ phase: 'skipped', message: excluded.message });
-    throw excluded;
+    throw new MonitoringExcludedError(config.organizationId);
   }
 
   // Map source names to tool IDs for display
@@ -797,7 +787,9 @@ export async function runMonitoringCycle(
     // at WARN with the skip wording so run-once/Coolify logs never show an
     // ERROR for an org that was deliberately not run.
     if ((error as Error)?.name === 'MissingApiKeyError') {
-      emitProgress({ phase: 'skipped', message: (error as Error).message });
+      // No progress 'error' (or other phase) for a skip: the stream's terminal
+      // event carries it (outcome 'skipped', see cycle-outcome.ts), and an
+      // extra progress event would end the run early in the dialog (#72).
       cycleLogger.warn({ reason: (error as Error).message }, '[Cycle] Skipped — no API key configured for org');
       throw error;
     }

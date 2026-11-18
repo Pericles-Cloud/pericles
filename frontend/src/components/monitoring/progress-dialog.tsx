@@ -40,8 +40,8 @@ function formatElapsedTime(ms: number): string {
 }
 
 // Progress update types matching backend
-// `skipped`: not run for a configuration reason (no provider key, or the
-// root org, which is never monitored). Neutral, not a failure (#72).
+// `skipped` (dialog-only): not run by policy (no provider key, or the root
+// org, which is never monitored). Neutral, not a failure (#72).
 type ProgressPhase =
   | 'starting'
   | 'loading_context'
@@ -53,9 +53,10 @@ type ProgressPhase =
   | 'stopped';
 
 /**
- * Error codes that mean "not run by policy". The backend now ends a skip with
- * `type: 'skipped'`; older backends sent `type: 'error'` with one of these
- * codes, and frontend and backend deploy separately, so both are accepted.
+ * Codes on the terminal event that mean "not run by policy". The stream ends
+ * a skip with `type: 'error'` plus `outcome: 'skipped'` and one of these
+ * codes (type stays 'error' so dialogs from before #72 still see the end of
+ * the stream). Older backends send the code without `outcome`.
  */
 const SKIP_CODES = new Set(['ORGANIZATION_SKIPPED', 'ORGANIZATION_EXCLUDED']);
 
@@ -76,10 +77,12 @@ function InfoIcon({ className }: { className?: string }) {
 }
 
 interface ProgressUpdate {
-  type: 'connected' | 'progress' | 'complete' | 'skipped' | 'error';
+  type: 'connected' | 'progress' | 'complete' | 'error';
   phase?: ProgressPhase;
-  /** On a terminal event: ORGANIZATION_SKIPPED / ORGANIZATION_EXCLUDED / CYCLE_ERROR. */
+  /** On the terminal error event: ORGANIZATION_SKIPPED / ORGANIZATION_EXCLUDED / CYCLE_ERROR. */
   code?: string;
+  /** On the terminal error event (#72): 'skipped' = not run by policy. */
+  outcome?: 'skipped' | 'failed';
   message?: string;
   tool?: string;
   toolIndex?: number;
@@ -180,9 +183,7 @@ export function MonitoringProgressDialog({
     }
 
     const isSkip =
-      (update.type === 'progress' && update.phase === 'skipped') ||
-      update.type === 'skipped' ||
-      (update.type === 'error' && !!update.code && SKIP_CODES.has(update.code));
+      update.type === 'error' && (update.outcome === 'skipped' || (!!update.code && SKIP_CODES.has(update.code)));
     if (isSkip) {
       // Not run by policy: a finished, neutral state, not a failure.
       setSkipReason(update.message || 'This monitoring cycle was skipped');
@@ -311,7 +312,7 @@ export function MonitoringProgressDialog({
                   try {
                     const data = JSON.parse(line.slice(6));
                     self.postMessage({ type: 'progress', data });
-                    if (data.type === 'complete' || data.type === 'skipped' || data.type === 'error') {
+                    if (data.type === 'complete' || data.type === 'error') {
                       receivedCompletion = true;
                     }
                   } catch {}
@@ -654,8 +655,9 @@ export function MonitoringProgressDialog({
             ref={scrollRef}
             className="h-56 overflow-y-auto bg-muted rounded-lg p-3 mb-4 font-mono text-xs"
           >
-            {/* The skip reason is shown once, as the notice below, not also as a log row. */}
-            {updates.filter(u => u.type === 'progress' && u.message && !u.isHeartbeat && u.phase !== 'skipped').map((update, idx) => {
+            {/* The skip reason is shown once, as the notice below. An older
+                backend also sent it as a progress 'error' row first: hide that. */}
+            {updates.filter(u => u.type === 'progress' && u.message && !u.isHeartbeat && !(skipReason && u.phase === 'error' && u.message === skipReason)).map((update, idx) => {
               const cleanMessage = getCleanMessage(update);
               return (
                 <div
