@@ -127,6 +127,9 @@ export function MonitoringProgressDialog({
   const scrollRef = useRef<HTMLDivElement>(null);
   const hasStartedRef = useRef(false);
   const isRunningRef = useRef(false);
+  // Track if we've completed to prevent restarts (declared before
+  // handleProgressUpdate, which marks a skip as complete).
+  const hasCompletedRef = useRef(false);
 
   // Update elapsed time every second while running
   // Also handle visibility changes to catch up when tab regains focus
@@ -177,10 +180,16 @@ export function MonitoringProgressDialog({
       update.type === 'error' &&
       (update.outcome !== undefined ? update.outcome === 'skipped' : !!update.code && SKIP_CODES.has(update.code));
     if (isSkip) {
-      // Not run by policy: a finished, neutral state, not a failure.
+      // Not run by policy: a finished, neutral state, not a failure. Final:
+      // a later connection error must not turn it red.
       setSkipReason(update.message || 'This monitoring cycle was skipped');
       setProgress(100);
       setCurrentPhase('skipped');
+      hasCompletedRef.current = true;
+      isRunningRef.current = false;
+      setIsRunning(false);
+      // The run is over: let the parent refresh (no metrics for a skip).
+      onComplete(undefined);
     } else if (update.type === 'progress' && update.phase) {
       setCurrentPhase(update.phase);
 
@@ -208,8 +217,6 @@ export function MonitoringProgressDialog({
     }
   }, [onComplete]);
 
-  // Track if we've completed to prevent restarts
-  const hasCompletedRef = useRef(false);
 
   const startMonitoring = useCallback(() => {
     // Multiple guards to prevent restarts:
@@ -480,6 +487,17 @@ export function MonitoringProgressDialog({
     }]);
   };
 
+  // Activity-log rows. The final message (skip reason or error) is shown
+  // once, as the notice under the log: only the LAST row, when it is a
+  // progress 'error' with that same text (a failure, or an older backend's
+  // skip), is left out. Earlier rows are history and always kept.
+  const logRows = (() => {
+    const rows = updates.filter((u) => u.type === 'progress' && u.message && !u.isHeartbeat);
+    const last = rows[rows.length - 1];
+    const finalText = skipReason ?? error;
+    return last && finalText && last.phase === 'error' && last.message === finalText ? rows.slice(0, -1) : rows;
+  })();
+
   const getPhaseLabel = (phase: ProgressPhase): string => {
     const labels: Record<ProgressPhase, string> = {
       starting: 'Starting',
@@ -647,10 +665,7 @@ export function MonitoringProgressDialog({
             ref={scrollRef}
             className="h-56 overflow-y-auto bg-muted rounded-lg p-3 mb-4 font-mono text-xs"
           >
-            {/* The final message (skip reason or error) is shown once, as the
-                notice below; a progress 'error' row carrying the same text
-                (a failure, or an older backend's skip) is not repeated. */}
-            {updates.filter(u => u.type === 'progress' && u.message && !u.isHeartbeat && !(u.phase === 'error' && (u.message === skipReason || u.message === error))).map((update, idx) => {
+            {logRows.map((update, idx) => {
               const cleanMessage = getCleanMessage(update);
               return (
                 <div

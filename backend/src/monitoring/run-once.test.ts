@@ -400,6 +400,14 @@ describe('runCycles', () => {
     expect(failures).toBe(0);
   });
 
+  it('skips (does not fail) the root org when named explicitly (#72)', async () => {
+    const excluded = Object.assign(new Error('excluded from monitoring'), { name: 'MonitoringExcludedError' });
+    const { failures, skipped } = await runCycles(['root'], makeDeps(() => Promise.reject(excluded)));
+
+    expect(skipped).toBe(1);
+    expect(failures).toBe(0);
+  });
+
   it('keeps running other orgs after a key skip, and counts each skip', async () => {
     const seen: string[] = [];
     const deps: CycleDeps = {

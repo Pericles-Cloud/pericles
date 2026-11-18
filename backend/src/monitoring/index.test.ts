@@ -102,7 +102,19 @@ describe('startMonitoring — root org (#72)', () => {
       errorHandling: { maxRetries: 3, stopOnFatalError: true },
     } as unknown as MonitoringConfig;
 
-    await startMonitoring(config); // returns: the loop stopped by itself
+    // Bounded: if the excluded branch regresses, the loop would back off and
+    // retry; fail with a clear message instead of a test timeout.
+    let timer: ReturnType<typeof setTimeout> | undefined;
+    const stalled = new Promise<never>((_, reject) => {
+      timer = setTimeout(() => {
+        reject(new Error('startMonitoring did not stop for the root org (excluded branch regressed?)'));
+      }, 2000);
+    });
+    try {
+      await Promise.race([startMonitoring(config), stalled]);
+    } finally {
+      clearTimeout(timer);
+    }
     expect(monitoringStopReason()).toBe('fatal');
     expect(findUnique).toHaveBeenCalledTimes(1); // no retries
   });

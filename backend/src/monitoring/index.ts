@@ -796,10 +796,11 @@ export async function runMonitoringCycle(
     // A missing org key is a configuration skip, not a cycle failure — log it
     // at WARN with the skip wording so run-once/Coolify logs never show an
     // ERROR for an org that was deliberately not run.
-    if ((error as Error)?.name === 'MissingApiKeyError') {
-      // No progress 'error' (or other phase) for a skip: the stream's terminal
-      // event carries it (outcome 'skipped', see cycle-outcome.ts), and an
-      // extra progress event would end the run early in the dialog (#72).
+    if (cycleSkipCode(error) === 'ORGANIZATION_SKIPPED') {
+      // No progress event for a skip: the stream's terminal event carries it
+      // (outcome 'skipped', see cycle-outcome.ts). A progress 'error' here
+      // would show the dialog's red Error state until that event replaced it
+      // (#72).
       cycleLogger.warn({ reason: (error as Error).message }, '[Cycle] Skipped — no API key configured for org');
       throw error;
     }

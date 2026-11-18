@@ -257,14 +257,18 @@ export async function runCycles(
         '[RunOnce] Cycle complete'
       );
     } catch (error) {
-      // Skip (not fail) orgs that have no key for their provider — the fix
-      // is configuration, not code. Keep going either way: one tenant's bad
-      // config must not starve the others.
-      if (cycleSkipCode(error) === 'ORGANIZATION_SKIPPED') {
+      // Skip (not fail) a policy refusal: an org with no key for its
+      // provider (the fix is configuration, not code) or the root org (never
+      // monitored; reachable via an explicit --organization-id). Keep going
+      // either way: one tenant's config must not starve the others.
+      const skipCode = cycleSkipCode(error);
+      if (skipCode) {
         skipped++;
         logger.warn(
-          { organizationId, reason: (error as Error).message },
-          '[RunOnce] Skipped cycle — no API key configured for org'
+          { organizationId, reason: (error as Error).message, code: skipCode },
+          skipCode === 'ORGANIZATION_EXCLUDED'
+            ? '[RunOnce] Skipped cycle — org is excluded from monitoring'
+            : '[RunOnce] Skipped cycle — no API key configured for org'
         );
         continue;
       }
