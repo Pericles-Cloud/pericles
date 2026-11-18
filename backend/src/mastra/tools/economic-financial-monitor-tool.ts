@@ -39,6 +39,8 @@ const EconomicEventSchema = z.object({
   severity: z.number().min(0).max(1),
   country: z.string(),
   country_code: z.string().length(2),
+  affected_country_codes: z.array(z.string().length(2)).optional()
+    .describe('Every monitored country this indicator applies to (e.g. ECBDFR for DE, FR, IT, ES)'),
   indicator_name: z.string().describe('FRED series name (e.g., CPIAUCSL, DEXUSEU)'),
   current_value: z.number(),
   previous_value: z.number().optional(),
@@ -129,8 +131,7 @@ const DEFAULT_FRED_INDICATORS: Record<string, Record<string, string>> = {
     interest_rate: 'DFF',         // Federal Funds Rate
     unemployment: 'UNRATE',       // Unemployment Rate
     oil_price: 'DCOILWTICO',      // Crude Oil WTI
-    usd_per_eur: 'DEXUSEU',      // US dollars per euro
-    cny_per_usd: 'DEXCHUS'       // Chinese yuan per US dollar
+    usd_per_eur: 'DEXUSEU'       // US dollars per euro (CNY is under CN)
     // GSCPI (NY Fed Global Supply Chain Pressure Index) is not published on FRED.
   },
   // EU countries: national HICP + the ECB deposit facility rate
@@ -155,11 +156,11 @@ const DEFAULT_FRED_INDICATORS: Record<string, Record<string, string>> = {
 
 /**
  * Thresholds for detecting significant changes in different indicator types.
- * Interest rates and unemployment are measured in percentage points; every
- * other type in relative percent change (see POINT_CHANGE_TYPES).
+ * Interest rates, unemployment and year-on-year inflation rates are measured in
+ * percentage points; everything else in relative percent change.
  */
 const CHANGE_THRESHOLDS: Record<string, { low: number; medium: number; high: number }> = {
-  inflation: { low: 0.3, medium: 0.5, high: 1.0 },        // Monthly CPI change %
+  inflation: { low: 0.3, medium: 0.5, high: 1.0 },        // Monthly CPI change %, or YoY rate change pp
   ppi: { low: 0.5, medium: 1.0, high: 2.0 },              // Monthly PPI change %
   interest_rate: { low: 0.1, medium: 0.25, high: 0.5 },   // Rate change, percentage points
   unemployment: { low: 0.2, medium: 0.3, high: 0.5 },     // Unemployment change, percentage points
@@ -172,15 +173,26 @@ const POINT_CHANGE_TYPES = new Set(['interest_rate', 'unemployment']);
 
 /**
  * A series whose latest observation is older than this (by FRED frequency code)
- * has stopped updating and is reported as unavailable.
+ * is more than a period overdue: it has stopped updating and is reported as
+ * unavailable. This also stops a revision of old data (which bumps
+ * last_updated) from being reported as a new move.
  */
 const STALE_AFTER_DAYS: Record<string, number> = {
-  D: 30, W: 60, BW: 60, M: 180, Q: 365, SA: 550, A: 800
+  D: 14, W: 30, BW: 45, M: 120, Q: 220, SA: 400, A: 500
 };
-const DEFAULT_STALE_AFTER_DAYS = 400;
+const DEFAULT_STALE_AFTER_DAYS = 220;
 
-/** FRED allows 120 requests per minute; one request per 500ms stays inside it. */
+/**
+ * FRED allows 120 requests per minute per key. Requests from every invocation
+ * in this process share one queue, one slot per 500ms.
+ */
 const FRED_REQUEST_INTERVAL_MS = 500;
+const FRED_RATE_LIMIT_RETRY_MS = 2000;
+let nextFredSlot = 0;
+
+/** Series metadata changes at most once per release; cache it across runs. */
+const SERIES_META_TTL_MS = 6 * 60 * 60 * 1000;
+const seriesMetaCache = new Map<string, { meta: FREDSeriesMeta; fetchedAt: number }>();
 
 const FRED_HEADERS = {
   'Accept': 'application/json',
@@ -197,30 +209,44 @@ interface FREDObservationsResponse {
   observations?: FREDObservation[];
 }
 
+interface FREDSeriesMeta {
+  id: string;
+  title: string;
+  units: string;
+  frequency_short: string;
+  seasonal_adjustment_short: string;
+  observation_end: string;
+  last_updated: string;
+}
+
 interface FREDSeriesResponse {
-  seriess?: Array<{
-    id: string;
-    title: string;
-    units: string;
-    frequency_short: string;
-    observation_end: string;
-    last_updated: string;
-  }>;
+  seriess?: FREDSeriesMeta[];
 }
 
 type SeriesReading =
-  | { status: 'ok'; title: string; units: string; date: string; current: number; previous: number }
+  | {
+      status: 'ok';
+      title: string;
+      units: string;
+      date: string;
+      current: number;
+      previous: number;
+      /** Values are year-on-year percent changes (FRED units=pc1), not levels. */
+      yearOnYear: boolean;
+    }
   | { status: 'quiet' }
   | { status: 'unavailable'; reason: string };
 
+type OkReading = Extract<SeriesReading, { status: 'ok' }>;
 type EconomicEvent = z.infer<typeof EconomicEventSchema>;
+interface Country { country_code: string; country_name: string }
 
 /**
  * Fetch economic indicators from FRED API
  * API Docs: https://fred.stlouisfed.org/docs/api/fred/
  */
 async function fetchFREDIndicators(
-  countries: Array<{ country_code: string; country_name: string }>,
+  countries: Country[],
   customIndicators: string[] | undefined,
   lookbackDays: number,
   severityThreshold: string
@@ -235,68 +261,136 @@ async function fetchFREDIndicators(
 
   const apiKey = process.env.FRED_API_KEY;
   if (!apiKey) {
-    logger.warn('FRED_API_KEY not set, skipping economic monitoring');
+    logger.error('FRED_API_KEY not set: economic monitoring cannot run');
+    unavailableSeries.push({ series_id: '*', reason: 'FRED_API_KEY is not configured' });
     return { events, apiCallsMade: 0, indicatorsChecked: 0, unavailableSeries };
   }
 
   const client = createFredClient(apiKey);
-  // One reading per series per run. A series shared by several countries
-  // (ECBDFR, custom indicators) is fetched once and reported for each of them.
-  const readings = new Map<string, SeriesReading>();
 
-  // Always include global commodity indicators
-  const globalIndicators = Object.values(DEFAULT_FRED_INDICATORS.GLOBAL || {});
+  // Each series is read once and reported as one event. It is attributed to the
+  // first country that lists it; every listing country is in
+  // affected_country_codes. (ECBDFR is listed by DE, FR, IT and ES.)
+  const seriesCountries = planSeries(countries, customIndicators);
 
-  for (const [index, country] of countries.entries()) {
-    const countryCode = country.country_code.toUpperCase();
-    let seriesToCheck: string[];
-
-    if (customIndicators && customIndicators.length > 0) {
-      seriesToCheck = customIndicators;
-    } else {
-      const countryIndicators = DEFAULT_FRED_INDICATORS[countryCode] || DEFAULT_FRED_INDICATORS.US;
-      seriesToCheck = [...Object.values(countryIndicators)];
-
-      // Add global commodities for first country only (to avoid duplicates)
-      if (index === 0) {
-        seriesToCheck.push(...globalIndicators);
-      }
+  for (const [seriesId, seriesFor] of seriesCountries) {
+    const reading = await readSeries(client, seriesId, lookbackDays);
+    if (reading.status === 'unavailable') {
+      unavailableSeries.push({ series_id: seriesId, reason: reading.reason });
+      continue;
     }
+    if (reading.status !== 'ok') continue;
 
-    for (const seriesId of new Set(seriesToCheck)) {
-      let reading = readings.get(seriesId);
-      if (!reading) {
-        reading = await readSeries(client, seriesId, lookbackDays);
-        readings.set(seriesId, reading);
-        if (reading.status === 'unavailable') {
-          unavailableSeries.push({ series_id: seriesId, reason: reading.reason });
-        }
-      }
-      if (reading.status !== 'ok') continue;
-
-      const event = buildEvent(seriesId, reading, { ...country, country_code: countryCode }, severityThreshold);
-      if (event) events.push(event);
-    }
+    const event = buildEvent(seriesId, reading, seriesFor, severityThreshold);
+    if (event) events.push(event);
   }
 
-  return { events, apiCallsMade: client.calls(), indicatorsChecked: readings.size, unavailableSeries };
+  return { events, apiCallsMade: client.calls(), indicatorsChecked: seriesCountries.size, unavailableSeries };
 }
 
-/** Rate-limited FRED GET. Every request waits FRED_REQUEST_INTERVAL_MS after the previous one. */
+/**
+ * Which series to read, and the countries each one is reported for.
+ * - Custom indicators apply to every country.
+ * - Otherwise each country gets its own defaults. A country with no defaults
+ *   adds nothing; if no country has defaults, the US set is read and reported
+ *   as the US (not relabelled as the org's countries).
+ * - Global commodities are reported for the first country.
+ */
+function planSeries(countries: Country[], customIndicators: string[] | undefined): Map<string, Country[]> {
+  const plan = new Map<string, Country[]>();
+  const add = (seriesId: string, country: Country) => {
+    const list = plan.get(seriesId) ?? [];
+    if (!list.some(c => c.country_code === country.country_code)) list.push(country);
+    plan.set(seriesId, list);
+  };
+
+  const normalized = countries.map(c => ({ ...c, country_code: c.country_code.toUpperCase() }));
+
+  if (customIndicators && customIndicators.length > 0) {
+    for (const country of normalized) {
+      for (const seriesId of customIndicators) add(seriesId, country);
+    }
+    return plan;
+  }
+
+  for (const country of normalized) {
+    const defaults = DEFAULT_FRED_INDICATORS[country.country_code];
+    if (!defaults || country.country_code === 'GLOBAL') continue;
+    for (const seriesId of Object.values(defaults)) add(seriesId, country);
+  }
+
+  if (plan.size === 0) {
+    const us = { country_code: 'US', country_name: 'United States' };
+    for (const seriesId of Object.values(DEFAULT_FRED_INDICATORS.US)) add(seriesId, us);
+  }
+
+  const first = normalized[0];
+  for (const seriesId of Object.values(DEFAULT_FRED_INDICATORS.GLOBAL || {})) add(seriesId, first);
+
+  return plan;
+}
+
+/**
+ * Rate-limited FRED GET. All invocations in the process share one request
+ * slot every FRED_REQUEST_INTERVAL_MS; an HTTP 429 is retried once.
+ */
 function createFredClient(apiKey: string) {
   let calls = 0;
+
+  const waitForSlot = async () => {
+    const now = Date.now();
+    const slot = Math.max(now, nextFredSlot);
+    nextFredSlot = slot + FRED_REQUEST_INTERVAL_MS;
+    if (slot > now) await sleep(slot - now);
+  };
+
+  const send = async (url: string) => {
+    await waitForSlot();
+    calls++;
+    return fetch(url, { headers: FRED_HEADERS, signal: AbortSignal.timeout(15000) });
+  };
+
   return {
     calls: () => calls,
     async get(path: string, params: Record<string, string>): Promise<Response> {
-      if (calls > 0) await sleep(FRED_REQUEST_INTERVAL_MS);
-      calls++;
       const url = new URL(`https://api.stlouisfed.org/fred/${path}`);
       for (const [key, value] of Object.entries(params)) url.searchParams.set(key, value);
       url.searchParams.set('api_key', apiKey);
       url.searchParams.set('file_type', 'json');
-      return fetch(url.toString(), { headers: FRED_HEADERS, signal: AbortSignal.timeout(15000) });
+
+      const response = await send(url.toString());
+      if (response.status !== 429) return response;
+      logger.warn({ path }, 'FRED rate limit hit; retrying once');
+      await sleep(FRED_RATE_LIMIT_RETRY_MS);
+      return send(url.toString());
     }
   };
+}
+
+type FredClient = ReturnType<typeof createFredClient>;
+
+function unavailableForStatus(seriesId: string, status: number): SeriesReading {
+  logger.error({ statusCode: status, seriesId }, 'FRED API error');
+  return {
+    status: 'unavailable',
+    reason: status === 429 ? 'rate limited by FRED (HTTP 429)' : `FRED returned HTTP ${status}`
+  };
+}
+
+async function getSeriesMeta(
+  client: FredClient,
+  seriesId: string
+): Promise<{ meta: FREDSeriesMeta } | { error: SeriesReading }> {
+  const cached = seriesMetaCache.get(seriesId);
+  if (cached && Date.now() - cached.fetchedAt < SERIES_META_TTL_MS) return { meta: cached.meta };
+
+  const response = await client.get('series', { series_id: seriesId });
+  if (!response.ok) return { error: unavailableForStatus(seriesId, response.status) };
+  const meta = (await response.json() as FREDSeriesResponse).seriess?.[0];
+  if (!meta) return { error: { status: 'unavailable', reason: 'series not found' } };
+
+  seriesMetaCache.set(seriesId, { meta, fetchedAt: Date.now() });
+  return { meta };
 }
 
 /**
@@ -304,19 +398,11 @@ function createFredClient(apiKey: string) {
  * - unavailable: FRED error, unknown series, stopped updating, or non-numeric data
  * - quiet: FRED has published nothing new for it within lookbackDays
  */
-async function readSeries(
-  client: ReturnType<typeof createFredClient>,
-  seriesId: string,
-  lookbackDays: number
-): Promise<SeriesReading> {
+async function readSeries(client: FredClient, seriesId: string, lookbackDays: number): Promise<SeriesReading> {
   try {
-    const metaResponse = await client.get('series', { series_id: seriesId });
-    if (!metaResponse.ok) {
-      logger.error({ statusCode: metaResponse.status, seriesId }, 'FRED API error');
-      return { status: 'unavailable', reason: `FRED returned HTTP ${metaResponse.status}` };
-    }
-    const meta = (await metaResponse.json() as FREDSeriesResponse).seriess?.[0];
-    if (!meta) return { status: 'unavailable', reason: 'series not found' };
+    const metaResult = await getSeriesMeta(client, seriesId);
+    if ('error' in metaResult) return metaResult.error;
+    const { meta } = metaResult;
 
     const staleAfter = STALE_AFTER_DAYS[meta.frequency_short] ?? DEFAULT_STALE_AFTER_DAYS;
     if (daysSince(meta.observation_end) > staleAfter) {
@@ -329,17 +415,21 @@ async function readSeries(
       return { status: 'quiet' };
     }
 
-    const obsResponse = await client.get('series/observations', {
+    // A non-seasonally-adjusted price index swings month to month with the
+    // season (January sales); compare its year-on-year rate instead.
+    const yearOnYear = classifyIndicatorType(seriesId) === 'inflation' && meta.seasonal_adjustment_short === 'NSA';
+
+    const params: Record<string, string> = {
       series_id: seriesId,
       sort_order: 'desc',
       // Only the two most recent numeric values are compared; spare rows cover
       // missing values ('.').
       limit: '10'
-    });
-    if (!obsResponse.ok) {
-      logger.error({ statusCode: obsResponse.status, seriesId }, 'FRED API error');
-      return { status: 'unavailable', reason: `FRED returned HTTP ${obsResponse.status}` };
-    }
+    };
+    if (yearOnYear) params.units = 'pc1';
+
+    const obsResponse = await client.get('series/observations', params);
+    if (!obsResponse.ok) return unavailableForStatus(seriesId, obsResponse.status);
     const obsData = await obsResponse.json() as FREDObservationsResponse;
 
     const values = (obsData.observations ?? [])
@@ -353,10 +443,11 @@ async function readSeries(
     return {
       status: 'ok',
       title: meta.title,
-      units: obsData.units ?? meta.units,
+      units: yearOnYear ? 'Percent change from year ago' : (obsData.units ?? meta.units),
       date: values[0].date,
       current: values[0].value,
-      previous: values[1].value
+      previous: values[1].value,
+      yearOnYear
     };
   } catch (err) {
     logger.error({ err, seriesId }, 'Error fetching FRED series');
@@ -364,37 +455,39 @@ async function readSeries(
   }
 }
 
-/** The event for one country, or null when the change is below the threshold. */
+/** The event for a series, or null when the change is below the threshold. */
 function buildEvent(
   seriesId: string,
-  reading: Extract<SeriesReading, { status: 'ok' }>,
-  country: { country_code: string; country_name: string },
+  reading: OkReading,
+  seriesFor: Country[],
   severityThreshold: string
 ): EconomicEvent | null {
   const indicatorType = classifyIndicatorType(seriesId);
-  const change = measureChange(indicatorType, reading.current, reading.previous);
+  const inPoints = POINT_CHANGE_TYPES.has(indicatorType) || reading.yearOnYear;
+  const change = inPoints
+    ? reading.current - reading.previous
+    : relativeChange(reading.current, reading.previous);
   if (change === null) return null;
 
   const threshold = getThresholdForSeverity(indicatorType, severityThreshold);
   if (Math.abs(change) < threshold) return null;
 
-  const unit = POINT_CHANGE_TYPES.has(indicatorType) ? ' pp' : '%';
-  const percentChange = reading.previous !== 0
-    ? ((reading.current - reading.previous) / Math.abs(reading.previous)) * 100
-    : undefined;
+  const unit = inPoints ? ' pp' : '%';
+  const [country] = seriesFor;
 
   return {
-    event_id: `fred-${seriesId}-${country.country_code}-${reading.date}`,
+    event_id: `fred-${seriesId}-${reading.date}`,
     event_type: classifyEconomicEventType(seriesId, change, indicatorType),
     title: `${reading.title || seriesId}: ${change > 0 ? '+' : ''}${change.toFixed(2)}${unit} change`,
-    description: generateEconomicDescription(seriesId, reading.title, reading.current, reading.previous, change, unit, indicatorType),
-    severity: calculateEconomicSeverity(indicatorType, change, reading.current),
+    description: generateEconomicDescription(seriesId, reading, change, unit, indicatorType),
+    severity: calculateEconomicSeverity(indicatorType, change, reading),
     country: country.country_name,
     country_code: country.country_code,
+    affected_country_codes: seriesFor.map(c => c.country_code),
     indicator_name: seriesId,
     current_value: reading.current,
     previous_value: reading.previous,
-    percent_change: percentChange,
+    percent_change: relativeChange(reading.current, reading.previous) ?? undefined,
     threshold_exceeded: true,
     observation_date: reading.date,
     source_url: `https://fred.stlouisfed.org/series/${seriesId}`,
@@ -402,13 +495,8 @@ function buildEvent(
   };
 }
 
-/**
- * Change between the two latest values: percentage points for rate-like
- * indicators, relative percent otherwise. Null when a relative change is
- * undefined (previous value 0).
- */
-function measureChange(indicatorType: string, current: number, previous: number): number | null {
-  if (POINT_CHANGE_TYPES.has(indicatorType)) return current - previous;
+/** Relative percent change; null when undefined (previous value 0). */
+function relativeChange(current: number, previous: number): number | null {
   if (previous === 0) return null;
   return ((current - previous) / Math.abs(previous)) * 100;
 }
@@ -451,6 +539,18 @@ function getThresholdForSeverity(indicatorType: string, severity: string): numbe
 }
 
 /**
+ * Whether the foreign currency strengthened against the US dollar. FRED quotes
+ * DEXUSxx series as US dollars per foreign unit (a rise means it strengthened)
+ * and the other DEX series as foreign units per US dollar (a rise means it
+ * weakened). Null for a series whose quote direction is unknown.
+ */
+function foreignCurrencyStrengthened(seriesId: string, change: number): boolean | null {
+  const id = seriesId.toUpperCase();
+  if (!id.startsWith('DEX')) return null;
+  return id.startsWith('DEXUS') ? change > 0 : change < 0;
+}
+
+/**
  * Classify economic event type based on indicator and change direction
  */
 function classifyEconomicEventType(seriesId: string, change: number, indicatorType: string): string {
@@ -466,7 +566,10 @@ function classifyEconomicEventType(seriesId: string, change: number, indicatorTy
       return change > 0 ? 'unemployment_rise' : 'labor_market_tightening';
 
     case 'currency':
-      return Math.abs(change) > 5 ? 'currency_crash' : 'currency_volatility';
+      // A crash is a large fall of the foreign currency, never a rise.
+      return Math.abs(change) > 5 && foreignCurrencyStrengthened(seriesId, change) === false
+        ? 'currency_crash'
+        : 'currency_volatility';
 
     case 'commodity':
       return change > 0 ? 'commodity_shock' : 'commodity_deflation';
@@ -479,7 +582,7 @@ function classifyEconomicEventType(seriesId: string, change: number, indicatorTy
 /**
  * Calculate severity based on magnitude of economic change
  */
-function calculateEconomicSeverity(indicatorType: string, change: number, currentValue: number): number {
+function calculateEconomicSeverity(indicatorType: string, change: number, reading: OkReading): number {
   const absChange = Math.abs(change);
   const thresholds = CHANGE_THRESHOLDS[indicatorType] || CHANGE_THRESHOLDS.commodity;
 
@@ -496,27 +599,21 @@ function calculateEconomicSeverity(indicatorType: string, change: number, curren
     severity = 0.3 + ((absChange - thresholds.low) / (thresholds.medium - thresholds.low)) * 0.2;
   }
 
-  // Boost severity for critical indicators
-  if (indicatorType === 'inflation' && currentValue > 5) {
+  // Boost for high inflation. Only a year-on-year rate is an inflation level;
+  // an index value (CPIAUCSL ~ 320) says nothing about it.
+  if (indicatorType === 'inflation' && reading.yearOnYear && reading.current > 5) {
     severity = Math.min(0.95, severity + 0.1);
   }
 
   return Math.max(0.3, Math.min(0.99, severity));
 }
 
-/**
- * Explain an exchange-rate move. FRED quotes DEXUSxx series as US dollars per
- * foreign unit (a rise means the foreign currency strengthened) and the other
- * DEX series as foreign units per US dollar (a rise means it weakened).
- */
 function describeCurrencyMove(seriesId: string, change: number): string {
-  const id = seriesId.toUpperCase();
-  if (!id.startsWith('DEX')) {
+  const strengthened = foreignCurrencyStrengthened(seriesId, change);
+  if (strengthened === null) {
     return 'Exchange-rate moves change the cost of goods priced in a foreign currency.';
   }
-  const usdPerForeign = id.startsWith('DEXUS');
-  const foreignStrengthened = usdPerForeign ? change > 0 : change < 0;
-  return foreignStrengthened
+  return strengthened
     ? 'The currency strengthened against the US dollar, so goods priced in it cost more for dollar buyers.'
     : 'The currency weakened against the US dollar, so goods priced in it cost less for dollar buyers and dollar-priced imports cost more locally.';
 }
@@ -526,14 +623,14 @@ function describeCurrencyMove(seriesId: string, change: number): string {
  */
 function generateEconomicDescription(
   seriesId: string,
-  seriesTitle: string | null,
-  currentValue: number,
-  previousValue: number,
+  reading: OkReading,
   change: number,
   unit: string,
   indicatorType: string
 ): string {
-  const name = seriesTitle || seriesId;
+  const name = reading.yearOnYear
+    ? `${reading.title || seriesId} (year-on-year %)`
+    : reading.title || seriesId;
   const direction = change > 0 ? 'increased' : 'decreased';
 
   let context = '';
@@ -560,7 +657,7 @@ function generateEconomicDescription(
       context = 'Monitor this indicator for potential supply chain impact.';
   }
 
-  return `${name} ${direction} from ${previousValue.toFixed(2)} to ${currentValue.toFixed(2)} (${change > 0 ? '+' : ''}${change.toFixed(2)}${unit}). ${context}`;
+  return `${name} ${direction} from ${reading.previous.toFixed(2)} to ${reading.current.toFixed(2)} (${change > 0 ? '+' : ''}${change.toFixed(2)}${unit}). ${context}`;
 }
 
 function sleep(ms: number): Promise<void> {
