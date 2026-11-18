@@ -201,10 +201,12 @@ export interface CycleSummary {
  * Sequential on purpose: cycles fan out to the same rate-limited external
  * feeds, so running every tenant concurrently would trip upstream limits.
  *
- * MissingApiKeyError is a skip, not a failure: a tenant that has not brought
- * a key yet is a known configuration state. It is logged per org (WARN) so
- * the run never goes silently green, and counted separately from cycles that
- * actually ran and broke.
+ * Policy refusals are skips, not failures (cycleSkipCode): a tenant that has
+ * not brought a key yet (MissingApiKeyError), and the root org, which is
+ * never monitored (MonitoringExcludedError; reachable via an explicit
+ * --organization-id). Each is logged per org (WARN) so the run never goes
+ * silently green, and counted separately from cycles that actually ran and
+ * broke.
  *
  * `deps` is injectable for tests — the real ones reach OpenAI and every
  * monitoring feed.

@@ -1,6 +1,6 @@
 'use client';
 
-import { useState, useEffect, useCallback, useRef } from 'react';
+import { useState, useEffect, useCallback, useMemo, useRef } from 'react';
 import { Info } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { getAccessToken } from '@/lib/api-client';
@@ -127,9 +127,11 @@ export function MonitoringProgressDialog({
   const scrollRef = useRef<HTMLDivElement>(null);
   const hasStartedRef = useRef(false);
   const isRunningRef = useRef(false);
-  // Track if we've completed to prevent restarts (declared before
-  // handleProgressUpdate, which marks a skip as complete).
+  // Track if we've completed to prevent restarts.
   const hasCompletedRef = useRef(false);
+  // The terminal event said "skipped" (declared before handleProgressUpdate,
+  // which sets it): connection errors after that don't override it.
+  const skippedRef = useRef(false);
 
   // Update elapsed time every second while running
   // Also handle visibility changes to catch up when tab regains focus
@@ -185,9 +187,10 @@ export function MonitoringProgressDialog({
       setSkipReason(update.message || 'This monitoring cycle was skipped');
       setProgress(100);
       setCurrentPhase('skipped');
-      hasCompletedRef.current = true;
-      isRunningRef.current = false;
-      setIsRunning(false);
+      // Like 'complete', the worker's 'done' message ends the run (and
+      // terminates the worker). Until then, a late connection error must not
+      // turn the skip red: skippedRef tells the error handlers.
+      skippedRef.current = true;
       // The run is over: let the parent refresh (no metrics for a skip).
       onComplete(undefined);
     } else if (update.type === 'progress' && update.phase) {
@@ -236,6 +239,7 @@ export function MonitoringProgressDialog({
     setCurrentPhase('starting');
     setError(null);
     setSkipReason(null);
+    skippedRef.current = false;
     setFinalMetrics(null);
     setEnabledTools([]);
     setDisabledTools([]);
@@ -351,8 +355,10 @@ export function MonitoringProgressDialog({
         }
       } else if (message.type === 'error') {
         if (!hasCompletedRef.current) {
-          setError(message.message || 'Connection failed');
-          setCurrentPhase('error');
+          if (!skippedRef.current) {
+            setError(message.message || 'Connection failed');
+            setCurrentPhase('error');
+          }
           hasCompletedRef.current = true;
           isRunningRef.current = false;
           setIsRunning(false);
@@ -377,8 +383,10 @@ export function MonitoringProgressDialog({
 
     worker.onerror = (err) => {
       console.error('Worker error:', err);
-      setError('Worker error - monitoring failed');
-      setCurrentPhase('error');
+      if (!skippedRef.current) {
+        setError('Worker error - monitoring failed');
+        setCurrentPhase('error');
+      }
       hasCompletedRef.current = true;
       isRunningRef.current = false;
       setIsRunning(false);
@@ -491,12 +499,12 @@ export function MonitoringProgressDialog({
   // once, as the notice under the log: only the LAST row, when it is a
   // progress 'error' with that same text (a failure, or an older backend's
   // skip), is left out. Earlier rows are history and always kept.
-  const logRows = (() => {
+  const logRows = useMemo(() => {
     const rows = updates.filter((u) => u.type === 'progress' && u.message && !u.isHeartbeat);
     const last = rows[rows.length - 1];
     const finalText = skipReason ?? error;
     return last && finalText && last.phase === 'error' && last.message === finalText ? rows.slice(0, -1) : rows;
-  })();
+  }, [updates, skipReason, error]);
 
   const getPhaseLabel = (phase: ProgressPhase): string => {
     const labels: Record<ProgressPhase, string> = {
