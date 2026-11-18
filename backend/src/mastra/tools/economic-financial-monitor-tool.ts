@@ -121,13 +121,13 @@ export const economicFinancialMonitorTool = createTool({
 // FRED API Integration
 // ============================================================================
 
+/** Custom indicators past this many are not read (reported as one unavailable entry). */
+const MAX_CUSTOM_INDICATORS = 30;
+
 /**
  * Default FRED series to monitor for supply chain economic risk
  * Organized by country code
  */
-/** Custom indicators past this many are reported unavailable, not read. */
-const MAX_CUSTOM_INDICATORS = 30;
-
 const DEFAULT_FRED_INDICATORS: Record<string, Record<string, string>> = {
   US: {
     inflation: 'CPIAUCSL',        // Consumer Price Index
@@ -198,6 +198,8 @@ const fredPacing = { intervalMs: 500, retryMs: 2000 };
 /** A request that would wait longer than this for its slot fails instead. */
 const FRED_MAX_QUEUE_WAIT_MS = 180_000;
 let nextFredSlot = 0;
+/** After a 429, no request is sent before this time, including ones already waiting. */
+let fredBackoffUntil = 0;
 
 class FredQueueFullError extends Error {
   constructor() {
@@ -318,8 +320,12 @@ async function fetchFREDIndicators(
   // first country that lists it; every listing country is in
   // affected_country_codes. (ECBDFR is listed by DE, FR, IT and ES.)
   const { plan: seriesCountries, overLimit } = planSeries(countries, customIndicators);
-  for (const seriesId of overLimit) {
-    unavailableSeries.push({ series_id: seriesId, reason: `over the ${MAX_CUSTOM_INDICATORS}-indicator limit; not read` });
+  if (overLimit.length > 0) {
+    // One entry, not one per ID: the list goes back to the agent unlimited.
+    unavailableSeries.push({
+      series_id: overLimit[0],
+      reason: `${overLimit.length} indicator(s) from ${overLimit[0]} on not read: over the ${MAX_CUSTOM_INDICATORS}-indicator limit`
+    });
   }
 
   // Reads run concurrently; the shared client queue paces the FRED requests,
@@ -395,7 +401,7 @@ function planSeries(
 
 /**
  * Rate-limited FRED GET. All invocations in the process share one request
- * slot every FRED_REQUEST_INTERVAL_MS; an HTTP 429 is retried once.
+ * slot every fredPacing.intervalMs; an HTTP 429 is retried once.
  */
 function createFredClient(apiKey: string) {
   let calls = 0;
@@ -406,6 +412,8 @@ function createFredClient(apiKey: string) {
     if (slot - now > FRED_MAX_QUEUE_WAIT_MS) throw new FredQueueFullError();
     nextFredSlot = slot + fredPacing.intervalMs;
     if (slot > now) await sleep(slot - now);
+    // A 429 seen while this request was waiting pushes it back too.
+    while (Date.now() < fredBackoffUntil) await sleep(fredBackoffUntil - Date.now());
   };
 
   const send = async (url: string) => {
@@ -428,7 +436,8 @@ function createFredClient(apiKey: string) {
       logger.warn({ path }, 'FRED rate limit hit; backing off and retrying once');
       // Back off the whole queue, not just this request (the key may be shared
       // with another process).
-      nextFredSlot = Math.max(nextFredSlot, Date.now() + fredPacing.retryMs);
+      fredBackoffUntil = Math.max(fredBackoffUntil, Date.now() + fredPacing.retryMs);
+      nextFredSlot = Math.max(nextFredSlot, fredBackoffUntil);
       return send(url.toString());
     }
   };
@@ -489,6 +498,8 @@ async function cached<T>(
 
   const promise = load();
   const entry = { promise, fetchedAt: now };
+  // Delete first so the key moves to the end: the sweep relies on oldest-first order.
+  cache.delete(key);
   cache.set(key, entry);
   const forget = () => {
     if (cache.get(key) === entry) cache.delete(key);
@@ -560,7 +571,12 @@ async function readSeries(client: FredClient, seriesId: string, lookbackDays: nu
     const meta = metaResult.value;
 
     const staleAfter = STALE_AFTER_DAYS[meta.frequency_short] ?? DEFAULT_STALE_AFTER_DAYS;
-    if (daysSince(meta.observation_end) > staleAfter) {
+    const observedDaysAgo = daysSince(meta.observation_end);
+    if (!Number.isFinite(observedDaysAgo)) {
+      logger.error({ seriesId, observationEnd: meta.observation_end }, 'Unreadable FRED observation_end');
+      return { status: 'unavailable', reason: `unreadable observation_end (${meta.observation_end})` };
+    }
+    if (observedDaysAgo > staleAfter) {
       logger.warn({ seriesId, observationEnd: meta.observation_end }, 'FRED series has stopped updating');
       return { status: 'unavailable', reason: `stopped updating (last observation ${meta.observation_end})` };
     }
@@ -868,6 +884,7 @@ export const __testing = {
     seriesMetaCache.clear();
     observationCache.clear();
     nextFredSlot = 0;
+    fredBackoffUntil = 0;
     fredPacing.intervalMs = pacing.intervalMs;
     fredPacing.retryMs = pacing.retryMs;
   }

@@ -7,7 +7,11 @@
  * transform, error reasons, and the shared cache.
  */
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
+import type { z } from 'zod';
 import { economicFinancialMonitorTool, __testing } from './economic-financial-monitor-tool.js';
+
+type ToolOutput = z.infer<NonNullable<typeof economicFinancialMonitorTool.outputSchema>>;
+type ToolEvent = ToolOutput['economic_events'][number];
 
 const ORG = '00000000-0000-4000-8000-000000000000';
 const DAY = 24 * 60 * 60 * 1000;
@@ -77,11 +81,18 @@ function fakeFred(input: RequestInfo | URL): Promise<Response> {
   }));
 }
 
-/* eslint-disable @typescript-eslint/no-explicit-any -- Mastra's tool and its output are untyped here */
-const run = (context: Record<string, unknown>): Promise<any> =>
-  (economicFinancialMonitorTool as any).execute({
+// Mastra's execute takes the full invocation context; only `context` matters here.
+type Execute = (args: { context: Record<string, unknown> }, options: object) => Promise<ToolOutput>;
+const run = (context: Record<string, unknown>): Promise<ToolOutput> =>
+  (economicFinancialMonitorTool.execute as unknown as Execute)({
     context: { organization_id: ORG, severity_threshold: 'low', lookback_days: 30, ...context },
   }, {});
+
+const event = (r: ToolOutput, id: string): ToolEvent => {
+  const found = r.economic_events.find(e => e.indicator_name === id);
+  if (!found) throw new Error(`no event for ${id}`);
+  return found;
+};
 
 const C = (...codes: string[]) => codes.map(code => ({ country_code: code, country_name: code }));
 
@@ -154,8 +165,8 @@ describe('resolveIndicatorType', () => {
 describe('economic-financial-monitor tool', () => {
   it('compares a percentage series in points and a level series in percent', async () => {
     const r = await run({ countries: C('US'), indicators: ['DFF', 'CPIAUCSL'] });
-    const dff = r.economic_events.find((e: any) => e.indicator_name === 'DFF');
-    const cpi = r.economic_events.find((e: any) => e.indicator_name === 'CPIAUCSL');
+    const dff = event(r, 'DFF');
+    const cpi = event(r, 'CPIAUCSL');
     expect(dff.change_points).toBeCloseTo(-0.25);
     expect(dff.percent_change).toBeUndefined();
     expect(dff.event_type).toBe('interest_rate_change');
@@ -172,10 +183,10 @@ describe('economic-financial-monitor tool', () => {
   it('compares a non-seasonally-adjusted CPI year on year', async () => {
     const r = await run({ countries: C('IT'), indicators: ['HICPIT'] });
     expect(requests).toContain('series/observations:HICPIT:pc1');
-    const [event] = r.economic_events;
-    expect(event.change_points).toBeCloseTo(0.6);
-    expect(event.event_type).toBe('inflation_spike');
-    expect(event.title).toContain('(year-on-year %)');
+    const hicp = event(r, 'HICPIT');
+    expect(hicp.change_points).toBeCloseTo(0.6);
+    expect(hicp.event_type).toBe('inflation_spike');
+    expect(hicp.title).toContain('(year-on-year %)');
   });
 
   it('does not switch an NSA producer price index to year on year', async () => {
@@ -185,7 +196,7 @@ describe('economic-financial-monitor tool', () => {
 
   it('reports stale, unknown, and unreadable series; skips quiet ones', async () => {
     const r = await run({ countries: C('US'), indicators: ['DEADCPI', 'NOPE', 'BADDATE', 'QUIETCPI'] });
-    const reasons = Object.fromEntries(r.unavailable_series.map((u: any) => [u.series_id, u.reason]));
+    const reasons = Object.fromEntries(r.unavailable_series.map(u => [u.series_id, u.reason]));
     expect(reasons.DEADCPI).toMatch(/^stopped updating/);
     expect(reasons.NOPE).toBe('unknown series ID (FRED HTTP 400)');
     expect(reasons.BADDATE).toMatch(/^unreadable last_updated/);
@@ -197,6 +208,44 @@ describe('economic-financial-monitor tool', () => {
     badKey = true;
     const r = await run({ countries: C('US'), indicators: ['CPIAUCSL'] });
     expect(r.unavailable_series).toEqual([{ series_id: 'CPIAUCSL', reason: 'FRED rejected FRED_API_KEY (HTTP 400)' }]);
+  });
+
+  it('reports custom indicators over the limit as one entry', async () => {
+    const ids = Array.from({ length: 40 }, (_, i) => `X${i}`);
+    const r = await run({ countries: C('US'), indicators: ids });
+    const over = r.unavailable_series.filter(u => u.reason.includes('limit'));
+    expect(over).toHaveLength(1);
+    expect(over[0].reason).toMatch(/^10 indicator\(s\) from X30 on not read/);
+  });
+
+  it('reports an unreadable observation_end as unreadable, not stopped', async () => {
+    series.CPIAUCSL.observation_end = '';
+    const r = await run({ countries: C('US'), indicators: ['CPIAUCSL'] });
+    expect(r.unavailable_series[0].reason).toMatch(/^unreadable observation_end/);
+  });
+
+  it('holds back requests already waiting after a 429', async () => {
+    __testing.reset({ intervalMs: 5, retryMs: 60 });
+    // FRED rejects every request for 50ms after the first one.
+    let blockedUntil = 0;
+    let first = true;
+    let rejected = 0;
+    vi.stubGlobal('fetch', vi.fn((input: RequestInfo | URL) => {
+      if (first) {
+        first = false;
+        blockedUntil = Date.now() + 50;
+      }
+      if (Date.now() < blockedUntil) {
+        rejected++;
+        return Promise.resolve(json(429, {}));
+      }
+      return fakeFred(input);
+    }));
+    const r = await run({ countries: C('US'), indicators: ['CPIAUCSL', 'DFF', 'PPIACO', 'UNEMPLOY'] });
+    expect(r.unavailable_series).toEqual([]);
+    // Only the request that hit the limit is rejected; the ones queued behind
+    // it wait out the backoff instead of firing into it.
+    expect(rejected).toBe(1);
   });
 
   it('reports a missing API key', async () => {
@@ -227,4 +276,3 @@ describe('economic-financial-monitor tool', () => {
     expect(r.economic_events[0].affected_country_codes).toEqual(['US', 'CN']);
   });
 });
-/* eslint-enable @typescript-eslint/no-explicit-any */
