@@ -204,18 +204,21 @@ describe('economic-financial-monitor tool', () => {
     expect(r.economic_events).toEqual([]);
   });
 
-  it('reports a rejected API key as such', async () => {
+  it('reports a rejected API key once and stops sending', async () => {
+    __testing.reset({ intervalMs: 5, retryMs: 0 });
     badKey = true;
-    const r = await run({ countries: C('US'), indicators: ['CPIAUCSL'] });
-    expect(r.unavailable_series).toEqual([{ series_id: 'CPIAUCSL', reason: 'FRED rejected FRED_API_KEY (HTTP 400)' }]);
+    const r = await run({ countries: C('US'), indicators: ['CPIAUCSL', 'DFF', 'PPIACO', 'UNEMPLOY'] });
+    expect(r.unavailable_series).toEqual([{ series_id: '*', reason: 'FRED rejected FRED_API_KEY (HTTP 400)' }]);
+    // Requests still queued when the first rejection arrived were not sent.
+    expect(requests.length).toBeLessThan(4);
   });
 
   it('reports custom indicators over the limit as one entry', async () => {
     const ids = Array.from({ length: 40 }, (_, i) => `X${i}`);
     const r = await run({ countries: C('US'), indicators: ids });
-    const over = r.unavailable_series.filter(u => u.reason.includes('limit'));
+    const over = r.unavailable_series.filter(u => u.series_id === '*over-limit*');
     expect(over).toHaveLength(1);
-    expect(over[0].reason).toMatch(/^10 indicator\(s\) from X30 on not read/);
+    expect(over[0].reason).toMatch(/^10 indicator\(s\) not read, over the 30-indicator limit: X30, X31/);
   });
 
   it('reports an unreadable observation_end as unreadable, not stopped', async () => {
@@ -230,7 +233,9 @@ describe('economic-financial-monitor tool', () => {
     let blockedUntil = 0;
     let first = true;
     let rejected = 0;
+    const sendTimes: number[] = [];
     vi.stubGlobal('fetch', vi.fn((input: RequestInfo | URL) => {
+      sendTimes.push(Date.now());
       if (first) {
         first = false;
         blockedUntil = Date.now() + 50;
@@ -246,6 +251,9 @@ describe('economic-financial-monitor tool', () => {
     // Only the request that hit the limit is rejected; the ones queued behind
     // it wait out the backoff instead of firing into it.
     expect(rejected).toBe(1);
+    // After the backoff, held-back requests are still paced, not one burst.
+    const times = sendTimes.filter(t => t >= blockedUntil).sort((a, b) => a - b);
+    for (let i = 1; i < times.length; i++) expect(times[i] - times[i - 1]).toBeGreaterThanOrEqual(4);
   });
 
   it('reports a missing API key', async () => {

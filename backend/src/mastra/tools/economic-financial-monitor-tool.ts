@@ -192,14 +192,28 @@ const DEFAULT_STALE_AFTER_DAYS = 270;
 
 /**
  * FRED allows 120 requests per minute per key. Requests from every invocation
- * in this process share one queue, one slot per 500ms.
+ * in this process share one queue paced by fredPacing.
  */
-const fredPacing = { intervalMs: 500, retryMs: 2000 };
+/**
+ * 600ms between requests is 100/min, leaving headroom under FRED's 120/min
+ * for the 429 retry and for other processes using the same key.
+ */
+const DEFAULT_FRED_PACING = { intervalMs: 600, retryMs: 2000 } as const;
+const fredPacing: { intervalMs: number; retryMs: number } = { ...DEFAULT_FRED_PACING };
 /** A request that would wait longer than this for its slot fails instead. */
 const FRED_MAX_QUEUE_WAIT_MS = 180_000;
 let nextFredSlot = 0;
 /** After a 429, no request is sent before this time, including ones already waiting. */
 let fredBackoffUntil = 0;
+
+const KEY_REJECTED_REASON = 'FRED rejected FRED_API_KEY (HTTP 400)';
+
+class FredKeyRejectedError extends Error {
+  constructor() {
+    super(KEY_REJECTED_REASON);
+    this.name = 'FredKeyRejectedError';
+  }
+}
 
 class FredQueueFullError extends Error {
   constructor() {
@@ -322,9 +336,10 @@ async function fetchFREDIndicators(
   const { plan: seriesCountries, overLimit } = planSeries(countries, customIndicators);
   if (overLimit.length > 0) {
     // One entry, not one per ID: the list goes back to the agent unlimited.
+    const shown = overLimit.slice(0, 5).join(', ');
     unavailableSeries.push({
-      series_id: overLimit[0],
-      reason: `${overLimit.length} indicator(s) from ${overLimit[0]} on not read: over the ${MAX_CUSTOM_INDICATORS}-indicator limit`
+      series_id: '*over-limit*',
+      reason: `${overLimit.length} indicator(s) not read, over the ${MAX_CUSTOM_INDICATORS}-indicator limit: ${shown}${overLimit.length > 5 ? ', ...' : ''}`
     });
   }
 
@@ -332,6 +347,17 @@ async function fetchFREDIndicators(
   // so cached series don't wait behind uncached ones.
   const plan = Array.from(seriesCountries);
   const readings = await Promise.all(plan.map(([seriesId]) => readSeries(client, seriesId, lookbackDays)));
+
+  // A rejected key fails every series the same way: report it once, like a
+  // missing key.
+  if (readings.some(reading => reading.status === 'unavailable' && reading.reason === KEY_REJECTED_REASON)) {
+    return {
+      events: [],
+      apiCallsMade: client.calls(),
+      indicatorsChecked: seriesCountries.size,
+      unavailableSeries: [{ series_id: '*', reason: KEY_REJECTED_REASON }]
+    };
+  }
 
   plan.forEach(([seriesId, seriesFor], index) => {
     const reading = readings[index];
@@ -405,25 +431,40 @@ function planSeries(
  */
 function createFredClient(apiKey: string) {
   let calls = 0;
+  let keyRejected = false;
 
+  /**
+   * Take the next free slot (never inside a backoff) and wait for it. If a 429
+   * starts a backoff while this request is waiting, the slot is abandoned and
+   * a new one taken after the backoff, so held-back requests stay paced
+   * instead of all firing when it ends.
+   */
   const waitForSlot = async () => {
-    const now = Date.now();
-    const slot = Math.max(now, nextFredSlot);
-    if (slot - now > FRED_MAX_QUEUE_WAIT_MS) throw new FredQueueFullError();
-    nextFredSlot = slot + fredPacing.intervalMs;
-    if (slot > now) await sleep(slot - now);
-    // A 429 seen while this request was waiting pushes it back too.
-    while (Date.now() < fredBackoffUntil) await sleep(fredBackoffUntil - Date.now());
+    for (;;) {
+      const now = Date.now();
+      const slot = Math.max(now, nextFredSlot, fredBackoffUntil);
+      if (slot - now > FRED_MAX_QUEUE_WAIT_MS) throw new FredQueueFullError();
+      nextFredSlot = slot + fredPacing.intervalMs;
+      if (slot > now) await sleep(slot - now);
+      if (Date.now() >= fredBackoffUntil) return;
+    }
   };
 
   const send = async (url: string) => {
+    if (keyRejected) throw new FredKeyRejectedError();
     await waitForSlot();
+    // FRED rejected the key while this request was queued: don't send it.
+    if (keyRejected) throw new FredKeyRejectedError();
     calls++;
     return fetch(url, { headers: FRED_HEADERS, signal: AbortSignal.timeout(15000) });
   };
 
   return {
     calls: () => calls,
+    /** Stop sending this run's remaining requests: the key will be rejected. */
+    rejectKey: () => {
+      keyRejected = true;
+    },
     async get(path: string, params: Record<string, string>): Promise<Response> {
       const url = new URL(`https://api.stlouisfed.org/fred/${path}`);
       for (const [key, value] of Object.entries(params)) url.searchParams.set(key, value);
@@ -437,7 +478,6 @@ function createFredClient(apiKey: string) {
       // Back off the whole queue, not just this request (the key may be shared
       // with another process).
       fredBackoffUntil = Math.max(fredBackoffUntil, Date.now() + fredPacing.retryMs);
-      nextFredSlot = Math.max(nextFredSlot, fredBackoffUntil);
       return send(url.toString());
     }
   };
@@ -450,7 +490,7 @@ type FredClient = ReturnType<typeof createFredClient>;
  * an unknown series and a bad API key with HTTP 400; its error_message tells
  * them apart.
  */
-async function unavailableForStatus(seriesId: string, response: Response): Promise<SeriesReading> {
+async function unavailableForStatus(client: FredClient, seriesId: string, response: Response): Promise<SeriesReading> {
   const { status } = response;
   let message = '';
   try {
@@ -462,7 +502,8 @@ async function unavailableForStatus(seriesId: string, response: Response): Promi
 
   if (status === 400 && /api_key/i.test(message)) {
     logger.error({ statusCode: status, seriesId }, 'FRED rejected FRED_API_KEY');
-    return { status: 'unavailable', reason: 'FRED rejected FRED_API_KEY (HTTP 400)' };
+    client.rejectKey();
+    return { status: 'unavailable', reason: KEY_REJECTED_REASON };
   }
   if (status === 400 && /does not exist/i.test(message)) {
     logger.warn({ seriesId }, 'Unknown FRED series ID');
@@ -519,7 +560,7 @@ async function cached<T>(
 async function getSeriesMeta(client: FredClient, seriesId: string): Promise<Fetched<FREDSeriesMeta>> {
   return cached(seriesMetaCache, SERIES_META_TTL_MS, seriesId, async () => {
     const response = await client.get('series', { series_id: seriesId });
-    if (!response.ok) return { ok: false, reading: await unavailableForStatus(seriesId, response) };
+    if (!response.ok) return { ok: false, reading: await unavailableForStatus(client, seriesId, response) };
     const meta = (await response.json() as FREDSeriesResponse).seriess?.[0];
     return meta
       ? { ok: true, value: meta }
@@ -545,7 +586,7 @@ async function getObservations(
     if (yearOnYear) params.units = 'pc1';
 
     const response = await client.get('series/observations', params);
-    if (!response.ok) return { ok: false, reading: await unavailableForStatus(seriesId, response) };
+    if (!response.ok) return { ok: false, reading: await unavailableForStatus(client, seriesId, response) };
     const data = await response.json() as FREDObservationsResponse;
 
     const values = (data.observations ?? [])
@@ -619,6 +660,9 @@ async function readSeries(client: FredClient, seriesId: string, lookbackDays: nu
       inPoints: yearOnYear || isPercent
     };
   } catch (err) {
+    if (err instanceof FredKeyRejectedError) {
+      return { status: 'unavailable', reason: KEY_REJECTED_REASON };
+    }
     if (err instanceof FredQueueFullError) {
       logger.error({ seriesId }, 'FRED request queue is full');
       return { status: 'unavailable', reason: 'FRED request queue is full; try again later' };
@@ -804,9 +848,10 @@ function calculateEconomicSeverity(indicatorType: string, change: number, readin
     severity = 0.3 + ((absChange - thresholds.low) / (thresholds.medium - thresholds.low)) * 0.2;
   }
 
-  // Boost for high inflation. Only a year-on-year rate is an inflation level;
-  // an index value (CPIAUCSL ~ 320) says nothing about it.
-  if (indicatorType === 'inflation' && reading.yearOnYear && reading.current > 5) {
+  // Boost for high inflation. Only a rate (YoY transform, or a series FRED
+  // serves in percent) is an inflation level; an index value (CPIAUCSL ~ 320)
+  // says nothing about it.
+  if (indicatorType === 'inflation' && reading.inPoints && reading.current > 5) {
     severity = Math.min(0.95, severity + 0.1);
   }
 
@@ -880,7 +925,7 @@ export const __testing = {
   resolveIndicatorType,
   classifyIndicatorType,
   /** Clear caches and the request queue; set pacing (0 in tests). */
-  reset(pacing: { intervalMs: number; retryMs: number } = { intervalMs: 500, retryMs: 2000 }): void {
+  reset(pacing: { intervalMs: number; retryMs: number } = DEFAULT_FRED_PACING): void {
     seriesMetaCache.clear();
     observationCache.clear();
     nextFredSlot = 0;
