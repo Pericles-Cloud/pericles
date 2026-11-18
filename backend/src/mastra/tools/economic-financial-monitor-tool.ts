@@ -122,24 +122,25 @@ const DEFAULT_FRED_INDICATORS: Record<string, Record<string, string>> = {
     unemployment: 'UNRATE',       // Unemployment Rate
     oil_price: 'DCOILWTICO',      // Crude Oil WTI
     usd_eur: 'DEXUSEU',          // USD/EUR Exchange Rate
-    usd_cny: 'DEXCHUS',          // USD/CNY Exchange Rate
-    supply_chain_pressure: 'GSCPI' // Global Supply Chain Pressure Index
+    usd_cny: 'DEXCHUS'           // USD/CNY Exchange Rate
+    // GSCPI (NY Fed Global Supply Chain Pressure Index) is not published on FRED.
   },
-  // EU countries use Euro-area indicators
-  DE: { inflation: 'CP0000DE19M086NEST', interest_rate: 'ECBDFR' },
-  FR: { inflation: 'CP0000FR19M086NEST', interest_rate: 'ECBDFR' },
-  IT: { inflation: 'CP0000IT19M086NEST', interest_rate: 'ECBDFR' },
-  ES: { inflation: 'CP0000ES19M086NEST', interest_rate: 'ECBDFR' },
+  // EU countries: national HICP + the ECB deposit facility rate
+  DE: { inflation: 'CP0000DEM086NEST', interest_rate: 'ECBDFR' },
+  FR: { inflation: 'CP0000FRM086NEST', interest_rate: 'ECBDFR' },
+  IT: { inflation: 'CP0000ITM086NEST', interest_rate: 'ECBDFR' },
+  ES: { inflation: 'CP0000ESM086NEST', interest_rate: 'ECBDFR' },
   // China
-  CN: { cpi: 'CHNCPIALLMINMEI', ppi: 'CHNPPIALLINMEI' },
+  // No current China PPI series on FRED (the OECD series ended in 2022).
+  CN: { cpi: 'CHNCPIALLMINMEI' },
   // Japan
   JP: { cpi: 'JPNCPIALLMINMEI', interest_rate: 'IRSTCI01JPM156N' },
   // UK
   GB: { cpi: 'GBRCPIALLMINMEI', interest_rate: 'IRSTCI01GBM156N' },
   // Global commodities (assigned to US as default source)
   GLOBAL: {
+    // LBMA gold (GOLDPMGBD228NLBM) was withdrawn from FRED.
     oil_brent: 'DCOILBRENTEU',
-    gold: 'GOLDPMGBD228NLBM',
     copper: 'PCOPPUSDM'
   }
 };
